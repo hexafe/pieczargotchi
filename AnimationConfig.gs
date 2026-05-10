@@ -1,0 +1,229 @@
+const PIECZARGOTCHI_ANIMATION_STAGES = ['spore', 'baby', 'young', 'adult', 'legendary'];
+
+const PIECZARGOTCHI_STAGE_ANIMATIONS = [
+  {
+    state: 'idle',
+    frameCount: 4,
+    frameDurationsMs: [420, 420, 520, 260],
+    loop: true,
+    priority: 10
+  },
+  {
+    state: 'sleep',
+    frameCount: 4,
+    frameDurationsMs: [333, 333, 333, 333],
+    loop: true,
+    priority: 20
+  },
+  {
+    state: 'wake',
+    frameCount: 4,
+    frameDurationsMs: [120, 180, 240, 420],
+    loop: false,
+    priority: 90
+  },
+  {
+    state: 'happy',
+    frameCount: 4,
+    frameDurationsMs: [120, 120, 180, 360],
+    loop: true,
+    priority: 35
+  },
+  {
+    state: 'excellent',
+    frameCount: 4,
+    frameDurationsMs: [160, 180, 220, 360],
+    loop: true,
+    priority: 40
+  },
+  {
+    state: 'tired',
+    frameCount: 4,
+    frameDurationsMs: [520, 520, 700, 520],
+    loop: true,
+    priority: 45
+  },
+  {
+    state: 'dry',
+    frameCount: 4,
+    frameDurationsMs: [360, 420, 520, 420],
+    loop: true,
+    priority: 55,
+    need: 'hydration'
+  },
+  {
+    state: 'hungry',
+    frameCount: 4,
+    frameDurationsMs: [360, 420, 520, 420],
+    loop: true,
+    priority: 55,
+    need: 'nutrients'
+  },
+  {
+    state: 'dirty',
+    frameCount: 4,
+    frameDurationsMs: [360, 420, 520, 420],
+    loop: true,
+    priority: 55,
+    need: 'cleanliness'
+  },
+  {
+    state: 'sick',
+    frameCount: 4,
+    frameDurationsMs: [420, 420, 520, 420],
+    loop: true,
+    priority: 60,
+    need: 'health'
+  },
+  {
+    state: 'critical',
+    frameCount: 4,
+    frameDurationsMs: [120, 120, 160, 120],
+    loop: true,
+    priority: 70
+  }
+];
+
+const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
+  {
+    key: 'activity.hydrate',
+    activity: 'hydrate',
+    fileName: 'activities/hydrate_sheet.png',
+    frameCount: 4,
+    frameDurationsMs: [80, 120, 180, 260],
+    loop: false,
+    priority: 100
+  },
+  {
+    key: 'activity.feed',
+    activity: 'feed',
+    fileName: 'activities/feed_sheet.png',
+    frameCount: 4,
+    frameDurationsMs: [80, 120, 180, 260],
+    loop: false,
+    priority: 100
+  },
+  {
+    key: 'activity.clean',
+    activity: 'clean',
+    fileName: 'activities/clean_sheet.png',
+    frameCount: 4,
+    frameDurationsMs: [80, 120, 180, 260],
+    loop: false,
+    priority: 100
+  },
+  {
+    key: 'activity.play',
+    activity: 'play',
+    fileName: 'activities/play_sheet.png',
+    frameCount: 4,
+    frameDurationsMs: [80, 120, 180, 260],
+    loop: false,
+    priority: 100
+  },
+  {
+    key: 'activity.instrument',
+    activity: 'instrument',
+    fileName: 'activities/instrument_sheet.png',
+    frameCount: 4,
+    frameDurationsMs: [100, 140, 180, 300],
+    loop: false,
+    priority: 100
+  },
+  {
+    key: 'activity.sing',
+    activity: 'sing',
+    fileName: 'activities/sing_sheet.png',
+    frameCount: 4,
+    frameDurationsMs: [100, 140, 180, 300],
+    loop: false,
+    priority: 100
+  },
+  {
+    key: 'activity.spores',
+    activity: 'spores',
+    fileName: 'activities/spores_sheet.png',
+    frameCount: 4,
+    frameDurationsMs: [100, 160, 220, 360],
+    loop: false,
+    priority: 100,
+    minStage: 'adult'
+  },
+  {
+    key: 'activity.harvest',
+    activity: 'harvest',
+    fileName: 'activities/harvest_sheet.png',
+    frameCount: 4,
+    frameDurationsMs: [100, 160, 220, 360],
+    loop: false,
+    priority: 100
+  }
+];
+
+function getAnimationManifest() {
+  const entries = [];
+
+  PIECZARGOTCHI_ANIMATION_STAGES.forEach(function(stage) {
+    PIECZARGOTCHI_STAGE_ANIMATIONS.forEach(function(animation) {
+      entries.push(buildStageAnimationEntry(stage, animation));
+    });
+  });
+
+  PIECZARGOTCHI_ANIMATION_STAGES.forEach(function(stage) {
+    PIECZARGOTCHI_ACTIVITY_ANIMATIONS.forEach(function(animation) {
+      entries.push(buildActivityAnimationEntry(stage, animation));
+    });
+  });
+
+  return entries;
+}
+
+function getRuntimeAssetManifest() {
+  return getAnimationManifest().map(function(animation) {
+    return {
+      key: animation.key,
+      fileName: animation.fileName,
+      fileId: PIECZARGOTCHI_ASSET_FILE_IDS[animation.key] || '',
+      required: animation.required,
+      width: animation.frameWidth * animation.frameCount,
+      height: animation.frameHeight,
+      frames: animation.frameCount
+    };
+  });
+}
+
+function buildStageAnimationEntry(stage, animation) {
+  return {
+    key: stage + '.' + animation.state,
+    kind: 'stage',
+    stage: stage,
+    state: animation.state,
+    need: animation.need || null,
+    fileName: 'stages/' + stage + '/' + animation.state + '_sheet.png',
+    frameCount: animation.frameCount,
+    frameWidth: PIECZARGOTCHI_CANVAS_SIZE,
+    frameHeight: PIECZARGOTCHI_CANVAS_SIZE,
+    frameDurationsMs: animation.frameDurationsMs.slice(),
+    loop: animation.loop,
+    priority: animation.priority,
+    required: stage === 'spore' && (animation.state === 'idle' || animation.state === 'sleep' || animation.state === 'wake')
+  };
+}
+
+function buildActivityAnimationEntry(stage, animation) {
+  return {
+    key: stage + '.activity.' + animation.activity,
+    kind: 'activity',
+    stage: stage,
+    activity: animation.activity,
+    minStage: null,
+    fileName: 'activities/' + stage + '/' + animation.activity + '_sheet.png',
+    frameCount: animation.frameCount,
+    frameWidth: PIECZARGOTCHI_CANVAS_SIZE,
+    frameHeight: PIECZARGOTCHI_CANVAS_SIZE,
+    frameDurationsMs: animation.frameDurationsMs.slice(),
+    loop: animation.loop,
+    priority: animation.priority,
+    required: false
+  };
+}

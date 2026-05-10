@@ -1,0 +1,1689 @@
+<script>
+(function() {
+  'use strict';
+
+  const config = window.PIECZARGOTCHI_CONFIG || {};
+  const rules = config.rules || {};
+  const canvasSize = config.canvasSize || rules.canvasSize || 512;
+  const stateConfig = config.state || {};
+  const actions = Array.isArray(config.actions) ? config.actions : [];
+  const actionsById = new Map(actions.map(function(action) {
+    return [action.id, action];
+  }));
+  const animationManifest = Array.isArray(config.animations) ? config.animations : [];
+  const animationsByKey = new Map(animationManifest.map(function(animation) {
+    return [animation.key, animation];
+  }));
+
+  const statLabels = {
+    hydration: 'Wilgoć',
+    nutrients: 'Odżywki',
+    energy: 'Energia',
+    happiness: 'Radość',
+    cleanliness: 'Czystość',
+    health: 'Zdrowie',
+    growth: 'Wzrost'
+  };
+
+  const inventoryLabels = {
+    water: 'Woda',
+    compost: 'Kompost',
+    toys: 'Zabawki',
+    substrate: 'Podłoże',
+    spores: 'Zarodniki'
+  };
+
+  const dom = {};
+  const runtime = {
+    state: null,
+    ctx: null,
+    canvas: null,
+    assets: {},
+    assetStatus: 'Ładowanie grafik',
+    effects: [],
+    wakeSurpriseUntil: 0,
+    actionButtons: new Map(),
+    currentAnimationKey: null,
+    currentAnimationStartedAt: 0,
+    renderStarted: false
+  };
+
+  document.addEventListener('DOMContentLoaded', init);
+
+  function init() {
+    bindDom();
+    setupCanvas();
+    window.__pieczargotchiRuntime = runtime;
+    runtime.state = loadState();
+    runtime.state = applyElapsedTime(runtime.state, Date.now());
+    saveState(runtime.state);
+
+    renderActions();
+    bindControls();
+    bindKeyboardShortcuts();
+    renderUi();
+    loadAssets();
+    startTimers();
+    startRenderLoop();
+  }
+
+  function bindDom() {
+    dom.modePill = document.querySelector('[data-mode-pill]');
+    dom.resetButton = document.querySelector('[data-reset-button]');
+    dom.mushroomName = document.querySelector('[data-mushroom-name]');
+    dom.stageLabel = document.querySelector('[data-stage-label]');
+    dom.dayLabel = document.querySelector('[data-day-label]');
+    dom.messageTitle = document.querySelector('[data-message-title]');
+    dom.messageBody = document.querySelector('[data-message-body]');
+    dom.healthLabel = document.querySelector('[data-health-label]');
+    dom.statsList = document.querySelector('[data-stats-list]');
+    dom.actionsGrid = document.querySelector('[data-actions-grid]');
+    dom.cooldownLabel = document.querySelector('[data-cooldown-label]');
+    dom.inventoryRow = document.querySelector('[data-inventory-row]');
+    dom.coinsLabel = document.querySelector('[data-coins-label]');
+    dom.eventLog = document.querySelector('[data-event-log]');
+    dom.assetStatus = document.querySelector('[data-asset-status]');
+  }
+
+  function setupCanvas() {
+    runtime.canvas = document.getElementById('mushroomCanvas');
+    runtime.canvas.width = canvasSize;
+    runtime.canvas.height = canvasSize;
+    runtime.ctx = runtime.canvas.getContext('2d');
+    runtime.ctx.imageSmoothingEnabled = false;
+  }
+
+  function bindControls() {
+    dom.resetButton.addEventListener('click', function() {
+      if (!window.confirm('Zresetować Pieczargotchi i wyczyścić zapis gry?')) {
+        return;
+      }
+
+      runtime.state = createDefaultState();
+      addLog(runtime.state, 'Nowa grządka jest gotowa.', Date.now());
+      saveState(runtime.state);
+      renderUi();
+      triggerEffect('clean');
+    });
+  }
+
+  function bindKeyboardShortcuts() {
+    document.addEventListener('keydown', function(event) {
+      if (event.defaultPrevented || shouldIgnoreShortcut(event.target)) {
+        return;
+      }
+
+      const key = event.key.toUpperCase();
+      const action = actions.find(function(candidate) {
+        return candidate.shortcut === key;
+      });
+
+      if (!action) {
+        return;
+      }
+
+      event.preventDefault();
+      handleAction(action.id, 'keyboard');
+      flashActionButton(action.id);
+    });
+  }
+
+  function shouldIgnoreShortcut(target) {
+    if (!target) {
+      return false;
+    }
+
+    const tagName = target.tagName ? target.tagName.toLowerCase() : '';
+    return tagName === 'input' || tagName === 'textarea' || tagName === 'select' || target.isContentEditable;
+  }
+
+  function startTimers() {
+    window.setInterval(function() {
+      runtime.state = applyElapsedTime(runtime.state, Date.now());
+      saveState(runtime.state);
+      renderUi();
+    }, rules.tickMs || 60000);
+
+    window.setInterval(function() {
+      cleanupActivity(Date.now());
+      renderActionStates();
+      renderMessage();
+    }, rules.cooldownTickMs || 1000);
+  }
+
+  function startRenderLoop() {
+    if (runtime.renderStarted) {
+      return;
+    }
+
+    runtime.renderStarted = true;
+
+    function render(now) {
+      drawFrame(now);
+      window.requestAnimationFrame(render);
+    }
+
+    window.requestAnimationFrame(render);
+  }
+
+  function loadAssets() {
+    const manifest = Array.isArray(config.assets) ? config.assets : [];
+    if (!manifest.length) {
+      runtime.assetStatus = 'Aktywne grafiki zapasowe';
+      renderAssetStatus();
+      return;
+    }
+
+    Promise.all(manifest.map(function(asset) {
+      return loadAsset(asset);
+    })).then(function() {
+      const loadedCount = manifest.filter(function(asset) {
+        return Boolean(runtime.assets[asset.key]);
+      }).length;
+      const requiredMissing = manifest.some(function(asset) {
+        return asset.required && !runtime.assets[asset.key];
+      });
+
+      if (!loadedCount) {
+        runtime.assetStatus = 'Aktywne grafiki zapasowe';
+      } else if (requiredMissing) {
+        runtime.assetStatus = 'Część grafik zapasowa (' + loadedCount + '/' + manifest.length + ')';
+      } else {
+        runtime.assetStatus = 'Grafiki załadowane (' + loadedCount + '/' + manifest.length + ')';
+      }
+
+      renderAssetStatus();
+    });
+  }
+
+  function loadAsset(asset) {
+    const assetData = config.assetData && config.assetData[asset.key];
+    const candidates = [];
+
+    if (assetData && assetData.dataUrl) {
+      candidates.push(assetData.dataUrl);
+    }
+
+    candidates.push('assets/' + asset.fileName);
+
+    return loadImageFromCandidates(candidates).then(function(image) {
+      runtime.assets[asset.key] = image;
+    }).catch(function() {
+      runtime.assets[asset.key] = null;
+    });
+  }
+
+  function loadImageFromCandidates(candidates) {
+    let index = 0;
+
+    return new Promise(function(resolve, reject) {
+      function tryNext() {
+        if (index >= candidates.length) {
+          reject(new Error('Nie udało się załadować grafiki.'));
+          return;
+        }
+
+        const image = new Image();
+        image.onload = function() {
+          resolve(image);
+        };
+        image.onerror = function() {
+          index += 1;
+          tryNext();
+        };
+        image.src = candidates[index];
+      }
+
+      tryNext();
+    });
+  }
+
+  function createDefaultState() {
+    const now = new Date().toISOString();
+    const base = deepClone(stateConfig.defaultState || {});
+
+    return normalizeState(Object.assign(base, {
+      version: config.stateVersion || 2,
+      playerId: createPlayerId(),
+      createdAt: now,
+      lastUpdatedAt: now,
+      log: []
+    }));
+  }
+
+  function loadState() {
+    const key = config.storageKey || 'pieczargotchi_state_v2';
+
+    try {
+      const rawState = window.localStorage.getItem(key);
+      if (!rawState) {
+        return createDefaultState();
+      }
+
+      return migrateState(JSON.parse(rawState));
+    } catch (error) {
+      return createDefaultState();
+    }
+  }
+
+  function saveState(state) {
+    const key = config.storageKey || 'pieczargotchi_state_v2';
+    window.localStorage.setItem(key, JSON.stringify(state));
+  }
+
+  function migrateState(rawState) {
+    const base = createDefaultState();
+    const merged = mergeState(base, rawState || {});
+    merged.version = config.stateVersion || 2;
+    return normalizeState(merged);
+  }
+
+  function mergeState(base, override) {
+    const result = Object.assign({}, base, override);
+    result.stats = Object.assign({}, base.stats, override.stats || {});
+    result.inventory = Object.assign({}, base.inventory, override.inventory || {});
+    result.patch = Object.assign({}, base.patch, override.patch || {});
+    result.attention = Object.assign({}, base.attention, override.attention || {});
+    result.careMistakes = Object.assign({}, base.careMistakes, override.careMistakes || {});
+    result.cooldowns = Object.assign({}, base.cooldowns, override.cooldowns || {});
+    result.flags = Object.assign({}, base.flags, override.flags || {});
+    result.log = Array.isArray(override.log) ? override.log.slice(0, rules.maxLogEntries || 8) : base.log;
+    return result;
+  }
+
+  function normalizeState(state) {
+    state.mode = state.mode === 'awake' ? 'awake' : 'sleeping';
+    state.mushroomName = state.mushroomName || 'Pieczarka';
+    state.createdAt = state.createdAt || new Date().toISOString();
+    state.lastUpdatedAt = state.lastUpdatedAt || state.createdAt;
+    state.stats = clampAllStats(state.stats || {});
+    state.inventory = state.inventory || {};
+    state.patch = normalizePatch(state.patch || {});
+    state.attention = normalizeAttention(state.attention || {});
+    state.careMistakes = normalizeCareMistakes(state.careMistakes || {});
+    state.cooldowns = state.cooldowns || {};
+    state.flags = state.flags || {};
+    state.log = Array.isArray(state.log) ? state.log.slice(0, rules.maxLogEntries || 8) : [];
+    state.stage = getStageForGrowth(state.stats.growth || 0);
+    return state;
+  }
+
+  function normalizePatch(patch) {
+    return {
+      quality: clamp(Number(patch.quality), 0, 100, 72),
+      mycelium: clamp(Number(patch.mycelium), 0, 100, 0),
+      harvests: Math.max(0, Math.floor(Number(patch.harvests) || 0)),
+      careStreak: Math.max(0, Math.floor(Number(patch.careStreak) || 0))
+    };
+  }
+
+  function normalizeAttention(attention) {
+    return {
+      activeNeed: attention.activeNeed || null,
+      severity: attention.severity || null,
+      startedAt: attention.startedAt || null,
+      deadlineAt: attention.deadlineAt || null,
+      lastMistakeAt: attention.lastMistakeAt || null
+    };
+  }
+
+  function normalizeCareMistakes(careMistakes) {
+    return {
+      physical: Math.max(0, Math.floor(Number(careMistakes.physical) || 0)),
+      mental: Math.max(0, Math.floor(Number(careMistakes.mental) || 0)),
+      environment: Math.max(0, Math.floor(Number(careMistakes.environment) || 0)),
+      rest: Math.max(0, Math.floor(Number(careMistakes.rest) || 0))
+    };
+  }
+
+  function createPlayerId() {
+    return 'player_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+  }
+
+  function deepClone(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function applyElapsedTime(state, now) {
+    const lastUpdated = Date.parse(state.lastUpdatedAt);
+    const safeLastUpdated = Number.isFinite(lastUpdated) ? lastUpdated : now;
+    const elapsedMs = Math.max(0, now - safeLastUpdated);
+
+    if (elapsedMs < 1000) {
+      state.lastUpdatedAt = new Date(now).toISOString();
+      cleanupActivity(now);
+      evaluateAttention(state, now);
+      return state;
+    }
+
+    const elapsedHours = elapsedMs / 3600000;
+    const decay = (rules.decayPerHour && rules.decayPerHour[state.mode]) || {};
+
+    Object.keys(decay).forEach(function(stat) {
+      state.stats[stat] = (Number(state.stats[stat]) || 0) + decay[stat] * elapsedHours;
+    });
+
+    updateHealthAndGrowth(state, elapsedHours);
+    state.stats = clampAllStats(state.stats);
+    state.stage = getStageForGrowth(state.stats.growth || 0);
+    updatePatch(state, elapsedHours, now);
+    evaluateAttention(state, now);
+    state.lastUpdatedAt = new Date(now).toISOString();
+    cleanupActivity(now);
+    return state;
+  }
+
+  function updateHealthAndGrowth(state, elapsedHours) {
+    const stats = state.stats;
+    const poorConditions = stats.hydration < 20 || stats.nutrients < 20 || stats.cleanliness < 20 || stats.energy < 12;
+    const goodConditions = stats.hydration >= 55 && stats.nutrients >= 55 && stats.cleanliness >= 55 && stats.health >= 55;
+    const healthRules = rules.healthPerHour || {};
+    const growthRules = rules.growthPerHour || {};
+
+    if (poorConditions) {
+      stats.health += (healthRules.poorConditions || -10) * elapsedHours;
+    } else if (goodConditions) {
+      stats.health += (healthRules.goodConditions || 4) * elapsedHours;
+    }
+
+    if (goodConditions && state.mode === 'awake') {
+      stats.growth += (growthRules.awakeHealthy || 3) * elapsedHours;
+    } else if (goodConditions && state.mode === 'sleeping') {
+      stats.growth += (growthRules.sleepingHealthy || 1.25) * elapsedHours;
+    }
+  }
+
+  function updatePatch(state, elapsedHours, now) {
+    const patchRules = rules.patchPerHour || {};
+    const stats = state.stats;
+    const cleanHealthy = stats.hydration >= 45 && stats.nutrients >= 45 && stats.cleanliness >= 55 && stats.health >= 45;
+    const neglected = stats.hydration < 25 || stats.nutrients < 25 || stats.cleanliness < 25 || stats.health < 35;
+
+    if (cleanHealthy) {
+      state.patch.quality += (patchRules.cleanHealthy || 2) * elapsedHours;
+      state.patch.mycelium += 1.8 * elapsedHours;
+    }
+
+    if (neglected) {
+      state.patch.quality += (patchRules.neglected || -6) * elapsedHours;
+      state.patch.careStreak = 0;
+    }
+
+    state.patch = normalizePatch(state.patch);
+    checkPatchHarvest(state, now);
+  }
+
+  function checkPatchHarvest(state, now) {
+    if ((state.patch.mycelium || 0) < 100) {
+      return;
+    }
+
+    const bonus = state.patch.quality >= 80 ? 2 : state.patch.quality >= 60 ? 1 : 0;
+    const spores = 3 + bonus;
+    state.patch.harvests += 1;
+    state.patch.mycelium = 18 + bonus * 4;
+    state.inventory.spores = (Number(state.inventory.spores) || 0) + spores;
+    state.coins = (Number(state.coins) || 0) + spores;
+    state.currentActivity = {
+      type: 'harvest',
+      label: 'Plon grzybni',
+      startedAt: now,
+      until: now + (rules.activityMs || 2400)
+    };
+    addLog(state, 'Dojrzała grzybnia wypuściła plon: +' + spores + ' zarodników.', now);
+    triggerEffect('spores');
+  }
+
+  function evaluateAttention(state, now) {
+    const strongestNeed = getStrongestNeed(state);
+    const attentionRules = rules.attention || {};
+
+    if (!strongestNeed) {
+      if (state.attention.activeNeed) {
+        addLog(state, 'Pieczarka uspokoiła się. Potrzeba została zaopiekowana.', now);
+      }
+
+      state.attention = normalizeAttention({});
+      return;
+    }
+
+    const activeNeed = state.attention.activeNeed;
+    const deadline = Date.parse(state.attention.deadlineAt || '');
+    const lastMistake = Date.parse(state.attention.lastMistakeAt || '');
+    const repeatedCooldown = attentionRules.repeatedMistakeCooldownMs || 900000;
+
+    if (activeNeed !== strongestNeed.id) {
+      state.attention = {
+        activeNeed: strongestNeed.id,
+        severity: strongestNeed.severity,
+        startedAt: new Date(now).toISOString(),
+        deadlineAt: new Date(now + strongestNeed.deadlineMs).toISOString(),
+        lastMistakeAt: state.attention.lastMistakeAt || null
+      };
+      addLog(state, strongestNeed.definition.title + ': ' + strongestNeed.message, now);
+      return;
+    }
+
+    state.attention.severity = strongestNeed.severity;
+
+    if (Number.isFinite(deadline) && now >= deadline) {
+      const canRecordMistake = !Number.isFinite(lastMistake) || now - lastMistake >= repeatedCooldown;
+      if (canRecordMistake) {
+        recordCareMistake(state, strongestNeed, now);
+      }
+
+      state.attention.deadlineAt = new Date(now + strongestNeed.deadlineMs).toISOString();
+    }
+  }
+
+  function getStrongestNeed(state) {
+    const definitions = rules.needDefinitions || {};
+    const attentionRules = rules.attention || {};
+    const mildThreshold = attentionRules.mildThreshold || 45;
+    const criticalThreshold = attentionRules.criticalThreshold || 25;
+    const needs = Object.keys(definitions).map(function(stat) {
+      if (stat === 'energy' && state.mode === 'sleeping') {
+        return null;
+      }
+
+      const value = Number(state.stats[stat]);
+      if (!Number.isFinite(value) || value >= mildThreshold) {
+        return null;
+      }
+
+      const severity = value < criticalThreshold ? 'critical' : 'mild';
+      const definition = definitions[stat];
+      return {
+        id: stat,
+        value: value,
+        severity: severity,
+        definition: definition,
+        message: severity === 'critical' ? definition.criticalMessage : definition.mildMessage,
+        deadlineMs: severity === 'critical'
+          ? attentionRules.criticalDeadlineMs || 90000
+          : attentionRules.deadlineMs || 180000
+      };
+    }).filter(Boolean);
+
+    needs.sort(function(a, b) {
+      if (a.severity !== b.severity) {
+        return a.severity === 'critical' ? -1 : 1;
+      }
+
+      return a.value - b.value;
+    });
+
+    return needs[0] || null;
+  }
+
+  function recordCareMistake(state, need, now) {
+    const category = need.definition.category || 'physical';
+    state.careMistakes[category] = (Number(state.careMistakes[category]) || 0) + 1;
+    state.attention.lastMistakeAt = new Date(now).toISOString();
+    state.patch.careStreak = 0;
+    state.stats.health -= need.severity === 'critical' ? 8 : 4;
+    state.stats.happiness -= need.severity === 'critical' ? 6 : 3;
+    addLog(state, 'Przegapiona potrzeba: ' + need.definition.title + '. To zapisuje się w historii opieki.', now);
+    triggerEffect('attention');
+  }
+
+  function clampAllStats(stats) {
+    const min = rules.statBounds ? rules.statBounds.min : 0;
+    const max = rules.statBounds ? rules.statBounds.max : 100;
+    const output = {};
+    const statOrder = stateConfig.statOrder || Object.keys(stats);
+
+    statOrder.forEach(function(stat) {
+      const fallback = stat === 'health' ? 100 : 0;
+      output[stat] = clamp(Number(stats[stat]), min, max, fallback);
+    });
+
+    return output;
+  }
+
+  function clamp(value, min, max, fallback) {
+    const next = Number.isFinite(value) ? value : fallback;
+    return Math.max(min, Math.min(max, next));
+  }
+
+  function getStageForGrowth(growth) {
+    const thresholds = rules.stageThresholds || [];
+    let current = thresholds[0] || { id: 'spore', label: 'Zarodnik', growth: 0 };
+
+    thresholds.forEach(function(stage) {
+      if (growth >= stage.growth) {
+        current = stage;
+      }
+    });
+
+    return current.id;
+  }
+
+  function getStageLabel(stageId) {
+    const stage = (rules.stageThresholds || []).find(function(candidate) {
+      return candidate.id === stageId;
+    });
+
+    return stage ? stage.label : stageId;
+  }
+
+  function isStageAtLeast(currentStage, requiredStage) {
+    const order = (rules.stageThresholds || []).map(function(stage) {
+      return stage.id;
+    });
+    return order.indexOf(currentStage) >= order.indexOf(requiredStage);
+  }
+
+  function handleAction(actionId, source) {
+    const action = actionsById.get(actionId);
+    if (!action) {
+      return;
+    }
+
+    const now = Date.now();
+    runtime.state = applyElapsedTime(runtime.state, now);
+
+    const check = canRunAction(action, now);
+    if (!check.ok) {
+      setTransientMessage('Jeszcze nie', check.reason);
+      flashActionButton(actionId);
+      renderUi();
+      return;
+    }
+
+    if (actionId === 'sleepWake') {
+      applySleepWake(action, now);
+    } else {
+      applyAction(action, now, source);
+    }
+
+    runtime.state.stats = clampAllStats(runtime.state.stats);
+    runtime.state.stage = getStageForGrowth(runtime.state.stats.growth || 0);
+    runtime.state.lastUpdatedAt = new Date(now).toISOString();
+    saveState(runtime.state);
+    renderUi();
+  }
+
+  function canRunAction(action, now) {
+    const cooldownUntil = Number(runtime.state.cooldowns[action.id]) || 0;
+    const remainingMs = cooldownUntil - now;
+
+    if (remainingMs > 0) {
+      return {
+        ok: false,
+        reason: 'Gotowe za ' + Math.ceil(remainingMs / 1000) + ' s.'
+      };
+    }
+
+    if (action.awakeOnly && runtime.state.mode !== 'awake') {
+      return {
+        ok: false,
+        reason: 'Najpierw obudź Pieczarkę.'
+      };
+    }
+
+    if (action.requiresStage && !isStageAtLeast(runtime.state.stage, action.requiresStage)) {
+      return {
+        ok: false,
+        reason: 'Potrzebny etap dorosłej pieczarki.'
+      };
+    }
+
+    if ((runtime.state.stats.energy || 0) <= 0 && action.id !== 'sleepWake') {
+      return {
+        ok: false,
+        reason: 'Brakuje energii.'
+      };
+    }
+
+    return { ok: true, reason: '' };
+  }
+
+  function applySleepWake(action, now) {
+    const waking = runtime.state.mode === 'sleeping';
+
+    runtime.state.mode = waking ? 'awake' : 'sleeping';
+    runtime.state.cooldowns[action.id] = now + action.cooldownSeconds * 1000;
+    runtime.state.currentActivity = waking
+      ? { type: 'wake', label: 'O_O', startedAt: now, until: now + (rules.wakeSurpriseMs || 1800) }
+      : null;
+
+    if (waking) {
+      runtime.state.flags.firstWakeDone = true;
+      runtime.wakeSurpriseUntil = now + (rules.wakeSurpriseMs || 1800);
+      triggerEffect('wake');
+      addLog(runtime.state, 'Pieczarka obudziła się z miną O_O.', now);
+    } else {
+      runtime.wakeSurpriseUntil = 0;
+      triggerEffect('sleep');
+      rewardCareIfNeeded(runtime.state, action, now);
+      addLog(runtime.state, 'Pieczarka wtuliła się pod mech.', now);
+    }
+  }
+
+  function applyAction(action, now, source) {
+    applyStatDeltas(runtime.state, action.stats || {});
+
+    if (action.coins) {
+      runtime.state.coins = (Number(runtime.state.coins) || 0) + action.coins;
+      runtime.state.inventory.spores = (Number(runtime.state.inventory.spores) || 0) + action.coins;
+    }
+
+    if (action.flag) {
+      runtime.state.flags[action.flag] = true;
+    }
+
+    runtime.state.cooldowns[action.id] = now + action.cooldownSeconds * 1000;
+    runtime.state.currentActivity = {
+      type: action.animationType || action.effectType || action.id,
+      label: getActivityLabel(action),
+      startedAt: now,
+      until: now + (rules.activityMs || 2400)
+    };
+
+    if (action.id === 'instrument') {
+      const instrument = pickRandomInstrument();
+      runtime.state.lastRandomInstrument = instrument;
+      runtime.state.currentActivity.label = instrument;
+      addLog(runtime.state, 'Pieczarka zagrała na instrumencie: ' + instrument + '.', now);
+    } else if (action.id === 'sing') {
+      addLog(runtime.state, 'Pieczarka zaśpiewała miękką kapeluszową piosenkę.', now);
+    } else {
+      addLog(runtime.state, action.log, now);
+    }
+
+    triggerEffect(action.effectType || action.id);
+    rewardCareIfNeeded(runtime.state, action, now);
+    flashActionButton(action.id);
+  }
+
+  function rewardCareIfNeeded(state, action, now) {
+    const activeNeed = state.attention && state.attention.activeNeed;
+    const definition = activeNeed && rules.needDefinitions ? rules.needDefinitions[activeNeed] : null;
+    const handledNeed = definition && definition.actionId === action.id;
+
+    if (!handledNeed && action.id !== 'clean' && action.id !== 'play') {
+      return;
+    }
+
+    state.patch.careStreak += 1;
+    state.patch.quality += handledNeed ? 4 : 1.5;
+    state.patch.mycelium += handledNeed ? 2.5 : 0.75;
+    state.patch = normalizePatch(state.patch);
+    checkPatchHarvest(state, now);
+
+    if (handledNeed) {
+      addLog(state, 'Dobra reakcja! Pieczarka zapamiętuje szybką opiekę.', now);
+      state.attention = normalizeAttention({});
+    }
+  }
+
+  function applyStatDeltas(state, deltas) {
+    Object.keys(deltas).forEach(function(stat) {
+      state.stats[stat] = (Number(state.stats[stat]) || 0) + deltas[stat];
+    });
+  }
+
+  function getActivityLabel(action) {
+    if (action.id === 'sing') {
+      return 'Śpiewa';
+    }
+
+    return action.label;
+  }
+
+  function pickRandomInstrument() {
+    const instruments = rules.instruments || ['mała kalimba'];
+    return instruments[Math.floor(Math.random() * instruments.length)];
+  }
+
+  function addLog(state, message, now) {
+    const entry = {
+      at: new Date(now).toISOString(),
+      text: message || 'Coś poruszyło się w grządce.'
+    };
+    const maxEntries = rules.maxLogEntries || 8;
+    state.log = [entry].concat(state.log || []).slice(0, maxEntries);
+  }
+
+  function cleanupActivity(now) {
+    const state = runtime.state;
+    if (!state || !state.currentActivity) {
+      return;
+    }
+
+    if (Number(state.currentActivity.until) <= now) {
+      state.currentActivity = null;
+    }
+  }
+
+  function setTransientMessage(title, body) {
+    runtime.state.currentActivity = {
+      type: 'notice',
+      label: title,
+      body: body,
+      startedAt: Date.now(),
+      until: Date.now() + 1500
+    };
+  }
+
+  function renderUi() {
+    renderIdentity();
+    renderStats();
+    renderActionStates();
+    renderInventory();
+    renderLog();
+    renderMessage();
+    renderAssetStatus();
+  }
+
+  function renderIdentity() {
+    const state = runtime.state;
+    const createdAt = Date.parse(state.createdAt);
+    const day = Number.isFinite(createdAt)
+      ? Math.max(1, Math.floor((Date.now() - createdAt) / 86400000) + 1)
+      : 1;
+
+    dom.modePill.textContent = state.mode === 'awake' ? 'Czuwa' : 'Śpi';
+    dom.modePill.dataset.mode = state.mode;
+    dom.mushroomName.textContent = state.mushroomName;
+    dom.stageLabel.textContent = getStageLabel(state.stage);
+    dom.dayLabel.textContent = 'Dzień ' + day;
+    dom.healthLabel.textContent = Math.round(state.stats.health) + '%';
+    dom.coinsLabel.textContent = (Number(state.coins) || 0) + ' zarodników';
+  }
+
+  function renderStats() {
+    const statOrder = stateConfig.statOrder || Object.keys(runtime.state.stats);
+    dom.statsList.innerHTML = '';
+
+    statOrder.forEach(function(stat) {
+      const value = Math.round(runtime.state.stats[stat] || 0);
+      const row = document.createElement('div');
+      const name = document.createElement('span');
+      const track = document.createElement('div');
+      const fill = document.createElement('div');
+      const number = document.createElement('span');
+
+      row.className = 'stat-row';
+      name.className = 'stat-name';
+      track.className = 'stat-track';
+      fill.className = 'stat-fill';
+      number.className = 'stat-value';
+
+      name.textContent = statLabels[stat] || stat;
+      fill.style.width = value + '%';
+      fill.dataset.level = value < 30 ? 'low' : value < 60 ? 'medium' : 'high';
+      number.textContent = value;
+
+      track.appendChild(fill);
+      row.appendChild(name);
+      row.appendChild(track);
+      row.appendChild(number);
+      dom.statsList.appendChild(row);
+    });
+  }
+
+  function renderActions() {
+    dom.actionsGrid.innerHTML = '';
+    runtime.actionButtons.clear();
+
+    actions.forEach(function(action) {
+      const button = document.createElement('button');
+      const icon = document.createElement('span');
+      const label = document.createElement('span');
+      const badge = document.createElement('span');
+
+      button.className = 'action-button';
+      button.type = 'button';
+      button.dataset.actionId = action.id;
+      icon.className = 'action-icon';
+      label.className = 'action-label';
+      badge.className = 'shortcut-badge';
+
+      icon.textContent = action.icon || action.shortcut || action.label.slice(0, 3);
+      label.textContent = action.label;
+      badge.textContent = action.shortcut;
+
+      button.appendChild(icon);
+      button.appendChild(label);
+      button.appendChild(badge);
+      button.addEventListener('click', function() {
+        handleAction(action.id, 'button');
+      });
+
+      runtime.actionButtons.set(action.id, button);
+      dom.actionsGrid.appendChild(button);
+    });
+  }
+
+  function renderActionStates() {
+    const now = Date.now();
+    let soonestRemaining = 0;
+
+    actions.forEach(function(action) {
+      const button = runtime.actionButtons.get(action.id);
+      if (!button) {
+        return;
+      }
+
+      const check = canRunAction(action, now);
+      const cooldownUntil = Number(runtime.state.cooldowns[action.id]) || 0;
+      const remainingSeconds = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
+
+      button.disabled = !check.ok;
+      button.title = check.ok ? action.label + ' (' + action.shortcut + ')' : check.reason;
+
+      const oldChip = button.querySelector('.cooldown-chip');
+      if (oldChip) {
+        oldChip.remove();
+      }
+
+      if (remainingSeconds > 0) {
+        const chip = document.createElement('span');
+        chip.className = 'cooldown-chip';
+        chip.textContent = remainingSeconds + 's';
+        button.appendChild(chip);
+        soonestRemaining = soonestRemaining ? Math.min(soonestRemaining, remainingSeconds) : remainingSeconds;
+      }
+    });
+
+    dom.cooldownLabel.textContent = soonestRemaining ? 'Za ' + soonestRemaining + ' s' : 'Gotowe';
+  }
+
+  function flashActionButton(actionId) {
+    const button = runtime.actionButtons.get(actionId);
+    if (!button) {
+      return;
+    }
+
+    button.classList.remove('is-flashing');
+    void button.offsetWidth;
+    button.classList.add('is-flashing');
+    window.setTimeout(function() {
+      button.classList.remove('is-flashing');
+    }, 280);
+  }
+
+  function renderInventory() {
+    const inventoryOrder = stateConfig.inventoryOrder || Object.keys(runtime.state.inventory || {});
+    dom.inventoryRow.innerHTML = '';
+
+    inventoryOrder.forEach(function(item) {
+      const pill = document.createElement('span');
+      pill.className = 'inventory-item';
+      pill.textContent = (inventoryLabels[item] || item) + ' ' + (runtime.state.inventory[item] || 0);
+      dom.inventoryRow.appendChild(pill);
+    });
+
+    [
+      'Jakość ' + Math.round(runtime.state.patch.quality) + '%',
+      'Grzybnia ' + Math.round(runtime.state.patch.mycelium) + '%',
+      'Seria opieki ' + runtime.state.patch.careStreak,
+      'Pomyłki ' + getCareMistakeTotal(runtime.state)
+    ].forEach(function(label) {
+      const pill = document.createElement('span');
+      pill.className = 'inventory-item';
+      pill.textContent = label;
+      dom.inventoryRow.appendChild(pill);
+    });
+  }
+
+  function getCareMistakeTotal(state) {
+    return Object.keys(state.careMistakes || {}).reduce(function(total, key) {
+      return total + (Number(state.careMistakes[key]) || 0);
+    }, 0);
+  }
+
+  function renderLog() {
+    const entries = runtime.state.log || [];
+    dom.eventLog.innerHTML = '';
+
+    if (!entries.length) {
+      const item = document.createElement('li');
+      item.textContent = 'Pieczarka czeka w grządce.';
+      dom.eventLog.appendChild(item);
+      return;
+    }
+
+    entries.forEach(function(entry) {
+      const item = document.createElement('li');
+      item.textContent = formatLogTime(entry.at) + ' - ' + entry.text;
+      dom.eventLog.appendChild(item);
+    });
+  }
+
+  function formatLogTime(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return '--:--';
+    }
+
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function renderMessage() {
+    const message = getMushroomMessage(runtime.state);
+    dom.messageTitle.textContent = message.title;
+    dom.messageBody.textContent = message.body;
+  }
+
+  function renderAssetStatus() {
+    dom.assetStatus.textContent = runtime.assetStatus;
+  }
+
+  function getMushroomMessage(state) {
+    const now = Date.now();
+
+    if (state.currentActivity && Number(state.currentActivity.until) > now) {
+      if (state.currentActivity.type === 'notice') {
+        return {
+          title: state.currentActivity.label,
+          body: state.currentActivity.body
+        };
+      }
+
+      if (state.currentActivity.type === 'wake') {
+        return {
+          title: 'Szeroko otwarte oczka',
+          body: 'Pieczarka mrugnęła po przebudzeniu i zrobiła minę O_O.'
+        };
+      }
+
+      if (state.currentActivity.type === 'music') {
+        return {
+          title: 'Czas muzyki',
+          body: state.currentActivity.label + ' niesie się po mchu.'
+        };
+      }
+
+      return {
+        title: state.currentActivity.label,
+        body: 'Pieczarka cieszy się, że ktoś o nią dba.'
+      };
+    }
+
+    if (state.attention && state.attention.activeNeed) {
+      const definition = rules.needDefinitions && rules.needDefinitions[state.attention.activeNeed];
+      if (definition) {
+        const deadline = Date.parse(state.attention.deadlineAt || '');
+        const secondsLeft = Number.isFinite(deadline) ? Math.max(0, Math.ceil((deadline - now) / 1000)) : 0;
+        const suffix = secondsLeft ? ' Czas na reakcję: ' + secondsLeft + ' s.' : '';
+        return {
+          title: state.attention.severity === 'critical' ? 'Pilna potrzeba: ' + definition.title : definition.title,
+          body: (state.attention.severity === 'critical' ? definition.criticalMessage : definition.mildMessage) + suffix
+        };
+      }
+    }
+
+    if (state.mode === 'sleeping') {
+      return {
+        title: 'Odpoczywa',
+        body: 'Energia wraca, a grządka cicho oddycha.'
+      };
+    }
+
+    const mood = getMood(state);
+    return moodMessages[mood] || moodMessages.content;
+  }
+
+  const moodMessages = {
+    dry: {
+      title: 'Trochę sucho',
+      body: 'Mech prosi o parę świeżych kropli.'
+    },
+    hungry: {
+      title: 'Podłoże słabnie',
+      body: 'Porcja kompostu pomoże Pieczarce rosnąć.'
+    },
+    dirty: {
+      title: 'Bałagan w grządce',
+      body: 'Sprzątanie mchu poprawi nastrój.'
+    },
+    tired: {
+      title: 'Opadający kapelusz',
+      body: 'Sen pomoże odzyskać energię.'
+    },
+    sick: {
+      title: 'Niedomaga',
+      body: 'Potrzebna jest spokojna, uważna opieka.'
+    },
+    happy: {
+      title: 'Promienieje',
+      body: 'Pieczarka świetnie rośnie w swojej grządce.'
+    },
+    content: {
+      title: 'Zadowolona',
+      body: 'Na razie wszystko jest w dobrej równowadze.'
+    }
+  };
+
+  function getMood(state) {
+    const stats = state.stats;
+
+    if (stats.health < 35) {
+      return 'sick';
+    }
+
+    if (stats.hydration < 35) {
+      return 'dry';
+    }
+
+    if (stats.nutrients < 35) {
+      return 'hungry';
+    }
+
+    if (stats.cleanliness < 35) {
+      return 'dirty';
+    }
+
+    if (stats.energy < 25) {
+      return 'tired';
+    }
+
+    if (stats.happiness > 78 && stats.health > 72) {
+      return 'happy';
+    }
+
+    return 'content';
+  }
+
+  function triggerEffect(type) {
+    runtime.effects.push({
+      type: type,
+      createdAt: performance.now(),
+      duration: type === 'sleep' ? 1200 : 1800,
+      particles: createParticles(type)
+    });
+  }
+
+  function createParticles(type) {
+    const countByType = {
+      water: 10,
+      clean: 14,
+      hearts: 7,
+      music: 8,
+      spores: 16,
+      wake: 6,
+      sleep: 5
+    };
+    const count = countByType[type] || 8;
+    const particles = [];
+
+    for (let index = 0; index < count; index += 1) {
+      particles.push({
+        x: 180 + Math.random() * 160,
+        y: 250 + Math.random() * 96,
+        dx: -30 + Math.random() * 60,
+        dy: -90 - Math.random() * 70,
+        size: 5 + Math.random() * 11,
+        phase: Math.random() * Math.PI * 2
+      });
+    }
+
+    return particles;
+  }
+
+  function drawFrame(now) {
+    const ctx = runtime.ctx;
+    const wallNow = Date.now();
+
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, canvasSize, canvasSize);
+    drawStageBackground(ctx, now);
+
+    const selectedAnimation = selectAnimation(runtime.state, wallNow);
+    runtime.currentAnimationKey = selectedAnimation && selectedAnimation.animation
+      ? selectedAnimation.animation.key
+      : null;
+    const drewAnimation = drawSelectedAnimation(ctx, selectedAnimation, wallNow);
+
+    if (!drewAnimation) {
+      drawFallbackMushroom(ctx, runtime.state && runtime.state.mode === 'sleeping' ? 'sleeping' : 'awake');
+    }
+
+    if (runtime.state && runtime.state.mode === 'sleeping') {
+      drawSleepAmbient(ctx, now);
+    } else {
+      drawTemporaryOverlays(ctx, now, selectedAnimation, drewAnimation);
+    }
+
+    drawEffects(ctx, now);
+  }
+
+  function selectAnimation(state, now) {
+    if (!state) {
+      return null;
+    }
+
+    const stage = state.stage || getStageForGrowth(state.stats && state.stats.growth ? state.stats.growth : 0);
+    const activity = getActiveActivity(state, now);
+
+    if (activity) {
+      if (activity.type === 'wake') {
+        return buildAnimationSelection(findStageAnimation(stage, 'wake'), getActivityStartedAt(activity, now));
+      }
+
+      const activityAnimation = findActivityAnimation(activity.type, stage);
+      if (activityAnimation) {
+        return buildAnimationSelection(activityAnimation, getActivityStartedAt(activity, now));
+      }
+    }
+
+    if (state.mode === 'sleeping') {
+      return buildAnimationSelection(findStageAnimation(stage, 'sleep'), null);
+    }
+
+    const need = getStrongestNeed(state);
+    if (need) {
+      const needState = need.severity === 'critical' ? 'critical' : getNeedAnimationState(need.id);
+      return buildAnimationSelection(
+        findStageAnimation(stage, needState) || findStageAnimation(stage, 'idle'),
+        null
+      );
+    }
+
+    if (state.stats.happiness > 82 && state.stats.health > 78 && state.patch.quality > 82) {
+      return buildAnimationSelection(findStageAnimation(stage, 'excellent') || findStageAnimation(stage, 'happy'), null);
+    }
+
+    if (state.stats.happiness > 78 && state.stats.health > 72 && state.patch.quality > 70) {
+      return buildAnimationSelection(findStageAnimation(stage, 'happy'), null);
+    }
+
+    return buildAnimationSelection(findStageAnimation(stage, 'idle'), null);
+  }
+
+  function getActiveActivity(state, now) {
+    const activity = state.currentActivity;
+    if (!activity || Number(activity.until) <= now || activity.type === 'notice') {
+      return null;
+    }
+
+    return activity;
+  }
+
+  function findStageAnimation(stage, stateName) {
+    return animationsByKey.get(stage + '.' + stateName)
+      || animationsByKey.get(stage + '.idle')
+      || animationsByKey.get('spore.' + stateName)
+      || animationsByKey.get('spore.idle')
+      || null;
+  }
+
+  function findActivityAnimation(activityType, stage) {
+    const animation = animationsByKey.get(stage + '.activity.' + activityType)
+      || animationsByKey.get('activity.' + activityType);
+    if (!animation) {
+      return null;
+    }
+
+    if (animation.minStage && !isStageAtLeast(stage, animation.minStage)) {
+      return null;
+    }
+
+    return animation;
+  }
+
+  function buildAnimationSelection(animation, startedAt) {
+    if (!animation) {
+      return null;
+    }
+
+    return {
+      animation: animation,
+      startedAt: startedAt
+    };
+  }
+
+  function getActivityStartedAt(activity, now) {
+    const startedAt = Number(activity.startedAt);
+    if (Number.isFinite(startedAt) && startedAt > 0) {
+      return startedAt;
+    }
+
+    const until = Number(activity.until);
+    if (Number.isFinite(until) && until > now) {
+      return until - (rules.activityMs || 2400);
+    }
+
+    return now;
+  }
+
+  function getNeedAnimationState(needId) {
+    const mapping = {
+      hydration: 'dry',
+      nutrients: 'hungry',
+      happiness: 'tired',
+      cleanliness: 'dirty',
+      energy: 'tired',
+      health: 'sick'
+    };
+
+    return mapping[needId] || 'idle';
+  }
+
+  function drawSelectedAnimation(ctx, selection, now) {
+    if (!selection || !selection.animation) {
+      return false;
+    }
+
+    const animation = selection.animation;
+    const image = runtime.assets[animation.key];
+    if (!image) {
+      return false;
+    }
+
+    const requestedStart = selection.startedAt
+      || (runtime.currentAnimationKey === animation.key ? runtime.currentAnimationStartedAt : now)
+      || now;
+    if (
+      runtime.currentAnimationKey !== animation.key
+      || Math.abs((runtime.currentAnimationStartedAt || 0) - requestedStart) > 50
+    ) {
+      runtime.currentAnimationKey = animation.key;
+      runtime.currentAnimationStartedAt = requestedStart;
+    }
+
+    const frame = getAnimationFrame(animation, now - runtime.currentAnimationStartedAt);
+    const frameWidth = animation.frameWidth || canvasSize;
+    const frameHeight = animation.frameHeight || canvasSize;
+    ctx.drawImage(image, frame * frameWidth, 0, frameWidth, frameHeight, 0, 0, canvasSize, canvasSize);
+    return true;
+  }
+
+  function getAnimationFrame(animation, elapsedMs) {
+    const durations = Array.isArray(animation.frameDurationsMs) && animation.frameDurationsMs.length
+      ? animation.frameDurationsMs
+      : [1000 / (animation.fps || 4)];
+    const totalDuration = durations.reduce(function(total, duration) {
+      return total + Math.max(1, Number(duration) || 1);
+    }, 0);
+    let remaining = animation.loop === false
+      ? Math.min(Math.max(0, elapsedMs), totalDuration - 1)
+      : positiveModulo(elapsedMs, totalDuration);
+
+    for (let index = 0; index < durations.length; index += 1) {
+      const duration = Math.max(1, Number(durations[index]) || 1);
+      if (remaining < duration) {
+        return Math.min(index, (animation.frameCount || durations.length) - 1);
+      }
+
+      remaining -= duration;
+    }
+
+    return Math.max(0, (animation.frameCount || durations.length) - 1);
+  }
+
+  function positiveModulo(value, modulo) {
+    return ((value % modulo) + modulo) % modulo;
+  }
+
+  function drawTemporaryOverlays(ctx, now, selectedAnimation, drewAnimation) {
+    const need = getStrongestNeed(runtime.state);
+
+    if (!drewAnimation) {
+      drawNeedOverlay(ctx, now);
+      return;
+    }
+
+    if (!need && selectedAnimation && selectedAnimation.animation.state === 'idle') {
+      drawAwakeIdleDetails(ctx, now);
+    }
+
+    if (!need && runtime.state.patch.quality > 82 && runtime.state.stats.happiness > 72) {
+      drawSparkles(ctx, now, '#fff6b8');
+    }
+
+    if (need && need.severity === 'critical') {
+      const pulse = 0.5 + Math.sin(now / 220) * 0.5;
+      drawAttentionAlarm(ctx, pulse);
+    }
+  }
+
+  function drawStageBackground(ctx, now) {
+    ctx.fillStyle = '#ddefb8';
+    ctx.fillRect(0, 0, 512, 512);
+
+    ctx.fillStyle = '#c6e58e';
+    ctx.fillRect(0, 298, 512, 88);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.24)';
+    ctx.fillRect(0, 0, 512, 56);
+
+    ctx.fillStyle = '#5f9d3b';
+    ctx.fillRect(0, 386, 512, 126);
+    ctx.fillStyle = '#76b84e';
+
+    for (let x = -8; x < 520; x += 16) {
+      const bladeHeight = 18 + ((x * 7 + Math.floor(now / 600)) % 18);
+      ctx.fillRect(x, 386 - bladeHeight, 8, bladeHeight);
+    }
+  }
+
+  function drawSleepingSprite(ctx, now) {
+    const sheet = runtime.assets.sleepingSheet;
+    const frameCount = rules.sleepingFrameCount || 4;
+    const fps = rules.sleepingFps || 3;
+    const frame = Math.floor((now / 1000) * fps) % frameCount;
+
+    if (sheet) {
+      ctx.drawImage(sheet, frame * 512, 0, 512, 512, 0, 0, 512, 512);
+      return;
+    }
+
+    drawFallbackMushroom(ctx, 'sleeping');
+  }
+
+  function drawAwakeSprite(ctx, now) {
+    const image = runtime.assets.awake;
+    const bob = Math.round(Math.sin(now / 950) * 1.5);
+
+    if (image) {
+      ctx.drawImage(image, 0, bob, 512, 512);
+      return;
+    }
+
+    drawFallbackMushroom(ctx, 'awake');
+  }
+
+  function drawAwakeIdleDetails(ctx, now) {
+    const thinkingPhase = now % 9000;
+
+    if (thinkingPhase > 6200 && thinkingPhase < 8200 && !runtime.state.attention.activeNeed) {
+      drawThoughtBubble(ctx, now, '?');
+    }
+  }
+
+  function drawBlink(ctx) {
+    ctx.fillStyle = '#fcd8a0';
+    ctx.fillRect(202, 270, 32, 24);
+    ctx.fillRect(286, 270, 32, 24);
+    ctx.fillStyle = '#2b211b';
+    ctx.fillRect(207, 282, 22, 5);
+    ctx.fillRect(291, 282, 22, 5);
+  }
+
+  function drawNeedOverlay(ctx, now) {
+    const need = getStrongestNeed(runtime.state);
+    const pulse = 0.5 + Math.sin(now / 220) * 0.5;
+
+    if (!need) {
+      if (runtime.state.patch.quality > 82 && runtime.state.stats.happiness > 72) {
+        drawSparkles(ctx, now, '#fff6b8');
+      }
+      return;
+    }
+
+    if (need.id === 'hydration') {
+      drawDryCue(ctx, pulse, need.severity);
+    } else if (need.id === 'nutrients') {
+      drawThoughtBubble(ctx, now, 'NPK');
+    } else if (need.id === 'happiness') {
+      drawThoughtBubble(ctx, now, '...');
+    } else if (need.id === 'cleanliness') {
+      drawDirtCue(ctx, now, need.severity);
+    } else if (need.id === 'energy') {
+      drawTiredCue(ctx, now, need.severity);
+    } else if (need.id === 'health') {
+      drawSickCue(ctx, now, need.severity);
+    }
+
+    if (need.severity === 'critical') {
+      drawAttentionAlarm(ctx, pulse);
+    }
+  }
+
+  function drawDryCue(ctx, pulse, severity) {
+    ctx.save();
+    ctx.globalAlpha = severity === 'critical' ? 0.75 + pulse * 0.25 : 0.55;
+    ctx.strokeStyle = '#a56b32';
+    ctx.lineWidth = severity === 'critical' ? 5 : 3;
+    ctx.beginPath();
+    ctx.moveTo(96, 418);
+    ctx.lineTo(132, 438);
+    ctx.lineTo(166, 420);
+    ctx.moveTo(336, 426);
+    ctx.lineTo(372, 444);
+    ctx.lineTo(416, 422);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawDirtCue(ctx, now, severity) {
+    ctx.save();
+    ctx.fillStyle = severity === 'critical' ? '#5b4634' : '#7b6245';
+    for (let index = 0; index < (severity === 'critical' ? 7 : 4); index += 1) {
+      const x = 122 + index * 44 + Math.sin(now / 300 + index) * 4;
+      const y = 374 + (index % 2) * 24;
+      ctx.fillRect(x, y, 12, 8);
+      ctx.fillRect(x + 16, y + 8, 8, 6);
+    }
+    ctx.restore();
+  }
+
+  function drawTiredCue(ctx, now, severity) {
+    drawBlink(ctx);
+    ctx.save();
+    ctx.globalAlpha = severity === 'critical' ? 0.9 : 0.65;
+    ctx.fillStyle = '#2f4f35';
+    ctx.font = 'bold 24px sans-serif';
+    ctx.fillText('Z', 344 + Math.sin(now / 400) * 6, 188);
+    ctx.font = 'bold 15px sans-serif';
+    ctx.fillText('z', 372 + Math.sin(now / 500) * 6, 164);
+    ctx.restore();
+  }
+
+  function drawSickCue(ctx, now, severity) {
+    ctx.save();
+    ctx.globalAlpha = severity === 'critical' ? 0.32 : 0.18;
+    ctx.fillStyle = '#8ddf9e';
+    ctx.fillRect(114, 82, 286, 260);
+    ctx.globalAlpha = 0.85;
+    ctx.strokeStyle = '#4d8c56';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(176 + Math.sin(now / 280) * 6, 174, 18, 0, Math.PI * 1.5);
+    ctx.arc(348 + Math.cos(now / 320) * 6, 190, 14, 0, Math.PI * 1.5);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawAttentionAlarm(ctx, pulse) {
+    ctx.save();
+    ctx.globalAlpha = 0.72 + pulse * 0.28;
+    ctx.fillStyle = '#d8646f';
+    ctx.fillRect(388, 88, 24, 72);
+    ctx.fillRect(388, 174, 24, 24);
+    ctx.fillStyle = '#fffdf7';
+    ctx.fillRect(395, 96, 10, 56);
+    ctx.fillRect(395, 181, 10, 10);
+    ctx.restore();
+  }
+
+  function drawThoughtBubble(ctx, now, label) {
+    const y = 104 + Math.sin(now / 500) * 4;
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 253, 247, 0.9)';
+    ctx.fillRect(332, y + 16, 86, 44);
+    ctx.fillRect(350, y, 52, 24);
+    ctx.fillRect(310, y + 52, 18, 14);
+    ctx.fillStyle = '#2f4f35';
+    ctx.font = 'bold 18px sans-serif';
+    ctx.fillText(label, label.length > 2 ? 350 : 364, y + 44);
+    ctx.restore();
+  }
+
+  function drawSparkles(ctx, now, color) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.55 + Math.sin(now / 350) * 0.25;
+    [[112, 158], [398, 138], [362, 318], [154, 338]].forEach(function(point, index) {
+      const size = 7 + (index % 2) * 3;
+      ctx.fillRect(point[0], point[1], size, 4);
+      ctx.fillRect(point[0] + Math.floor(size / 3), point[1] - Math.floor(size / 3), 4, size);
+    });
+    ctx.restore();
+  }
+
+  function drawFallbackMushroom(ctx, mode) {
+    ctx.fillStyle = '#26662f';
+    ctx.fillRect(78, 365, 356, 48);
+    ctx.fillStyle = '#79b845';
+    ctx.fillRect(96, 330, 320, 58);
+    ctx.fillStyle = '#f8d39b';
+    ctx.fillRect(196, 200, 120, 160);
+    ctx.fillStyle = '#fff0c9';
+    ctx.fillRect(116, 118, 280, 96);
+    ctx.fillRect(140, 86, 232, 70);
+    ctx.fillStyle = '#7b4f2f';
+    ctx.fillRect(132, 202, 248, 34);
+
+    if (mode === 'sleeping') {
+      ctx.fillStyle = '#37261d';
+      ctx.fillRect(220, 277, 32, 6);
+      ctx.fillRect(284, 277, 32, 6);
+      ctx.fillRect(256, 306, 26, 6);
+      return;
+    }
+
+    ctx.fillStyle = '#2e211a';
+    ctx.fillRect(216, 260, 24, 32);
+    ctx.fillRect(296, 260, 24, 32);
+    ctx.fillRect(246, 310, 42, 8);
+  }
+
+  function drawWakeSurpriseFace(ctx) {
+    drawSkinPatch(ctx, 178, 238, 78, 88);
+    drawSkinPatch(ctx, 270, 238, 78, 88);
+    drawSkinPatch(ctx, 238, 294, 60, 44);
+
+    drawBlockyEye(ctx, 188, 248);
+    drawBlockyEye(ctx, 282, 248);
+
+    ctx.fillStyle = '#2c1d17';
+    ctx.fillRect(256, 302, 14, 14);
+    ctx.fillRect(260, 298, 6, 22);
+  }
+
+  function drawSkinPatch(ctx, x, y, width, height) {
+    ctx.fillStyle = 'rgba(248, 202, 149, 0.92)';
+    ctx.fillRect(x + 10, y, width - 20, height);
+    ctx.fillRect(x, y + 12, width, height - 24);
+  }
+
+  function drawBlockyEye(ctx, x, y) {
+    ctx.fillStyle = '#fffaf0';
+    ctx.fillRect(x + 12, y, 38, 64);
+    ctx.fillRect(x, y + 12, 62, 40);
+    ctx.fillStyle = '#2c1d17';
+    ctx.fillRect(x + 28, y + 30, 10, 14);
+  }
+
+  function drawSleepAmbient(ctx, now) {
+    const cycle = (now / 1000) % 2;
+    ctx.fillStyle = 'rgba(255, 253, 247, 0.82)';
+    ctx.fillRect(350, 112, 42, 28);
+    ctx.fillRect(372, 96, 28, 18);
+    ctx.fillStyle = '#2f4f35';
+    ctx.font = 'bold 26px sans-serif';
+    ctx.fillText('Z', 362 + cycle * 10, 102 - cycle * 12);
+    ctx.font = 'bold 18px sans-serif';
+    ctx.fillText('z', 394 + cycle * 8, 78 - cycle * 10);
+  }
+
+  function drawEffects(ctx, now) {
+    const liveEffects = [];
+
+    runtime.effects.forEach(function(effect) {
+      const progress = (now - effect.createdAt) / effect.duration;
+      if (progress >= 1) {
+        return;
+      }
+
+      liveEffects.push(effect);
+      drawEffect(ctx, effect, progress);
+    });
+
+    runtime.effects = liveEffects;
+  }
+
+  function drawEffect(ctx, effect, progress) {
+    if (effect.type === 'water') {
+      drawParticleSet(ctx, effect, progress, '#317fb5', 'drop');
+    } else if (effect.type === 'clean') {
+      drawParticleSet(ctx, effect, progress, '#fffdf7', 'spark');
+    } else if (effect.type === 'hearts' || effect.type === 'play') {
+      drawParticleSet(ctx, effect, progress, '#d8646f', 'heart');
+    } else if (effect.type === 'music' || effect.type === 'instrument' || effect.type === 'sing') {
+      drawParticleSet(ctx, effect, progress, '#674ea7', 'note');
+    } else if (effect.type === 'spores') {
+      drawParticleSet(ctx, effect, progress, '#f5e58b', 'spore');
+    } else if (effect.type === 'wake') {
+      drawWakeBurst(ctx, progress);
+    } else if (effect.type === 'attention') {
+      drawAttentionAlarm(ctx, 1 - progress);
+    }
+  }
+
+  function drawParticleSet(ctx, effect, progress, color, shape) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, 1 - progress);
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 4;
+
+    effect.particles.forEach(function(particle, index) {
+      const x = particle.x + particle.dx * progress + Math.sin(progress * 8 + particle.phase) * 8;
+      const y = particle.y + particle.dy * progress;
+      const size = particle.size;
+
+      if (shape === 'drop') {
+        ctx.fillRect(x, y, size * 0.55, size);
+        ctx.fillRect(x - size * 0.18, y + size * 0.42, size * 0.9, size * 0.55);
+      } else if (shape === 'spark') {
+        ctx.fillRect(x, y, size, 4);
+        ctx.fillRect(x + size * 0.35, y - size * 0.35, 4, size);
+      } else if (shape === 'heart') {
+        ctx.fillRect(x, y, size, size);
+        ctx.fillRect(x - size * 0.6, y, size, size);
+        ctx.fillRect(x - size * 0.3, y + size * 0.55, size, size);
+      } else if (shape === 'note') {
+        ctx.fillRect(x, y, 5, size * 1.6);
+        ctx.fillRect(x + 5, y, size, 5);
+        ctx.fillRect(x - 5, y + size * 1.35, size, size * 0.6);
+      } else if (shape === 'spore') {
+        ctx.fillRect(x, y, size, size);
+      }
+
+      if (index % 3 === 0) {
+        ctx.globalAlpha = Math.max(0, 0.65 - progress);
+      }
+    });
+
+    ctx.restore();
+  }
+
+  function drawWakeBurst(ctx, progress) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, 1 - progress);
+    ctx.strokeStyle = '#fffdf7';
+    ctx.lineWidth = 8;
+
+    for (let index = 0; index < 8; index += 1) {
+      const angle = (Math.PI * 2 * index) / 8;
+      const inner = 74 + progress * 18;
+      const outer = 98 + progress * 34;
+      const centerX = 264;
+      const centerY = 284;
+
+      ctx.beginPath();
+      ctx.moveTo(centerX + Math.cos(angle) * inner, centerY + Math.sin(angle) * inner);
+      ctx.lineTo(centerX + Math.cos(angle) * outer, centerY + Math.sin(angle) * outer);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+})();
+</script>

@@ -1,0 +1,23 @@
+# Local environment and credentials
+.env
+.env.*
+.clasp.json
+
+# Dependency and build output
+node_modules/
+dist/
+build/
+__pycache__/
+*.pyc
+
+# Generated scratch output
+tmp/
+output/
+
+# Local agent/session metadata
+.codex/
+.agents/
+
+# OS/editor files
+.DS_Store
+Thumbs.db

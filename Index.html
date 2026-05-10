@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="pl">
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <title><?= PIECZARGOTCHI_APP_TITLE ?></title>
+    <?!= include('Styles'); ?>
+  </head>
+  <body>
+    <div class="app" data-app>
+      <header class="topbar">
+        <div>
+          <h1>Pieczargotchi</h1>
+        </div>
+        <div class="topbar__status" aria-live="polite">
+          <span class="status-pill" data-mode-pill>Śpi</span>
+          <button class="ghost-button" type="button" data-reset-button title="Wyczyść zapis gry">Od nowa</button>
+        </div>
+      </header>
+
+      <main class="game-grid">
+        <section class="stage-panel" aria-label="Scena pieczarki">
+          <div class="stage-toolbar">
+            <div>
+              <p class="eyebrow">Grządka</p>
+              <h2 data-mushroom-name>Pieczarka</h2>
+            </div>
+            <div class="stage-meta">
+              <span data-stage-label>Maluch</span>
+              <span data-day-label>Dzień 1</span>
+            </div>
+          </div>
+
+          <div class="canvas-wrap">
+            <canvas
+              id="mushroomCanvas"
+              width="512"
+              height="512"
+              aria-label="Animowana pikselowa pieczarka"
+            ></canvas>
+          </div>
+
+          <div class="message-panel" aria-live="polite">
+            <strong data-message-title>Odpoczywa</strong>
+            <span data-message-body>Pieczarka drzemie w miękkim mchu.</span>
+          </div>
+        </section>
+
+        <aside class="side-panel" aria-label="Panel opieki">
+          <section class="panel-block">
+            <div class="block-heading">
+              <h2>Status</h2>
+              <span data-health-label>100%</span>
+            </div>
+            <div class="stats-list" data-stats-list></div>
+          </section>
+
+          <section class="panel-block">
+            <div class="block-heading">
+              <h2>Opieka</h2>
+              <span data-cooldown-label>Gotowe</span>
+            </div>
+            <div class="actions-grid" data-actions-grid></div>
+          </section>
+
+          <section class="panel-block panel-block--compact">
+            <div class="block-heading">
+              <h2>Zasoby</h2>
+              <span data-coins-label>0 zarodników</span>
+            </div>
+            <div class="inventory-row" data-inventory-row></div>
+          </section>
+
+          <section class="panel-block panel-block--log">
+            <div class="block-heading">
+              <h2>Dziennik</h2>
+              <span data-asset-status>Ładowanie grafik</span>
+            </div>
+            <ol class="event-log" data-event-log></ol>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <script>
+      window.PIECZARGOTCHI_CONFIG = <?!= clientConfigJson ?>;
+    </script>
+    <?!= include('Client'); ?>
+  </body>
+</html>

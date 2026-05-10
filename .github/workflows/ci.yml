@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  assety:
+    name: Walidacja assetow i skryptow
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Pobierz kod
+        uses: actions/checkout@v4
+
+      - name: Przygotuj Pythona
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Przygotuj Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Zainstaluj zaleznosci audytu sprite
+        run: python -m pip install Pillow
+
+      - name: Sprawdz skladnie skryptow
+        run: |
+          python -m py_compile scripts/build-imagegen-sprites.py scripts/generate-pixel-assets.py scripts/audit-sprite-consistency.py
+          node --check scripts/validate-assets.mjs
+          node --check scripts/capture-app-render.mjs
+
+      - name: Waliduj runtime PNG
+        run: node scripts/validate-assets.mjs
+
+      - name: Audytuj spojnosci sprite
+        run: python scripts/audit-sprite-consistency.py

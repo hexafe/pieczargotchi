@@ -1,0 +1,85 @@
+function getStateModelConfig() {
+  return {
+    version: PIECZARGOTCHI_STATE_VERSION,
+    storageKey: PIECZARGOTCHI_STORAGE_KEY,
+    defaultState: createDefaultStateTemplate(),
+    statOrder: [
+      'hydration',
+      'nutrients',
+      'energy',
+      'happiness',
+      'cleanliness',
+      'health',
+      'growth'
+    ],
+    inventoryOrder: ['water', 'compost', 'toys', 'substrate', 'spores']
+  };
+}
+
+function createDefaultStateTemplate() {
+  return {
+    version: PIECZARGOTCHI_STATE_VERSION,
+    playerId: null,
+    mushroomName: 'Pieczarka',
+    createdAt: null,
+    lastUpdatedAt: null,
+    mode: 'sleeping',
+    stage: 'spore',
+    currentActivity: null,
+    lastRandomInstrument: null,
+    stats: {
+      hydration: 70,
+      nutrients: 70,
+      energy: 80,
+      happiness: 60,
+      cleanliness: 80,
+      health: 100,
+      growth: 0
+    },
+    inventory: {
+      water: 3,
+      compost: 2,
+      toys: 1,
+      substrate: 1,
+      spores: 0
+    },
+    patch: {
+      quality: 72,
+      mycelium: 0,
+      harvests: 0,
+      careStreak: 0
+    },
+    attention: {
+      activeNeed: null,
+      severity: null,
+      startedAt: null,
+      deadlineAt: null,
+      lastMistakeAt: null
+    },
+    careMistakes: {
+      physical: 0,
+      mental: 0,
+      environment: 0,
+      rest: 0
+    },
+    coins: 0,
+    cooldowns: {
+      hydrate: 0,
+      feed: 0,
+      clean: 0,
+      play: 0,
+      instrument: 0,
+      sing: 0,
+      sleepWake: 0,
+      spores: 0
+    },
+    flags: {
+      tutorialDone: false,
+      firstWakeDone: false,
+      firstFeedDone: false,
+      firstInstrumentDone: false,
+      firstSingDone: false
+    },
+    log: []
+  };
+}
