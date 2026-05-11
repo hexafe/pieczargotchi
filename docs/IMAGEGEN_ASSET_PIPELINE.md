@@ -12,6 +12,12 @@ Raw atlasy imagegen sa zapisane w:
 assets/source/imagegen/raw/
 ```
 
+Imagegenowa baza zarodka, oczyszczona z tla i przycieta do uzycia przez builder:
+
+```text
+assets/source/imagegen/generated/spore_full_generated_atlas.png
+```
+
 Wymagane atlasy:
 
 - stany: `idle`, `sleep`, `wake`, `happy`, `excellent`, `tired`, `dry`, `hungry`, `dirty`, `sick`, `critical`
@@ -19,6 +25,8 @@ Wymagane atlasy:
 - efekty: `effects`
 
 Kazdy atlas stanu lub akcji ma jeden rzad pieciu postaci: `spore`, `baby`, `young`, `adult`, `legendary`. Tlo atlasu jest plaskim chroma-key `#ff00ff`.
+
+Dla etapu `spore` builder uzywa `spore_full_generated_atlas.png`: 19 kompletnych, wygenerowanych wariantow zarodka w kolejnosci stanow i akcji. Builder nie dokleja kapelusza ani nie sklada twarzy z osobnych warstw; tylko usuwa chroma-key, skaluje, centruje po ciele i doklada stabilna trawe runtime.
 
 ## Prompt Bazowy
 
@@ -30,7 +38,7 @@ Wspolny schemat promptow:
 Create a clean pixel-art character atlas containing five separate mushroom growth-stage characters for Pieczargotchi.
 One horizontal row of exactly five centered characters, evenly spaced, no text, no labels, no grid lines.
 Flat solid #ff00ff chroma-key background for background removal.
-Characters from left to right: organic rounded spore with tiny sprout, baby mushroom, young mushroom, adult mushroom, legendary mushroom with small red superhero cape.
+Characters from left to right: tiny cream button mushroom primordium with a short stem and small cap, no leaves, no sprout, no hair, baby mushroom, young mushroom, adult mushroom, legendary mushroom with small red superhero cape.
 Match the cute cream mushroom cap, warm brown gills, peach face, blush, soft pixel-art shading.
 No square pot, no blocky rectangle body, no grass, no scenery, no floor, no UI, no watermark.
 ```

@@ -35,7 +35,7 @@ function getActionDefinitions() {
       effectType: 'clean',
       animationType: 'clean',
       stats: { cleanliness: 28, happiness: 3 },
-      log: 'Grządka znowu wygląda schludnie.'
+      log: 'Grzybnia znowu wygląda schludnie.'
     },
     {
       id: 'play',
@@ -73,7 +73,7 @@ function getActionDefinitions() {
       animationType: 'sing',
       stats: { happiness: 18, energy: -8, growth: 1.2 },
       flag: 'firstSingDone',
-      log: 'Z grządki popłynęła miękka pieczarkowa melodia.'
+      log: 'Z grzybni popłynęła miękka pieczarkowa melodia.'
     },
     {
       id: 'sleepWake',
@@ -99,7 +99,7 @@ function getActionDefinitions() {
       animationType: 'spores',
       stats: { happiness: 8, energy: -14 },
       coins: 2,
-      log: 'Jasna chmurka zarodników uniosła się nad grządką.'
+      log: 'Jasna chmurka zarodników uniosła się nad grzybnią.'
     }
   ];
 }

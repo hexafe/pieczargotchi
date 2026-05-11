@@ -73,18 +73,18 @@ Po wdrożeniu manifestu powinny zostać zastąpione przez:
 
 ### 1. Zarodnik
 
-Charakter: mały, delikatny, bardziej roślina niż postać.
+Charakter: mały, delikatny, bardziej zalążek pieczarki niż pełna postać.
 
 Sylwetka:
 
-- mały zarodnik lub mini-kiełek w mchu,
-- brak pełnego kapelusza,
+- mały kremowy zalążek pieczarki w mchu, z krótkim trzonkiem i mini kapeluszem typu button/pin,
+- bez mini-kiełka, listka, czupryny i jajowatej bryły,
 - subtelne pulsowanie zamiast klasycznej twarzy.
 
 Wymagane animacje:
 
 - `idle_sheet.png`: 4 klatki, wolne pulsowanie.
-- `sleep_sheet.png`: 4 klatki, niemal nieruchomy zarodnik, małe `Z`.
+- `sleep_sheet.png`: 4 klatki, niemal nieruchomy zarodnik; `Z` rysuje runtime przez anchor etapu.
 - `wake_sheet.png`: 3 klatki, szybkie drgnięcie po przebudzeniu.
 - `dry_sheet.png`: 4 klatki, lekko przygaszony mech.
 - `hungry_sheet.png`: 4 klatki, zarodnik przechyla się ku podłożu.
@@ -144,7 +144,7 @@ Charakter: stabilna, opiekuńcza, gotowa do plonów.
 Sylwetka:
 
 - pełniejszy kapelusz,
-- bogatsza grządka,
+- bogatsza grzybnia,
 - drobne kwiaty lub elementy grzybni,
 - większy zakres reakcji.
 
@@ -162,7 +162,7 @@ Charakter: nagroda za długą dobrą opiekę, bardziej magiczna, ale nadal piecz
 Sylwetka:
 
 - większy kapelusz z subtelnym połyskiem,
-- bogata grządka,
+- bogata grzybnia,
 - więcej drobnych światełek i zarodników,
 - nie przesadzić z efektem, żeby nie odejść od pikselowej prostoty.
 

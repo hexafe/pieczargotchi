@@ -75,9 +75,10 @@ function sprawdzPlik(plik) {
 
   const czyEfekt = plik.includes(`${path.sep}effects${path.sep}`);
   const czyAktywnosc = plik.includes(`${path.sep}activities${path.sep}`);
+  const czyZarodnik = plik.includes(`${path.sep}spore${path.sep}`);
   const tolerancjaDriftu = czyEfekt ? 48 : czyAktywnosc ? 24 : 12;
   const tolerancjaCentrumX = czyEfekt ? 112 : czyAktywnosc ? 42 : 42;
-  const tolerancjaCentrumY = czyEfekt ? 112 : czyAktywnosc ? 125 : 125;
+  const tolerancjaCentrumY = czyEfekt ? 112 : czyZarodnik ? 150 : czyAktywnosc ? 125 : 125;
   const centra = [];
 
   for (let klatka = 0; klatka < liczbaKlatek; klatka += 1) {

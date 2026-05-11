@@ -55,7 +55,37 @@ If the IDs are blank or unavailable, the local preview loads PNG files from `ass
 
 ## Local Preview
 
-Run a local preview server from the repo root:
+Pieczargotchi's local preview only needs Node.js 18 or newer. It does not need `clasp`, Google Apps Script deployment, Drive asset IDs, or npm dependencies.
+
+Use the OS bootstrap scripts if you want the script to check/install Node.js, check the required app files, open the browser, and start the preview server.
+
+Linux:
+
+```sh
+bash scripts/run-local-linux.sh
+```
+
+Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run-local-windows.ps1
+```
+
+Useful options:
+
+```sh
+bash scripts/run-local-linux.sh --install --port 8090 --validate-assets
+powershell -ExecutionPolicy Bypass -File scripts\run-local-windows.ps1 -Install -Port 8090 -ValidateAssets
+```
+
+Run checks without starting the server:
+
+```sh
+bash scripts/run-local-linux.sh --check-only
+powershell -ExecutionPolicy Bypass -File scripts\run-local-windows.ps1 -CheckOnly
+```
+
+Manual server command from the repo root:
 
 ```sh
 node dev-server.mjs

@@ -172,7 +172,7 @@ Possible systems:
 - Airflow/light: too much/too little causes stress.
 - Mycelium: long-term hidden growth layer.
 - Spores: adult-stage reproduction/resource action.
-- Seasons/weather: local daily modifier, optional later.
+- Scene lighting: background now follows location weather, calculated sunrise/sunset, day phase, golden hour, blue hour, real sun/moon sky positions, moon phase, visible night constellations, and fallback Katowice timing when geolocation is unavailable.
 - Patch decorations: small cosmetic unlocks that also affect mood.
 
 ### 5. Interaction And Minigames
@@ -367,7 +367,7 @@ Implemented in this slice:
 - The app interface is now Polish-first for visible controls, messages, logs, action labels, state labels, and local preview text.
 - `awake.png` and `sleeping_sheet.png` remain centered and style-matched.
 - Pieczarka now breathes, blinks, thinks, and shows visual cues for wilgoć, odżywki, radość, czystość, energia, zdrowie, attention, and excellent care.
-- The state model now tracks attention calls, care mistakes, grządka quality, grzybnia progress, care streak, harvest count, and zarodniki.
-- Good care improves grządka quality and grzybnia. Mature grzybnia produces zarodniki and a visible spore effect.
+- The state model now tracks attention calls, care mistakes, podłoże quality, grzybnia progress, care streak, harvest count, and zarodniki.
+- Good care improves podłoże quality and grzybnia. Mature grzybnia produces zarodniki and a visible spore effect.
 - The animation manifest now covers 63 runtime animations: 5 growth stages with 11 state sheets each, plus 8 activity sheets.
 - The asset folder now also includes 5 optional effect sheets and `scripts/validate-assets.mjs` validates 68 PNG sheets.

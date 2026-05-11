@@ -130,7 +130,8 @@ Nie skalujemy całej sceny między etapami. Trawa/mech jest wspólną kotwicą w
 ### `spore`
 
 - start gry przy `growth: 0`,
-- zarodnik, doniczka albo inny czytelny początek grzybni,
+- mały kremowy zalążek pieczarki w mchu: krótki trzonek, mini kapelusz typu button/pin; bez listka, czupryny i jajowatej bryły,
+- kapelusz zarodka musi być częścią wygenerowanego sprite'a, bez osobnej nakładki w builderze,
 - ten sam pas trawy co w pozostałych etapach,
 - prostsza sylwetka i najmniej detalu,
 - ekspresja bardziej delikatna niż u starszych etapów.
@@ -210,6 +211,7 @@ Aktywności są stage-specific. Ten sam typ akcji musi mieć osobny sheet dla ka
 
 - Aktywność dalej pokazuje tę samą postać i ten sam etap, a nie osobny minigame sprite.
 - Rekwizyty i efekty są dodatkiem, nie nowym środkiem ciężkości.
+- `hydrate` nie skaluje całego cutoutu razem z wodą. Postać jest składana w rozmiarze etapu, a lekka mgiełka kropli jest nakładana nad nią jako osobna warstwa.
 - Jeśli pojawia się obiekt pomocniczy, jego skala nie powinna dominować nad Pieczargotchi.
 - Aktywność ma pozostać czytelna także wtedy, gdy użytkownik widzi tylko jedną klatkę lub skrócony fragment sekwencji.
 

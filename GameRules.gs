@@ -21,7 +21,7 @@ function getGameRulesConfig() {
         actionId: 'hydrate',
         title: 'Chce wilgoci',
         mildMessage: 'Mech robi się suchy. Pieczarka zerka na krople wody.',
-        criticalMessage: 'Grządka jest przesuszona. Pieczarka potrzebuje zroszenia teraz.'
+        criticalMessage: 'Podłoże jest przesuszone. Pieczarka potrzebuje zroszenia teraz.'
       },
       nutrients: {
         category: 'physical',
@@ -42,7 +42,7 @@ function getGameRulesConfig() {
         actionId: 'clean',
         title: 'Bałagan',
         mildMessage: 'W mchu zbiera się bałagan.',
-        criticalMessage: 'Grządka jest brudna. To zaczyna szkodzić zdrowiu.'
+        criticalMessage: 'Grzybnia jest brudna. To zaczyna szkodzić zdrowiu.'
       },
       energy: {
         category: 'rest',

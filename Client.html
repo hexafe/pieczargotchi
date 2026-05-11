@@ -33,6 +33,96 @@
     spores: 'Zarodniki'
   };
 
+  const defaultWeatherLocation = {
+    label: 'Katowice',
+    latitude: 50.2649,
+    longitude: 19.0238,
+    fallback: true
+  };
+
+  const weatherRefreshMs = 30 * 60 * 1000;
+  const constellationCatalog = [
+    {
+      id: 'bigDipper',
+      minStars: 5,
+      stars: [
+        { id: 'dubhe', ra: 165.932, dec: 61.751, mag: 1.8 },
+        { id: 'merak', ra: 165.460, dec: 56.382, mag: 2.4 },
+        { id: 'phecda', ra: 178.457, dec: 53.695, mag: 2.4 },
+        { id: 'megrez', ra: 183.856, dec: 57.033, mag: 3.3 },
+        { id: 'alioth', ra: 193.507, dec: 55.959, mag: 1.8 },
+        { id: 'mizar', ra: 200.981, dec: 54.925, mag: 2.2 },
+        { id: 'alkaid', ra: 206.885, dec: 49.313, mag: 1.9 }
+      ],
+      lines: [
+        ['dubhe', 'merak'],
+        ['merak', 'phecda'],
+        ['phecda', 'megrez'],
+        ['megrez', 'dubhe'],
+        ['megrez', 'alioth'],
+        ['alioth', 'mizar'],
+        ['mizar', 'alkaid']
+      ]
+    },
+    {
+      id: 'cassiopeia',
+      minStars: 5,
+      stars: [
+        { id: 'caph', ra: 2.295, dec: 59.150, mag: 2.3 },
+        { id: 'schedar', ra: 10.127, dec: 56.537, mag: 2.2 },
+        { id: 'gammaCas', ra: 14.177, dec: 60.717, mag: 2.5 },
+        { id: 'ruchbah', ra: 21.454, dec: 60.235, mag: 2.7 },
+        { id: 'segin', ra: 28.599, dec: 63.670, mag: 3.4 }
+      ],
+      lines: [
+        ['caph', 'schedar'],
+        ['schedar', 'gammaCas'],
+        ['gammaCas', 'ruchbah'],
+        ['ruchbah', 'segin']
+      ]
+    },
+    {
+      id: 'orion',
+      minStars: 5,
+      stars: [
+        { id: 'betelgeuse', ra: 88.793, dec: 7.407, mag: 0.5 },
+        { id: 'bellatrix', ra: 81.283, dec: 6.350, mag: 1.6 },
+        { id: 'mintaka', ra: 83.002, dec: -0.299, mag: 2.2 },
+        { id: 'alnilam', ra: 84.053, dec: -1.202, mag: 1.7 },
+        { id: 'alnitak', ra: 85.190, dec: -1.943, mag: 1.8 },
+        { id: 'saiph', ra: 86.939, dec: -9.670, mag: 2.1 },
+        { id: 'rigel', ra: 78.635, dec: -8.202, mag: 0.2 }
+      ],
+      lines: [
+        ['betelgeuse', 'bellatrix'],
+        ['betelgeuse', 'alnitak'],
+        ['bellatrix', 'mintaka'],
+        ['mintaka', 'alnilam'],
+        ['alnilam', 'alnitak'],
+        ['alnitak', 'saiph'],
+        ['mintaka', 'rigel'],
+        ['saiph', 'rigel']
+      ]
+    },
+    {
+      id: 'cygnus',
+      minStars: 5,
+      stars: [
+        { id: 'deneb', ra: 310.358, dec: 45.280, mag: 1.3 },
+        { id: 'sadr', ra: 305.557, dec: 40.257, mag: 2.2 },
+        { id: 'gienah', ra: 305.253, dec: 33.970, mag: 2.5 },
+        { id: 'deltaCyg', ra: 296.244, dec: 45.131, mag: 2.9 },
+        { id: 'albireo', ra: 292.680, dec: 27.959, mag: 3.1 }
+      ],
+      lines: [
+        ['deneb', 'sadr'],
+        ['sadr', 'albireo'],
+        ['gienah', 'sadr'],
+        ['sadr', 'deltaCyg']
+      ]
+    }
+  ];
+
   const dom = {};
   const runtime = {
     state: null,
@@ -42,6 +132,8 @@
     assetStatus: 'Ładowanie grafik',
     effects: [],
     wakeSurpriseUntil: 0,
+    weatherLocation: null,
+    weatherScene: createLocalWeatherScene(defaultWeatherLocation),
     actionButtons: new Map(),
     currentAnimationKey: null,
     currentAnimationStartedAt: 0,
@@ -63,6 +155,7 @@
     bindKeyboardShortcuts();
     renderUi();
     loadAssets();
+    initWeatherScene();
     startTimers();
     startRenderLoop();
   }
@@ -100,7 +193,7 @@
       }
 
       runtime.state = createDefaultState();
-      addLog(runtime.state, 'Nowa grządka jest gotowa.', Date.now());
+      addLog(runtime.state, 'Nowa grzybnia jest gotowa.', Date.now());
       saveState(runtime.state);
       renderUi();
       triggerEffect('clean');
@@ -236,6 +329,415 @@
 
       tryNext();
     });
+  }
+
+  function initWeatherScene() {
+    updateWeatherScene();
+    window.setInterval(updateWeatherScene, weatherRefreshMs);
+  }
+
+  function updateWeatherScene() {
+    const locationPromise = runtime.weatherLocation
+      ? Promise.resolve(runtime.weatherLocation)
+      : resolveWeatherLocation().then(function(location) {
+        runtime.weatherLocation = location;
+        return location;
+      });
+
+    locationPromise
+      .then(fetchWeatherScene)
+      .then(function(scene) {
+        runtime.weatherScene = scene;
+      })
+      .catch(function() {
+        runtime.weatherScene = createLocalWeatherScene(defaultWeatherLocation);
+      });
+  }
+
+  function resolveWeatherLocation() {
+    return new Promise(function(resolve) {
+      if (!navigator.geolocation) {
+        resolve(defaultWeatherLocation);
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(function(position) {
+        resolve({
+          label: 'Twoja okolica',
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          fallback: false
+        });
+      }, function() {
+        resolve(defaultWeatherLocation);
+      }, {
+        enableHighAccuracy: false,
+        maximumAge: 15 * 60 * 1000,
+        timeout: 3500
+      });
+    });
+  }
+
+  function fetchWeatherScene(location) {
+    if (!window.fetch) {
+      return Promise.resolve(createLocalWeatherScene(location));
+    }
+
+    const params = new URLSearchParams({
+      latitude: String(location.latitude),
+      longitude: String(location.longitude),
+      current: 'weather_code,is_day,precipitation,rain,snowfall,cloud_cover',
+      daily: 'sunrise,sunset',
+      timezone: 'auto',
+      forecast_hours: '1'
+    });
+
+    return window.fetch('https://api.open-meteo.com/v1/forecast?' + params.toString(), {
+      cache: 'no-store'
+    }).then(function(response) {
+      if (!response.ok) {
+        throw new Error('Nie udało się pobrać pogody.');
+      }
+
+      return response.json();
+    }).then(function(data) {
+      return createWeatherScene(data, location);
+    });
+  }
+
+  function createWeatherScene(data, location) {
+    const current = data && data.current ? data.current : {};
+    const weatherDate = parseWeatherLocalTime(current.time) || new Date();
+    const sunTimes = getSunTimesForWeather(data, location, weatherDate);
+    const code = Number(current.weather_code);
+    const cloudCover = clamp(Number(current.cloud_cover), 0, 100, 35);
+    const precipitation = Math.max(
+      0,
+      Number(current.precipitation) || 0,
+      Number(current.rain) || 0,
+      Number(current.snowfall) || 0
+    );
+    const dayPhase = sunTimes
+      ? getDayPhaseFromSun(weatherDate, sunTimes.sunrise, sunTimes.sunset)
+      : getLocalDayPhase(weatherDate);
+    const dayTone = sunTimes
+      ? getDayToneFromSun(weatherDate, sunTimes.sunrise, sunTimes.sunset)
+      : getLocalDayTone(weatherDate);
+
+    return {
+      locationLabel: location.label,
+      latitude: location.latitude,
+      longitude: location.longitude,
+      isFallbackLocation: Boolean(location.fallback),
+      isDay: isDayPhase(dayPhase),
+      dayPhase: dayPhase,
+      dayTone: dayTone,
+      condition: getWeatherCondition(code, precipitation, cloudCover),
+      cloudCover: cloudCover,
+      precipitation: precipitation,
+      sunriseAt: sunTimes ? sunTimes.sunrise.toISOString() : null,
+      sunsetAt: sunTimes ? sunTimes.sunset.toISOString() : null,
+      updatedAt: Date.now()
+    };
+  }
+
+  function createLocalWeatherScene(location) {
+    const now = new Date();
+    const sunTimes = calculateSunTimes(now, location.latitude, location.longitude);
+    const dayPhase = sunTimes
+      ? getDayPhaseFromSun(now, sunTimes.sunrise, sunTimes.sunset)
+      : getLocalDayPhase(now);
+    const dayTone = sunTimes
+      ? getDayToneFromSun(now, sunTimes.sunrise, sunTimes.sunset)
+      : getLocalDayTone(now);
+
+    return {
+      locationLabel: location.label,
+      latitude: location.latitude,
+      longitude: location.longitude,
+      isFallbackLocation: Boolean(location.fallback),
+      isDay: isDayPhase(dayPhase),
+      dayPhase: dayPhase,
+      dayTone: dayTone,
+      condition: 'clear',
+      cloudCover: 25,
+      precipitation: 0,
+      sunriseAt: sunTimes ? sunTimes.sunrise.toISOString() : null,
+      sunsetAt: sunTimes ? sunTimes.sunset.toISOString() : null,
+      updatedAt: Date.now()
+    };
+  }
+
+  function getCurrentWeatherScene() {
+    const scene = runtime.weatherScene || createLocalWeatherScene(defaultWeatherLocation);
+    const dayPhase = getDayPhaseForScene(scene, new Date());
+    const dayTone = getDayToneForScene(scene, new Date());
+    const isDay = isDayPhase(dayPhase);
+    if (scene.isDay === isDay && scene.dayPhase === dayPhase && scene.dayTone === dayTone) {
+      return scene;
+    }
+
+    runtime.weatherScene = Object.assign({}, scene, {
+      isDay: isDay,
+      dayPhase: dayPhase,
+      dayTone: dayTone,
+      daylightUpdatedAt: Date.now()
+    });
+    return runtime.weatherScene;
+  }
+
+  function isLocalDay(date) {
+    return isDayPhase(getLocalDayPhase(date));
+  }
+
+  function getSunTimesForWeather(data, location, date) {
+    const sunrise = parseWeatherLocalTime(getWeatherDailyTime(data, 'sunrise'));
+    const sunset = parseWeatherLocalTime(getWeatherDailyTime(data, 'sunset'));
+    if (sunrise && sunset) {
+      return { sunrise: sunrise, sunset: sunset };
+    }
+
+    return calculateSunTimes(date, location.latitude, location.longitude);
+  }
+
+  function getDayPhaseForScene(scene, date) {
+    const sunrise = parseWeatherLocalTime(scene.sunriseAt);
+    const sunset = parseWeatherLocalTime(scene.sunsetAt);
+    if (sunrise && sunset && isSameLocalDate(date, sunrise)) {
+      return getDayPhaseFromSun(date, sunrise, sunset);
+    }
+
+    const sunTimes = calculateSunTimes(date, scene.latitude, scene.longitude);
+    if (sunTimes) {
+      return getDayPhaseFromSun(date, sunTimes.sunrise, sunTimes.sunset);
+    }
+
+    return getLocalDayPhase(date);
+  }
+
+  function getDayToneForScene(scene, date) {
+    const sunrise = parseWeatherLocalTime(scene.sunriseAt);
+    const sunset = parseWeatherLocalTime(scene.sunsetAt);
+    if (sunrise && sunset && isSameLocalDate(date, sunrise)) {
+      return getDayToneFromSun(date, sunrise, sunset);
+    }
+
+    const sunTimes = calculateSunTimes(date, scene.latitude, scene.longitude);
+    if (sunTimes) {
+      return getDayToneFromSun(date, sunTimes.sunrise, sunTimes.sunset);
+    }
+
+    return getLocalDayTone(date);
+  }
+
+  function getWeatherDailyTime(data, key) {
+    const values = data && data.daily && Array.isArray(data.daily[key]) ? data.daily[key] : null;
+    return values && values.length ? values[0] : null;
+  }
+
+  function parseWeatherLocalTime(value) {
+    if (!value) {
+      return null;
+    }
+
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function getLocalDayPhase(date) {
+    const hour = date.getHours() + date.getMinutes() / 60;
+    if (hour >= 5 && hour < 6.5) {
+      return 'sunrise';
+    }
+    if (hour >= 6.5 && hour < 10.5) {
+      return 'morning';
+    }
+    if (hour >= 10.5 && hour < 14) {
+      return 'noon';
+    }
+    if (hour >= 14 && hour < 17) {
+      return 'afternoon';
+    }
+    if (hour >= 17 && hour < 19) {
+      return 'evening';
+    }
+    if (hour >= 19 && hour < 20.5) {
+      return 'sunset';
+    }
+    return 'night';
+  }
+
+  function getLocalDayTone(date) {
+    const hour = date.getHours() + date.getMinutes() / 60;
+    if (hour >= 4.5 && hour < 5.4) {
+      return 'dawnBlue';
+    }
+    if (hour >= 5.4 && hour < 7) {
+      return 'dawnGold';
+    }
+    if (hour >= 18 && hour < 19.5) {
+      return 'duskGold';
+    }
+    if (hour >= 19.5 && hour < 20.7) {
+      return 'duskBlue';
+    }
+    return 'neutral';
+  }
+
+  function getDayPhaseFromSun(date, sunrise, sunset) {
+    const current = minutesOfDay(date);
+    const sunriseMinute = minutesOfDay(sunrise);
+    const sunsetMinute = minutesOfDay(sunset);
+    const noonMinute = sunriseMinute + (sunsetMinute - sunriseMinute) / 2;
+
+    if (current < sunriseMinute - 45 || current >= sunsetMinute + 60) {
+      return 'night';
+    }
+    if (current < sunriseMinute + 60) {
+      return 'sunrise';
+    }
+    if (current < Math.min(noonMinute - 90, sunriseMinute + 240)) {
+      return 'morning';
+    }
+    if (current < noonMinute + 90) {
+      return 'noon';
+    }
+    if (current < sunsetMinute - 180) {
+      return 'afternoon';
+    }
+    if (current < sunsetMinute - 45) {
+      return 'evening';
+    }
+    return 'sunset';
+  }
+
+  function getDayToneFromSun(date, sunrise, sunset) {
+    const current = minutesOfDay(date);
+    const sunriseMinute = minutesOfDay(sunrise);
+    const sunsetMinute = minutesOfDay(sunset);
+
+    if (current >= sunriseMinute - 45 && current < sunriseMinute - 10) {
+      return 'dawnBlue';
+    }
+    if (current >= sunriseMinute - 10 && current < sunriseMinute + 90) {
+      return 'dawnGold';
+    }
+    if (current >= sunsetMinute - 90 && current < sunsetMinute + 15) {
+      return 'duskGold';
+    }
+    if (current >= sunsetMinute + 15 && current < sunsetMinute + 70) {
+      return 'duskBlue';
+    }
+    return 'neutral';
+  }
+
+  function calculateSunTimes(date, latitude, longitude) {
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      return null;
+    }
+
+    const sunrise = calculateSunTime(date, latitude, longitude, true);
+    const sunset = calculateSunTime(date, latitude, longitude, false);
+    return sunrise && sunset ? { sunrise: sunrise, sunset: sunset } : null;
+  }
+
+  function calculateSunTime(date, latitude, longitude, sunrise) {
+    const zenith = 90.833;
+    const day = getDayOfYear(date);
+    const lngHour = longitude / 15;
+    const targetHour = sunrise ? 6 : 18;
+    const t = day + (targetHour - lngHour) / 24;
+    const meanAnomaly = normalizeDegrees(0.9856 * t - 3.289);
+    const trueLongitude = normalizeDegrees(
+      meanAnomaly
+      + 1.916 * Math.sin(toRadians(meanAnomaly))
+      + 0.020 * Math.sin(toRadians(2 * meanAnomaly))
+      + 282.634
+    );
+    let rightAscension = toDegrees(Math.atan(0.91764 * Math.tan(toRadians(trueLongitude))));
+    rightAscension = normalizeDegrees(rightAscension);
+    rightAscension += Math.floor(trueLongitude / 90) * 90 - Math.floor(rightAscension / 90) * 90;
+    rightAscension /= 15;
+
+    const sinDec = 0.39782 * Math.sin(toRadians(trueLongitude));
+    const cosDec = Math.cos(Math.asin(sinDec));
+    const cosHour = (
+      Math.cos(toRadians(zenith)) - sinDec * Math.sin(toRadians(latitude))
+    ) / (cosDec * Math.cos(toRadians(latitude)));
+
+    if (cosHour > 1 || cosHour < -1) {
+      return null;
+    }
+
+    let hourAngle = sunrise
+      ? 360 - toDegrees(Math.acos(cosHour))
+      : toDegrees(Math.acos(cosHour));
+    hourAngle /= 15;
+
+    const localMeanTime = hourAngle + rightAscension - 0.06571 * t - 6.622;
+    const universalTime = normalizeHours(localMeanTime - lngHour);
+    const utcMidnight = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+    return new Date(utcMidnight + universalTime * 60 * 60 * 1000);
+  }
+
+  function getDayOfYear(date) {
+    const start = Date.UTC(date.getFullYear(), 0, 0);
+    const current = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+    return Math.floor((current - start) / 86400000);
+  }
+
+  function normalizeDegrees(value) {
+    return ((value % 360) + 360) % 360;
+  }
+
+  function normalizeHours(value) {
+    return ((value % 24) + 24) % 24;
+  }
+
+  function toRadians(value) {
+    return value * Math.PI / 180;
+  }
+
+  function toDegrees(value) {
+    return value * 180 / Math.PI;
+  }
+
+  function isSameLocalDate(left, right) {
+    return left.getFullYear() === right.getFullYear()
+      && left.getMonth() === right.getMonth()
+      && left.getDate() === right.getDate();
+  }
+
+  function minutesOfDay(date) {
+    return date.getHours() * 60 + date.getMinutes();
+  }
+
+  function isDayPhase(dayPhase) {
+    return dayPhase !== 'night';
+  }
+
+  function getWeatherCondition(code, precipitation, cloudCover) {
+    if ([95, 96, 99].includes(code)) {
+      return 'storm';
+    }
+
+    if ((code >= 71 && code <= 77) || code === 85 || code === 86) {
+      return 'snow';
+    }
+
+    if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82) || precipitation > 0.05) {
+      return 'rain';
+    }
+
+    if (code === 45 || code === 48) {
+      return 'fog';
+    }
+
+    if (code >= 1 && code <= 3 || cloudCover > 62) {
+      return 'cloudy';
+    }
+
+    return 'clear';
   }
 
   function createDefaultState() {
@@ -683,9 +1185,10 @@
 
     if (action.id === 'instrument') {
       const instrument = pickRandomInstrument();
-      runtime.state.lastRandomInstrument = instrument;
-      runtime.state.currentActivity.label = instrument;
-      addLog(runtime.state, 'Pieczarka zagrała na instrumencie: ' + instrument + '.', now);
+      runtime.state.lastRandomInstrument = instrument.label;
+      runtime.state.currentActivity.label = instrument.label;
+      runtime.state.currentActivity.instrumentVariant = instrument.variant;
+      addLog(runtime.state, 'Pieczarka zagrała na instrumencie: ' + instrument.label + '.', now);
     } else if (action.id === 'sing') {
       addLog(runtime.state, 'Pieczarka zaśpiewała miękką kapeluszową piosenkę.', now);
     } else {
@@ -734,13 +1237,17 @@
 
   function pickRandomInstrument() {
     const instruments = rules.instruments || ['mała kalimba'];
-    return instruments[Math.floor(Math.random() * instruments.length)];
+    const index = Math.floor(Math.random() * instruments.length);
+    return {
+      label: instruments[index],
+      variant: positiveModulo(index, 4)
+    };
   }
 
   function addLog(state, message, now) {
     const entry = {
       at: new Date(now).toISOString(),
-      text: message || 'Coś poruszyło się w grządce.'
+      text: message || 'Coś poruszyło się w grzybni.'
     };
     const maxEntries = rules.maxLogEntries || 8;
     state.log = [entry].concat(state.log || []).slice(0, maxEntries);
@@ -907,26 +1414,37 @@
 
   function renderInventory() {
     const inventoryOrder = stateConfig.inventoryOrder || Object.keys(runtime.state.inventory || {});
+    const patchRows = [
+      { label: 'Jakość', value: Math.round(runtime.state.patch.quality) + '%' },
+      { label: 'Grzybnia', value: Math.round(runtime.state.patch.mycelium) + '%' },
+      { label: 'Seria', value: runtime.state.patch.careStreak },
+      { label: 'Pomyłki', value: getCareMistakeTotal(runtime.state) }
+    ];
     dom.inventoryRow.innerHTML = '';
 
     inventoryOrder.forEach(function(item) {
-      const pill = document.createElement('span');
-      pill.className = 'inventory-item';
-      pill.textContent = (inventoryLabels[item] || item) + ' ' + (runtime.state.inventory[item] || 0);
-      dom.inventoryRow.appendChild(pill);
+      appendInventoryItem(inventoryLabels[item] || item, runtime.state.inventory[item] || 0);
     });
 
-    [
-      'Jakość ' + Math.round(runtime.state.patch.quality) + '%',
-      'Grzybnia ' + Math.round(runtime.state.patch.mycelium) + '%',
-      'Seria opieki ' + runtime.state.patch.careStreak,
-      'Pomyłki ' + getCareMistakeTotal(runtime.state)
-    ].forEach(function(label) {
-      const pill = document.createElement('span');
-      pill.className = 'inventory-item';
-      pill.textContent = label;
-      dom.inventoryRow.appendChild(pill);
+    patchRows.forEach(function(row) {
+      appendInventoryItem(row.label, row.value);
     });
+  }
+
+  function appendInventoryItem(label, value) {
+    const item = document.createElement('span');
+    const labelNode = document.createElement('span');
+    const valueNode = document.createElement('span');
+
+    item.className = 'inventory-item';
+    labelNode.className = 'inventory-label';
+    valueNode.className = 'inventory-value';
+    labelNode.textContent = label;
+    valueNode.textContent = value;
+
+    item.appendChild(labelNode);
+    item.appendChild(valueNode);
+    dom.inventoryRow.appendChild(item);
   }
 
   function getCareMistakeTotal(state) {
@@ -941,7 +1459,7 @@
 
     if (!entries.length) {
       const item = document.createElement('li');
-      item.textContent = 'Pieczarka czeka w grządce.';
+      item.textContent = 'Pieczarka czeka w grzybni.';
       dom.eventLog.appendChild(item);
       return;
     }
@@ -1019,7 +1537,7 @@
     if (state.mode === 'sleeping') {
       return {
         title: 'Odpoczywa',
-        body: 'Energia wraca, a grządka cicho oddycha.'
+        body: 'Energia wraca, a grzybnia cicho oddycha.'
       };
     }
 
@@ -1037,7 +1555,7 @@
       body: 'Porcja kompostu pomoże Pieczarce rosnąć.'
     },
     dirty: {
-      title: 'Bałagan w grządce',
+      title: 'Bałagan w grzybni',
       body: 'Sprzątanie mchu poprawi nastrój.'
     },
     tired: {
@@ -1050,7 +1568,7 @@
     },
     happy: {
       title: 'Promienieje',
-      body: 'Pieczarka świetnie rośnie w swojej grządce.'
+      body: 'Pieczarka świetnie rośnie w swojej grzybni.'
     },
     content: {
       title: 'Zadowolona',
@@ -1098,6 +1616,7 @@
   }
 
   function createParticles(type) {
+    const anchor = getStageEffectAnchor();
     const countByType = {
       water: 10,
       clean: 14,
@@ -1112,16 +1631,141 @@
 
     for (let index = 0; index < count; index += 1) {
       particles.push({
-        x: 180 + Math.random() * 160,
-        y: 250 + Math.random() * 96,
+        x: anchor.particleX - anchor.particleSpreadX / 2 + Math.random() * anchor.particleSpreadX,
+        y: anchor.particleY + Math.random() * anchor.particleSpreadY,
         dx: -30 + Math.random() * 60,
-        dy: -90 - Math.random() * 70,
+        dy: -anchor.particleLiftMin - Math.random() * anchor.particleLiftRange,
         size: 5 + Math.random() * 11,
         phase: Math.random() * Math.PI * 2
       });
     }
 
     return particles;
+  }
+
+  function getStageEffectAnchor(stageId) {
+    const stage = stageId || (runtime.state && runtime.state.stage) || 'adult';
+    const anchors = {
+      spore: {
+        sleepCloudX: 315,
+        sleepCloudY: 288,
+        sleepZ: [326, 292],
+        sleepSmallZ: [358, 274],
+        sleepLargeRise: 6,
+        sleepSmallRise: 5,
+        tiredZ: [320, 282],
+        tiredSmallZ: [350, 258],
+        bubbleX: 306,
+        bubbleY: 244,
+        particleX: 256,
+        particleY: 304,
+        particleSpreadX: 112,
+        particleSpreadY: 58,
+        particleLiftMin: 56,
+        particleLiftRange: 54,
+        wakeCenterX: 258,
+        wakeCenterY: 360,
+        wakeInner: 42,
+        wakeOuter: 64,
+        alarmX: 336,
+        alarmY: 236,
+        sparkles: [[176, 292], [338, 282], [318, 374], [202, 390]]
+      },
+      baby: {
+        sleepCloudX: 338,
+        sleepCloudY: 162,
+        sleepZ: [350, 156],
+        sleepSmallZ: [382, 132],
+        tiredZ: [326, 210],
+        tiredSmallZ: [358, 186],
+        bubbleX: 322,
+        bubbleY: 148,
+        particleX: 258,
+        particleY: 246,
+        particleSpreadX: 138,
+        particleSpreadY: 72,
+        particleLiftMin: 74,
+        particleLiftRange: 60,
+        wakeCenterX: 262,
+        wakeCenterY: 318,
+        wakeInner: 58,
+        wakeOuter: 82,
+        alarmX: 364,
+        alarmY: 148,
+        sparkles: [[132, 226], [386, 180], [350, 332], [158, 356]]
+      },
+      young: {
+        sleepCloudX: 346,
+        sleepCloudY: 118,
+        sleepZ: [358, 112],
+        sleepSmallZ: [390, 88],
+        tiredZ: [336, 166],
+        tiredSmallZ: [368, 142],
+        bubbleX: 330,
+        bubbleY: 108,
+        particleX: 258,
+        particleY: 214,
+        particleSpreadX: 154,
+        particleSpreadY: 84,
+        particleLiftMin: 82,
+        particleLiftRange: 68,
+        wakeCenterX: 262,
+        wakeCenterY: 288,
+        wakeInner: 66,
+        wakeOuter: 92,
+        alarmX: 378,
+        alarmY: 112,
+        sparkles: [[118, 176], [398, 146], [362, 318], [154, 338]]
+      },
+      adult: {
+        sleepCloudX: 350,
+        sleepCloudY: 96,
+        sleepZ: [362, 102],
+        sleepSmallZ: [394, 78],
+        tiredZ: [344, 188],
+        tiredSmallZ: [372, 164],
+        bubbleX: 332,
+        bubbleY: 104,
+        particleX: 260,
+        particleY: 250,
+        particleSpreadX: 160,
+        particleSpreadY: 96,
+        particleLiftMin: 90,
+        particleLiftRange: 70,
+        wakeCenterX: 264,
+        wakeCenterY: 284,
+        wakeInner: 74,
+        wakeOuter: 98,
+        alarmX: 388,
+        alarmY: 88,
+        sparkles: [[112, 158], [398, 138], [362, 318], [154, 338]]
+      },
+      legendary: {
+        sleepCloudX: 350,
+        sleepCloudY: 96,
+        sleepZ: [362, 102],
+        sleepSmallZ: [394, 78],
+        tiredZ: [344, 188],
+        tiredSmallZ: [372, 164],
+        bubbleX: 332,
+        bubbleY: 104,
+        particleX: 260,
+        particleY: 250,
+        particleSpreadX: 168,
+        particleSpreadY: 98,
+        particleLiftMin: 90,
+        particleLiftRange: 72,
+        wakeCenterX: 264,
+        wakeCenterY: 284,
+        wakeInner: 74,
+        wakeOuter: 98,
+        alarmX: 388,
+        alarmY: 88,
+        sparkles: [[112, 158], [398, 138], [362, 318], [154, 338]]
+      }
+    };
+
+    return anchors[stage] || anchors.adult;
   }
 
   function drawFrame(now) {
@@ -1145,7 +1789,7 @@
     if (runtime.state && runtime.state.mode === 'sleeping') {
       drawSleepAmbient(ctx, now);
     } else {
-      drawTemporaryOverlays(ctx, now, selectedAnimation, drewAnimation);
+      drawTemporaryOverlays(ctx, now, wallNow, selectedAnimation, drewAnimation);
     }
 
     drawEffects(ctx, now);
@@ -1319,8 +1963,9 @@
     return ((value % modulo) + modulo) % modulo;
   }
 
-  function drawTemporaryOverlays(ctx, now, selectedAnimation, drewAnimation) {
+  function drawTemporaryOverlays(ctx, now, wallNow, selectedAnimation, drewAnimation) {
     const need = getStrongestNeed(runtime.state);
+    const activity = getActiveActivity(runtime.state, wallNow);
 
     if (!drewAnimation) {
       drawNeedOverlay(ctx, now);
@@ -1342,22 +1987,774 @@
   }
 
   function drawStageBackground(ctx, now) {
-    ctx.fillStyle = '#ddefb8';
+    const scene = getCurrentWeatherScene();
+    const palette = getScenePalette(scene);
+
+    drawSkyBands(ctx, palette);
+    drawCelestial(ctx, scene, palette, now);
+    drawCloudLayer(ctx, scene, palette, now);
+    drawWeatherLayer(ctx, scene, now);
+    drawLowGround(ctx, palette, now);
+  }
+
+  function getScenePalette(scene) {
+    const phase = scene.dayPhase || (scene.isDay ? 'noon' : 'night');
+    const tone = scene.dayTone || 'neutral';
+    const base = getDayPhasePalette(phase, tone);
+    return applyWeatherPalette(base, scene.condition);
+  }
+
+  function getDayPhasePalette(phase, tone) {
+    const palettes = {
+      sunrise: {
+        skyTop: '#738bb2',
+        skyMid: '#efa172',
+        skyLow: '#f2cf83',
+        cloud: 'rgba(255, 218, 166, 0.56)',
+        cloudLight: 'rgba(255, 247, 207, 0.54)',
+        ground: '#5f873d',
+        groundLight: '#83a94e',
+        blade: '#9abd5f',
+        sun: '#ffd36f',
+        sunCore: '#fff0ad'
+      },
+      morning: {
+        skyTop: '#cfe9cf',
+        skyMid: '#dcefb9',
+        skyLow: '#c8e99a',
+        cloud: 'rgba(255, 253, 230, 0.55)',
+        cloudLight: 'rgba(255, 255, 247, 0.50)',
+        ground: '#69a344',
+        groundLight: '#83b955',
+        blade: '#91ca60',
+        sun: '#ffe596',
+        sunCore: '#fff3b8'
+      },
+      noon: {
+        skyTop: '#dff0c6',
+        skyMid: '#d8edb8',
+        skyLow: '#c8e99a',
+        cloud: 'rgba(255, 253, 230, 0.55)',
+        cloudLight: 'rgba(255, 255, 247, 0.50)',
+        ground: '#69a344',
+        groundLight: '#83b955',
+        blade: '#91ca60',
+        sun: '#ffe596',
+        sunCore: '#fff3b8'
+      },
+      afternoon: {
+        skyTop: '#d8e7bd',
+        skyMid: '#d9e7a6',
+        skyLow: '#bddf8e',
+        cloud: 'rgba(255, 244, 214, 0.50)',
+        cloudLight: 'rgba(255, 255, 239, 0.46)',
+        ground: '#649b41',
+        groundLight: '#7fb24e',
+        blade: '#8dc25b',
+        sun: '#ffd77f',
+        sunCore: '#fff1b2'
+      },
+      evening: {
+        skyTop: '#a9b6bd',
+        skyMid: '#c9c88f',
+        skyLow: '#b5d17d',
+        cloud: 'rgba(205, 196, 151, 0.56)',
+        cloudLight: 'rgba(255, 235, 189, 0.42)',
+        ground: '#537f39',
+        groundLight: '#719845',
+        blade: '#86a850',
+        sun: '#ffc46e',
+        sunCore: '#ffe7a0'
+      },
+      sunset: {
+        skyTop: '#6f7a9c',
+        skyMid: '#ce7e72',
+        skyLow: '#eca65e',
+        cloud: 'rgba(154, 103, 103, 0.58)',
+        cloudLight: 'rgba(255, 199, 151, 0.44)',
+        ground: '#456b35',
+        groundLight: '#637f3d',
+        blade: '#7a944b',
+        sun: '#ffb35f',
+        sunCore: '#ffe39a'
+      },
+      night: {
+        skyTop: '#172743',
+        skyMid: '#243b52',
+        skyLow: '#3e5846',
+        cloud: 'rgba(91, 107, 129, 0.55)',
+        cloudLight: 'rgba(142, 153, 170, 0.36)',
+        ground: '#365f38',
+        groundLight: '#4b7942',
+        blade: '#638b47',
+        sun: '#f5f0c8',
+        sunCore: '#fff7d1'
+      }
+    };
+
+    return applyDayTonePalette(palettes[phase] || palettes.noon, tone);
+  }
+
+  function applyDayTonePalette(base, tone) {
+    if (tone === 'dawnBlue') {
+      return Object.assign({}, base, {
+        skyTop: '#50627f',
+        skyMid: '#788aa2',
+        skyLow: '#d4b783',
+        cloud: 'rgba(132, 150, 174, 0.46)',
+        cloudLight: 'rgba(223, 232, 217, 0.40)',
+        sun: '#f0c77c',
+        sunCore: '#fff0b5'
+      });
+    }
+
+    if (tone === 'dawnGold') {
+      return Object.assign({}, base, {
+        skyTop: '#7b8fb4',
+        skyMid: '#f0a875',
+        skyLow: '#f4d18a',
+        cloud: 'rgba(255, 216, 156, 0.58)',
+        cloudLight: 'rgba(255, 246, 207, 0.56)',
+        sun: '#ffd06b',
+        sunCore: '#fff1b5'
+      });
+    }
+
+    if (tone === 'duskGold') {
+      return Object.assign({}, base, {
+        skyTop: '#8a879e',
+        skyMid: '#d89076',
+        skyLow: '#eab45f',
+        cloud: 'rgba(185, 124, 108, 0.54)',
+        cloudLight: 'rgba(255, 210, 163, 0.44)',
+        sun: '#ffbd68',
+        sunCore: '#ffe7a4'
+      });
+    }
+
+    if (tone === 'duskBlue') {
+      return Object.assign({}, base, {
+        skyTop: '#3e506d',
+        skyMid: '#6d6f8e',
+        skyLow: '#b5846d',
+        cloud: 'rgba(91, 105, 134, 0.56)',
+        cloudLight: 'rgba(172, 176, 189, 0.34)',
+        sun: '#f0b463',
+        sunCore: '#ffe1a0'
+      });
+    }
+
+    return base;
+  }
+
+  function applyWeatherPalette(base, condition) {
+    if (condition === 'rain' || condition === 'storm') {
+      return Object.assign({}, base, {
+        skyTop: base.skyTop,
+        skyMid: '#9fb79f',
+        skyLow: '#aebf98',
+        cloud: 'rgba(91, 111, 103, 0.74)',
+        cloudLight: 'rgba(176, 193, 169, 0.50)',
+        ground: base.ground === '#365f38' ? '#315a36' : '#5f8f43',
+        groundLight: base.ground === '#365f38' ? '#426c3c' : '#77aa4e',
+        blade: base.ground === '#365f38' ? '#567f42' : '#84ba54'
+      });
+    }
+
+    if (condition === 'snow' || condition === 'fog') {
+      return Object.assign({}, base, {
+        skyTop: '#d5e5d4',
+        skyMid: '#daeac7',
+        skyLow: '#d3e8bb',
+        cloud: 'rgba(196, 211, 196, 0.72)',
+        cloudLight: 'rgba(255, 255, 247, 0.56)',
+        ground: '#8aae62',
+        groundLight: '#a7c775',
+        blade: '#b9d184'
+      });
+    }
+
+    if (condition === 'cloudy') {
+      return Object.assign({}, base, {
+        cloud: 'rgba(172, 187, 151, 0.62)',
+        cloudLight: 'rgba(255, 255, 231, 0.45)'
+      });
+    }
+
+    return base;
+  }
+
+  function drawSkyBands(ctx, palette) {
+    const sky = ctx.createLinearGradient(0, 0, 0, 512);
+    sky.addColorStop(0, palette.skyTop);
+    sky.addColorStop(0.64, palette.skyMid);
+    sky.addColorStop(1, palette.skyLow);
+    ctx.fillStyle = sky;
     ctx.fillRect(0, 0, 512, 512);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+    ctx.fillRect(0, 0, 512, 54);
+  }
 
-    ctx.fillStyle = '#c6e58e';
-    ctx.fillRect(0, 298, 512, 88);
+  function drawCelestial(ctx, scene, palette, now) {
+    const date = new Date();
+    ctx.save();
+    const sun = getSunPosition(scene, date);
+    if (sun) {
+      const weatherAlpha = scene.condition === 'rain' || scene.condition === 'storm' ? 0.22 : 0.72;
+      const twilightAlpha = scene.isDay ? 1 : 0.48;
+      ctx.globalAlpha = weatherAlpha * twilightAlpha * sun.alpha;
+      ctx.fillStyle = palette.sun || '#ffe596';
+      ctx.fillRect(sun.x, sun.y, sun.size, sun.size);
+      ctx.fillStyle = palette.sunCore || '#fff3b8';
+      ctx.fillRect(sun.x + sun.coreInset, sun.y + sun.coreInset, sun.coreSize, sun.coreSize);
+    }
 
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.24)';
-    ctx.fillRect(0, 0, 512, 56);
+    const moon = getMoonPosition(scene, date);
+    if (moon) {
+      const weatherAlpha = scene.condition === 'rain' || scene.condition === 'storm' ? 0.34 : 0.78;
+      const daylightAlpha = scene.isDay ? 0.34 : 1;
+      ctx.globalAlpha = weatherAlpha * daylightAlpha * moon.alpha;
+      drawPixelMoon(ctx, moon);
+    }
 
-    ctx.fillStyle = '#5f9d3b';
-    ctx.fillRect(0, 386, 512, 126);
-    ctx.fillStyle = '#76b84e';
+    if (!scene.isDay) {
+      drawVisibleConstellation(ctx, scene, date, now);
+      ctx.globalAlpha = 0.72;
+      for (let index = 0; index < 11; index += 1) {
+        const x = 42 + index * 38 + ((index * 17) % 19);
+        const y = 34 + ((index * 29 + Math.floor(now / 900)) % 110);
+        ctx.fillStyle = index % 3 === 0 ? '#f7efb1' : '#d8e9d2';
+        ctx.fillRect(x, y, 3, 3);
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawVisibleConstellation(ctx, scene, date, now) {
+    const constellation = selectVisibleConstellation(scene, date);
+    if (!constellation) {
+      return;
+    }
+
+    ctx.save();
+    ctx.globalAlpha = 0.34;
+    ctx.fillStyle = '#d8e9d2';
+    constellation.lines.forEach(function(line) {
+      drawPixelConstellationLine(ctx, line[0], line[1], '#d8e9d2');
+    });
+
+    constellation.stars.forEach(function(star, index) {
+      const pulse = 0.80 + Math.sin(now / 420 + index * 1.7) * 0.14;
+      const starSize = star.mag < 1 ? 5 : star.mag < 2.2 ? 4 : 3;
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = star.mag < 1.5 ? '#fff6d4' : '#d8e9d2';
+      ctx.fillRect(Math.round(star.x - starSize / 2), Math.round(star.y - starSize / 2), starSize, starSize);
+      if (star.mag < 1.5) {
+        ctx.globalAlpha = pulse * 0.45;
+        ctx.fillRect(Math.round(star.x - 1), Math.round(star.y - 4), 2, 8);
+        ctx.fillRect(Math.round(star.x - 4), Math.round(star.y - 1), 8, 2);
+      }
+    });
+    ctx.restore();
+  }
+
+  function selectVisibleConstellation(scene, date) {
+    const observer = getSceneObserver(scene);
+    let best = null;
+
+    constellationCatalog.forEach(function(constellation) {
+      const visibleStars = [];
+      const byId = new Map();
+
+      constellation.stars.forEach(function(star) {
+        const horizontal = getHorizontalCoordinates(date, observer.latitude, observer.longitude, {
+          rightAscension: star.ra,
+          declination: star.dec
+        });
+        const screen = projectConstellationStarToSky(horizontal);
+        if (!screen) {
+          return;
+        }
+
+        const projected = Object.assign({}, star, screen, { altitude: horizontal.altitude });
+        visibleStars.push(projected);
+        byId.set(star.id, projected);
+      });
+
+      if (visibleStars.length < (constellation.minStars || 4)) {
+        return;
+      }
+
+      const visibleLines = constellation.lines.map(function(line) {
+        const start = byId.get(line[0]);
+        const end = byId.get(line[1]);
+        return start && end ? [start, end] : null;
+      }).filter(Boolean);
+      if (visibleLines.length < 3) {
+        return;
+      }
+
+      const bounds = getPointBounds(visibleStars);
+      const widthPenalty = Math.max(0, bounds.width - 250) * 0.18;
+      const heightPenalty = Math.max(0, bounds.height - 170) * 0.25;
+      const compactPenalty = Math.max(0, 70 - Math.max(bounds.width, bounds.height)) * 0.22;
+      const readableSpread = Math.min(170, Math.max(bounds.width, bounds.height)) * 0.08;
+      const averageAltitude = visibleStars.reduce(function(total, star) {
+        return total + star.altitude;
+      }, 0) / visibleStars.length;
+      const score = visibleStars.length * 8 + visibleLines.length * 4 + averageAltitude + readableSpread
+        - widthPenalty - heightPenalty - compactPenalty;
+      if (!best || score > best.score) {
+        const fittedStars = fitConstellationForDisplay(visibleStars, bounds);
+        const fittedById = new Map(fittedStars.map(function(star) {
+          return [star.id, star];
+        }));
+        best = {
+          id: constellation.id,
+          stars: fittedStars,
+          lines: visibleLines.map(function(line) {
+            return [fittedById.get(line[0].id), fittedById.get(line[1].id)];
+          }),
+          score: score
+        };
+      }
+    });
+
+    return best;
+  }
+
+  function fitConstellationForDisplay(stars, bounds) {
+    const longestSide = Math.max(bounds.width, bounds.height);
+    if (longestSide >= 72) {
+      return stars;
+    }
+
+    const scale = Math.min(1.65, 72 / Math.max(1, longestSide));
+    const centerX = (bounds.left + bounds.right) / 2;
+    const centerY = (bounds.top + bounds.bottom) / 2;
+    return stars.map(function(star) {
+      return Object.assign({}, star, {
+        x: clamp(centerX + (star.x - centerX) * scale, 34, 478, star.x),
+        y: clamp(centerY + (star.y - centerY) * scale, 30, 286, star.y)
+      });
+    });
+  }
+
+  function projectConstellationStarToSky(horizontal) {
+    if (!horizontal || horizontal.altitude < 7) {
+      return null;
+    }
+
+    const altitude = clamp(horizontal.altitude, 7, 82, 7);
+    const altitudeProgress = clamp((altitude - 7) / 75, 0, 1, 0);
+    const altitudeEase = Math.sin(altitudeProgress * Math.PI / 2);
+    const azimuthSpread = 222 * Math.cos(toRadians(clamp(altitude, 0, 82, 0)));
+    const x = 256 + Math.sin(toRadians(horizontal.azimuth - 180)) * azimuthSpread;
+    const y = 292 - altitudeEase * 238;
+    if (x < 28 || x > 484 || y < 26 || y > 292) {
+      return null;
+    }
+
+    return { x: x, y: y };
+  }
+
+  function drawPixelConstellationLine(ctx, start, end, color) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 5));
+    ctx.fillStyle = color;
+
+    for (let index = 0; index <= steps; index += 1) {
+      const progress = index / steps;
+      const x = Math.round(start.x + dx * progress);
+      const y = Math.round(start.y + dy * progress);
+      ctx.fillRect(x, y, 2, 2);
+    }
+  }
+
+  function getPointBounds(points) {
+    return points.reduce(function(bounds, point) {
+      return {
+        left: Math.min(bounds.left, point.x),
+        right: Math.max(bounds.right, point.x),
+        top: Math.min(bounds.top, point.y),
+        bottom: Math.max(bounds.bottom, point.y),
+        width: Math.max(bounds.right, point.x) - Math.min(bounds.left, point.x),
+        height: Math.max(bounds.bottom, point.y) - Math.min(bounds.top, point.y)
+      };
+    }, {
+      left: Infinity,
+      right: -Infinity,
+      top: Infinity,
+      bottom: -Infinity,
+      width: 0,
+      height: 0
+    });
+  }
+
+  function getSunPosition(scene, date) {
+    const observer = getSceneObserver(scene);
+    const coordinates = getSolarCoordinates(date);
+    const horizontal = getHorizontalCoordinates(date, observer.latitude, observer.longitude, coordinates);
+    const altitudeFactor = clamp((horizontal.altitude + 2) / 74, 0, 1, 0);
+    const size = 40 + Math.round(altitudeFactor * 6);
+    const screen = projectCelestialToSky(horizontal, size, -3);
+    if (!screen) {
+      return null;
+    }
+
+    const coreInset = Math.max(8, Math.round(size * 0.23));
+    return {
+      x: screen.x,
+      y: screen.y,
+      size: size,
+      coreInset: coreInset,
+      coreSize: size - coreInset * 2,
+      altitude: horizontal.altitude,
+      azimuth: horizontal.azimuth,
+      alpha: screen.alpha
+    };
+  }
+
+  function getSunTimesForScene(scene, date) {
+    const sunrise = parseWeatherLocalTime(scene.sunriseAt);
+    const sunset = parseWeatherLocalTime(scene.sunsetAt);
+    if (sunrise && sunset && isSameLocalDate(date, sunrise)) {
+      return { sunrise: sunrise, sunset: sunset };
+    }
+
+    return calculateSunTimes(date, scene.latitude, scene.longitude);
+  }
+
+  function getMoonPosition(scene, date) {
+    const observer = getSceneObserver(scene);
+    const coordinates = getLunarCoordinates(date);
+    const horizontal = getHorizontalCoordinates(date, observer.latitude, observer.longitude, coordinates);
+    const phase = getMoonPhase(date, coordinates);
+    if (phase.illumination < 0.025) {
+      return null;
+    }
+
+    const altitudeFactor = clamp((horizontal.altitude + 2) / 74, 0, 1, 0);
+    const size = Math.round(28 + phase.illumination * 9 + altitudeFactor * 4);
+    const screen = projectCelestialToSky(horizontal, size, -2.5);
+    if (!screen) {
+      return null;
+    }
+
+    return {
+      x: screen.x,
+      y: screen.y,
+      size: size,
+      phase: phase,
+      altitude: horizontal.altitude,
+      azimuth: horizontal.azimuth,
+      alpha: screen.alpha * (0.35 + phase.illumination * 0.65)
+    };
+  }
+
+  function getSceneObserver(scene) {
+    const latitude = Number(scene.latitude);
+    const longitude = Number(scene.longitude);
+    return {
+      latitude: Number.isFinite(latitude) ? latitude : defaultWeatherLocation.latitude,
+      longitude: Number.isFinite(longitude) ? longitude : defaultWeatherLocation.longitude
+    };
+  }
+
+  function projectCelestialToSky(horizontal, size, minimumAltitude) {
+    if (!horizontal || horizontal.altitude < minimumAltitude) {
+      return null;
+    }
+
+    const visibleAltitude = clamp(horizontal.altitude, minimumAltitude, 82, 0);
+    const altitudeProgress = clamp((visibleAltitude - minimumAltitude) / (82 - minimumAltitude), 0, 1, 0);
+    const altitudeEase = Math.sin(altitudeProgress * Math.PI / 2);
+    const azimuthSpread = 226 * Math.cos(toRadians(clamp(visibleAltitude, 0, 80, 0)));
+    const azimuthOffset = Math.sin(toRadians(horizontal.azimuth - 180));
+    const x = clamp(256 + azimuthOffset * azimuthSpread - size / 2, 26, 486 - size, 256 - size / 2);
+    const y = clamp(292 - altitudeEase * 246 - size / 2, 30, 292 - size / 2, 292 - size / 2);
+    const alpha = clamp((horizontal.altitude - minimumAltitude) / 8, 0, 1, 0);
+
+    return {
+      x: Math.round(x),
+      y: Math.round(y),
+      alpha: alpha
+    };
+  }
+
+  function getSolarCoordinates(date) {
+    const days = getJulianDate(date) - 2451545.0;
+    const meanAnomaly = normalizeDegrees(357.5291 + 0.98560028 * days);
+    const equationOfCenter = 1.9148 * sinDeg(meanAnomaly)
+      + 0.0200 * sinDeg(2 * meanAnomaly)
+      + 0.0003 * sinDeg(3 * meanAnomaly);
+    const eclipticLongitude = normalizeDegrees(meanAnomaly + equationOfCenter + 102.9372 + 180);
+    const obliquity = getObliquity(days);
+    return Object.assign(eclipticToEquatorial(eclipticLongitude, 0, obliquity), {
+      eclipticLongitude: eclipticLongitude,
+      eclipticLatitude: 0
+    });
+  }
+
+  function getLunarCoordinates(date) {
+    const days = getJulianDate(date) - 2451543.5;
+    const ascendingNode = normalizeDegrees(125.1228 - 0.0529538083 * days);
+    const inclination = 5.1454;
+    const argumentOfPerigee = normalizeDegrees(318.0634 + 0.1643573223 * days);
+    const meanAnomaly = normalizeDegrees(115.3654 + 13.0649929509 * days);
+    const eccentricity = 0.054900;
+    const semiMajorAxis = 60.2666;
+    const eccentricAnomaly = toRadians(meanAnomaly
+      + eccentricity * toDegrees(Math.sin(toRadians(meanAnomaly))) * (1 + eccentricity * cosDeg(meanAnomaly)));
+    const xv = semiMajorAxis * (Math.cos(eccentricAnomaly) - eccentricity);
+    const yv = semiMajorAxis * Math.sqrt(1 - eccentricity * eccentricity) * Math.sin(eccentricAnomaly);
+    const trueAnomaly = toDegrees(Math.atan2(yv, xv));
+    const distance = Math.sqrt(xv * xv + yv * yv);
+    const argument = trueAnomaly + argumentOfPerigee;
+    const xh = distance * (cosDeg(ascendingNode) * cosDeg(argument)
+      - sinDeg(ascendingNode) * sinDeg(argument) * cosDeg(inclination));
+    const yh = distance * (sinDeg(ascendingNode) * cosDeg(argument)
+      + cosDeg(ascendingNode) * sinDeg(argument) * cosDeg(inclination));
+    const zh = distance * sinDeg(argument) * sinDeg(inclination);
+    let eclipticLongitude = normalizeDegrees(toDegrees(Math.atan2(yh, xh)));
+    let eclipticLatitude = toDegrees(Math.atan2(zh, Math.sqrt(xh * xh + yh * yh)));
+
+    const sunMeanAnomaly = normalizeDegrees(356.0470 + 0.9856002585 * days);
+    const sunMeanLongitude = normalizeDegrees(280.460 + 0.9856474 * days);
+    const moonMeanLongitude = normalizeDegrees(ascendingNode + argumentOfPerigee + meanAnomaly);
+    const elongation = normalizeDegrees(moonMeanLongitude - sunMeanLongitude);
+    const argumentOfLatitude = normalizeDegrees(moonMeanLongitude - ascendingNode);
+
+    eclipticLongitude = normalizeDegrees(eclipticLongitude
+      - 1.274 * sinDeg(meanAnomaly - 2 * elongation)
+      + 0.658 * sinDeg(2 * elongation)
+      - 0.186 * sinDeg(sunMeanAnomaly)
+      - 0.059 * sinDeg(2 * meanAnomaly - 2 * elongation)
+      - 0.057 * sinDeg(meanAnomaly - 2 * elongation + sunMeanAnomaly)
+      + 0.053 * sinDeg(meanAnomaly + 2 * elongation)
+      + 0.046 * sinDeg(2 * elongation - sunMeanAnomaly)
+      + 0.041 * sinDeg(meanAnomaly - sunMeanAnomaly)
+      - 0.035 * sinDeg(elongation)
+      - 0.031 * sinDeg(meanAnomaly + sunMeanAnomaly));
+
+    eclipticLatitude += -0.173 * sinDeg(argumentOfLatitude - 2 * elongation)
+      - 0.055 * sinDeg(meanAnomaly - argumentOfLatitude - 2 * elongation)
+      - 0.046 * sinDeg(meanAnomaly + argumentOfLatitude - 2 * elongation)
+      + 0.033 * sinDeg(argumentOfLatitude + 2 * elongation)
+      + 0.017 * sinDeg(2 * meanAnomaly + argumentOfLatitude);
+
+    const obliquity = getObliquity(days);
+    return Object.assign(eclipticToEquatorial(eclipticLongitude, eclipticLatitude, obliquity), {
+      eclipticLongitude: eclipticLongitude,
+      eclipticLatitude: eclipticLatitude,
+      distance: distance
+    });
+  }
+
+  function getMoonPhase(date, lunarCoordinates) {
+    const moon = lunarCoordinates || getLunarCoordinates(date);
+    const sun = getSolarCoordinates(date);
+    const fraction = normalizeDegrees(moon.eclipticLongitude - sun.eclipticLongitude) / 360;
+    const illumination = (1 - Math.cos(fraction * Math.PI * 2)) / 2;
+
+    return {
+      fraction: fraction,
+      illumination: illumination,
+      waxing: fraction < 0.5
+    };
+  }
+
+  function drawPixelMoon(ctx, moon) {
+    const block = Math.max(3, Math.round(moon.size / 9));
+    const radius = moon.size / 2;
+    const center = moon.size / 2;
+
+    for (let y = 0; y < moon.size; y += block) {
+      for (let x = 0; x < moon.size; x += block) {
+        const centerX = x + block / 2;
+        const centerY = y + block / 2;
+        const dx = centerX - center;
+        const dy = centerY - center;
+        if (dx * dx + dy * dy > radius * radius) {
+          continue;
+        }
+
+        const normalizedX = dx / radius;
+        const normalizedY = dy / radius;
+        const lit = isMoonBlockLit(normalizedX, normalizedY, moon.phase);
+        if (!lit) {
+          continue;
+        }
+
+        ctx.fillStyle = getMoonLightColor(moon.phase.illumination);
+        ctx.fillRect(moon.x + x, moon.y + y, block, block);
+      }
+    }
+  }
+
+  function isMoonBlockLit(normalizedX, normalizedY, phase) {
+    const illumination = phase.illumination;
+    if (illumination >= 0.97) {
+      return true;
+    }
+    if (illumination <= 0.03) {
+      return false;
+    }
+
+    const surfaceDepth = Math.sqrt(Math.max(0, 1 - normalizedX * normalizedX - normalizedY * normalizedY));
+    const phaseAngle = phase.fraction * Math.PI * 2;
+    return normalizedX * Math.sin(phaseAngle) - surfaceDepth * Math.cos(phaseAngle) > 0;
+  }
+
+  function getMoonLightColor(illumination) {
+    if (illumination > 0.82) {
+      return '#fff6d4';
+    }
+    if (illumination > 0.45) {
+      return '#f5f0c8';
+    }
+    return '#d9dfbc';
+  }
+
+  function getHorizontalCoordinates(date, latitude, longitude, coordinates) {
+    const localSiderealTime = normalizeDegrees(getGreenwichSiderealTime(date) + longitude);
+    const hourAngle = normalizeDegrees(localSiderealTime - coordinates.rightAscension);
+    const hourAngleRad = toRadians(hourAngle);
+    const latitudeRad = toRadians(latitude);
+    const declinationRad = toRadians(coordinates.declination);
+    const altitude = toDegrees(Math.asin(
+      Math.sin(latitudeRad) * Math.sin(declinationRad)
+      + Math.cos(latitudeRad) * Math.cos(declinationRad) * Math.cos(hourAngleRad)
+    ));
+    const azimuth = normalizeDegrees(toDegrees(Math.atan2(
+      Math.sin(hourAngleRad),
+      Math.cos(hourAngleRad) * Math.sin(latitudeRad) - Math.tan(declinationRad) * Math.cos(latitudeRad)
+    )) + 180);
+
+    return {
+      altitude: altitude,
+      azimuth: azimuth
+    };
+  }
+
+  function eclipticToEquatorial(longitude, latitude, obliquity) {
+    const longitudeRad = toRadians(longitude);
+    const latitudeRad = toRadians(latitude);
+    const obliquityRad = toRadians(obliquity);
+    const x = Math.cos(longitudeRad) * Math.cos(latitudeRad);
+    const y = Math.sin(longitudeRad) * Math.cos(latitudeRad);
+    const z = Math.sin(latitudeRad);
+    const equatorialY = y * Math.cos(obliquityRad) - z * Math.sin(obliquityRad);
+    const equatorialZ = y * Math.sin(obliquityRad) + z * Math.cos(obliquityRad);
+
+    return {
+      rightAscension: normalizeDegrees(toDegrees(Math.atan2(equatorialY, x))),
+      declination: toDegrees(Math.atan2(equatorialZ, Math.sqrt(x * x + equatorialY * equatorialY)))
+    };
+  }
+
+  function getGreenwichSiderealTime(date) {
+    const julianDate = getJulianDate(date);
+    const centuries = (julianDate - 2451545.0) / 36525;
+    return normalizeDegrees(
+      280.46061837
+      + 360.98564736629 * (julianDate - 2451545.0)
+      + 0.000387933 * centuries * centuries
+      - centuries * centuries * centuries / 38710000
+    );
+  }
+
+  function getJulianDate(date) {
+    return date.getTime() / 86400000 + 2440587.5;
+  }
+
+  function getObliquity(days) {
+    return 23.439291 - 0.00000036 * days;
+  }
+
+  function sinDeg(value) {
+    return Math.sin(toRadians(value));
+  }
+
+  function cosDeg(value) {
+    return Math.cos(toRadians(value));
+  }
+
+  function drawCloudLayer(ctx, scene, palette, now) {
+    const cloudBase = scene.condition === 'clear' ? scene.cloudCover : Math.max(scene.cloudCover, 58);
+    const cloudCount = Math.min(5, Math.max(0, Math.round(cloudBase / 24)));
+
+    for (let index = 0; index < cloudCount; index += 1) {
+      const x = positiveModulo(index * 128 + Math.floor(now / (110 + index * 20)), 620) - 96;
+      const y = 62 + (index % 3) * 48;
+      drawPixelCloud(ctx, x, y, palette.cloud, palette.cloudLight);
+    }
+
+    if (scene.condition === 'fog') {
+      ctx.save();
+      ctx.globalAlpha = 0.22;
+      ctx.fillStyle = '#f3f8e6';
+      ctx.fillRect(0, 210, 512, 22);
+      ctx.fillRect(36, 268, 440, 18);
+      ctx.restore();
+    }
+  }
+
+  function drawPixelCloud(ctx, x, y, color, lightColor) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y + 18, 92, 22);
+    ctx.fillRect(x + 18, y + 4, 38, 24);
+    ctx.fillRect(x + 52, y + 10, 54, 26);
+    ctx.fillStyle = lightColor;
+    ctx.fillRect(x + 16, y + 20, 32, 8);
+    ctx.fillRect(x + 58, y + 18, 34, 8);
+    ctx.restore();
+  }
+
+  function drawWeatherLayer(ctx, scene, now) {
+    if (scene.condition === 'rain' || scene.condition === 'storm') {
+      ctx.save();
+      ctx.globalAlpha = scene.condition === 'storm' ? 0.62 : 0.48;
+      ctx.fillStyle = '#6aa8e8';
+      for (let index = 0; index < 34; index += 1) {
+        const x = positiveModulo(index * 43 + Math.floor(now / 30), 560) - 24;
+        const y = positiveModulo(index * 61 + Math.floor(now / 18), 330);
+        ctx.fillRect(x, y, 4, 14);
+        ctx.fillRect(x - 3, y + 10, 4, 8);
+      }
+      if (scene.condition === 'storm' && Math.floor(now / 1700) % 5 === 0) {
+        ctx.globalAlpha = 0.22;
+        ctx.fillStyle = '#fff6b8';
+        ctx.fillRect(0, 0, 512, 512);
+      }
+      ctx.restore();
+    } else if (scene.condition === 'snow') {
+      ctx.save();
+      ctx.globalAlpha = 0.68;
+      ctx.fillStyle = '#fffdf7';
+      for (let index = 0; index < 28; index += 1) {
+        const x = positiveModulo(index * 47 + Math.floor(now / 80), 548) - 18;
+        const y = positiveModulo(index * 53 + Math.floor(now / 45), 350);
+        const size = index % 3 === 0 ? 5 : 3;
+        ctx.fillRect(x, y, size, size);
+      }
+      ctx.restore();
+    }
+  }
+
+  function drawLowGround(ctx, palette, now) {
+    const groundTop = 444;
+    ctx.fillStyle = palette.ground;
+    ctx.fillRect(0, groundTop, 512, 68);
+    ctx.fillStyle = palette.groundLight;
+    ctx.fillRect(0, groundTop, 512, 8);
+    ctx.fillStyle = palette.blade;
 
     for (let x = -8; x < 520; x += 16) {
-      const bladeHeight = 18 + ((x * 7 + Math.floor(now / 600)) % 18);
-      ctx.fillRect(x, 386 - bladeHeight, 8, bladeHeight);
+      const bladeHeight = 10 + ((x * 7 + Math.floor(now / 700)) % 16);
+      ctx.fillRect(x, groundTop - bladeHeight, 8, bladeHeight);
     }
   }
 
@@ -1464,13 +2861,14 @@
 
   function drawTiredCue(ctx, now, severity) {
     drawBlink(ctx);
+    const anchor = getStageEffectAnchor();
     ctx.save();
     ctx.globalAlpha = severity === 'critical' ? 0.9 : 0.65;
     ctx.fillStyle = '#2f4f35';
     ctx.font = 'bold 24px sans-serif';
-    ctx.fillText('Z', 344 + Math.sin(now / 400) * 6, 188);
+    ctx.fillText('Z', anchor.tiredZ[0] + Math.sin(now / 400) * 6, anchor.tiredZ[1]);
     ctx.font = 'bold 15px sans-serif';
-    ctx.fillText('z', 372 + Math.sin(now / 500) * 6, 164);
+    ctx.fillText('z', anchor.tiredSmallZ[0] + Math.sin(now / 500) * 6, anchor.tiredSmallZ[1]);
     ctx.restore();
   }
 
@@ -1490,35 +2888,39 @@
   }
 
   function drawAttentionAlarm(ctx, pulse) {
+    const anchor = getStageEffectAnchor();
     ctx.save();
     ctx.globalAlpha = 0.72 + pulse * 0.28;
     ctx.fillStyle = '#d8646f';
-    ctx.fillRect(388, 88, 24, 72);
-    ctx.fillRect(388, 174, 24, 24);
+    ctx.fillRect(anchor.alarmX, anchor.alarmY, 24, 72);
+    ctx.fillRect(anchor.alarmX, anchor.alarmY + 86, 24, 24);
     ctx.fillStyle = '#fffdf7';
-    ctx.fillRect(395, 96, 10, 56);
-    ctx.fillRect(395, 181, 10, 10);
+    ctx.fillRect(anchor.alarmX + 7, anchor.alarmY + 8, 10, 56);
+    ctx.fillRect(anchor.alarmX + 7, anchor.alarmY + 93, 10, 10);
     ctx.restore();
   }
 
   function drawThoughtBubble(ctx, now, label) {
-    const y = 104 + Math.sin(now / 500) * 4;
+    const anchor = getStageEffectAnchor();
+    const y = anchor.bubbleY + Math.sin(now / 500) * 4;
+    const x = anchor.bubbleX;
     ctx.save();
     ctx.fillStyle = 'rgba(255, 253, 247, 0.9)';
-    ctx.fillRect(332, y + 16, 86, 44);
-    ctx.fillRect(350, y, 52, 24);
-    ctx.fillRect(310, y + 52, 18, 14);
+    ctx.fillRect(x, y + 16, 86, 44);
+    ctx.fillRect(x + 18, y, 52, 24);
+    ctx.fillRect(x - 22, y + 52, 18, 14);
     ctx.fillStyle = '#2f4f35';
     ctx.font = 'bold 18px sans-serif';
-    ctx.fillText(label, label.length > 2 ? 350 : 364, y + 44);
+    ctx.fillText(label, x + (label.length > 2 ? 18 : 32), y + 44);
     ctx.restore();
   }
 
   function drawSparkles(ctx, now, color) {
+    const anchor = getStageEffectAnchor();
     ctx.save();
     ctx.fillStyle = color;
     ctx.globalAlpha = 0.55 + Math.sin(now / 350) * 0.25;
-    [[112, 158], [398, 138], [362, 318], [154, 338]].forEach(function(point, index) {
+    anchor.sparkles.forEach(function(point, index) {
       const size = 7 + (index % 2) * 3;
       ctx.fillRect(point[0], point[1], size, 4);
       ctx.fillRect(point[0] + Math.floor(size / 3), point[1] - Math.floor(size / 3), 4, size);
@@ -1581,15 +2983,16 @@
   }
 
   function drawSleepAmbient(ctx, now) {
+    const anchor = getStageEffectAnchor();
     const cycle = (now / 1000) % 2;
     ctx.fillStyle = 'rgba(255, 253, 247, 0.82)';
-    ctx.fillRect(350, 112, 42, 28);
-    ctx.fillRect(372, 96, 28, 18);
+    ctx.fillRect(anchor.sleepCloudX, anchor.sleepCloudY + 16, 42, 28);
+    ctx.fillRect(anchor.sleepCloudX + 22, anchor.sleepCloudY, 28, 18);
     ctx.fillStyle = '#2f4f35';
     ctx.font = 'bold 26px sans-serif';
-    ctx.fillText('Z', 362 + cycle * 10, 102 - cycle * 12);
+    ctx.fillText('Z', anchor.sleepZ[0] + cycle * 10, anchor.sleepZ[1] - cycle * (anchor.sleepLargeRise || 12));
     ctx.font = 'bold 18px sans-serif';
-    ctx.fillText('z', 394 + cycle * 8, 78 - cycle * 10);
+    ctx.fillText('z', anchor.sleepSmallZ[0] + cycle * 8, anchor.sleepSmallZ[1] - cycle * (anchor.sleepSmallRise || 10));
   }
 
   function drawEffects(ctx, now) {
@@ -1665,6 +3068,7 @@
   }
 
   function drawWakeBurst(ctx, progress) {
+    const anchor = getStageEffectAnchor();
     ctx.save();
     ctx.globalAlpha = Math.max(0, 1 - progress);
     ctx.strokeStyle = '#fffdf7';
@@ -1672,10 +3076,10 @@
 
     for (let index = 0; index < 8; index += 1) {
       const angle = (Math.PI * 2 * index) / 8;
-      const inner = 74 + progress * 18;
-      const outer = 98 + progress * 34;
-      const centerX = 264;
-      const centerY = 284;
+      const inner = anchor.wakeInner + progress * 18;
+      const outer = anchor.wakeOuter + progress * 34;
+      const centerX = anchor.wakeCenterX;
+      const centerY = anchor.wakeCenterY;
 
       ctx.beginPath();
       ctx.moveTo(centerX + Math.cos(angle) * inner, centerY + Math.sin(angle) * inner);
