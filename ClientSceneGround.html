@@ -8,13 +8,13 @@
     ctx.fillRect(0, groundTop, 512, 10);
     drawGeneratedGrassPatch(ctx, palette, scene, patchTop);
     drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
-      count: 46,
+      count: 68,
       seedBase: 8111,
-      baseYMin: 420,
-      baseYMax: 442,
-      heightMin: 15,
-      heightMax: 34,
-      alpha: 0.78,
+      baseYMin: 416,
+      baseYMax: 444,
+      heightMin: 19,
+      heightMax: 43,
+      alpha: 0.82,
       width: 3,
       front: false
     });
@@ -76,13 +76,13 @@
     const palette = getScenePalette(scene);
     const condition = scene && scene.condition;
     drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
-      count: 34,
+      count: 54,
       seedBase: 9331,
-      baseYMin: 426,
-      baseYMax: 456,
-      heightMin: 10,
-      heightMax: 24,
-      alpha: condition === 'snow' ? 0.22 : 0.62,
+      baseYMin: 422,
+      baseYMax: 458,
+      heightMin: 13,
+      heightMax: 31,
+      alpha: condition === 'snow' ? 0.32 : 0.68,
       width: 2,
       front: true
     });
@@ -105,15 +105,68 @@
       const height = Math.round(options.heightMin + seededUnit(seed + 2) * heightRange);
       const localSpeed = 880 + seededUnit(seed + 3) * 620;
       const localPhase = now / localSpeed + seed * 0.013;
-      const calmSway = Math.sin(localPhase) * (1.0 + wind.averageLevel * 3.0);
+      const swayMultiplier = getGrassSwayMultiplier(condition);
+      const calmSway = Math.sin(localPhase) * (1.0 + wind.averageLevel * 3.0) * swayMultiplier;
       const gustSway = Math.sin(now / 520 + seed) * wind.gustPulse * (2.0 + wind.level * 4.0);
       const windBend = wind.directionX * (wind.level * (5.5 + height * 0.32) + wind.gustPulse * 4.0);
-      const bend = (calmSway + gustSway + windBend) * swayScale;
+      const weatherBend = getGrassWeatherBend(condition, wind, height, options.front);
+      const visibleHeight = getGrassWeatherHeight(condition, height);
+      const bend = (calmSway + gustSway + windBend + weatherBend) * swayScale;
       const colorSet = getGrassBladeColors(palette, condition, seededUnit(seed + 4), options.front);
 
-      drawPixelGrassBlade(ctx, x, baseY, height, bend, options.width || 2, colorSet);
+      drawPixelGrassBlade(ctx, x, baseY, visibleHeight, bend, options.width || 2, colorSet);
     }
     ctx.restore();
+  }
+
+  function getGrassSwayMultiplier(condition) {
+    if (condition === 'snow') {
+      return 0.72;
+    }
+
+    if (condition === 'storm') {
+      return 0.76;
+    }
+
+    if (condition === 'rain') {
+      return 0.86;
+    }
+
+    return 1;
+  }
+
+  function getGrassWeatherBend(condition, wind, height, front) {
+    const direction = wind.directionX || wind.direction || 0;
+    const frontScale = front ? 1 : 0.72;
+    if (condition === 'storm') {
+      return direction * height * 0.12 * frontScale;
+    }
+
+    if (condition === 'rain') {
+      return direction * height * 0.075 * frontScale;
+    }
+
+    if (condition === 'snow') {
+      return direction * height * 0.045 * frontScale;
+    }
+
+    return 0;
+  }
+
+  function getGrassWeatherHeight(condition, height) {
+    if (condition === 'snow') {
+      return Math.round(height * 0.9);
+    }
+
+    if (condition === 'storm') {
+      return Math.round(height * 0.94);
+    }
+
+    if (condition === 'rain') {
+      return Math.round(height * 0.96);
+    }
+
+    return height;
   }
 
   function getGrassBladeColors(palette, condition, unit, front) {
