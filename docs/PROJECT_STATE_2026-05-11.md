@@ -2,7 +2,7 @@
 
 ## Status
 
-Pieczargotchi ma działający MVP lokalny i Apps Script: manifest animacji, lokalny preview, PNG runtime, debug menu, pogodę z lokalizacji, walidację assetów i podstawowe checki CI.
+Pieczargotchi ma działający MVP lokalny i Apps Script: manifest animacji, lokalny preview, PNG runtime, lokalny debug menu, pogodę z lokalizacji, walidację assetów i podstawowe checki CI.
 
 Najważniejsza decyzja z tego checkpointu: dalszy rozwój ma chronić czytelność, maintainability i scalability. Nowe funkcje powinny trafiać do osobnych partiali lub testowalnego core, a nie powiększać jednego pliku klienta.
 
@@ -18,8 +18,14 @@ Najważniejsza decyzja z tego checkpointu: dalszy rozwój ma chronić czytelnoś
 - `ClientActions.html` trzyma obsługę akcji.
 - `ClientUi.html` trzyma render panelu i komunikatów.
 - `ClientAnimation.html` trzyma wybór animacji.
-- `ClientScene.html` trzyma tło, niebo, pogodę, astronomię i warstwy sceny.
+- `ClientScene.html` jest cienkim orkiestratorem sceny.
+- `ClientScenePalette.html` trzyma palety dnia/pogody i pasy nieba.
+- `ClientSceneCelestial.html` trzyma słońce, księżyc, gwiazdy, konstelacje i matematykę astronomiczną.
+- `ClientSceneWeather.html` trzyma chmury, wiatr, deszcz, burzę, śnieg, mgłę i współdzielone weather utility.
+- `ClientSceneGround.html` trzyma podłoże, bazowy grass patch i trawę reagującą na wiatr.
 - `ClientSprites.html` trzyma rysowanie sprite fallbacków, overlayów i efektów.
+- State ma wersję `3`; zapis nadal używa klucza `pieczargotchi_state_v2`, ale migracja dodaje osobny subtree `battle` pod przyszłą lokalną arenę.
+- `Config.gs` ma runtime flags: `debugEnabled`, `exposeRuntime`, `assetMode`. Produkcyjnie debug i `window.__pieczargotchiRuntime` są wyłączone, a lokalny preview włącza je w `dev-server.mjs`.
 - Wizualna pogoda używa znormalizowanych pól sceny: zachmurzenie zasłania ciała niebieskie, deszcz i śnieg reagują na kierunek/siłę wiatru, chmury dryfują wolniej według średniego wiatru, a wiatr ma porywy i okresy uspokojenia wokół średniej z danych pogodowych.
 - Runtime PNG mają wspólną frontową trawę składaną w `scripts/build-imagegen-sprites.py`; wszystkie stadia są za tą samą niższą trawą.
 - Scena ma osobny wygenerowany asset `assets/environment/grass_patch.png` jako bazowy trawnik pod Pieczarką, a pojedyncze wyższe źdźbła są warstwą canvasową reagującą na wiatr.
@@ -32,7 +38,16 @@ Najważniejsza decyzja z tego checkpointu: dalszy rozwój ma chronić czytelnoś
 - Śnieg daje mały bonus wilgoci.
 - Silny wiatr i upał osuszają.
 - Efekt pogody jest ograniczony czasowo, żeby po długiej przerwie jedna aktualna prognoza nie przepisała wielu godzin historii gry.
-- Debug menu pozwala wymusić pogodę, zachmurzenie, opad, siłę wiatru i kierunek wiatru, żeby testować sceny bez czekania na realne warunki.
+- Debug menu pozwala wymusić pogodę, zachmurzenie, opad, siłę wiatru, kierunek wiatru, lokalizację obserwatora, fazę księżyca i konstelację, żeby testować sceny bez czekania na realne warunki.
+- Boot czeka na pierwszą scenę pogodową przed naliczeniem offline decay, więc balans pogody i pierwsze renderowanie korzystają z tej samej sceny.
+
+## Arena
+
+- Lokalna arena jest przygotowana architektonicznie, ale nie ma jeszcze docelowego UI ani rendereru.
+- Arena odblokowuje się dopiero na etapie `legendary`.
+- Statystyki walki nie mieszają się z `state.stats`; żyją w `state.battle`, a care stats są tylko snapshotem wejściowym do przyszłej walki.
+- Move catalog jest w `GameRules.gs` pod `battle.moveCatalog`, nie w `Actions.gs`.
+- Testowalny core ma deterministyczny reducer tury i seeded RNG.
 
 ## Walidacja
 
@@ -44,13 +59,14 @@ node scripts/test-client-core.mjs
 node scripts/validate-assets.mjs
 python3 scripts/audit-sprite-consistency.py
 bash scripts/run-local-linux.sh --check-only
+node scripts/capture-weather-matrix.mjs http://127.0.0.1:8092/ /tmp/pieczargotchi-weather-matrix
 ```
 
 CI uruchamia syntax checki, test core, walidację PNG i audyt spójności sprite.
 
 ## Dług Techniczny
 
-- `ClientScene.html` jest największym partialem i powinien być następnym kandydatem do podziału, jeżeli tło/pogoda/astronomia dalej urosną.
-- Testy nadal obejmują głównie core balansu pogody; trzeba dopisać testy migracji stanu, attention, cooldownów i wyboru animacji.
+- Scena jest już rozbita na partiale; nowe systemy renderowania powinny dostawać osobny partial, a nie wracać do monolitu.
+- Testy obejmują core balansu pogody, klasyfikację śniegu, zerowy opad, migrację v2 -> v3 i podstawowy deterministyczny battle reducer. Nadal trzeba dopisać testy cooldownów, attention edge cases i wyboru animacji.
 - Dokumenty historyczne opisują pełną drogę dojścia, ale bieżący stan należy czytać z tego pliku, README i `docs/PRODUCT_RULES.md`.
 - Trzeba zdecydować, czy `assets/source/imagegen/cutouts/` ma zostać śledzonym źródłem diagnostycznym, czy generowanym artefaktem.

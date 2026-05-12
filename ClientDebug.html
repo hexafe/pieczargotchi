@@ -7,6 +7,9 @@
       precipitationOverride: null,
       windSpeedOverride: null,
       windDirectionOverride: null,
+      locationOverride: 'auto',
+      moonPhaseOverride: 'auto',
+      forcedConstellation: 'auto',
       forcedAnimation: 'auto',
       forcedAnimationStartedAt: 0,
       neutralEasterEggOverride: 'auto',
@@ -15,6 +18,10 @@
   }
 
   function loadDebugSettings() {
+    if (!isDebugAvailable) {
+      return createDefaultDebugSettings();
+    }
+
     try {
       return normalizeDebugSettings(JSON.parse(window.localStorage.getItem(debugStorageKey) || '{}'));
     } catch (error) {
@@ -23,6 +30,10 @@
   }
 
   function saveDebugSettings() {
+    if (!isDebugAvailable) {
+      return;
+    }
+
     window.localStorage.setItem(debugStorageKey, JSON.stringify(runtime.debug));
   }
 
@@ -38,6 +49,15 @@
     result.precipitationOverride = normalizeDebugNumber(result.precipitationOverride, 0, 10);
     result.windSpeedOverride = normalizeDebugNumber(result.windSpeedOverride, 0, 100);
     result.windDirectionOverride = normalizeDebugNumber(result.windDirectionOverride, 0, 359);
+    result.locationOverride = ['auto', 'katowice', 'tromso', 'equator', 'sydney'].includes(result.locationOverride)
+      ? result.locationOverride
+      : 'auto';
+    result.moonPhaseOverride = ['auto', 'full', 'crescent', 'new'].includes(result.moonPhaseOverride)
+      ? result.moonPhaseOverride
+      : 'auto';
+    result.forcedConstellation = ['auto', 'bigDipper', 'cassiopeia', 'orion', 'cygnus'].includes(result.forcedConstellation)
+      ? result.forcedConstellation
+      : 'auto';
     result.forcedAnimation = debugAnimationOptions.some(function(option) {
       return option.id === result.forcedAnimation;
     }) ? result.forcedAnimation : 'auto';
@@ -73,8 +93,15 @@
   }
 
   function renderDebugControls() {
-    if (!dom.debugEnabled) {
+    if (!isDebugAvailable || !dom.debugEnabled) {
+      if (dom.debugPanel) {
+        dom.debugPanel.hidden = true;
+      }
       return;
+    }
+
+    if (dom.debugPanel) {
+      dom.debugPanel.hidden = false;
     }
 
     const debug = runtime.debug || createDefaultDebugSettings();
@@ -89,6 +116,15 @@
     dom.debugDate.value = formatDateInput(debugDate);
     dom.debugTime.value = formatTimeInput(debugDate);
     dom.debugWeather.value = debug.weather || 'auto';
+    if (dom.debugLocation) {
+      dom.debugLocation.value = debug.locationOverride || 'auto';
+    }
+    if (dom.debugMoonPhase) {
+      dom.debugMoonPhase.value = debug.moonPhaseOverride || 'auto';
+    }
+    if (dom.debugConstellation) {
+      dom.debugConstellation.value = debug.forcedConstellation || 'auto';
+    }
     renderDebugWeatherMeters();
     dom.debugMode.value = runtime.state && runtime.state.mode === 'sleeping' ? 'sleeping' : 'awake';
     renderDebugStageOptions(stage);
@@ -157,7 +193,7 @@
   }
 
   function renderDebugWeatherMeters() {
-    const scene = runtime.weatherScene || createLocalWeatherScene(defaultWeatherLocation);
+    const scene = runtime.weatherScene || createLocalWeatherScene(defaultWeatherLocation, getRuntimeDate());
     const debug = runtime.debug || createDefaultDebugSettings();
     const cloud = debug.cloudCoverOverride === null ? scene.cloudCover : debug.cloudCoverOverride;
     const precipitation = debug.precipitationOverride === null ? scene.precipitation : debug.precipitationOverride;
@@ -189,7 +225,7 @@
   }
 
   function bindDebugControls() {
-    if (!dom.debugEnabled) {
+    if (!isDebugAvailable || !dom.debugEnabled) {
       return;
     }
 
@@ -205,6 +241,9 @@
       if (runtime.debug.enabled && !Number.isFinite(Number(runtime.debug.fixedAt))) {
         runtime.debug.fixedAt = Date.now();
       }
+      if (!runtime.debug.enabled) {
+        resetWeatherSceneToBase();
+      }
       syncStateClockToRuntime();
       commitDebugChanges(false);
     });
@@ -217,6 +256,30 @@
       runtime.debug.weather = dom.debugWeather.value;
       commitDebugChanges(false);
     });
+
+    if (dom.debugLocation) {
+      dom.debugLocation.addEventListener('change', function() {
+        enableDebugMode();
+        runtime.debug.locationOverride = dom.debugLocation.value;
+        commitDebugChanges(false);
+      });
+    }
+
+    if (dom.debugMoonPhase) {
+      dom.debugMoonPhase.addEventListener('change', function() {
+        enableDebugMode();
+        runtime.debug.moonPhaseOverride = dom.debugMoonPhase.value;
+        commitDebugChanges(false);
+      });
+    }
+
+    if (dom.debugConstellation) {
+      dom.debugConstellation.addEventListener('change', function() {
+        enableDebugMode();
+        runtime.debug.forcedConstellation = dom.debugConstellation.value;
+        commitDebugChanges(false);
+      });
+    }
 
     bindDebugWeatherMeter(dom.debugCloud, 'cloudCoverOverride');
     bindDebugWeatherMeter(dom.debugPrecipitation, 'precipitationOverride');
@@ -300,6 +363,7 @@
 
     dom.debugReset.addEventListener('click', function() {
       runtime.debug = createDefaultDebugSettings();
+      resetWeatherSceneToBase();
       syncStateClockToRuntime();
       commitDebugChanges(false);
     });
@@ -337,6 +401,10 @@
   }
 
   function enableDebugMode() {
+    if (!isDebugAvailable) {
+      return;
+    }
+
     runtime.debug.enabled = true;
     if (!Number.isFinite(Number(runtime.debug.fixedAt))) {
       runtime.debug.fixedAt = getRuntimeNow();
@@ -385,6 +453,7 @@
     if (stateChanged) {
       runtime.state.stats = clampAllStats(runtime.state.stats);
       runtime.state.stage = getStageForGrowth(runtime.state.stats.growth || 0);
+      updateArenaUnlock(runtime.state);
       evaluateAttention(runtime.state, getRuntimeNow());
       syncStateClockToRuntime();
     }

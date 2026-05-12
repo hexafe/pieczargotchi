@@ -7,7 +7,7 @@ The MVP targets a 512x512 canvas, local browser persistence, a sleep/wake loop, 
 ## Current Layout
 
 - `Code.gs` - Apps Script `doGet()` entrypoint and HTML partial include helper.
-- `Config.gs` - app constants, state version, canvas size, and Drive asset IDs.
+- `Config.gs` - app constants, state version, canvas size, runtime flags, and Drive asset IDs.
 - `AnimationConfig.gs` - runtime animation manifest for stage and activity sprite sheets.
 - `AssetService.gs` - Drive PNG to data URL loading for the client.
 - `StateModel.gs` - default state shape and state metadata exposed to the client.
@@ -16,8 +16,8 @@ The MVP targets a 512x512 canvas, local browser persistence, a sleep/wake loop, 
 - `Index.html` - web app shell.
 - `Styles.html` - responsive pixel-game CSS.
 - `Client.html` - thin Apps Script include aggregator for client partials.
-- `ClientCore.html` - small browser-global core helpers that are testable from Node.
-- `ClientBoot.html`, `ClientDebug.html`, `ClientRuntime.html`, `ClientWeather.html`, `ClientState.html`, `ClientActions.html`, `ClientUi.html`, `ClientAnimation.html`, `ClientScene.html`, and `ClientSprites.html` - client runtime split by responsibility.
+- `ClientCore.html` - small browser-global core helpers that are testable from Node, including weather balance, state migrations, and battle reducer primitives.
+- `ClientBoot.html`, `ClientDebug.html`, `ClientRuntime.html`, `ClientWeather.html`, `ClientState.html`, `ClientActions.html`, `ClientUi.html`, `ClientAnimation.html`, `ClientScene*.html`, and `ClientSprites.html` - client runtime split by responsibility. `ClientScene.html` is the scene orchestrator; palette, celestial, weather, and ground rendering live in focused scene partials.
 - `assets/awake.png` - prepared awake mushroom sprite.
 - `assets/sleeping_sheet.png` - prepared four-frame sleeping sprite sheet.
 - `assets/stages/` - growth-stage sprite sheets.
@@ -35,13 +35,14 @@ The MVP targets a 512x512 canvas, local browser persistence, a sleep/wake loop, 
 - `docs/SPRITE_AUDIT_2026-05-10.md` - focused audit for sprite size and wake-face alignment.
 - `docs/PROJECT_STATE_2026-05-11.md` - current architecture and maintenance checkpoint.
 - `docs/PRODUCT_RULES.md` - gameplay and balance rules for future development.
+- `.github/workflows/ci.yml` - GitHub Actions checks for client syntax, core rules, assets, sprite consistency, and local preview scripts.
 - `scripts/build-imagegen-sprites.py` - builds runtime sheets from imagegen atlases.
 - `scripts/generate-pixel-assets.py` - compatibility entrypoint; delegates to the imagegen builder when imagegen sources exist.
 - `scripts/validate-assets.mjs` - local PNG dimension, frame, and centering validation.
 - `scripts/audit-sprite-consistency.py` - local size/center consistency audit for stage animations.
-- `AGENTS.md` - contributor and agent guidance.
+- `scripts/capture-weather-matrix.mjs` - local weather and sky capture matrix for debug QA scenarios.
 
-The interface is Polish-first. The current build includes manifest-driven growth-stage animations, a short `O_O` wake expression, imagegen-based `spore`, `baby`, `young`, `adult`, and `legendary` silhouettes with a shared grass base, stage-specific activity reactions, need-driven sprite states, attention calls, care mistakes, patch quality, mycelium progress, and spore harvest rewards.
+The interface is Polish-first. The current build includes manifest-driven growth-stage animations, a short `O_O` wake expression, imagegen-based `spore`, `baby`, `young`, `adult`, and `legendary` silhouettes with a shared grass base, stage-specific activity reactions, need-driven sprite states, attention calls, care mistakes, patch quality, mycelium progress, spore harvest rewards, and a versioned `battle` state subtree prepared for a legendary-stage local arena.
 
 ## Development
 
@@ -56,6 +57,8 @@ Set the Drive file IDs for runtime assets in `Config.gs`:
 - keys matching the animation manifest, for example `spore.idle`, `baby.sleep`, and `baby.activity.hydrate`
 
 If the IDs are blank or unavailable, the local preview loads PNG files from `assets/`. In a deployed Apps Script environment, missing Drive IDs fall back to canvas placeholders instead of showing a blank app. Reference files under `assets/reference/` are not loaded at runtime.
+
+Production runtime flags live in `Config.gs`. By default the deployed config keeps the debug panel and `window.__pieczargotchiRuntime` private; `dev-server.mjs` enables both for local preview and capture tooling.
 
 ## Local Preview
 

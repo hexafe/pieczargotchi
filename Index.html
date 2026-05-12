@@ -113,6 +113,39 @@
                   </label>
                 </div>
 
+                <div class="debug-row debug-row--split">
+                  <label>
+                    Lokalizacja nieba
+                    <select data-debug-location>
+                      <option value="auto">Auto</option>
+                      <option value="katowice">Katowice</option>
+                      <option value="tromso">Tromso</option>
+                      <option value="equator">Rownik</option>
+                      <option value="sydney">Sydney</option>
+                    </select>
+                  </label>
+                  <label>
+                    Księżyc
+                    <select data-debug-moon-phase>
+                      <option value="auto">Auto</option>
+                      <option value="full">Pełnia</option>
+                      <option value="crescent">Sierp</option>
+                      <option value="new">Nów</option>
+                    </select>
+                  </label>
+                </div>
+
+                <label>
+                  Konstelacja
+                  <select data-debug-constellation>
+                    <option value="auto">Auto</option>
+                    <option value="bigDipper">Wielki Wóz</option>
+                    <option value="cassiopeia">Kasjopeja</option>
+                    <option value="orion">Orion</option>
+                    <option value="cygnus">Łabędź</option>
+                  </select>
+                </label>
+
                 <label class="debug-range">
                   Zachmurzenie
                   <input type="range" min="0" max="100" step="1" data-debug-cloud>

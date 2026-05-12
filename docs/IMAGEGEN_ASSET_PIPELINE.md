@@ -49,7 +49,7 @@ assets/source/imagegen/cutouts/environment/grass_patch.png
 assets/environment/grass_patch.png
 ```
 
-`ClientScene.html` rysuje ten asset jako wypelnienie podloza pod Pieczarka. Pojedyncze wyzsze zdzbla sa rysowane proceduralnie na canvasie, bo musza reagowac na aktualny kierunek, sile i porywy wiatru.
+`ClientSceneGround.html` rysuje ten asset jako wypelnienie podloza pod Pieczarka. Pojedyncze wyzsze zdzbla sa rysowane proceduralnie na canvasie, bo musza reagowac na aktualny kierunek, sile i porywy wiatru.
 
 ## Prompt Bazowy
 
@@ -100,7 +100,8 @@ PIECZARGOTCHI_CAPTURE_VIEWPORT=1 PIECZARGOTCHI_CAPTURE_STAGES=1 PIECZARGOTCHI_CA
 
 Ostatnia walidacja:
 
-- `118` runtime sheetow PNG i `1` asset srodowiska przechodzi `validate-assets`,
+- `118` sheetow PNG i `1` asset srodowiska przechodzi `validate-assets`,
+- manifest runtime laduje `106` assetow; poza manifestem zostaja swiadomie walidowane fallbacki `assets/activities/*.png` oraz opcjonalne efekty `assets/effects/*.png`,
 - stany bazowe, aktywnosci i neutralne easter eggi trzymaja rozmiar/baseline w kazdym etapie,
 - lokalny capture potwierdza osobne animacje akcji dla `spore`, `baby`, `young`, `adult` i `legendary`,
 - viewport capture `1194x891` potwierdza czytelny prawy panel i brak checkerboardu w obszarze canvasu.

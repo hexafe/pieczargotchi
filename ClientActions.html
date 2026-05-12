@@ -29,6 +29,7 @@
 
     runtime.state.stats = clampAllStats(runtime.state.stats);
     runtime.state.stage = getStageForGrowth(runtime.state.stats.growth || 0);
+    updateArenaUnlock(runtime.state);
     runtime.state.lastUpdatedAt = new Date(now).toISOString();
     saveState(runtime.state);
     renderUi();

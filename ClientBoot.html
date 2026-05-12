@@ -4,6 +4,12 @@
 
   const config = window.PIECZARGOTCHI_CONFIG || {};
   const rules = config.rules || {};
+  const runtimeOptions = Object.assign({
+    debugEnabled: false,
+    exposeRuntime: false,
+    assetMode: 'full'
+  }, config.runtime || {});
+  const isDebugAvailable = Boolean(runtimeOptions.debugEnabled);
   const canvasSize = config.canvasSize || rules.canvasSize || 512;
   const stateConfig = config.state || {};
   const actions = Array.isArray(config.actions) ? config.actions : [];
@@ -13,6 +19,10 @@
   const animationManifest = Array.isArray(config.animations) ? config.animations : [];
   const animationsByKey = new Map(animationManifest.map(function(animation) {
     return [animation.key, animation];
+  }));
+  const assetManifest = Array.isArray(config.assets) ? config.assets : [];
+  const assetsByKey = new Map(assetManifest.map(function(asset) {
+    return [asset.key, asset];
   }));
 
   const statLabels = {
@@ -157,6 +167,7 @@
     ctx: null,
     canvas: null,
     assets: {},
+    assetPromises: {},
     assetStatus: 'Ładowanie grafik',
     effects: [],
     wakeSurpriseUntil: 0,
@@ -166,7 +177,8 @@
     debug: createDefaultDebugSettings(),
     currentAnimationKey: null,
     currentAnimationStartedAt: 0,
-    renderStarted: false
+    renderStarted: false,
+    booted: false
   };
 
   document.addEventListener('DOMContentLoaded', init);
@@ -174,8 +186,21 @@
   function init() {
     bindDom();
     setupCanvas();
-    window.__pieczargotchiRuntime = runtime;
+    applyRuntimeVisibility();
+    if (runtimeOptions.exposeRuntime) {
+      window.__pieczargotchiRuntime = runtime;
+    }
     runtime.debug = loadDebugSettings();
+    loadAssets();
+    initWeatherScene().then(finishInit).catch(finishInit);
+  }
+
+  function finishInit() {
+    if (runtime.booted) {
+      return;
+    }
+
+    runtime.booted = true;
     runtime.state = loadState();
     runtime.state = applyElapsedTime(runtime.state, getRuntimeNow());
     saveState(runtime.state);
@@ -185,10 +210,14 @@
     bindControls();
     bindKeyboardShortcuts();
     renderUi();
-    loadAssets();
-    initWeatherScene();
     startTimers();
     startRenderLoop();
+  }
+
+  function applyRuntimeVisibility() {
+    if (dom.debugPanel) {
+      dom.debugPanel.hidden = !isDebugAvailable;
+    }
   }
 
   function bindDom() {
@@ -207,11 +236,15 @@
     dom.coinsLabel = document.querySelector('[data-coins-label]');
     dom.eventLog = document.querySelector('[data-event-log]');
     dom.assetStatus = document.querySelector('[data-asset-status]');
+    dom.debugPanel = document.querySelector('.panel-block--debug');
     dom.debugDetails = document.querySelector('[data-debug-details]');
     dom.debugEnabled = document.querySelector('[data-debug-enabled]');
     dom.debugDate = document.querySelector('[data-debug-date]');
     dom.debugTime = document.querySelector('[data-debug-time]');
     dom.debugWeather = document.querySelector('[data-debug-weather]');
+    dom.debugLocation = document.querySelector('[data-debug-location]');
+    dom.debugMoonPhase = document.querySelector('[data-debug-moon-phase]');
+    dom.debugConstellation = document.querySelector('[data-debug-constellation]');
     dom.debugCloud = document.querySelector('[data-debug-cloud]');
     dom.debugCloudValue = document.querySelector('[data-debug-cloud-value]');
     dom.debugPrecipitation = document.querySelector('[data-debug-precipitation]');

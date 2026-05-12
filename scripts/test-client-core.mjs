@@ -87,6 +87,79 @@ test('weather balance caps long offline intervals', () => {
   assert(tenHours.hydration <= oneHour.hydration * 2.05, `expected capped weather delta, got ${tenHours.hydration}`);
 });
 
+test('snowfall is classified as snow even without a snow weather code', () => {
+  const condition = core.classifyWeatherCondition(61, 0.8, 92, 1.1);
+  assert(condition === 'snow', `expected snow, got ${condition}`);
+});
+
+test('zero precipitation rain scene has no hydration boost', () => {
+  const deltas = core.calculateWeatherStatDeltas({
+    condition: 'rain',
+    precipitation: 0,
+    rain: 0,
+    showers: 0,
+    snowfall: 0,
+    rainIntensity: 0,
+    windLevel: 0,
+    humidity: 60,
+    temperature: 18
+  }, 1, {});
+
+  assert(!('hydration' in deltas), `expected no hydration delta, got ${deltas.hydration}`);
+});
+
+test('v2 saves migrate to v3 battle subtree', () => {
+  const migrated = core.migrateStateVersion({
+    version: 2,
+    stage: 'adult',
+    stats: { growth: 70 }
+  }, 3);
+
+  assert(migrated.version === 3, `expected version 3, got ${migrated.version}`);
+  assert(migrated.battle && migrated.battle.mode === 'idle', 'expected default battle state');
+  assert(migrated.battle.training.strength === 0, 'expected default battle training');
+});
+
+test('corrupted save shape falls back to a normal migration target', () => {
+  const migrated = core.migrateStateVersion(null, 3);
+
+  assert(migrated.version === 3, `expected version 3, got ${migrated.version}`);
+  assert(migrated.battle && migrated.battle.rewards.wins === 0, 'expected normalized battle rewards');
+});
+
+test('arena unlocks only at legendary stage', () => {
+  const rules = {
+    battle: { unlockStage: 'legendary' },
+    stageThresholds: [
+      { id: 'spore' },
+      { id: 'adult' },
+      { id: 'legendary' }
+    ]
+  };
+
+  assert(!core.isArenaUnlocked({ stage: 'adult' }, rules), 'adult stage should not unlock arena');
+  assert(core.isArenaUnlocked({ stage: 'legendary' }, rules), 'legendary stage should unlock arena');
+});
+
+test('battle turn resolution is deterministic for a fixed seed', () => {
+  const battle = {
+    rngSeed: 12345,
+    mode: 'choosingMove',
+    turn: 0,
+    player: { hp: 80, stamina: 50, attack: 14, defense: 10, speed: 12, focus: 8 },
+    opponent: { hp: 70, stamina: 45, attack: 12, defense: 9, speed: 10, focus: 7 }
+  };
+  const moves = [
+    { id: 'sporeJab', staminaCost: 8, power: 14, accuracy: 0.94, stat: 'strength' },
+    { id: 'capGuard', staminaCost: 6, power: 4, accuracy: 1, stat: 'defense', guard: 0.35 }
+  ];
+  const first = core.resolveBattleTurn(battle, 'sporeJab', 'capGuard', moves);
+  const second = core.resolveBattleTurn(battle, 'sporeJab', 'capGuard', moves);
+
+  assert(JSON.stringify(first) === JSON.stringify(second), 'expected deterministic battle result');
+  assert(first.turn === 1, `expected turn 1, got ${first.turn}`);
+});
+
 function test(name, fn) {
   try {
     fn();

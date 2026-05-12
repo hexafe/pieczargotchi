@@ -46,6 +46,16 @@ Wzrost nie powinien być tylko zegarem. Docelowo powinien brać pod uwagę:
 - stabilność wilgoci,
 - muzykę/zabawę jako styl opieki.
 
+## Lokalna Arena
+
+Arena jest osobnym systemem dla Legendarnej Pieczarki, nie rozszerzeniem pasków opieki:
+
+- odblokowanie następuje dopiero przy `state.stage === 'legendary'`,
+- dane walki żyją w `state.battle`, nie w `state.stats`,
+- care stats mogą wejść do walki tylko jako snapshot modifier na starcie,
+- trening i ruchy walki są konfiguracją reguł, nie akcjami opieki,
+- reducer walki ma być deterministyczny i oparty o zapisany seed RNG.
+
 ## Zasady Implementacyjne
 
 - Najpierw kontrakt i test, potem efekt wizualny.

@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { inflateSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
 
 const katalogGlowny = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const katalogiSheetow = [
@@ -14,10 +15,18 @@ const katalogiSrodowiska = [
   path.join(katalogGlowny, 'assets', 'environment')
 ];
 const rozmiarKlatki = 512;
+const oczekiwanaLiczbaKlatek = 4;
 const przezroczystoscProgu = 8;
+const progOstrzezeniaKrawedzi = 64;
+const progArtefaktowKrawedzi = 384;
 
 const plikiSheetow = katalogiSheetow.flatMap(zbierzPng);
 const plikiSrodowiska = katalogiSrodowiska.flatMap(zbierzPng);
+const manifest = wczytajManifestRuntime();
+const manifestFiles = new Set(manifest.map((asset) => asset.fileName));
+const validatedFiles = new Set(
+  plikiSheetow.concat(plikiSrodowiska).map((plik) => path.relative(path.join(katalogGlowny, 'assets'), plik))
+);
 const bledy = [];
 const ostrzezenia = [];
 
@@ -41,6 +50,8 @@ plikiSrodowiska.forEach((plik) => {
   }
 });
 
+sprawdzManifestRuntime();
+
 ostrzezenia.forEach((tekst) => {
   console.warn(`Uwaga: ${tekst}`);
 });
@@ -52,6 +63,7 @@ if (bledy.length) {
 }
 
 console.log(`Walidacja assetów OK: ${plikiSheetow.length} sheetów PNG, ${plikiSrodowiska.length} assetów środowiska.`);
+console.log(`Manifest runtime: ${manifest.length} assetów; walidacja widzi ${validatedFiles.size} plików PNG.`);
 
 function zbierzPng(katalog) {
   if (!existsSync(katalog)) {
@@ -77,13 +89,18 @@ function sprawdzSheet(plik) {
     throw new Error(`wysokość ${obraz.height}px, oczekiwano ${rozmiarKlatki}px`);
   }
 
-  if (obraz.width % rozmiarKlatki !== 0) {
-    throw new Error(`szerokość ${obraz.width}px nie jest wielokrotnością ${rozmiarKlatki}px`);
+  if (obraz.width !== rozmiarKlatki * oczekiwanaLiczbaKlatek) {
+    throw new Error(`szerokość ${obraz.width}px, oczekiwano ${rozmiarKlatki * oczekiwanaLiczbaKlatek}px`);
   }
 
   const liczbaKlatek = obraz.width / rozmiarKlatki;
-  if (liczbaKlatek < 1 || liczbaKlatek > 12) {
-    throw new Error(`podejrzana liczba klatek: ${liczbaKlatek}`);
+  if (liczbaKlatek !== oczekiwanaLiczbaKlatek) {
+    throw new Error(`liczba klatek ${liczbaKlatek}, oczekiwano ${oczekiwanaLiczbaKlatek}`);
+  }
+
+  const magenta = policzNieprzezroczystaMagente(obraz);
+  if (magenta > 0) {
+    throw new Error(`sheet ma ${magenta} nieprzezroczystych pikseli chroma-key`);
   }
 
   const czyEfekt = plik.includes(`${path.sep}effects${path.sep}`);
@@ -109,6 +126,15 @@ function sprawdzSheet(plik) {
         `klatka ${klatka + 1} ma centrum ${centrumX.toFixed(1)},${centrumY.toFixed(1)} poza tolerancją`
       );
     }
+
+    const krawedzie = policzArtefaktyKrawedzi(obraz, klatka);
+    if (krawedzie > progArtefaktowKrawedzi) {
+      throw new Error(`klatka ${klatka + 1} ma ${krawedzie} nieprzezroczystych pikseli na krawędziach`);
+    }
+
+    if (krawedzie > progOstrzezeniaKrawedzi) {
+      ostrzezenia.push(`${path.relative(katalogGlowny, plik)} klatka ${klatka + 1} ma ${krawedzie} pikseli na krawędziach`);
+    }
   }
 
   const pierwsze = centra[0];
@@ -130,7 +156,11 @@ function sprawdzAssetSrodowiska(plik) {
     throw new Error(`szerokość ${obraz.width}px, oczekiwano ${rozmiarKlatki}px`);
   }
 
-  if (obraz.height < 96 || obraz.height > 220) {
+  if (path.basename(plik) === 'grass_patch.png' && obraz.height !== 158) {
+    throw new Error(`wysokość ${obraz.height}px, oczekiwano 158px dla grass_patch.png`);
+  }
+
+  if (path.basename(plik) !== 'grass_patch.png' && (obraz.height < 96 || obraz.height > 220)) {
     throw new Error(`wysokość ${obraz.height}px poza zakresem assetu środowiska`);
   }
 
@@ -146,6 +176,21 @@ function sprawdzAssetSrodowiska(plik) {
   const magenta = policzNieprzezroczystaMagente(obraz);
   if (magenta > 0) {
     throw new Error(`asset środowiska ma ${magenta} nieprzezroczystych pikseli chroma-key`);
+  }
+}
+
+function sprawdzManifestRuntime() {
+  manifest.forEach((asset) => {
+    if (!validatedFiles.has(asset.fileName)) {
+      bledy.push(`manifest wskazuje brakujący asset: ${asset.fileName}`);
+    }
+  });
+
+  const pozaManifestem = Array.from(validatedFiles).filter((plik) => !manifestFiles.has(plik));
+  if (pozaManifestem.length) {
+    ostrzezenia.push(
+      `manifest runtime nie ładuje ${pozaManifestem.length} walidowanych plików: ${pozaManifestem.slice(0, 12).join(', ')}${pozaManifestem.length > 12 ? ', ...' : ''}`
+    );
   }
 }
 
@@ -221,6 +266,44 @@ function policzNieprzezroczystaMagente(obraz) {
   }
 
   return count;
+}
+
+function policzArtefaktyKrawedzi(obraz, klatka) {
+  const startX = klatka * rozmiarKlatki;
+  const endX = startX + rozmiarKlatki - 1;
+  let count = 0;
+
+  for (let x = startX; x <= endX; x += 1) {
+    if (obraz.pixels[x * 4 + 3] > przezroczystoscProgu) {
+      count += 1;
+    }
+    if (obraz.pixels[((obraz.height - 1) * obraz.width + x) * 4 + 3] > przezroczystoscProgu) {
+      count += 1;
+    }
+  }
+
+  for (let y = 0; y < obraz.height; y += 1) {
+    if (obraz.pixels[(y * obraz.width + startX) * 4 + 3] > przezroczystoscProgu) {
+      count += 1;
+    }
+    if (obraz.pixels[(y * obraz.width + endX) * 4 + 3] > przezroczystoscProgu) {
+      count += 1;
+    }
+  }
+
+  return count;
+}
+
+function wczytajManifestRuntime() {
+  const context = {
+    Object,
+    console
+  };
+  vm.createContext(context);
+  ['Config.gs', 'AnimationConfig.gs'].forEach((plik) => {
+    vm.runInContext(readFileSync(path.join(katalogGlowny, plik), 'utf8'), context, { filename: plik });
+  });
+  return context.getRuntimeAssetManifest();
 }
 
 function wczytajPng(plik) {

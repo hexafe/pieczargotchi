@@ -1,6 +1,7 @@
   function initWeatherScene() {
-    updateWeatherScene();
+    const initialWeather = updateWeatherScene();
     window.setInterval(updateWeatherScene, weatherRefreshMs);
+    return initialWeather;
   }
 
   function updateWeatherScene() {
@@ -11,13 +12,14 @@
         return location;
       });
 
-    locationPromise
+    return locationPromise
       .then(fetchWeatherScene)
       .then(function(scene) {
         runtime.weatherScene = scene;
       })
       .catch(function() {
-        runtime.weatherScene = createLocalWeatherScene(defaultWeatherLocation);
+        runtime.weatherScene = createLocalWeatherScene(defaultWeatherLocation, getRuntimeDate());
+        return runtime.weatherScene;
       });
   }
 
@@ -47,7 +49,7 @@
 
   function fetchWeatherScene(location) {
     if (!window.fetch) {
-      return Promise.resolve(createLocalWeatherScene(location));
+      return Promise.resolve(createLocalWeatherScene(location, getRuntimeDate()));
     }
 
     const params = new URLSearchParams({
@@ -126,7 +128,7 @@
       isDay: isDayPhase(dayPhase),
       dayPhase: dayPhase,
       dayTone: dayTone,
-      condition: getWeatherCondition(code, precipitation, cloudCover),
+      condition: getWeatherCondition(code, precipitation, cloudCover, snowfall),
       cloudCover: cloudCover,
       cloudCoverLow: clamp(Number(current.cloud_cover_low), 0, 100, cloudCover),
       cloudCoverMid: clamp(Number(current.cloud_cover_mid), 0, 100, cloudCover),
@@ -144,8 +146,8 @@
     });
   }
 
-  function createLocalWeatherScene(location) {
-    const now = new Date();
+  function createLocalWeatherScene(location, date) {
+    const now = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
     const sunTimes = calculateSunTimes(now, location.latitude, location.longitude);
     const dayPhase = sunTimes
       ? getDayPhaseFromSun(now, sunTimes.sunrise, sunTimes.sunset)
@@ -181,25 +183,21 @@
       windGusts: 12,
       sunriseAt: sunTimes ? sunTimes.sunrise.toISOString() : null,
       sunsetAt: sunTimes ? sunTimes.sunset.toISOString() : null,
-      updatedAt: Date.now()
+      updatedAt: now.getTime()
     });
   }
 
   function getCurrentWeatherScene() {
-    const scene = runtime.weatherScene || createLocalWeatherScene(defaultWeatherLocation);
+    const scene = runtime.weatherScene || createLocalWeatherScene(defaultWeatherLocation, getRuntimeDate());
     const now = getRuntimeDate();
     const dayPhase = getDayPhaseForScene(scene, now);
     const dayTone = getDayToneForScene(scene, now);
     const isDay = isDayPhase(dayPhase);
     const debugWeather = runtime.debug && runtime.debug.enabled ? runtime.debug.weather : 'auto';
-    const baseCondition = scene.baseCondition || scene.condition;
-    const baseCloudCover = Number.isFinite(Number(scene.baseCloudCover)) ? Number(scene.baseCloudCover) : scene.cloudCover;
-    const basePrecipitation = Number.isFinite(Number(scene.basePrecipitation))
-      ? Number(scene.basePrecipitation)
-      : scene.precipitation;
-    const condition = debugWeather && debugWeather !== 'auto' ? debugWeather : baseCondition;
+    const baseFields = getBaseWeatherFields(scene);
+    const condition = debugWeather && debugWeather !== 'auto' ? debugWeather : baseFields.condition;
     const hasDebugOverrides = runtime.debug && runtime.debug.enabled && hasDebugWeatherFieldOverrides(runtime.debug);
-    if (scene.isDay === isDay && scene.dayPhase === dayPhase && scene.dayTone === dayTone && scene.condition === condition && !hasDebugOverrides) {
+    if (scene.isDay === isDay && scene.dayPhase === dayPhase && scene.dayTone === dayTone && scene.condition === condition && !hasDebugOverrides && scene.matchesBaseWeather) {
       return scene;
     }
 
@@ -207,18 +205,72 @@
     const debugFields = runtime.debug && runtime.debug.enabled
       ? getDebugWeatherFields(condition, scene, runtime.debug, useConditionPreset)
       : {};
+    const nextFields = Object.assign({}, baseFields, debugFields, {
+      condition: condition
+    });
 
     runtime.weatherScene = finalizeWeatherScene(Object.assign({}, scene, {
-      baseCondition: baseCondition,
-      baseCloudCover: baseCloudCover,
-      basePrecipitation: basePrecipitation,
       isDay: isDay,
       dayPhase: dayPhase,
       dayTone: dayTone,
-      condition: condition,
       daylightUpdatedAt: getRuntimeNow()
-    }, debugFields));
+    }, getBaseWeatherMarkers(baseFields), nextFields, {
+      matchesBaseWeather: !runtime.debug || !runtime.debug.enabled || (!useConditionPreset && !hasDebugOverrides)
+    }));
     return runtime.weatherScene;
+  }
+
+  function resetWeatherSceneToBase() {
+    if (!runtime.weatherScene) {
+      return;
+    }
+
+    const baseFields = getBaseWeatherFields(runtime.weatherScene);
+    runtime.weatherScene = finalizeWeatherScene(Object.assign(
+      {},
+      runtime.weatherScene,
+      getBaseWeatherMarkers(baseFields),
+      baseFields,
+      { matchesBaseWeather: true }
+    ));
+  }
+
+  function getBaseWeatherFields(scene) {
+    return {
+      code: Number.isFinite(Number(scene.baseCode)) ? Number(scene.baseCode) : scene.code,
+      condition: scene.baseCondition || scene.condition || 'clear',
+      humidity: Number.isFinite(Number(scene.baseHumidity)) ? Number(scene.baseHumidity) : scene.humidity,
+      cloudCover: Number.isFinite(Number(scene.baseCloudCover)) ? Number(scene.baseCloudCover) : scene.cloudCover,
+      cloudCoverLow: Number.isFinite(Number(scene.baseCloudCoverLow)) ? Number(scene.baseCloudCoverLow) : scene.cloudCoverLow,
+      cloudCoverMid: Number.isFinite(Number(scene.baseCloudCoverMid)) ? Number(scene.baseCloudCoverMid) : scene.cloudCoverMid,
+      cloudCoverHigh: Number.isFinite(Number(scene.baseCloudCoverHigh)) ? Number(scene.baseCloudCoverHigh) : scene.cloudCoverHigh,
+      precipitation: Number.isFinite(Number(scene.basePrecipitation)) ? Number(scene.basePrecipitation) : scene.precipitation,
+      rain: Number.isFinite(Number(scene.baseRain)) ? Number(scene.baseRain) : scene.rain,
+      showers: Number.isFinite(Number(scene.baseShowers)) ? Number(scene.baseShowers) : scene.showers,
+      snowfall: Number.isFinite(Number(scene.baseSnowfall)) ? Number(scene.baseSnowfall) : scene.snowfall,
+      windSpeed: Number.isFinite(Number(scene.baseWindSpeed)) ? Number(scene.baseWindSpeed) : scene.windSpeed,
+      windDirection: Number.isFinite(Number(scene.baseWindDirection)) ? Number(scene.baseWindDirection) : scene.windDirection,
+      windGusts: Number.isFinite(Number(scene.baseWindGusts)) ? Number(scene.baseWindGusts) : scene.windGusts
+    };
+  }
+
+  function getBaseWeatherMarkers(baseFields) {
+    return {
+      baseCode: baseFields.code,
+      baseCondition: baseFields.condition,
+      baseHumidity: baseFields.humidity,
+      baseCloudCover: baseFields.cloudCover,
+      baseCloudCoverLow: baseFields.cloudCoverLow,
+      baseCloudCoverMid: baseFields.cloudCoverMid,
+      baseCloudCoverHigh: baseFields.cloudCoverHigh,
+      basePrecipitation: baseFields.precipitation,
+      baseRain: baseFields.rain,
+      baseShowers: baseFields.showers,
+      baseSnowfall: baseFields.snowfall,
+      baseWindSpeed: baseFields.windSpeed,
+      baseWindDirection: baseFields.windDirection,
+      baseWindGusts: baseFields.windGusts
+    };
   }
 
   function finalizeWeatherScene(scene) {
@@ -235,16 +287,16 @@
     const windDirection = normalizeDegrees(Number(scene.windDirection) || 0);
     const rainAmount = Math.max(rain, showers, scene.condition === 'storm' ? precipitation : 0);
     const snowAmount = scene.condition === 'snow' ? Math.max(snowfall, precipitation) : snowfall;
-    const rainIntensity = scene.condition === 'rain' || scene.condition === 'storm'
+    const rainIntensity = (scene.condition === 'rain' || scene.condition === 'storm') && rainAmount > 0
       ? clamp(rainAmount / 7, 0.12, 1, 0.12)
       : 0;
-    const snowIntensity = scene.condition === 'snow' ? clamp(snowAmount / 4, 0.12, 1, 0.12) : 0;
+    const snowIntensity = scene.condition === 'snow' && snowAmount > 0 ? clamp(snowAmount / 4, 0.12, 1, 0.12) : 0;
     const windLevel = clamp(Math.max(windSpeed, windGusts * 0.78) / 82, 0, 1, 0);
     const gustLevel = clamp(Math.max(0, windGusts - windSpeed) / 55, 0, 1, 0);
     const cloudDensity = clamp((cloudCover * 0.5 + low * 0.2 + mid * 0.18 + high * 0.12) / 100, 0, 1, 0.25);
     const thunderCode = [95, 96, 99].includes(Number(scene.code));
     const stormIntensity = scene.condition === 'storm'
-      ? clamp((rainIntensity * 0.45) + (windLevel * 0.28) + (gustLevel * 0.18) + (thunderCode ? 0.25 : 0.08), 0.28, 1, 0.28)
+      ? clamp((rainIntensity * 0.45) + (windLevel * 0.28) + (gustLevel * 0.18) + (thunderCode ? 0.25 : 0.08), thunderCode ? 0.18 : 0, 1, 0)
       : 0;
     const windVector = getWindVector(windDirection);
 
@@ -646,12 +698,17 @@
     return dayPhase !== 'night';
   }
 
-  function getWeatherCondition(code, precipitation, cloudCover) {
+  function getWeatherCondition(code, precipitation, cloudCover, snowfall) {
+    const core = window.PieczargotchiCore;
+    if (core && core.classifyWeatherCondition) {
+      return core.classifyWeatherCondition(code, precipitation, cloudCover, snowfall);
+    }
+
     if ([95, 96, 99].includes(code)) {
       return 'storm';
     }
 
-    if ((code >= 71 && code <= 77) || code === 85 || code === 86) {
+    if ((code >= 71 && code <= 77) || code === 85 || code === 86 || snowfall > 0.05) {
       return 'snow';
     }
 
@@ -663,7 +720,7 @@
       return 'fog';
     }
 
-    if (code >= 1 && code <= 3 || cloudCover > 62) {
+    if ((code >= 1 && code <= 3) || cloudCover > 62) {
       return 'cloudy';
     }
 

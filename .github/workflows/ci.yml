@@ -1,46 +1,72 @@
 name: CI
 
 on:
-  push:
   pull_request:
+  push:
+    branches:
+      - main
+      - codex-*
 
 jobs:
-  assety:
-    name: Walidacja assetow i skryptow
+  local-checks:
+    name: Local checks
     runs-on: ubuntu-latest
-
     steps:
-      - name: Pobierz kod
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Przygotuj Pythona
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Przygotuj Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: '20'
 
-      - name: Zainstaluj zaleznosci audytu sprite
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install sprite audit dependencies
         run: python -m pip install Pillow
 
-      - name: Sprawdz skladnie skryptow
+      - name: Check client partial syntax
+        run: node scripts/check-client-syntax.mjs
+
+      - name: Run client core tests
+        run: node scripts/test-client-core.mjs
+
+      - name: Check capture scripts
         run: |
-          python -m py_compile scripts/build-imagegen-sprites.py scripts/generate-pixel-assets.py scripts/audit-sprite-consistency.py
-          node --check scripts/validate-assets.mjs
           node --check scripts/capture-app-render.mjs
-          node --check scripts/check-client-syntax.mjs
-          node --check scripts/test-client-core.mjs
+          node --check scripts/capture-weather-matrix.mjs
 
-      - name: Sprawdz klienta i reguly
+      - name: Check Apps Script syntax
         run: |
-          node scripts/check-client-syntax.mjs
-          node scripts/test-client-core.mjs
+          node -e "const fs=require('fs'); for (const f of ['Code.gs','Config.gs','AnimationConfig.gs','AssetService.gs','StateModel.gs','GameRules.gs','Actions.gs']) { new Function(fs.readFileSync(f,'utf8')); console.log(f + ' syntax ok'); }"
 
-      - name: Waliduj runtime PNG
+      - name: Check Python helper syntax
+        run: python -m py_compile scripts/build-imagegen-sprites.py scripts/generate-pixel-assets.py scripts/audit-spore-sprites.py scripts/audit-sprite-consistency.py
+
+      - name: Validate assets
         run: node scripts/validate-assets.mjs
 
-      - name: Audytuj spojnosci sprite
+      - name: Audit sprite consistency
         run: python scripts/audit-sprite-consistency.py
+
+      - name: Check local preview bootstrap
+        run: bash scripts/run-local-linux.sh --check-only
+
+  windows-preview-smoke:
+    name: Windows preview smoke
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check Windows preview bootstrap
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File scripts\run-local-windows.ps1 -CheckOnly

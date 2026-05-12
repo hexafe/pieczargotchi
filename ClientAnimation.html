@@ -212,6 +212,7 @@
     const animation = selection.animation;
     const image = runtime.assets[animation.key];
     if (!image) {
+      ensureAssetLoaded(animation.key);
       return false;
     }
 

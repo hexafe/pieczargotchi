@@ -85,7 +85,14 @@ function buildClientConfig() {
     vm.runInContext(readTextSync(fileName), context, { filename: fileName });
   });
 
-  return context.getClientConfig();
+  const config = context.getClientConfig();
+  config.runtime = {
+    ...(config.runtime || {}),
+    debugEnabled: true,
+    exposeRuntime: true,
+    assetMode: process.env.PIECZARGOTCHI_ASSET_MODE || 'full'
+  };
+  return config;
 }
 
 async function serveStatic(urlPathname, response) {

@@ -3,7 +3,7 @@
     const base = deepClone(stateConfig.defaultState || {});
 
     return normalizeState(Object.assign(base, {
-      version: config.stateVersion || 2,
+      version: config.stateVersion || 3,
       playerId: createPlayerId(),
       createdAt: now,
       lastUpdatedAt: now,
@@ -32,9 +32,14 @@
   }
 
   function migrateState(rawState) {
+    const targetVersion = config.stateVersion || 3;
+    const core = window.PieczargotchiCore;
+    const migratedState = core && core.migrateStateVersion
+      ? core.migrateStateVersion(rawState, targetVersion)
+      : rawState;
     const base = createDefaultState();
-    const merged = mergeState(base, rawState || {});
-    merged.version = config.stateVersion || 2;
+    const merged = mergeState(base, migratedState || {});
+    merged.version = targetVersion;
     return normalizeState(merged);
   }
 
@@ -45,6 +50,7 @@
     result.patch = Object.assign({}, base.patch, override.patch || {});
     result.attention = Object.assign({}, base.attention, override.attention || {});
     result.careMistakes = Object.assign({}, base.careMistakes, override.careMistakes || {});
+    result.battle = Object.assign({}, base.battle, override.battle || {});
     result.cooldowns = Object.assign({}, base.cooldowns, override.cooldowns || {});
     result.flags = Object.assign({}, base.flags, override.flags || {});
     result.log = Array.isArray(override.log) ? override.log.slice(0, rules.maxLogEntries || 8) : base.log;
@@ -61,10 +67,12 @@
     state.patch = normalizePatch(state.patch || {});
     state.attention = normalizeAttention(state.attention || {});
     state.careMistakes = normalizeCareMistakes(state.careMistakes || {});
+    state.battle = normalizeBattleForRuntime(state.battle || {});
     state.cooldowns = state.cooldowns || {};
     state.flags = state.flags || {};
     state.log = Array.isArray(state.log) ? state.log.slice(0, rules.maxLogEntries || 8) : [];
     state.stage = getStageForGrowth(state.stats.growth || 0);
+    updateArenaUnlock(state);
     return state;
   }
 
@@ -94,6 +102,25 @@
       environment: Math.max(0, Math.floor(Number(careMistakes.environment) || 0)),
       rest: Math.max(0, Math.floor(Number(careMistakes.rest) || 0))
     };
+  }
+
+  function normalizeBattleForRuntime(battle) {
+    const core = window.PieczargotchiCore;
+    if (core && core.normalizeBattleState) {
+      return core.normalizeBattleState(battle);
+    }
+
+    return battle || {};
+  }
+
+  function updateArenaUnlock(state) {
+    const core = window.PieczargotchiCore;
+    const unlocked = core && core.isArenaUnlocked
+      ? core.isArenaUnlocked(state, rules)
+      : state.stage === 'legendary';
+    if (unlocked && state.battle && !state.battle.unlockedAt) {
+      state.battle.unlockedAt = state.lastUpdatedAt || new Date(getRuntimeNow()).toISOString();
+    }
   }
 
   function createPlayerId() {
@@ -127,6 +154,7 @@
     updateHealthAndGrowth(state, elapsedHours);
     state.stats = clampAllStats(state.stats);
     state.stage = getStageForGrowth(state.stats.growth || 0);
+    updateArenaUnlock(state);
     updatePatch(state, elapsedHours, now);
     evaluateAttention(state, now);
     state.lastUpdatedAt = new Date(now).toISOString();

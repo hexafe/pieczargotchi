@@ -29,13 +29,19 @@ function createCaptureDebugSettings() {
   const windDirection = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_WIND_DIRECTION');
   const fixedAt = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_FIXED_AT');
   const easterEgg = process.env.PIECZARGOTCHI_DEBUG_EASTER_EGG || 'auto';
+  const location = process.env.PIECZARGOTCHI_DEBUG_LOCATION || 'auto';
+  const moonPhase = process.env.PIECZARGOTCHI_DEBUG_MOON_PHASE || 'auto';
+  const constellation = process.env.PIECZARGOTCHI_DEBUG_CONSTELLATION || 'auto';
   const hasDebugWeather = weather !== 'auto'
     || cloud !== null
     || precipitation !== null
     || wind !== null
     || windDirection !== null
     || fixedAt !== null
-    || easterEgg !== 'auto';
+    || easterEgg !== 'auto'
+    || location !== 'auto'
+    || moonPhase !== 'auto'
+    || constellation !== 'auto';
 
   if (!hasDebugWeather) {
     return null;
@@ -49,6 +55,9 @@ function createCaptureDebugSettings() {
     precipitationOverride: precipitation,
     windSpeedOverride: wind,
     windDirectionOverride: windDirection,
+    locationOverride: location,
+    moonPhaseOverride: moonPhase,
+    forcedConstellation: constellation,
     forcedAnimation: 'auto',
     forcedAnimationStartedAt: 0,
     neutralEasterEggOverride: easterEgg,
@@ -131,7 +140,7 @@ async function captureState(cdp, mode) {
     mode: mode === 'sleeping' ? 'sleeping' : 'awake',
     growth: 0,
     activity: mode === 'wake'
-      ? `{ type: 'wake', label: 'O_O', startedAt: Date.now(), until: Date.now() + 1800 }`
+      ? `{ type: 'wake', label: 'O_O', startedAt: runtimeNow, until: runtimeNow + 1800 }`
       : 'null',
     expectedAnimationKey: mode === 'sleeping'
       ? 'spore.sleep'
@@ -154,7 +163,7 @@ async function captureActivity(cdp, stage, growth, activity) {
   await captureCanvas(cdp, `activity-${stage}-${activity}`, {
     mode: 'awake',
     growth,
-    activity: `{ type: ${JSON.stringify(activity)}, label: ${JSON.stringify(activity)}, startedAt: Date.now(), until: Date.now() + 2400 }`,
+    activity: `{ type: ${JSON.stringify(activity)}, label: ${JSON.stringify(activity)}, startedAt: runtimeNow, until: runtimeNow + 2400 }`,
     expectedAnimationKey: `${stage}.activity.${activity}`
   });
 }
@@ -185,7 +194,11 @@ async function captureCanvas(cdp, label, options) {
   const stateExpression = `(() => {
     const config = window.PIECZARGOTCHI_CONFIG;
     const state = JSON.parse(JSON.stringify(config.state.defaultState));
-    const iso = new Date(${now}).toISOString();
+    const debugSettings = ${JSON.stringify(captureDebugSettings)};
+    const runtimeNow = debugSettings && Number.isFinite(Number(debugSettings.fixedAt))
+      ? Number(debugSettings.fixedAt)
+      : ${now};
+    const iso = new Date(runtimeNow).toISOString();
     state.version = config.stateVersion;
     state.playerId = 'audit';
     state.createdAt = iso;
@@ -204,7 +217,6 @@ async function captureCanvas(cdp, label, options) {
     state.attention.severity = null;
     state.currentActivity = ${options.activity};
     localStorage.setItem(config.storageKey, JSON.stringify(state));
-    const debugSettings = ${JSON.stringify(captureDebugSettings)};
     if (debugSettings) {
       localStorage.setItem((config.storageKey || 'pieczargotchi_state_v2') + '_debug', JSON.stringify(debugSettings));
     }
