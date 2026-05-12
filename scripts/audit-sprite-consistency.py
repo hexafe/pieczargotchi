@@ -7,7 +7,6 @@ import importlib.util
 from pathlib import Path
 
 from PIL import Image
-from PIL import ImageChops
 from PIL import ImageDraw
 
 
@@ -16,6 +15,7 @@ BUILDER_PATH = ROOT / "scripts" / "build-imagegen-sprites.py"
 STAGES_DIR = ROOT / "assets" / "stages"
 ACTIVITIES_DIR = ROOT / "assets" / "activities"
 EASTER_EGGS_DIR = ROOT / "assets" / "easter-eggs"
+NEUTRAL_EASTER_CUTOUT_DIR = ROOT / "assets" / "source" / "imagegen" / "cutouts" / "easter-eggs" / "neutral"
 STAGES = ["spore", "baby", "young", "adult", "legendary"]
 BASE_STATES = ["sleep", "wake", "idle"]
 ALL_STATES = [
@@ -37,6 +37,9 @@ MAX_ACTIVITY_BODY_HEIGHT_DELTA = 32
 MAX_ACTIVITY_BODY_CENTER_DELTA = 36
 MAX_ACTIVITY_FRAME_DRIFT = 30
 MAX_BODY_BASELINE_DELTA = 3
+MAX_NEUTRAL_BODY_HEIGHT_DELTA = 90
+MAX_NEUTRAL_BODY_CENTER_DELTA = 55
+MAX_NEUTRAL_FRAME_DRIFT = 8
 SPORE_DETACHED_STRIP_STATES = ["tired", "dry", "hungry", "dirty", "sick"]
 
 
@@ -192,6 +195,11 @@ def measure_body_sheet(path: Path, builder) -> dict[str, float]:
 def audit_neutral_easter_egg(stage: str, builder, failures: list[str]) -> None:
     base_path = STAGES_DIR / stage / "idle_sheet.png"
     neutral_path = EASTER_EGGS_DIR / stage / "neutral_sheet.png"
+    source_path = NEUTRAL_EASTER_CUTOUT_DIR / f"{stage}.png"
+    if not source_path.exists():
+        failures.append(f"{stage}.easter.neutral: brakuje wyrenderowanego source cutoutu {source_path.relative_to(ROOT)}")
+        return
+
     if not neutral_path.exists():
         failures.append(f"{stage}.easter.neutral: brakuje {neutral_path.relative_to(ROOT)}")
         return
@@ -210,8 +218,7 @@ def audit_neutral_easter_egg(stage: str, builder, failures: list[str]) -> None:
         failures.append(f"{stage}.easter.neutral: liczba klatek lub wysokość arkusza różni się od idle")
         return
 
-    allowed_box = builder.NEUTRAL_FACE_LAYOUT[stage]["clear"]
-    changed_frames = 0
+    bbox_changed_frames = 0
     base_body_boxes = []
     neutral_body_boxes = []
 
@@ -219,10 +226,6 @@ def audit_neutral_easter_egg(stage: str, builder, failures: list[str]) -> None:
         left = index * FRAME
         base_frame = base.crop((left, 0, left + FRAME, FRAME))
         neutral_frame = neutral.crop((left, 0, left + FRAME, FRAME))
-
-        alpha_diff = ImageChops.difference(base_frame.getchannel("A"), neutral_frame.getchannel("A")).getbbox()
-        if alpha_diff is not None:
-            failures.append(f"{stage}.easter.neutral: klatka {index + 1} zmienia maskę alpha sprite'a")
 
         base_body_box = find_character_body_bbox(base_frame, builder)
         neutral_body_box = find_character_body_bbox(neutral_frame, builder)
@@ -232,21 +235,11 @@ def audit_neutral_easter_egg(stage: str, builder, failures: list[str]) -> None:
 
         base_body_boxes.append(base_body_box)
         neutral_body_boxes.append(neutral_body_box)
-        if base_body_box != neutral_body_box:
-            failures.append(
-                f"{stage}.easter.neutral: klatka {index + 1} zmienia bbox korpusu {base_body_box} -> {neutral_body_box}"
-            )
+        bbox_changed_frames += int(base_body_box != neutral_body_box)
 
-        changed_bbox = find_changed_color_bbox(base_frame, neutral_frame)
-        if changed_bbox is None:
-            failures.append(f"{stage}.easter.neutral: klatka {index + 1} nie ma zmienionej miny")
-            continue
-
-        changed_frames += 1
-        if not bbox_contains(allowed_box, changed_bbox):
-            failures.append(
-                f"{stage}.easter.neutral: klatka {index + 1} zmienia piksele poza twarzą {changed_bbox}, dozwolone {allowed_box}"
-            )
+        bottom_delta = abs(neutral_body_box[3] - base_body_box[3])
+        if bottom_delta > MAX_BODY_BASELINE_DELTA:
+            failures.append(f"{stage}.easter.neutral: klatka {index + 1} baseline różni się od idle o {bottom_delta:.1f}px")
 
     if base_body_boxes and neutral_body_boxes:
         base_metrics = metrics_from_boxes(base_body_boxes)
@@ -255,10 +248,19 @@ def audit_neutral_easter_egg(stage: str, builder, failures: list[str]) -> None:
             f"  neutral   "
             f"{neutral_metrics['width']:6.1f}x{neutral_metrics['height']:6.1f} "
             f"center={neutral_metrics['center_x']:6.1f},{neutral_metrics['center_y']:6.1f} "
-            f"changed_frames={changed_frames}/{base_frames}"
+            f"bbox_changed_frames={bbox_changed_frames}/{base_frames}"
         )
-        if base_metrics != neutral_metrics:
-            failures.append(f"{stage}.easter.neutral: metryki korpusu różnią się od idle")
+        height_delta = abs(neutral_metrics["height"] - base_metrics["height"])
+        center_delta = (
+            (neutral_metrics["center_x"] - base_metrics["center_x"]) ** 2
+            + (neutral_metrics["center_y"] - base_metrics["center_y"]) ** 2
+        ) ** 0.5
+        if height_delta > MAX_NEUTRAL_BODY_HEIGHT_DELTA:
+            failures.append(f"{stage}.easter.neutral: wysokość wyrenderowanego assetu różni się od idle o {height_delta:.1f}px")
+        if center_delta > MAX_NEUTRAL_BODY_CENTER_DELTA:
+            failures.append(f"{stage}.easter.neutral: środek wyrenderowanego assetu różni się od idle o {center_delta:.1f}px")
+        if neutral_metrics["drift"] > MAX_NEUTRAL_FRAME_DRIFT:
+            failures.append(f"{stage}.easter.neutral: klatki neutralnego assetu dryfują o {neutral_metrics['drift']:.1f}px")
 
 
 def audit_spore_detached_strips(builder, failures: list[str]) -> None:
@@ -290,15 +292,6 @@ def audit_spore_detached_strips(builder, failures: list[str]) -> None:
                 height = bbox[3] - bbox[1]
                 if width >= 18 and height <= 20:
                     failures.append(f"spore.{state}: klatka {index + 1} ma odklejony pasek nad sprite {bbox}")
-
-
-def find_changed_color_bbox(base_frame: Image.Image, neutral_frame: Image.Image) -> tuple[int, int, int, int] | None:
-    diff = ImageChops.difference(base_frame.convert("RGB"), neutral_frame.convert("RGB"))
-    return diff.getbbox()
-
-
-def bbox_contains(outer: tuple[int, int, int, int], inner: tuple[int, int, int, int]) -> bool:
-    return outer[0] <= inner[0] and outer[1] <= inner[1] and outer[2] >= inner[2] and outer[3] >= inner[3]
 
 
 def metrics_from_boxes(boxes: list[tuple[int, int, int, int]]) -> dict[str, float]:

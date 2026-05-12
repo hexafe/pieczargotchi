@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "assets"
 RAW_DIR = ASSETS / "source" / "imagegen" / "raw"
 CUTOUT_DIR = ASSETS / "source" / "imagegen" / "cutouts"
+NEUTRAL_EASTER_CUTOUT_DIR = CUTOUT_DIR / "easter-eggs" / "neutral"
 GENERATED_DIR = ASSETS / "source" / "imagegen" / "generated"
 FRAME = 512
 
@@ -51,13 +52,6 @@ STAGE_LAYOUT = {
 GRASS_VISIBLE_HEIGHT = 88
 GRASS_EDGE_VARIATION = 24
 GRASS_BOTTOM_Y = 512
-NEUTRAL_FACE_LAYOUT = {
-    "spore": {"clear": (244, 390, 274, 412), "sample": (236, 372, 282, 392), "mouth": (255, 402, 262, 403)},
-    "baby": {"clear": (238, 374, 278, 393), "sample": (224, 334, 288, 354), "mouth": (249, 383, 266, 386)},
-    "young": {"clear": (235, 343, 278, 367), "sample": (222, 326, 292, 348), "mouth": (247, 354, 267, 357)},
-    "adult": {"clear": (232, 328, 282, 352), "sample": (220, 310, 294, 333), "mouth": (247, 340, 269, 343)},
-    "legendary": {"clear": (236, 308, 280, 332), "sample": (222, 290, 294, 313), "mouth": (248, 321, 269, 324)},
-}
 
 SPORE_BODY_TARGET_H = 96
 SPORE_FULL_MAX_W = 430
@@ -130,7 +124,7 @@ def main() -> None:
     body_bottom_targets = policz_docelowe_doly_korpusu(grass)
     zbuduj_stany(grass, body_bottom_targets)
     zbuduj_aktywnosci(grass, body_bottom_targets)
-    zbuduj_easter_eggi()
+    zbuduj_easter_eggi(grass, body_bottom_targets)
     zbuduj_efekty()
     print("Zbudowano imagegenowe sprite sheety.")
 
@@ -140,6 +134,10 @@ def sprawdz_zrodla() -> None:
     brakujace = [name for name in wymagane if not (RAW_DIR / name).exists()]
     if brakujace:
         raise FileNotFoundError("Brak atlasow imagegen: " + ", ".join(brakujace))
+
+    brakujace_neutralne = [stage for stage in STAGES if not (NEUTRAL_EASTER_CUTOUT_DIR / f"{stage}.png").exists()]
+    if brakujace_neutralne:
+        raise FileNotFoundError("Brak wyrenderowanych neutralnych cutoutow: " + ", ".join(brakujace_neutralne))
 
 
 def przygotuj_warstwe_trawy() -> Image.Image:
@@ -686,67 +684,15 @@ def dopasuj_trawe_do_etapu(grass: Image.Image, stage: str) -> Image.Image:
     return lowered
 
 
-def zbuduj_easter_eggi() -> None:
+def zbuduj_easter_eggi(grass: Image.Image, body_bottom_targets: dict[str, int]) -> None:
     for stage in STAGES:
-        source = Image.open(ASSETS / "stages" / stage / "idle_sheet.png").convert("RGBA")
-        frames = []
-        for frame_index in range(source.width // FRAME):
-            frame = source.crop((frame_index * FRAME, 0, (frame_index + 1) * FRAME, FRAME))
-            narysuj_neutralna_mine(frame, stage)
-            frames.append(frame)
+        cutout = Image.open(NEUTRAL_EASTER_CUTOUT_DIR / f"{stage}.png").convert("RGBA")
+        frames = [
+            zloz_klatke_z_trawa(cutout, grass, stage, offset, None, body_bottom_targets)
+            for offset in STATE_OFFSETS["idle"]
+        ]
 
         zapisz_sheet(ASSETS / "easter-eggs" / stage / "neutral_sheet.png", frames)
-
-
-def narysuj_neutralna_mine(frame: Image.Image, stage: str) -> None:
-    layout = NEUTRAL_FACE_LAYOUT[stage]
-    clear_box = layout["clear"]
-    mouth_box = layout["mouth"]
-    skin = pobierz_kolor_twarzy(frame, layout["sample"])
-    pixels = frame.load()
-
-    for y in range(clear_box[1], clear_box[3]):
-        for x in range(clear_box[0], clear_box[2]):
-            r, g, b, a = pixels[x, y]
-            if a <= 8 or czy_piksel_liscia(r, g, b, a) or czy_piksel_wody(r, g, b, a):
-                continue
-            pixels[x, y] = (skin[0], skin[1], skin[2], a)
-
-    for y in range(mouth_box[1], mouth_box[3]):
-        for x in range(mouth_box[0], mouth_box[2]):
-            r, g, b, a = pixels[x, y]
-            if a <= 8 or czy_piksel_liscia(r, g, b, a) or czy_piksel_wody(r, g, b, a):
-                continue
-            pixels[x, y] = (45, 34, 27, a)
-
-
-def pobierz_kolor_twarzy(frame: Image.Image, box: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
-    pixels = frame.load()
-    samples = []
-    for y in range(box[1], box[3]):
-        for x in range(box[0], box[2]):
-            r, g, b, a = pixels[x, y]
-            if a < 180:
-                continue
-
-            if r < 145 or g < 90 or b < 45:
-                continue
-
-            if g > r + 8 and g > b + 8:
-                continue
-
-            samples.append((r, g, b, a))
-
-    if not samples:
-        return (250, 204, 146, 255)
-
-    count = len(samples)
-    return (
-        round(sum(pixel[0] for pixel in samples) / count),
-        round(sum(pixel[1] for pixel in samples) / count),
-        round(sum(pixel[2] for pixel in samples) / count),
-        255,
-    )
 
 
 def get_body_bottom_target(stage: str, body_bottom_targets: dict[str, int] | None) -> int | None:

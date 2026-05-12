@@ -22,11 +22,21 @@ Wymagane atlasy:
 
 - stany: `idle`, `sleep`, `wake`, `happy`, `excellent`, `tired`, `dry`, `hungry`, `dirty`, `sick`, `critical`
 - akcje: `hydrate`, `feed`, `clean`, `play`, `instrument`, `sing`, `spores`, `harvest`
+- easter eggi: `neutral_atlas.png` dla miny `:|`
 - efekty: `effects`
 
 Kazdy atlas stanu lub akcji ma jeden rzad pieciu postaci: `spore`, `baby`, `young`, `adult`, `legendary`. Tlo atlasu jest plaskim chroma-key `#ff00ff`.
 
 Dla etapu `spore` builder uzywa `spore_full_generated_atlas.png`: 19 kompletnych, wygenerowanych wariantow zarodka w kolejnosci stanow i akcji. Builder nie dokleja kapelusza ani nie sklada twarzy z osobnych warstw; tylko usuwa chroma-key, skaluje, centruje po ciele i doklada stabilna trawe runtime.
+
+Neutralny easter egg `:|` tez ma osobne wyrenderowane zrodla:
+
+```text
+assets/source/imagegen/raw/neutral_atlas.png
+assets/source/imagegen/cutouts/easter-eggs/neutral/<stage>.png
+```
+
+Builder nie rysuje ani nie dokleja miny `:|` do `idle_sheet.png`; runtime `assets/easter-eggs/<stage>/neutral_sheet.png` jest skladany z tych neutralnych cutoutow i wspolnej frontowej trawy.
 
 ## Prompt Bazowy
 
@@ -56,6 +66,7 @@ Skrypt tworzy:
 - `assets/stages/<stage>/<state>_sheet.png`
 - `assets/activities/<stage>/<activity>_sheet.png`
 - kompatybilne fallbacki `assets/activities/<activity>_sheet.png` z wariantu `adult`
+- `assets/easter-eggs/<stage>/neutral_sheet.png`
 - `assets/effects/<effect>_sheet.png`
 - pomocnicze wycinki w `assets/source/imagegen/cutouts/`
 
@@ -74,7 +85,7 @@ PIECZARGOTCHI_CAPTURE_VIEWPORT=1 PIECZARGOTCHI_CAPTURE_STAGES=1 PIECZARGOTCHI_CA
 
 Ostatnia walidacja:
 
-- `108` runtime PNG przechodzi `validate-assets`,
-- `sleep`, `wake` i `idle` trzymaja rozmiar w kazdym etapie,
+- `113` runtime PNG przechodzi `validate-assets`,
+- stany bazowe, aktywnosci i neutralne easter eggi trzymaja rozmiar/baseline w kazdym etapie,
 - lokalny capture potwierdza osobne animacje akcji dla `spore`, `baby`, `young`, `adult` i `legendary`,
 - viewport capture `1194x891` potwierdza czytelny prawy panel i brak checkerboardu w obszarze canvasu.
