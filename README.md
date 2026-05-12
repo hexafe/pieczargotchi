@@ -17,7 +17,7 @@ The MVP targets a 512x512 canvas, local browser persistence, a sleep/wake loop, 
 - `Styles.html` - responsive pixel-game CSS.
 - `Client.html` - thin Apps Script include aggregator for client partials.
 - `ClientCore.html` - small browser-global core helpers that are testable from Node, including weather balance, state migrations, and battle reducer primitives.
-- `ClientBoot.html`, `ClientDebug.html`, `ClientRuntime.html`, `ClientWeather.html`, `ClientState.html`, `ClientActions.html`, `ClientUi.html`, `ClientAnimation.html`, `ClientScene*.html`, and `ClientSprites.html` - client runtime split by responsibility. `ClientScene.html` is the scene orchestrator; palette, celestial, weather, and ground rendering live in focused scene partials.
+- `ClientBoot.html`, `ClientDebug.html`, `ClientRuntime.html`, `ClientWeather.html`, `ClientState.html`, `ClientActions.html`, `ClientUi.html`, `ClientAnimation.html`, `ClientScene*.html`, and `ClientSprites.html` - client runtime split by responsibility. `ClientScene.html` is the scene orchestrator; palette, celestial, weather, seasonal ambient life, and ground rendering live in focused scene partials.
 - `assets/awake.png` - prepared awake mushroom sprite.
 - `assets/sleeping_sheet.png` - prepared four-frame sleeping sprite sheet.
 - `assets/stages/` - growth-stage sprite sheets.
@@ -42,7 +42,7 @@ The MVP targets a 512x512 canvas, local browser persistence, a sleep/wake loop, 
 - `scripts/audit-sprite-consistency.py` - local size/center consistency audit for stage animations.
 - `scripts/capture-weather-matrix.mjs` - local weather and sky capture matrix for debug QA scenarios.
 
-The interface is Polish-first. The current build includes manifest-driven growth-stage animations, a short `O_O` wake expression, imagegen-based `spore`, `baby`, `young`, `adult`, and `legendary` silhouettes with a shared grass base, stage-specific activity reactions, need-driven sprite states, attention calls, care mistakes, patch quality, mycelium progress, spore harvest rewards, and a versioned `battle` state subtree prepared for a legendary-stage local arena.
+The interface is Polish-first. The current build includes manifest-driven growth-stage animations, a short `O_O` wake expression, imagegen-based `spore`, `baby`, `young`, `adult`, and `legendary` silhouettes with a shared grass base, wind/weather-reactive procedural grass, seasonal butterflies, small insects, crawling bugs, fireflies, stage-specific activity reactions, need-driven sprite states, attention calls, care mistakes, patch quality, mycelium progress, spore harvest rewards, and a versioned `battle` state subtree prepared for a legendary-stage local arena.
 
 ## Development
 
@@ -122,3 +122,5 @@ python3 scripts/build-imagegen-sprites.py
 node scripts/validate-assets.mjs
 python3 scripts/audit-sprite-consistency.py
 ```
+
+For repeatable scene-life screenshots, `scripts/capture-app-render.mjs` accepts the existing debug weather/date variables plus capture-only `PIECZARGOTCHI_DEBUG_TEMPERATURE`, `PIECZARGOTCHI_DEBUG_HUMIDITY`, `PIECZARGOTCHI_CAPTURE_DELAY_MS`, and `PIECZARGOTCHI_CAPTURE_LIFE_PROFILE=1`.

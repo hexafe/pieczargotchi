@@ -106,6 +106,7 @@ function Test-RequiredFiles {
     'ClientScenePalette.html',
     'ClientSceneCelestial.html',
     'ClientSceneWeather.html',
+    'ClientSceneLife.html',
     'ClientSceneGround.html',
     'ClientSprites.html',
     'Config.gs',

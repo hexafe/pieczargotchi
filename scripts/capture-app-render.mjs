@@ -9,9 +9,11 @@ const outputPrefix = process.argv[3] || path.join(tmpdir(), 'pieczargotchi-rende
 const chromiumPath = process.env.CHROMIUM_BIN || '/usr/bin/chromium';
 const viewportWidth = Number(process.env.PIECZARGOTCHI_VIEWPORT_WIDTH) || 1194;
 const viewportHeight = Number(process.env.PIECZARGOTCHI_VIEWPORT_HEIGHT) || 891;
+const captureDelayMs = Number(process.env.PIECZARGOTCHI_CAPTURE_DELAY_MS) || 350;
 const port = 9237 + Math.floor(Math.random() * 400);
 const userDataDir = path.join(tmpdir(), `pieczargotchi-cdp-${Date.now()}`);
 const captureDebugSettings = createCaptureDebugSettings();
+const captureSceneOverrides = createCaptureSceneOverrides();
 const stageSamples = [
   ['spore', 0],
   ['baby', 12],
@@ -73,6 +75,19 @@ function readOptionalEnvNumber(name) {
 
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function createCaptureSceneOverrides() {
+  const temperature = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_TEMPERATURE');
+  const humidity = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_HUMIDITY');
+  if (temperature === null && humidity === null) {
+    return null;
+  }
+
+  return {
+    temperature,
+    humidity
+  };
 }
 
 const browser = spawn(chromiumPath, [
@@ -225,7 +240,8 @@ async function captureCanvas(cdp, label, options) {
   await cdp.send('Runtime.evaluate', { expression: stateExpression, awaitPromise: true });
   await waitForLoad(cdp, () => cdp.send('Page.reload', { ignoreCache: true }));
   await waitForExpression(cdp, `document.querySelector('[data-asset-status]') && document.querySelector('[data-asset-status]').textContent.includes('Grafiki załadowane')`, 6000);
-  await delay(350);
+  await applyCaptureSceneOverrides(cdp);
+  await delay(captureDelayMs);
 
   const animationKey = await getCurrentAnimationKey(cdp);
   if (options.expectedAnimationKey && animationKey !== options.expectedAnimationKey) {
@@ -244,11 +260,69 @@ async function captureCanvas(cdp, label, options) {
   if (animationKey) {
     console.log(`${label} animation: ${animationKey}`);
   }
+
+  if (process.env.PIECZARGOTCHI_CAPTURE_LIFE_PROFILE === '1') {
+    const profile = await cdp.send('Runtime.evaluate', {
+      expression: `(() => {
+        const runtime = window.__pieczargotchiRuntime;
+        if (!runtime || !window.PieczargotchiCore || !window.PieczargotchiCore.calculateAmbientLife) {
+          return null;
+        }
+        return window.PieczargotchiCore.calculateAmbientLife(runtime.weatherScene, new Date(runtime.debug && runtime.debug.fixedAt || Date.now()));
+      })()`,
+      returnByValue: true
+    });
+    console.log(`${label} life: ${JSON.stringify(profile.result.value)}`);
+    const sceneSummary = await cdp.send('Runtime.evaluate', {
+      expression: `(() => {
+        const scene = window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.weatherScene;
+        if (!scene) {
+          return null;
+        }
+        return {
+          condition: scene.condition,
+          dayPhase: scene.dayPhase,
+          temperature: scene.temperature,
+          apparentTemperature: scene.apparentTemperature,
+          windSpeed: scene.windSpeed,
+          windLevel: scene.windLevel,
+          gustLevel: scene.gustLevel,
+          precipitation: scene.precipitation
+        };
+      })()`,
+      returnByValue: true
+    });
+    console.log(`${label} scene: ${JSON.stringify(sceneSummary.result.value)}`);
+  }
+}
+
+async function applyCaptureSceneOverrides(cdp) {
+  if (!captureSceneOverrides) {
+    return;
+  }
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const runtime = window.__pieczargotchiRuntime;
+      const overrides = ${JSON.stringify(captureSceneOverrides)};
+      if (!runtime || !runtime.weatherScene || !overrides) {
+        return;
+      }
+      if (overrides.temperature !== null) {
+        runtime.weatherScene.temperature = overrides.temperature;
+        runtime.weatherScene.apparentTemperature = overrides.temperature;
+      }
+      if (overrides.humidity !== null) {
+        runtime.weatherScene.humidity = overrides.humidity;
+      }
+    })()`,
+    awaitPromise: true
+  });
 }
 
 async function captureViewport(cdp) {
   await waitForExpression(cdp, `document.querySelector('[data-asset-status]') && document.querySelector('[data-asset-status]').textContent.includes('Grafiki załadowane')`, 6000);
-  await delay(350);
+  await delay(captureDelayMs);
 
   const layout = await cdp.send('Runtime.evaluate', {
     expression: `(() => {

@@ -194,6 +194,7 @@ check_required_files() {
     "ClientScenePalette.html"
     "ClientSceneCelestial.html"
     "ClientSceneWeather.html"
+    "ClientSceneLife.html"
     "ClientSceneGround.html"
     "ClientSprites.html"
     "Config.gs"

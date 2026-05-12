@@ -17,6 +17,7 @@
     }
 
     drawGroundForeground(ctx, now);
+    drawAmbientLifeForeground(ctx, now);
 
     if (runtime.state && runtime.state.mode === 'sleeping') {
       drawSleepAmbient(ctx, now);
