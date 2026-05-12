@@ -41,7 +41,7 @@
     const base = createDefaultDebugSettings();
     const result = Object.assign({}, base, settings || {});
     result.enabled = Boolean(result.enabled);
-    result.fixedAt = Number.isFinite(Number(result.fixedAt)) ? Number(result.fixedAt) : null;
+    result.fixedAt = hasDebugFixedAt(result.fixedAt) ? Number(result.fixedAt) : null;
     result.weather = ['auto', 'clear', 'cloudy', 'rain', 'storm', 'snow', 'fog'].includes(result.weather)
       ? result.weather
       : 'auto';
@@ -80,8 +80,12 @@
     return Number.isFinite(number) ? clamp(number, min, max, min) : null;
   }
 
+  function hasDebugFixedAt(value) {
+    return value !== null && value !== '' && typeof value !== 'undefined' && Number.isFinite(Number(value));
+  }
+
   function getRuntimeNow() {
-    if (runtime.debug && runtime.debug.enabled && Number.isFinite(Number(runtime.debug.fixedAt))) {
+    if (runtime.debug && runtime.debug.enabled && hasDebugFixedAt(runtime.debug.fixedAt)) {
       return Number(runtime.debug.fixedAt);
     }
 
@@ -238,7 +242,7 @@
 
     dom.debugEnabled.addEventListener('change', function() {
       runtime.debug.enabled = dom.debugEnabled.checked;
-      if (runtime.debug.enabled && !Number.isFinite(Number(runtime.debug.fixedAt))) {
+      if (runtime.debug.enabled && !hasDebugFixedAt(runtime.debug.fixedAt)) {
         runtime.debug.fixedAt = Date.now();
       }
       if (!runtime.debug.enabled) {
@@ -406,7 +410,7 @@
     }
 
     runtime.debug.enabled = true;
-    if (!Number.isFinite(Number(runtime.debug.fixedAt))) {
+    if (!hasDebugFixedAt(runtime.debug.fixedAt)) {
       runtime.debug.fixedAt = getRuntimeNow();
     }
   }
