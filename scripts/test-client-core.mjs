@@ -170,7 +170,7 @@ test('ambient life is strongest in warm clear summer daylight', () => {
     windSpeed: 5,
     windLevel: 0.06,
     precipitation: 0
-  }, new Date('2026-07-08T12:00:00+02:00'));
+  }, new Date(2026, 6, 8, 12, 0));
   const winter = core.calculateAmbientLife({
     condition: 'clear',
     dayPhase: 'noon',
@@ -180,7 +180,7 @@ test('ambient life is strongest in warm clear summer daylight', () => {
     windSpeed: 4,
     windLevel: 0.05,
     precipitation: 0
-  }, new Date('2026-01-08T12:00:00+01:00'));
+  }, new Date(2026, 0, 8, 12, 0));
 
   assert(summer.generalIntensity > 0.7, `expected vivid summer life, got ${summer.generalIntensity}`);
   assert(summer.butterflyIntensity > 0.7, `expected summer butterflies, got ${summer.butterflyIntensity}`);
@@ -197,7 +197,7 @@ test('ambient life treats missing temperature as neutral instead of freezing', (
     humidity: 62,
     windSpeed: 6,
     precipitation: 0
-  }, new Date('2026-07-08T12:00:00+02:00'));
+  }, new Date(2026, 6, 8, 12, 0));
 
   assert(profile.generalIntensity > 0.6, `expected neutral-temperature summer life, got ${profile.generalIntensity}`);
 });
@@ -213,7 +213,7 @@ test('ambient insects collapse during storm and snow', () => {
     gustLevel: 0.7,
     precipitation: 6,
     rain: 6
-  }, new Date('2026-07-08T12:00:00+02:00'));
+  }, new Date(2026, 6, 8, 12, 0));
   const snow = core.calculateAmbientLife({
     condition: 'snow',
     dayPhase: 'noon',
@@ -223,7 +223,7 @@ test('ambient insects collapse during storm and snow', () => {
     windLevel: 0.2,
     precipitation: 1,
     snowfall: 1
-  }, new Date('2026-07-08T12:00:00+02:00'));
+  }, new Date(2026, 6, 8, 12, 0));
 
   assert(storm.generalIntensity < 0.02, `expected near-zero storm insects, got ${storm.generalIntensity}`);
   assert(storm.fireflyIntensity === 0, `expected no storm fireflies, got ${storm.fireflyIntensity}`);
@@ -239,9 +239,9 @@ test('fireflies appear in the right summer evening window', () => {
     windLevel: 0.08,
     precipitation: 0
   };
-  const evening = core.calculateAmbientLife(Object.assign({ dayPhase: 'night' }, baseScene), new Date('2026-06-24T22:00:00+02:00'));
-  const noon = core.calculateAmbientLife(Object.assign({ dayPhase: 'noon' }, baseScene), new Date('2026-06-24T12:00:00+02:00'));
-  const january = core.calculateAmbientLife(Object.assign({ dayPhase: 'night' }, baseScene), new Date('2026-01-24T22:00:00+01:00'));
+  const evening = core.calculateAmbientLife(Object.assign({ dayPhase: 'night' }, baseScene), new Date(2026, 5, 24, 22, 0));
+  const noon = core.calculateAmbientLife(Object.assign({ dayPhase: 'noon' }, baseScene), new Date(2026, 5, 24, 12, 0));
+  const january = core.calculateAmbientLife(Object.assign({ dayPhase: 'night' }, baseScene), new Date(2026, 0, 24, 22, 0));
 
   assert(evening.fireflyIntensity > 0.7, `expected strong summer evening fireflies, got ${evening.fireflyIntensity}`);
   assert(noon.fireflyIntensity === 0, `expected no noon fireflies, got ${noon.fireflyIntensity}`);
