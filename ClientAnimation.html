@@ -16,6 +16,8 @@
       drawFallbackMushroom(ctx, runtime.state && runtime.state.mode === 'sleeping' ? 'sleeping' : 'awake');
     }
 
+    drawGroundForeground(ctx, now);
+
     if (runtime.state && runtime.state.mode === 'sleeping') {
       drawSleepAmbient(ctx, now);
     } else {

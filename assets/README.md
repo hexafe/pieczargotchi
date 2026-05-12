@@ -10,6 +10,7 @@ Runtime assets live in this directory.
 - Treść klatek musi pozostać wycentrowana. Walidacja jest w `scripts/validate-assets.mjs`.
 - Manifest runtime jest budowany w `AnimationConfig.gs`.
 - Etapy wzrostu nie mogą powstawać przez skalowanie całej sceny. Pieczarka jest skalowana osobno, a wspólna frontowa trawa ma ten sam niższy, niespłaszczany wycinek dla każdego etapu.
+- Trawa sceny ma dwa poziomy: osobny wygenerowany asset środowiska wypełnia podłoże pod Pieczarką, a pojedyncze wyższe źdźbła są rysowane w canvasie i reagują na wiatr.
 - Runtime assety sa budowane z atlasow imagegen przez `scripts/build-imagegen-sprites.py`.
 
 ## Struktura
@@ -19,11 +20,13 @@ Runtime assets live in this directory.
 - `activities/*.png` - fallbacki kompatybilnosci z wariantu `adult`.
 - `easter-eggs/<stage>/` - rzadkie warianty specjalne budowane z osobnych wyrenderowanych source cutoutow, np. neutralna mina `:|` i deszczowa wersja Iwoniastej Pieczarki z parasolka.
 - `effects/` - małe opcjonalne efekty pomocnicze z atlasu imagegen.
+- `environment/` - runtime assety sceny, np. wygenerowany trawnik `grass_patch.png`.
 - `reference/` - źródłowe referencje stylu, nie ładować ich w aplikacji.
-- `source/imagegen/raw/` - surowe atlasy z wbudowanego generatora obrazow, w tym `neutral_atlas.png` i `neutral_rain_atlas.png` dla easter eggow `:|`.
+- `source/imagegen/raw/` - surowe atlasy z wbudowanego generatora obrazow, w tym `neutral_atlas.png`, `neutral_rain_atlas.png` i `grass_patch_atlas.png`.
 - `source/imagegen/cutouts/` - wycinki pomocnicze z atlasow.
 - `source/imagegen/cutouts/easter-eggs/neutral/` - wyrenderowane cutouty neutralnej miny; nie doklejaj miny skryptem do gotowego runtime sprite.
 - `source/imagegen/cutouts/easter-eggs/neutral_rain/` - wyrenderowane cutouty neutralnej Iwoniastej Pieczarki z fioletowa parasolka; nie rysuj parasolki w canvasie ani skryptem pixel po pixelu.
+- `source/imagegen/cutouts/environment/` - przetworzone source cutouty środowiska, np. `grass_patch.png`.
 - `source/imagegen/generated/*_midgen_*.png` - lokalne eksperymenty/scratch output, ignorowane przez Git.
 - `awake.png` i `sleeping_sheet.png` - starsze assety zachowane jako punkt odniesienia i kompatybilny materiał źródłowy.
 

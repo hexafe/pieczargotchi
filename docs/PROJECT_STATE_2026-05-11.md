@@ -22,6 +22,7 @@ Najważniejsza decyzja z tego checkpointu: dalszy rozwój ma chronić czytelnoś
 - `ClientSprites.html` trzyma rysowanie sprite fallbacków, overlayów i efektów.
 - Wizualna pogoda używa znormalizowanych pól sceny: zachmurzenie zasłania ciała niebieskie, deszcz i śnieg reagują na kierunek/siłę wiatru, chmury dryfują wolniej według średniego wiatru, a wiatr ma porywy i okresy uspokojenia wokół średniej z danych pogodowych.
 - Runtime PNG mają wspólną frontową trawę składaną w `scripts/build-imagegen-sprites.py`; wszystkie stadia są za tą samą niższą trawą.
+- Scena ma osobny wygenerowany asset `assets/environment/grass_patch.png` jako bazowy trawnik pod Pieczarką, a pojedyncze wyższe źdźbła są warstwą canvasową reagującą na wiatr.
 - Rzadki dzienny easter egg `:|` jest deterministyczny per zapis i data; debug menu pozwala wymusić wariant zadowolony, gniewny albo Iwoniaście, a runtime używa osobnych neutralnych sprite sheetów. Gdy wariant Iwoniaście występuje podczas deszczu lub burzy, wybierany jest osobny wyrenderowany sprite sheet z fioletową parasolką.
 
 ## Decyzje Balansu

@@ -14,6 +14,7 @@ RAW_DIR = ASSETS / "source" / "imagegen" / "raw"
 CUTOUT_DIR = ASSETS / "source" / "imagegen" / "cutouts"
 NEUTRAL_EASTER_CUTOUT_DIR = CUTOUT_DIR / "easter-eggs" / "neutral"
 NEUTRAL_RAIN_EASTER_CUTOUT_DIR = CUTOUT_DIR / "easter-eggs" / "neutral_rain"
+ENVIRONMENT_CUTOUT_DIR = CUTOUT_DIR / "environment"
 GENERATED_DIR = ASSETS / "source" / "imagegen" / "generated"
 FRAME = 512
 
@@ -53,6 +54,7 @@ STAGE_LAYOUT = {
 GRASS_VISIBLE_HEIGHT = 88
 GRASS_EDGE_VARIATION = 24
 GRASS_BOTTOM_Y = 512
+ENVIRONMENT_GRASS_HEIGHT = 158
 
 SPORE_BODY_TARGET_H = 96
 SPORE_FULL_MAX_W = 430
@@ -127,11 +129,12 @@ def main() -> None:
     zbuduj_aktywnosci(grass, body_bottom_targets)
     zbuduj_easter_eggi(grass, body_bottom_targets)
     zbuduj_efekty()
+    zbuduj_srodowisko()
     print("Zbudowano imagegenowe sprite sheety.")
 
 
 def sprawdz_zrodla() -> None:
-    wymagane = [f"{name}_atlas.png" for name in [*STATES, *ACTIVITIES, "effects"]]
+    wymagane = [f"{name}_atlas.png" for name in [*STATES, *ACTIVITIES, "effects", "grass_patch"]]
     brakujace = [name for name in wymagane if not (RAW_DIR / name).exists()]
     if brakujace:
         raise FileNotFoundError("Brak atlasow imagegen: " + ", ".join(brakujace))
@@ -300,6 +303,30 @@ def zbuduj_efekty() -> None:
         zapisz_cutout("effects", effect, "effect", cutout)
         frames = [zloz_efekt(cutout, offset) for offset in EFFECT_OFFSETS[effect]]
         zapisz_sheet(ASSETS / "effects" / f"{effect}_sheet.png", frames)
+
+
+def zbuduj_srodowisko() -> None:
+    grass_patch = przygotuj_trawnik_srodowiska()
+    zapisz_obraz(ENVIRONMENT_CUTOUT_DIR / "grass_patch.png", grass_patch)
+    zapisz_obraz(ASSETS / "environment" / "grass_patch.png", grass_patch)
+
+
+def przygotuj_trawnik_srodowiska() -> Image.Image:
+    atlas = wczytaj_atlas("grass_patch")
+    bbox = atlas.getchannel("A").point(lambda value: 255 if value > 8 else 0).getbbox()
+    if bbox is None:
+        raise RuntimeError("Pusty atlas trawnika srodowiska.")
+
+    pad = 8
+    cutout = atlas.crop(
+        (
+            max(0, bbox[0] - pad),
+            max(0, bbox[1] - pad),
+            min(atlas.width, bbox[2] + pad),
+            min(atlas.height, bbox[3] + pad),
+        )
+    )
+    return cutout.resize((FRAME, ENVIRONMENT_GRASS_HEIGHT), Image.Resampling.NEAREST)
 
 
 def wczytaj_atlas(name: str) -> Image.Image:
@@ -1476,6 +1503,11 @@ def zapisz_cutout(kind: str, name: str, stage: str, cutout: Image.Image) -> None
     path = CUTOUT_DIR / kind / name / f"{stage}.png"
     path.parent.mkdir(parents=True, exist_ok=True)
     cutout.save(path)
+
+
+def zapisz_obraz(path: Path, image: Image.Image) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(path)
 
 
 if __name__ == "__main__":

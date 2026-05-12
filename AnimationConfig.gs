@@ -177,6 +177,18 @@ const PIECZARGOTCHI_EASTER_EGG_ANIMATIONS = [
   }
 ];
 
+const PIECZARGOTCHI_ENVIRONMENT_ASSETS = [
+  {
+    key: 'environment.grassPatch',
+    kind: 'environment',
+    fileName: 'environment/grass_patch.png',
+    width: PIECZARGOTCHI_CANVAS_SIZE,
+    height: 158,
+    frames: 1,
+    required: false
+  }
+];
+
 function getAnimationManifest() {
   const entries = [];
 
@@ -212,7 +224,11 @@ function getRuntimeAssetManifest() {
       height: animation.frameHeight,
       frames: animation.frameCount
     };
-  });
+  }).concat(PIECZARGOTCHI_ENVIRONMENT_ASSETS.map(function(asset) {
+    return Object.assign({}, asset, {
+      fileId: PIECZARGOTCHI_ASSET_FILE_IDS[asset.key] || ''
+    });
+  }));
 }
 
 function buildStageAnimationEntry(stage, animation) {

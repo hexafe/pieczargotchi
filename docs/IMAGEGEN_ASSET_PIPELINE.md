@@ -2,7 +2,7 @@
 
 Data: 2026-05-10
 
-Ten pipeline jest teraz kanoniczna sciezka budowania runtime PNG. Zrodla postaci, stanow, akcji i efektow pochodza z wbudowanego generatora obrazow, a lokalny skrypt wykonuje tylko techniczne kroki: usuniecie tla, ciecie atlasow, normalizacje skali, dolozenie stalej trawy i zlozenie sheetow.
+Ten pipeline jest teraz kanoniczna sciezka budowania runtime PNG. Zrodla postaci, stanow, akcji, efektow i srodowiska pochodza z wbudowanego generatora obrazow. Lokalne skrypty wykonuja tylko techniczne kroki: usuniecie tla, ciecie atlasow, normalizacje skali, dolozenie stabilnej frontowej trawy do sheetow postaci oraz przygotowanie osobnego assetu trawnika sceny.
 
 ## Zrodla
 
@@ -23,6 +23,7 @@ Wymagane atlasy:
 - stany: `idle`, `sleep`, `wake`, `happy`, `excellent`, `tired`, `dry`, `hungry`, `dirty`, `sick`, `critical`
 - akcje: `hydrate`, `feed`, `clean`, `play`, `instrument`, `sing`, `spores`, `harvest`
 - easter eggi: `neutral_atlas.png` dla miny `:|`, `neutral_rain_atlas.png` dla Iwoniastej Pieczarki z parasolka
+- srodowisko: `grass_patch_atlas.png` dla trawnika wypelniajacego dol sceny
 - efekty: `effects`
 
 Kazdy atlas stanu lub akcji ma jeden rzad pieciu postaci: `spore`, `baby`, `young`, `adult`, `legendary`. Tlo atlasu jest plaskim chroma-key `#ff00ff`.
@@ -39,6 +40,16 @@ assets/source/imagegen/cutouts/easter-eggs/neutral_rain/<stage>.png
 ```
 
 Builder nie rysuje ani nie dokleja miny `:|` do `idle_sheet.png` i nie rysuje parasolki pixel po pixelu. Runtime `assets/easter-eggs/<stage>/neutral_sheet.png` oraz `assets/easter-eggs/<stage>/neutral_rain_sheet.png` sa skladane z wyrenderowanych cutoutow i wspolnej frontowej trawy.
+
+Trawnik sceny tez ma osobne wyrenderowane zrodla:
+
+```text
+assets/source/imagegen/raw/grass_patch_atlas.png
+assets/source/imagegen/cutouts/environment/grass_patch.png
+assets/environment/grass_patch.png
+```
+
+`ClientScene.html` rysuje ten asset jako wypelnienie podloza pod Pieczarka. Pojedyncze wyzsze zdzbla sa rysowane proceduralnie na canvasie, bo musza reagowac na aktualny kierunek, sile i porywy wiatru.
 
 ## Prompt Bazowy
 
@@ -71,6 +82,7 @@ Skrypt tworzy:
 - `assets/easter-eggs/<stage>/neutral_sheet.png`
 - `assets/easter-eggs/<stage>/neutral_rain_sheet.png`
 - `assets/effects/<effect>_sheet.png`
+- `assets/environment/grass_patch.png`
 - pomocnicze wycinki w `assets/source/imagegen/cutouts/`
 
 Stary `scripts/generate-pixel-assets.py` deleguje do tego buildera, jezeli wykryje `assets/source/imagegen/raw/idle_atlas.png`.
@@ -88,7 +100,7 @@ PIECZARGOTCHI_CAPTURE_VIEWPORT=1 PIECZARGOTCHI_CAPTURE_STAGES=1 PIECZARGOTCHI_CA
 
 Ostatnia walidacja:
 
-- `118` runtime PNG przechodzi `validate-assets`,
+- `118` runtime sheetow PNG i `1` asset srodowiska przechodzi `validate-assets`,
 - stany bazowe, aktywnosci i neutralne easter eggi trzymaja rozmiar/baseline w kazdym etapie,
 - lokalny capture potwierdza osobne animacje akcji dla `spore`, `baby`, `young`, `adult` i `legendary`,
 - viewport capture `1194x891` potwierdza czytelny prawy panel i brak checkerboardu w obszarze canvasu.

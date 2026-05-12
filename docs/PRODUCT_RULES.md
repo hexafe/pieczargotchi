@@ -22,7 +22,7 @@ Pogoda nie jest tylko dekoracją. Ma wpływać na rytm opieki, ale łagodnie:
 
 Pogoda nie powinna jeszcze automatycznie robić care mistakes. Najpierw ma być miękkim modyfikatorem balansu.
 
-Wizualnie pogoda musi używać tych samych pól, które trafiają do balansu. Zachmurzenie może zasłaniać słońce, księżyc i gwiazdy. Kierunek i siła wiatru wpływają na kąt deszczu, dryf śniegu, porywy, mgłę, chmury i trawę; chwilowe porywy mogą rosnąć i cichnąć, ale średnia siła ma pozostać zgodna z aktualną pogodą.
+Wizualnie pogoda musi używać tych samych pól, które trafiają do balansu. Zachmurzenie może zasłaniać słońce, księżyc i gwiazdy. Kierunek i siła wiatru wpływają na kąt deszczu, dryf śniegu, porywy, mgłę, chmury i trawę; chwilowe porywy mogą rosnąć i cichnąć, ale średnia siła ma pozostać zgodna z aktualną pogodą. Trawa sceny ma wygenerowany asset bazowy oraz pojedyncze wyższe źdźbła reagujące na wiatr.
 
 Rzadkie easter eggi mogą zmieniać komunikat i neutralny sprite, ale nie mogą przykrywać pilnych potrzeb, aktywności ani snu. Wariant Iwoniastej Pieczarki podczas deszczu lub burzy używa osobnego wyrenderowanego sprite sheeta z fioletową parasolką.
 

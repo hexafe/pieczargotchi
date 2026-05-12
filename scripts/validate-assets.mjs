@@ -4,26 +4,38 @@ import { inflateSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 
 const katalogGlowny = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const katalogiAssetow = [
+const katalogiSheetow = [
   path.join(katalogGlowny, 'assets', 'stages'),
   path.join(katalogGlowny, 'assets', 'activities'),
   path.join(katalogGlowny, 'assets', 'easter-eggs'),
   path.join(katalogGlowny, 'assets', 'effects')
 ];
+const katalogiSrodowiska = [
+  path.join(katalogGlowny, 'assets', 'environment')
+];
 const rozmiarKlatki = 512;
 const przezroczystoscProgu = 8;
 
-const pliki = katalogiAssetow.flatMap(zbierzPng);
+const plikiSheetow = katalogiSheetow.flatMap(zbierzPng);
+const plikiSrodowiska = katalogiSrodowiska.flatMap(zbierzPng);
 const bledy = [];
 const ostrzezenia = [];
 
-if (!pliki.length) {
+if (!plikiSheetow.length) {
   bledy.push('Nie znaleziono assetów PNG w assets/stages, assets/activities ani assets/effects.');
 }
 
-pliki.forEach((plik) => {
+plikiSheetow.forEach((plik) => {
   try {
-    sprawdzPlik(plik);
+    sprawdzSheet(plik);
+  } catch (error) {
+    bledy.push(`${path.relative(katalogGlowny, plik)}: ${error.message}`);
+  }
+});
+
+plikiSrodowiska.forEach((plik) => {
+  try {
+    sprawdzAssetSrodowiska(plik);
   } catch (error) {
     bledy.push(`${path.relative(katalogGlowny, plik)}: ${error.message}`);
   }
@@ -39,7 +51,7 @@ if (bledy.length) {
   process.exit(1);
 }
 
-console.log(`Walidacja assetów OK: ${pliki.length} plików PNG.`);
+console.log(`Walidacja assetów OK: ${plikiSheetow.length} sheetów PNG, ${plikiSrodowiska.length} assetów środowiska.`);
 
 function zbierzPng(katalog) {
   if (!existsSync(katalog)) {
@@ -58,7 +70,7 @@ function zbierzPng(katalog) {
     .sort();
 }
 
-function sprawdzPlik(plik) {
+function sprawdzSheet(plik) {
   const obraz = wczytajPng(plik);
 
   if (obraz.height !== rozmiarKlatki) {
@@ -112,6 +124,31 @@ function sprawdzPlik(plik) {
   });
 }
 
+function sprawdzAssetSrodowiska(plik) {
+  const obraz = wczytajPng(plik);
+  if (obraz.width !== rozmiarKlatki) {
+    throw new Error(`szerokość ${obraz.width}px, oczekiwano ${rozmiarKlatki}px`);
+  }
+
+  if (obraz.height < 96 || obraz.height > 220) {
+    throw new Error(`wysokość ${obraz.height}px poza zakresem assetu środowiska`);
+  }
+
+  const bbox = policzBoundingBoxDlaObrazu(obraz);
+  if (!bbox) {
+    throw new Error('asset środowiska jest pusty');
+  }
+
+  if (bbox.minX <= 0 || bbox.maxX >= obraz.width - 1 || bbox.minY <= 0 || bbox.maxY >= obraz.height - 1) {
+    throw new Error(`asset środowiska dotyka krawędzi alpha ${JSON.stringify(bbox)}`);
+  }
+
+  const magenta = policzNieprzezroczystaMagente(obraz);
+  if (magenta > 0) {
+    throw new Error(`asset środowiska ma ${magenta} nieprzezroczystych pikseli chroma-key`);
+  }
+}
+
 function policzBoundingBox(obraz, klatka) {
   const startX = klatka * rozmiarKlatki;
   let minX = Infinity;
@@ -138,6 +175,52 @@ function policzBoundingBox(obraz, klatka) {
   }
 
   return { minX, minY, maxX, maxY };
+}
+
+function policzBoundingBoxDlaObrazu(obraz) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (let y = 0; y < obraz.height; y += 1) {
+    for (let x = 0; x < obraz.width; x += 1) {
+      const alfa = obraz.pixels[(y * obraz.width + x) * 4 + 3];
+      if (alfa <= przezroczystoscProgu) {
+        continue;
+      }
+
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+
+  if (minX === Infinity) {
+    return null;
+  }
+
+  return { minX, minY, maxX, maxY };
+}
+
+function policzNieprzezroczystaMagente(obraz) {
+  let count = 0;
+
+  for (let y = 0; y < obraz.height; y += 1) {
+    for (let x = 0; x < obraz.width; x += 1) {
+      const offset = (y * obraz.width + x) * 4;
+      const r = obraz.pixels[offset];
+      const g = obraz.pixels[offset + 1];
+      const b = obraz.pixels[offset + 2];
+      const a = obraz.pixels[offset + 3];
+      if (a > przezroczystoscProgu && r > 220 && b > 220 && g < 80) {
+        count += 1;
+      }
+    }
+  }
+
+  return count;
 }
 
 function wczytajPng(plik) {
