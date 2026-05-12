@@ -9,6 +9,7 @@ const outputPrefix = process.argv[3] || path.join(tmpdir(), 'pieczargotchi-rende
 const chromiumPath = process.env.CHROMIUM_BIN || '/usr/bin/chromium';
 const viewportWidth = Number(process.env.PIECZARGOTCHI_VIEWPORT_WIDTH) || 1194;
 const viewportHeight = Number(process.env.PIECZARGOTCHI_VIEWPORT_HEIGHT) || 891;
+const emulateMobile = process.env.PIECZARGOTCHI_EMULATE_MOBILE === '1';
 const captureDelayMs = Number(process.env.PIECZARGOTCHI_CAPTURE_DELAY_MS) || 350;
 const port = 9237 + Math.floor(Math.random() * 400);
 const userDataDir = path.join(tmpdir(), `pieczargotchi-cdp-${Date.now()}`);
@@ -111,7 +112,7 @@ try {
     width: viewportWidth,
     height: viewportHeight,
     deviceScaleFactor: 1,
-    mobile: false
+    mobile: emulateMobile
   });
 
   await navigate(cdp, appUrl);
@@ -241,6 +242,7 @@ async function captureCanvas(cdp, label, options) {
   await waitForLoad(cdp, () => cdp.send('Page.reload', { ignoreCache: true }));
   await waitForExpression(cdp, `document.querySelector('[data-asset-status]') && document.querySelector('[data-asset-status]').textContent.includes('Grafiki załadowane')`, 6000);
   await applyCaptureSceneOverrides(cdp);
+  await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.booted && window.__pieczargotchiRuntime.currentAnimationKey)`, 6000);
   await delay(captureDelayMs);
 
   const animationKey = await getCurrentAnimationKey(cdp);
@@ -322,24 +324,75 @@ async function applyCaptureSceneOverrides(cdp) {
 
 async function captureViewport(cdp) {
   await waitForExpression(cdp, `document.querySelector('[data-asset-status]') && document.querySelector('[data-asset-status]').textContent.includes('Grafiki załadowane')`, 6000);
+  await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.booted && window.__pieczargotchiRuntime.currentAnimationKey)`, 6000);
   await delay(captureDelayMs);
 
   const layout = await cdp.send('Runtime.evaluate', {
     expression: `(() => {
-      const side = document.querySelector('.side-panel').getBoundingClientRect();
-      const canvas = document.querySelector('.canvas-wrap').getBoundingClientRect();
+      const rectOf = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) {
+          return null;
+        }
+
+        const rect = element.getBoundingClientRect();
+        return {
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height
+        };
+      };
+      const actionButtons = Array.from(document.querySelectorAll('.action-button')).map((button) => {
+        const rect = button.getBoundingClientRect();
+        const label = button.querySelector('.action-label');
+        return {
+          top: rect.top,
+          left: rect.left,
+          width: rect.width,
+          height: rect.height,
+          labelText: label ? label.textContent : '',
+          labelClipped: label ? label.scrollWidth > label.clientWidth + 1 || label.scrollHeight > label.clientHeight + 1 : false
+        };
+      });
+      const actionsGrid = document.querySelector('.actions-grid');
+      const actionColumns = actionsGrid
+        ? getComputedStyle(actionsGrid).gridTemplateColumns.split(' ').filter(Boolean).length
+        : 0;
       return {
         innerWidth,
         innerHeight,
-        side: { left: side.left, right: side.right, top: side.top, bottom: side.bottom, width: side.width, height: side.height },
-        canvas: { left: canvas.left, right: canvas.right, top: canvas.top, bottom: canvas.bottom, width: canvas.width, height: canvas.height }
+        documentWidth: document.documentElement.scrollWidth,
+        bodyWidth: document.body.scrollWidth,
+        app: rectOf('.app'),
+        stage: rectOf('.stage-panel'),
+        message: rectOf('.message-panel'),
+        side: rectOf('.side-panel'),
+        actions: rectOf('.panel-block--actions'),
+        status: rectOf('.panel-block--status'),
+        resources: rectOf('.panel-block--resources'),
+        log: rectOf('.panel-block--log'),
+        debug: rectOf('.panel-block--debug'),
+        canvas: rectOf('.canvas-wrap'),
+        actionColumns,
+        actionButtons
       };
     })()`,
     returnByValue: true
   });
   const info = layout.result.value;
-  if (info.side.right > info.innerWidth + 1) {
+  if (info.documentWidth > info.innerWidth + 1 || info.bodyWidth > info.innerWidth + 1) {
+    throw new Error(`Strona wychodzi poza viewport: document=${info.documentWidth}, body=${info.bodyWidth}, width=${info.innerWidth}`);
+  }
+
+  if (info.side && info.side.right > info.innerWidth + 1) {
     throw new Error(`Panel boczny wychodzi poza viewport: right=${info.side.right}, width=${info.innerWidth}`);
+  }
+
+  if (viewportWidth <= 640 || emulateMobile) {
+    assertMobileLayout(info);
   }
 
   const screenshot = await cdp.send('Page.captureScreenshot', {
@@ -350,7 +403,48 @@ async function captureViewport(cdp) {
   const filePath = `${outputPrefix}-viewport-${viewportWidth}x${viewportHeight}.png`;
   writeFileSync(filePath, Buffer.from(screenshot.data, 'base64'));
   console.log(`viewport: ${filePath}`);
-  console.log(`viewport layout: side=${Math.round(info.side.width)}x${Math.round(info.side.height)}, canvas=${Math.round(info.canvas.width)}x${Math.round(info.canvas.height)}`);
+  console.log(`viewport layout: side=${Math.round(info.side.width)}x${Math.round(info.side.height)}, canvas=${Math.round(info.canvas.width)}x${Math.round(info.canvas.height)}, actionColumns=${info.actionColumns}`);
+}
+
+function assertMobileLayout(info) {
+  if (!info.stage || !info.canvas || !info.message || !info.actions || !info.status) {
+    throw new Error('Brakuje kluczowych elementów layoutu mobilnego.');
+  }
+
+  const canvasTopLimit = info.innerWidth <= 640 || info.innerHeight <= 500 ? 150 : 190;
+  if (info.canvas.top > canvasTopLimit) {
+    throw new Error(`Canvas jest zbyt nisko na mobile: top=${Math.round(info.canvas.top)}px, limit=${canvasTopLimit}px`);
+  }
+
+  if (info.actions.top < info.stage.bottom - 1) {
+    throw new Error('Panel akcji nakłada się na scenę.');
+  }
+
+  if (info.actions.top - info.stage.bottom > 18) {
+    throw new Error(`Akcje są za daleko od sceny: gap=${Math.round(info.actions.top - info.stage.bottom)}px`);
+  }
+
+  if (info.status.top < info.actions.bottom - 1) {
+    throw new Error('Status powinien być pod akcjami w układzie mobilnym.');
+  }
+
+  if (info.actionColumns < 2) {
+    throw new Error(`Akcje mobilne powinny mieć 2 kolumny, wykryto ${info.actionColumns}.`);
+  }
+
+  const shortButtons = info.actionButtons.filter((button) => button.height < 48);
+  if (shortButtons.length) {
+    throw new Error(`Za niskie touch targety akcji: ${shortButtons.map((button) => `${button.labelText}:${Math.round(button.height)}px`).join(', ')}`);
+  }
+
+  const clippedLabels = info.actionButtons.filter((button) => button.labelClipped);
+  if (clippedLabels.length) {
+    throw new Error(`Ucięte etykiety akcji: ${clippedLabels.map((button) => button.labelText).join(', ')}`);
+  }
+
+  if (info.innerWidth >= 390 && info.innerWidth <= 430 && info.innerHeight >= 844 && info.actions.bottom > info.innerHeight + 24) {
+    throw new Error(`Pełny panel akcji nie mieści się wystarczająco wysoko na 390x844: bottom=${Math.round(info.actions.bottom)}px`);
+  }
 }
 
 async function getCurrentAnimationKey(cdp) {

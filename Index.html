@@ -3,6 +3,7 @@
   <head>
     <base target="_top">
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title><?= PIECZARGOTCHI_APP_TITLE ?></title>
     <?!= include('Styles'); ?>
   </head>
@@ -47,7 +48,7 @@
         </section>
 
         <aside class="side-panel" aria-label="Panel opieki">
-          <section class="panel-block">
+          <section class="panel-block panel-block--status">
             <div class="block-heading">
               <h2>Status</h2>
               <span data-health-label>100%</span>
@@ -55,7 +56,7 @@
             <div class="stats-list" data-stats-list></div>
           </section>
 
-          <section class="panel-block">
+          <section class="panel-block panel-block--actions">
             <div class="block-heading">
               <h2>Opieka</h2>
               <span data-cooldown-label>Gotowe</span>
@@ -63,7 +64,7 @@
             <div class="actions-grid" data-actions-grid></div>
           </section>
 
-          <section class="panel-block panel-block--compact">
+          <section class="panel-block panel-block--compact panel-block--resources">
             <div class="block-heading">
               <h2>Zasoby</h2>
               <span data-coins-label>0 zarodników</span>
