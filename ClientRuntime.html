@@ -1,0 +1,100 @@
+  function startTimers() {
+    window.setInterval(function() {
+      runtime.state = applyElapsedTime(runtime.state, getRuntimeNow());
+      saveState(runtime.state);
+      renderUi();
+    }, rules.tickMs || 60000);
+
+    window.setInterval(function() {
+      cleanupActivity(getRuntimeNow());
+      renderActionStates();
+      renderMessage();
+    }, rules.cooldownTickMs || 1000);
+  }
+
+  function startRenderLoop() {
+    if (runtime.renderStarted) {
+      return;
+    }
+
+    runtime.renderStarted = true;
+
+    function render(now) {
+      drawFrame(now);
+      window.requestAnimationFrame(render);
+    }
+
+    window.requestAnimationFrame(render);
+  }
+
+  function loadAssets() {
+    const manifest = Array.isArray(config.assets) ? config.assets : [];
+    if (!manifest.length) {
+      runtime.assetStatus = 'Aktywne grafiki zapasowe';
+      renderAssetStatus();
+      return;
+    }
+
+    Promise.all(manifest.map(function(asset) {
+      return loadAsset(asset);
+    })).then(function() {
+      const loadedCount = manifest.filter(function(asset) {
+        return Boolean(runtime.assets[asset.key]);
+      }).length;
+      const requiredMissing = manifest.some(function(asset) {
+        return asset.required && !runtime.assets[asset.key];
+      });
+
+      if (!loadedCount) {
+        runtime.assetStatus = 'Aktywne grafiki zapasowe';
+      } else if (requiredMissing) {
+        runtime.assetStatus = 'Część grafik zapasowa (' + loadedCount + '/' + manifest.length + ')';
+      } else {
+        runtime.assetStatus = 'Grafiki załadowane (' + loadedCount + '/' + manifest.length + ')';
+      }
+
+      renderAssetStatus();
+    });
+  }
+
+  function loadAsset(asset) {
+    const assetData = config.assetData && config.assetData[asset.key];
+    const candidates = [];
+
+    if (assetData && assetData.dataUrl) {
+      candidates.push(assetData.dataUrl);
+    }
+
+    candidates.push('assets/' + asset.fileName);
+
+    return loadImageFromCandidates(candidates).then(function(image) {
+      runtime.assets[asset.key] = image;
+    }).catch(function() {
+      runtime.assets[asset.key] = null;
+    });
+  }
+
+  function loadImageFromCandidates(candidates) {
+    let index = 0;
+
+    return new Promise(function(resolve, reject) {
+      function tryNext() {
+        if (index >= candidates.length) {
+          reject(new Error('Nie udało się załadować grafiki.'));
+          return;
+        }
+
+        const image = new Image();
+        image.onload = function() {
+          resolve(image);
+        };
+        image.onerror = function() {
+          index += 1;
+          tryNext();
+        };
+        image.src = candidates[index];
+      }
+
+      tryNext();
+    });
+  }

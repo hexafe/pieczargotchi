@@ -98,6 +98,17 @@ function getGameRulesConfig() {
       cleanHealthy: 2,
       neglected: -6
     },
+    weatherBalance: {
+      maxElapsedHours: 2,
+      rainHydrationPerHour: 8,
+      stormHydrationPerHour: 5,
+      snowHydrationPerHour: 1.5,
+      highHumidityHydrationPerHour: 1.2,
+      windDryingPerHour: -3,
+      heatDryingPerHour: -2,
+      stormHappinessPerHour: -2,
+      stormCleanlinessPerHour: -1.5
+    },
     instruments: [
       'mała kalimba',
       'kieszonkowy syntezator',

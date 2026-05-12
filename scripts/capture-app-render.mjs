@@ -11,6 +11,7 @@ const viewportWidth = Number(process.env.PIECZARGOTCHI_VIEWPORT_WIDTH) || 1194;
 const viewportHeight = Number(process.env.PIECZARGOTCHI_VIEWPORT_HEIGHT) || 891;
 const port = 9237 + Math.floor(Math.random() * 400);
 const userDataDir = path.join(tmpdir(), `pieczargotchi-cdp-${Date.now()}`);
+const captureDebugSettings = createCaptureDebugSettings();
 const stageSamples = [
   ['spore', 0],
   ['baby', 12],
@@ -19,6 +20,49 @@ const stageSamples = [
   ['legendary', 100]
 ];
 const activitySamples = ['hydrate', 'feed', 'clean', 'play', 'instrument', 'sing', 'spores', 'harvest'];
+
+function createCaptureDebugSettings() {
+  const weather = process.env.PIECZARGOTCHI_DEBUG_WEATHER || 'auto';
+  const cloud = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_CLOUD');
+  const precipitation = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_PRECIPITATION');
+  const wind = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_WIND');
+  const windDirection = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_WIND_DIRECTION');
+  const fixedAt = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_FIXED_AT');
+  const hasDebugWeather = weather !== 'auto'
+    || cloud !== null
+    || precipitation !== null
+    || wind !== null
+    || windDirection !== null
+    || fixedAt !== null;
+
+  if (!hasDebugWeather) {
+    return null;
+  }
+
+  return {
+    enabled: true,
+    fixedAt: fixedAt === null ? Date.now() : fixedAt,
+    weather,
+    cloudCoverOverride: cloud,
+    precipitationOverride: precipitation,
+    windSpeedOverride: wind,
+    windDirectionOverride: windDirection,
+    forcedAnimation: 'auto',
+    forcedAnimationStartedAt: 0,
+    neutralEasterEggOverride: 'auto',
+    panelOpen: false
+  };
+}
+
+function readOptionalEnvNumber(name) {
+  const value = process.env[name];
+  if (value === undefined || value === '') {
+    return null;
+  }
+
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
 
 const browser = spawn(chromiumPath, [
   '--headless=new',
@@ -137,6 +181,10 @@ async function captureCanvas(cdp, label, options) {
     state.attention.severity = null;
     state.currentActivity = ${options.activity};
     localStorage.setItem(config.storageKey, JSON.stringify(state));
+    const debugSettings = ${JSON.stringify(captureDebugSettings)};
+    if (debugSettings) {
+      localStorage.setItem((config.storageKey || 'pieczargotchi_state_v2') + '_debug', JSON.stringify(debugSettings));
+    }
   })()`;
 
   await cdp.send('Runtime.evaluate', { expression: stateExpression, awaitPromise: true });

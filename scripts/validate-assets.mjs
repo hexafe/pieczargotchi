@@ -7,6 +7,7 @@ const katalogGlowny = path.resolve(path.dirname(fileURLToPath(import.meta.url)),
 const katalogiAssetow = [
   path.join(katalogGlowny, 'assets', 'stages'),
   path.join(katalogGlowny, 'assets', 'activities'),
+  path.join(katalogGlowny, 'assets', 'easter-eggs'),
   path.join(katalogGlowny, 'assets', 'effects')
 ];
 const rozmiarKlatki = 512;
@@ -78,7 +79,7 @@ function sprawdzPlik(plik) {
   const czyZarodnik = plik.includes(`${path.sep}spore${path.sep}`);
   const tolerancjaDriftu = czyEfekt ? 48 : czyAktywnosc ? 24 : 12;
   const tolerancjaCentrumX = czyEfekt ? 112 : czyAktywnosc ? 42 : 42;
-  const tolerancjaCentrumY = czyEfekt ? 112 : czyZarodnik ? 150 : czyAktywnosc ? 125 : 125;
+  const tolerancjaCentrumY = czyEfekt ? 112 : czyZarodnik ? 165 : czyAktywnosc ? 125 : 125;
   const centra = [];
 
   for (let klatka = 0; klatka < liczbaKlatek; klatka += 1) {

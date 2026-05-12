@@ -9,7 +9,7 @@ Runtime assets live in this directory.
 - Pliki runtime muszą być RGBA PNG.
 - Treść klatek musi pozostać wycentrowana. Walidacja jest w `scripts/validate-assets.mjs`.
 - Manifest runtime jest budowany w `AnimationConfig.gs`.
-- Etapy wzrostu nie mogą powstawać przez skalowanie całej sceny. Trawa zostaje wspólna, a zmienia się sama Pieczarka.
+- Etapy wzrostu nie mogą powstawać przez skalowanie całej sceny. Pieczarka jest skalowana osobno, a wspólna frontowa trawa ma ten sam niższy, niespłaszczany wycinek dla każdego etapu.
 - Runtime assety sa budowane z atlasow imagegen przez `scripts/build-imagegen-sprites.py`.
 
 ## Struktura
@@ -17,10 +17,12 @@ Runtime assets live in this directory.
 - `stages/` - animacje etapów wzrostu: `spore`, `baby`, `young`, `adult`, `legendary`.
 - `activities/<stage>/` - jednorazowe reakcje na akcje opieki, muzykę, zarodniki i plon dla konkretnego etapu.
 - `activities/*.png` - fallbacki kompatybilnosci z wariantu `adult`.
+- `easter-eggs/<stage>/` - rzadkie warianty specjalne budowane z runtime sprite, np. neutralna mina `:|`.
 - `effects/` - małe opcjonalne efekty pomocnicze z atlasu imagegen.
 - `reference/` - źródłowe referencje stylu, nie ładować ich w aplikacji.
 - `source/imagegen/raw/` - surowe atlasy z wbudowanego generatora obrazow.
 - `source/imagegen/cutouts/` - wycinki pomocnicze z atlasow.
+- `source/imagegen/generated/*_midgen_*.png` - lokalne eksperymenty/scratch output, ignorowane przez Git.
 - `awake.png` i `sleeping_sheet.png` - starsze assety zachowane jako punkt odniesienia i kompatybilny materiał źródłowy.
 
 Nowe lub zmienione pliki utrzymuj w zgodzie z `docs/SPRITE_BIBLE.md`,

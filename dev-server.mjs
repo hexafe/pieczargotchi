@@ -43,18 +43,17 @@ server.listen(port, '127.0.0.1', () => {
 });
 
 async function renderPreviewHtml() {
-  const [indexHtml, stylesHtml, clientHtml] = await Promise.all([
-    readText('Index.html'),
-    readText('Styles.html'),
-    readText('Client.html')
-  ]);
   const clientConfigJson = JSON.stringify(buildClientConfig()).replace(/<\/script/gi, '<\\/script');
+  return renderTemplate('Index.html', { clientConfigJson });
+}
 
-  return indexHtml
+function renderTemplate(fileName, values) {
+  return readTextSync(fileName)
     .replace(/<\?=\s*PIECZARGOTCHI_APP_TITLE\s*\?>/g, 'Pieczargotchi')
-    .replace(/<\?!=\s*include\('Styles'\);\s*\?>/g, stylesHtml)
-    .replace(/<\?!=\s*include\('Client'\);\s*\?>/g, clientHtml)
-    .replace(/<\?!=\s*clientConfigJson\s*\?>/g, clientConfigJson);
+    .replace(/<\?!=\s*clientConfigJson\s*\?>/g, values.clientConfigJson)
+    .replace(/<\?!=\s*include\('([^']+)'\);\s*\?>/g, function(_match, partialName) {
+      return renderTemplate(partialName + '.html', values);
+    });
 }
 
 function buildClientConfig() {
@@ -107,10 +106,6 @@ async function serveStatic(urlPathname, response) {
 
   const data = await readFile(filePath);
   send(response, 200, data, contentTypes[path.extname(filePath).toLowerCase()] || 'application/octet-stream');
-}
-
-async function readText(fileName) {
-  return readFile(path.join(rootDir, fileName), 'utf8');
 }
 
 function readTextSync(fileName) {

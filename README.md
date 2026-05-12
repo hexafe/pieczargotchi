@@ -15,7 +15,9 @@ The MVP targets a 512x512 canvas, local browser persistence, a sleep/wake loop, 
 - `Actions.gs` - care action definitions, cooldowns, shortcuts, and stat deltas.
 - `Index.html` - web app shell.
 - `Styles.html` - responsive pixel-game CSS.
-- `Client.html` - canvas renderer, localStorage state, actions, cooldowns, effects, and keyboard shortcuts.
+- `Client.html` - thin Apps Script include aggregator for client partials.
+- `ClientCore.html` - small browser-global core helpers that are testable from Node.
+- `ClientBoot.html`, `ClientDebug.html`, `ClientRuntime.html`, `ClientWeather.html`, `ClientState.html`, `ClientActions.html`, `ClientUi.html`, `ClientAnimation.html`, `ClientScene.html`, and `ClientSprites.html` - client runtime split by responsibility.
 - `assets/awake.png` - prepared awake mushroom sprite.
 - `assets/sleeping_sheet.png` - prepared four-frame sleeping sprite sheet.
 - `assets/stages/` - growth-stage sprite sheets.
@@ -31,6 +33,8 @@ The MVP targets a 512x512 canvas, local browser persistence, a sleep/wake loop, 
 - `docs/IMAGEGEN_ASSET_PIPELINE.md` - imagegen atlas prompts, source paths, build steps, and validation commands.
 - `docs/UI_RENDER_AUDIT_2026-05-10.md` - screenshot-driven UI/rendering fixes and viewport validation.
 - `docs/SPRITE_AUDIT_2026-05-10.md` - focused audit for sprite size and wake-face alignment.
+- `docs/PROJECT_STATE_2026-05-11.md` - current architecture and maintenance checkpoint.
+- `docs/PRODUCT_RULES.md` - gameplay and balance rules for future development.
 - `scripts/build-imagegen-sprites.py` - builds runtime sheets from imagegen atlases.
 - `scripts/generate-pixel-assets.py` - compatibility entrypoint; delegates to the imagegen builder when imagegen sources exist.
 - `scripts/validate-assets.mjs` - local PNG dimension, frame, and centering validation.
@@ -108,7 +112,8 @@ The preview server renders the Apps Script partials locally, injects a client co
 Quick local syntax checks:
 
 ```sh
-node -e "const fs=require('fs'); const s=fs.readFileSync('Client.html','utf8').replace(/^<script>\n/,'').replace(/\n<\/script>\s*$/,''); new Function(s); console.log('Client syntax ok');"
+node scripts/check-client-syntax.mjs
+node scripts/test-client-core.mjs
 node -e "const fs=require('fs'); for (const f of ['Code.gs','Config.gs','AnimationConfig.gs','AssetService.gs','StateModel.gs','GameRules.gs','Actions.gs']) { new Function(fs.readFileSync(f,'utf8')); console.log(f + ' syntax ok'); }"
 python3 scripts/build-imagegen-sprites.py
 node scripts/validate-assets.mjs

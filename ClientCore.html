@@ -1,0 +1,86 @@
+<script>
+(function(global) {
+  'use strict';
+
+  const defaultWeatherBalance = {
+    maxElapsedHours: 2,
+    rainHydrationPerHour: 8,
+    stormHydrationPerHour: 5,
+    snowHydrationPerHour: 1.5,
+    highHumidityHydrationPerHour: 1.2,
+    windDryingPerHour: -3,
+    heatDryingPerHour: -2,
+    stormHappinessPerHour: -2,
+    stormCleanlinessPerHour: -1.5
+  };
+
+  function calculateWeatherStatDeltas(scene, elapsedHours, config) {
+    const balance = Object.assign({}, defaultWeatherBalance, config || {});
+    const hours = clampNumber(Number(elapsedHours), 0, balance.maxElapsedHours, 0);
+    if (!hours || !scene) {
+      return {};
+    }
+
+    const rainAmount = Math.max(0, Number(scene.rain) || 0, Number(scene.showers) || 0);
+    const precipitation = Math.max(0, Number(scene.precipitation) || 0, rainAmount, Number(scene.snowfall) || 0);
+    const rainIntensity = clampNumber(Number(scene.rainIntensity), 0, 1, clampNumber(rainAmount / 7, 0, 1, 0));
+    const snowIntensity = clampNumber(Number(scene.snowIntensity), 0, 1, clampNumber(Number(scene.snowfall) / 4, 0, 1, 0));
+    const stormIntensity = clampNumber(Number(scene.stormIntensity), 0, 1, scene.condition === 'storm' ? 0.45 : 0);
+    const windLevel = clampNumber(Number(scene.windLevel), 0, 1, clampNumber(Number(scene.windSpeed) / 82, 0, 1, 0));
+    const humidity = clampNumber(Number(scene.humidity), 0, 100, 60);
+    const temperature = Number(scene.apparentTemperature ?? scene.temperature);
+    const heatLevel = Number.isFinite(temperature) ? clampNumber((temperature - 24) / 12, 0, 1, 0) : 0;
+
+    const deltas = {};
+    const rainHydration = rainIntensity * balance.rainHydrationPerHour;
+    const stormHydration = stormIntensity * balance.stormHydrationPerHour;
+    const snowHydration = snowIntensity * balance.snowHydrationPerHour;
+    const humidityHydration = clampNumber((humidity - 78) / 22, 0, 1, 0) * balance.highHumidityHydrationPerHour;
+    const windDrying = windLevel * balance.windDryingPerHour;
+    const heatDrying = heatLevel * balance.heatDryingPerHour;
+    const precipitationBoost = precipitation > 0 && scene.condition === 'rain'
+      ? Math.min(1.5, precipitation * 0.12)
+      : 0;
+
+    deltas.hydration = roundStatDelta((
+      rainHydration
+      + stormHydration
+      + snowHydration
+      + humidityHydration
+      + windDrying
+      + heatDrying
+      + precipitationBoost
+    ) * hours);
+
+    if (stormIntensity > 0) {
+      deltas.happiness = roundStatDelta(stormIntensity * balance.stormHappinessPerHour * hours);
+      deltas.cleanliness = roundStatDelta(stormIntensity * balance.stormCleanlinessPerHour * hours);
+    }
+
+    return removeZeroDeltas(deltas);
+  }
+
+  function clampNumber(value, min, max, fallback) {
+    const next = Number.isFinite(value) ? value : fallback;
+    return Math.min(max, Math.max(min, next));
+  }
+
+  function roundStatDelta(value) {
+    return Math.round(value * 100) / 100;
+  }
+
+  function removeZeroDeltas(deltas) {
+    return Object.keys(deltas).reduce(function(result, key) {
+      if (Math.abs(deltas[key]) >= 0.01) {
+        result[key] = deltas[key];
+      }
+      return result;
+    }, {});
+  }
+
+  global.PieczargotchiCore = {
+    calculateWeatherStatDeltas: calculateWeatherStatDeltas,
+    defaultWeatherBalance: defaultWeatherBalance
+  };
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>

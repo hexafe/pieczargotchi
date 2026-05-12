@@ -1,0 +1,335 @@
+  function drawSleepingSprite(ctx, now) {
+    const sheet = runtime.assets.sleepingSheet;
+    const frameCount = rules.sleepingFrameCount || 4;
+    const fps = rules.sleepingFps || 3;
+    const frame = Math.floor((now / 1000) * fps) % frameCount;
+
+    if (sheet) {
+      ctx.drawImage(sheet, frame * 512, 0, 512, 512, 0, 0, 512, 512);
+      return;
+    }
+
+    drawFallbackMushroom(ctx, 'sleeping');
+  }
+
+  function drawAwakeSprite(ctx, now) {
+    const image = runtime.assets.awake;
+    const bob = Math.round(Math.sin(now / 950) * 1.5);
+
+    if (image) {
+      ctx.drawImage(image, 0, bob, 512, 512);
+      return;
+    }
+
+    drawFallbackMushroom(ctx, 'awake');
+  }
+
+  function drawAwakeIdleDetails(ctx, now) {
+    const thinkingPhase = now % 9000;
+
+    if (thinkingPhase > 6200 && thinkingPhase < 8200 && !runtime.state.attention.activeNeed) {
+      drawThoughtBubble(ctx, now, '?');
+    }
+  }
+
+  function drawBlink(ctx) {
+    ctx.fillStyle = '#fcd8a0';
+    ctx.fillRect(202, 270, 32, 24);
+    ctx.fillRect(286, 270, 32, 24);
+    ctx.fillStyle = '#2b211b';
+    ctx.fillRect(207, 282, 22, 5);
+    ctx.fillRect(291, 282, 22, 5);
+  }
+
+  function drawNeedOverlay(ctx, now) {
+    const need = getStrongestNeed(runtime.state);
+    const pulse = 0.5 + Math.sin(now / 220) * 0.5;
+
+    if (!need) {
+      if (runtime.state.patch.quality > 82 && runtime.state.stats.happiness > 72) {
+        drawSparkles(ctx, now, '#fff6b8');
+      }
+      return;
+    }
+
+    if (need.id === 'hydration') {
+      drawDryCue(ctx, pulse, need.severity);
+    } else if (need.id === 'nutrients') {
+      drawThoughtBubble(ctx, now, 'NPK');
+    } else if (need.id === 'happiness') {
+      drawThoughtBubble(ctx, now, '...');
+    } else if (need.id === 'cleanliness') {
+      drawDirtCue(ctx, now, need.severity);
+    } else if (need.id === 'energy') {
+      drawTiredCue(ctx, now, need.severity);
+    } else if (need.id === 'health') {
+      drawSickCue(ctx, now, need.severity);
+    }
+
+    if (need.severity === 'critical') {
+      drawAttentionAlarm(ctx, pulse);
+    }
+  }
+
+  function drawDryCue(ctx, pulse, severity) {
+    ctx.save();
+    ctx.globalAlpha = severity === 'critical' ? 0.75 + pulse * 0.25 : 0.55;
+    ctx.strokeStyle = '#a56b32';
+    ctx.lineWidth = severity === 'critical' ? 5 : 3;
+    ctx.beginPath();
+    ctx.moveTo(96, 418);
+    ctx.lineTo(132, 438);
+    ctx.lineTo(166, 420);
+    ctx.moveTo(336, 426);
+    ctx.lineTo(372, 444);
+    ctx.lineTo(416, 422);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawDirtCue(ctx, now, severity) {
+    ctx.save();
+    ctx.fillStyle = severity === 'critical' ? '#5b4634' : '#7b6245';
+    for (let index = 0; index < (severity === 'critical' ? 7 : 4); index += 1) {
+      const x = 122 + index * 44 + Math.sin(now / 300 + index) * 4;
+      const y = 374 + (index % 2) * 24;
+      ctx.fillRect(x, y, 12, 8);
+      ctx.fillRect(x + 16, y + 8, 8, 6);
+    }
+    ctx.restore();
+  }
+
+  function drawTiredCue(ctx, now, severity) {
+    drawBlink(ctx);
+    const anchor = getStageEffectAnchor();
+    ctx.save();
+    ctx.globalAlpha = severity === 'critical' ? 0.9 : 0.65;
+    ctx.fillStyle = '#2f4f35';
+    ctx.font = 'bold 24px sans-serif';
+    ctx.fillText('Z', anchor.tiredZ[0] + Math.sin(now / 400) * 6, anchor.tiredZ[1]);
+    ctx.font = 'bold 15px sans-serif';
+    ctx.fillText('z', anchor.tiredSmallZ[0] + Math.sin(now / 500) * 6, anchor.tiredSmallZ[1]);
+    ctx.restore();
+  }
+
+  function drawSickCue(ctx, now, severity) {
+    ctx.save();
+    ctx.globalAlpha = severity === 'critical' ? 0.32 : 0.18;
+    ctx.fillStyle = '#8ddf9e';
+    ctx.fillRect(114, 82, 286, 260);
+    ctx.globalAlpha = 0.85;
+    ctx.strokeStyle = '#4d8c56';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(176 + Math.sin(now / 280) * 6, 174, 18, 0, Math.PI * 1.5);
+    ctx.arc(348 + Math.cos(now / 320) * 6, 190, 14, 0, Math.PI * 1.5);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawAttentionAlarm(ctx, pulse) {
+    const anchor = getStageEffectAnchor();
+    ctx.save();
+    ctx.globalAlpha = 0.72 + pulse * 0.28;
+    ctx.fillStyle = '#d8646f';
+    ctx.fillRect(anchor.alarmX, anchor.alarmY, 24, 72);
+    ctx.fillRect(anchor.alarmX, anchor.alarmY + 86, 24, 24);
+    ctx.fillStyle = '#fffdf7';
+    ctx.fillRect(anchor.alarmX + 7, anchor.alarmY + 8, 10, 56);
+    ctx.fillRect(anchor.alarmX + 7, anchor.alarmY + 93, 10, 10);
+    ctx.restore();
+  }
+
+  function drawThoughtBubble(ctx, now, label) {
+    const anchor = getStageEffectAnchor();
+    const y = anchor.bubbleY + Math.sin(now / 500) * 4;
+    const x = anchor.bubbleX;
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 253, 247, 0.9)';
+    ctx.fillRect(x, y + 16, 86, 44);
+    ctx.fillRect(x + 18, y, 52, 24);
+    ctx.fillRect(x - 22, y + 52, 18, 14);
+    ctx.fillStyle = '#2f4f35';
+    ctx.font = 'bold 18px sans-serif';
+    ctx.fillText(label, x + (label.length > 2 ? 18 : 32), y + 44);
+    ctx.restore();
+  }
+
+  function drawSparkles(ctx, now, color) {
+    const anchor = getStageEffectAnchor();
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.55 + Math.sin(now / 350) * 0.25;
+    anchor.sparkles.forEach(function(point, index) {
+      const size = 7 + (index % 2) * 3;
+      ctx.fillRect(point[0], point[1], size, 4);
+      ctx.fillRect(point[0] + Math.floor(size / 3), point[1] - Math.floor(size / 3), 4, size);
+    });
+    ctx.restore();
+  }
+
+  function drawFallbackMushroom(ctx, mode) {
+    ctx.fillStyle = '#26662f';
+    ctx.fillRect(78, 365, 356, 48);
+    ctx.fillStyle = '#79b845';
+    ctx.fillRect(96, 330, 320, 58);
+    ctx.fillStyle = '#f8d39b';
+    ctx.fillRect(196, 200, 120, 160);
+    ctx.fillStyle = '#fff0c9';
+    ctx.fillRect(116, 118, 280, 96);
+    ctx.fillRect(140, 86, 232, 70);
+    ctx.fillStyle = '#7b4f2f';
+    ctx.fillRect(132, 202, 248, 34);
+
+    if (mode === 'sleeping') {
+      ctx.fillStyle = '#37261d';
+      ctx.fillRect(220, 277, 32, 6);
+      ctx.fillRect(284, 277, 32, 6);
+      ctx.fillRect(256, 306, 26, 6);
+      return;
+    }
+
+    ctx.fillStyle = '#2e211a';
+    ctx.fillRect(216, 260, 24, 32);
+    ctx.fillRect(296, 260, 24, 32);
+    ctx.fillRect(246, 310, 42, 8);
+  }
+
+  function drawWakeSurpriseFace(ctx) {
+    drawSkinPatch(ctx, 178, 238, 78, 88);
+    drawSkinPatch(ctx, 270, 238, 78, 88);
+    drawSkinPatch(ctx, 238, 294, 60, 44);
+
+    drawBlockyEye(ctx, 188, 248);
+    drawBlockyEye(ctx, 282, 248);
+
+    ctx.fillStyle = '#2c1d17';
+    ctx.fillRect(256, 302, 14, 14);
+    ctx.fillRect(260, 298, 6, 22);
+  }
+
+  function drawSkinPatch(ctx, x, y, width, height) {
+    ctx.fillStyle = 'rgba(248, 202, 149, 0.92)';
+    ctx.fillRect(x + 10, y, width - 20, height);
+    ctx.fillRect(x, y + 12, width, height - 24);
+  }
+
+  function drawBlockyEye(ctx, x, y) {
+    ctx.fillStyle = '#fffaf0';
+    ctx.fillRect(x + 12, y, 38, 64);
+    ctx.fillRect(x, y + 12, 62, 40);
+    ctx.fillStyle = '#2c1d17';
+    ctx.fillRect(x + 28, y + 30, 10, 14);
+  }
+
+  function drawSleepAmbient(ctx, now) {
+    const anchor = getStageEffectAnchor();
+    const cycle = (now / 1000) % 2;
+    ctx.font = 'bold 26px sans-serif';
+    ctx.fillStyle = 'rgba(255, 253, 247, 0.62)';
+    ctx.fillText('Z', anchor.sleepZ[0] + cycle * 10 + 2, anchor.sleepZ[1] - cycle * (anchor.sleepLargeRise || 12) + 2);
+    ctx.fillStyle = '#2f4f35';
+    ctx.fillText('Z', anchor.sleepZ[0] + cycle * 10, anchor.sleepZ[1] - cycle * (anchor.sleepLargeRise || 12));
+    ctx.font = 'bold 18px sans-serif';
+    ctx.fillStyle = 'rgba(255, 253, 247, 0.62)';
+    ctx.fillText('z', anchor.sleepSmallZ[0] + cycle * 8 + 2, anchor.sleepSmallZ[1] - cycle * (anchor.sleepSmallRise || 10) + 2);
+    ctx.fillStyle = '#2f4f35';
+    ctx.fillText('z', anchor.sleepSmallZ[0] + cycle * 8, anchor.sleepSmallZ[1] - cycle * (anchor.sleepSmallRise || 10));
+  }
+
+  function drawEffects(ctx, now) {
+    const liveEffects = [];
+
+    runtime.effects.forEach(function(effect) {
+      const progress = (now - effect.createdAt) / effect.duration;
+      if (progress >= 1) {
+        return;
+      }
+
+      liveEffects.push(effect);
+      drawEffect(ctx, effect, progress);
+    });
+
+    runtime.effects = liveEffects;
+  }
+
+  function drawEffect(ctx, effect, progress) {
+    if (effect.type === 'water') {
+      drawParticleSet(ctx, effect, progress, '#317fb5', 'drop');
+    } else if (effect.type === 'clean') {
+      drawParticleSet(ctx, effect, progress, '#fffdf7', 'spark');
+    } else if (effect.type === 'hearts' || effect.type === 'play') {
+      drawParticleSet(ctx, effect, progress, '#d8646f', 'heart');
+    } else if (effect.type === 'music' || effect.type === 'instrument' || effect.type === 'sing') {
+      drawParticleSet(ctx, effect, progress, '#674ea7', 'note');
+    } else if (effect.type === 'spores') {
+      drawParticleSet(ctx, effect, progress, '#f5e58b', 'spore');
+    } else if (effect.type === 'wake') {
+      drawWakeBurst(ctx, progress);
+    } else if (effect.type === 'attention') {
+      drawAttentionAlarm(ctx, 1 - progress);
+    }
+  }
+
+  function drawParticleSet(ctx, effect, progress, color, shape) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, 1 - progress);
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 4;
+
+    effect.particles.forEach(function(particle, index) {
+      const x = particle.x + particle.dx * progress + Math.sin(progress * 8 + particle.phase) * 8;
+      const y = particle.y + particle.dy * progress;
+      const size = particle.size;
+
+      if (shape === 'drop') {
+        ctx.fillRect(x, y, size * 0.55, size);
+        ctx.fillRect(x - size * 0.18, y + size * 0.42, size * 0.9, size * 0.55);
+      } else if (shape === 'spark') {
+        ctx.fillRect(x, y, size, 4);
+        ctx.fillRect(x + size * 0.35, y - size * 0.35, 4, size);
+      } else if (shape === 'heart') {
+        ctx.fillRect(x, y, size, size);
+        ctx.fillRect(x - size * 0.6, y, size, size);
+        ctx.fillRect(x - size * 0.3, y + size * 0.55, size, size);
+      } else if (shape === 'note') {
+        ctx.fillRect(x, y, 5, size * 1.6);
+        ctx.fillRect(x + 5, y, size, 5);
+        ctx.fillRect(x - 5, y + size * 1.35, size, size * 0.6);
+      } else if (shape === 'spore') {
+        ctx.fillRect(x, y, size, size);
+      }
+
+      if (index % 3 === 0) {
+        ctx.globalAlpha = Math.max(0, 0.65 - progress);
+      }
+    });
+
+    ctx.restore();
+  }
+
+  function drawWakeBurst(ctx, progress) {
+    const anchor = getStageEffectAnchor();
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, 1 - progress);
+    ctx.strokeStyle = '#fffdf7';
+    ctx.lineWidth = 8;
+
+    for (let index = 0; index < 8; index += 1) {
+      const angle = (Math.PI * 2 * index) / 8;
+      const inner = anchor.wakeInner + progress * 18;
+      const outer = anchor.wakeOuter + progress * 34;
+      const centerX = anchor.wakeCenterX;
+      const centerY = anchor.wakeCenterY;
+
+      ctx.beginPath();
+      ctx.moveTo(centerX + Math.cos(angle) * inner, centerY + Math.sin(angle) * inner);
+      ctx.lineTo(centerX + Math.cos(angle) * outer, centerY + Math.sin(angle) * outer);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+})();
+</script>

@@ -1,0 +1,1409 @@
+  function drawStageBackground(ctx, now) {
+    const scene = getCurrentWeatherScene();
+    const palette = getScenePalette(scene);
+
+    drawSkyBands(ctx, palette);
+    drawCelestial(ctx, scene, palette, now);
+    drawCloudLayer(ctx, scene, palette, now);
+    drawWeatherLayer(ctx, scene, now);
+    drawLowGround(ctx, palette, now, scene);
+  }
+
+  function getScenePalette(scene) {
+    const phase = scene.dayPhase || (scene.isDay ? 'noon' : 'night');
+    const tone = scene.dayTone || 'neutral';
+    const base = getDayPhasePalette(phase, tone);
+    return applyWeatherPalette(base, scene);
+  }
+
+  function getDayPhasePalette(phase, tone) {
+    const palettes = {
+      sunrise: {
+        skyTop: '#738bb2',
+        skyMid: '#efa172',
+        skyLow: '#f2cf83',
+        cloud: 'rgba(255, 218, 166, 0.56)',
+        cloudLight: 'rgba(255, 247, 207, 0.54)',
+        ground: '#5f873d',
+        groundLight: '#83a94e',
+        blade: '#9abd5f',
+        sun: '#ffd36f',
+        sunCore: '#fff0ad'
+      },
+      morning: {
+        skyTop: '#cfe9cf',
+        skyMid: '#dcefb9',
+        skyLow: '#c8e99a',
+        cloud: 'rgba(255, 253, 230, 0.55)',
+        cloudLight: 'rgba(255, 255, 247, 0.50)',
+        ground: '#69a344',
+        groundLight: '#83b955',
+        blade: '#91ca60',
+        sun: '#ffe596',
+        sunCore: '#fff3b8'
+      },
+      noon: {
+        skyTop: '#dff0c6',
+        skyMid: '#d8edb8',
+        skyLow: '#c8e99a',
+        cloud: 'rgba(255, 253, 230, 0.55)',
+        cloudLight: 'rgba(255, 255, 247, 0.50)',
+        ground: '#69a344',
+        groundLight: '#83b955',
+        blade: '#91ca60',
+        sun: '#ffe596',
+        sunCore: '#fff3b8'
+      },
+      afternoon: {
+        skyTop: '#d8e7bd',
+        skyMid: '#d9e7a6',
+        skyLow: '#bddf8e',
+        cloud: 'rgba(255, 244, 214, 0.50)',
+        cloudLight: 'rgba(255, 255, 239, 0.46)',
+        ground: '#649b41',
+        groundLight: '#7fb24e',
+        blade: '#8dc25b',
+        sun: '#ffd77f',
+        sunCore: '#fff1b2'
+      },
+      evening: {
+        skyTop: '#a9b6bd',
+        skyMid: '#c9c88f',
+        skyLow: '#b5d17d',
+        cloud: 'rgba(205, 196, 151, 0.56)',
+        cloudLight: 'rgba(255, 235, 189, 0.42)',
+        ground: '#537f39',
+        groundLight: '#719845',
+        blade: '#86a850',
+        sun: '#ffc46e',
+        sunCore: '#ffe7a0'
+      },
+      sunset: {
+        skyTop: '#6f7a9c',
+        skyMid: '#ce7e72',
+        skyLow: '#eca65e',
+        cloud: 'rgba(154, 103, 103, 0.58)',
+        cloudLight: 'rgba(255, 199, 151, 0.44)',
+        ground: '#456b35',
+        groundLight: '#637f3d',
+        blade: '#7a944b',
+        sun: '#ffb35f',
+        sunCore: '#ffe39a'
+      },
+      night: {
+        skyTop: '#172743',
+        skyMid: '#243b52',
+        skyLow: '#3e5846',
+        cloud: 'rgba(91, 107, 129, 0.55)',
+        cloudLight: 'rgba(142, 153, 170, 0.36)',
+        ground: '#365f38',
+        groundLight: '#4b7942',
+        blade: '#638b47',
+        sun: '#f5f0c8',
+        sunCore: '#fff7d1'
+      }
+    };
+
+    return applyDayTonePalette(palettes[phase] || palettes.noon, tone);
+  }
+
+  function applyDayTonePalette(base, tone) {
+    if (tone === 'dawnBlue') {
+      return Object.assign({}, base, {
+        skyTop: '#50627f',
+        skyMid: '#788aa2',
+        skyLow: '#d4b783',
+        cloud: 'rgba(132, 150, 174, 0.46)',
+        cloudLight: 'rgba(223, 232, 217, 0.40)',
+        sun: '#f0c77c',
+        sunCore: '#fff0b5'
+      });
+    }
+
+    if (tone === 'dawnGold') {
+      return Object.assign({}, base, {
+        skyTop: '#7b8fb4',
+        skyMid: '#f0a875',
+        skyLow: '#f4d18a',
+        cloud: 'rgba(255, 216, 156, 0.58)',
+        cloudLight: 'rgba(255, 246, 207, 0.56)',
+        sun: '#ffd06b',
+        sunCore: '#fff1b5'
+      });
+    }
+
+    if (tone === 'duskGold') {
+      return Object.assign({}, base, {
+        skyTop: '#8a879e',
+        skyMid: '#d89076',
+        skyLow: '#eab45f',
+        cloud: 'rgba(185, 124, 108, 0.54)',
+        cloudLight: 'rgba(255, 210, 163, 0.44)',
+        sun: '#ffbd68',
+        sunCore: '#ffe7a4'
+      });
+    }
+
+    if (tone === 'duskBlue') {
+      return Object.assign({}, base, {
+        skyTop: '#3e506d',
+        skyMid: '#6d6f8e',
+        skyLow: '#b5846d',
+        cloud: 'rgba(91, 105, 134, 0.56)',
+        cloudLight: 'rgba(172, 176, 189, 0.34)',
+        sun: '#f0b463',
+        sunCore: '#ffe1a0'
+      });
+    }
+
+    return base;
+  }
+
+  function applyWeatherPalette(base, scene) {
+    const condition = scene.condition;
+    const cloudDensity = Number(scene.cloudDensity) || 0;
+    if (condition === 'rain' || condition === 'storm') {
+      return Object.assign({}, base, {
+        skyTop: condition === 'storm' ? '#52616e' : base.skyTop,
+        skyMid: '#9fb79f',
+        skyLow: condition === 'storm' ? '#8ea18f' : '#aebf98',
+        cloud: condition === 'storm' ? 'rgba(61, 72, 77, 0.82)' : 'rgba(91, 111, 103, 0.74)',
+        cloudLight: condition === 'storm' ? 'rgba(157, 170, 164, 0.46)' : 'rgba(176, 193, 169, 0.50)',
+        ground: base.ground === '#365f38' ? '#315a36' : '#5f8f43',
+        groundLight: base.ground === '#365f38' ? '#426c3c' : '#77aa4e',
+        blade: base.ground === '#365f38' ? '#567f42' : '#84ba54'
+      });
+    }
+
+    if (condition === 'snow') {
+      return Object.assign({}, base, {
+        skyTop: '#d5e5d4',
+        skyMid: '#daeac7',
+        skyLow: '#d3e8bb',
+        cloud: 'rgba(196, 211, 196, 0.72)',
+        cloudLight: 'rgba(255, 255, 247, 0.56)',
+        ground: '#d9e5cf',
+        groundLight: '#f4fbec',
+        blade: '#c6d7ae'
+      });
+    }
+
+    if (condition === 'fog') {
+      return Object.assign({}, base, {
+        skyTop: '#d5e5d4',
+        skyMid: '#daeac7',
+        skyLow: '#d3e8bb',
+        cloud: 'rgba(196, 211, 196, 0.72)',
+        cloudLight: 'rgba(255, 255, 247, 0.56)',
+        ground: '#82a861',
+        groundLight: '#a3bd78',
+        blade: '#b5c98b'
+      });
+    }
+
+    if (condition === 'cloudy') {
+      const cloudAlpha = (0.44 + cloudDensity * 0.22).toFixed(2);
+      const cloudLightAlpha = (0.32 + cloudDensity * 0.16).toFixed(2);
+      return Object.assign({}, base, {
+        cloud: 'rgba(154, 169, 145, ' + cloudAlpha + ')',
+        cloudLight: 'rgba(238, 244, 213, ' + cloudLightAlpha + ')'
+      });
+    }
+
+    return base;
+  }
+
+  function drawSkyBands(ctx, palette) {
+    const sky = ctx.createLinearGradient(0, 0, 0, 512);
+    sky.addColorStop(0, palette.skyTop);
+    sky.addColorStop(0.64, palette.skyMid);
+    sky.addColorStop(1, palette.skyLow);
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, 512, 512);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+    ctx.fillRect(0, 0, 512, 54);
+  }
+
+  function drawCelestial(ctx, scene, palette, now) {
+    const date = getRuntimeDate();
+    ctx.save();
+    const sun = getSunPosition(scene, date);
+    if (sun) {
+      const sunVisibility = getCelestialCloudVisibility(scene, now, 'sun');
+      const weatherAlpha = scene.condition === 'rain' || scene.condition === 'storm' ? 0.22 : 0.72;
+      const twilightAlpha = scene.isDay ? 1 : 0.48;
+      ctx.globalAlpha = weatherAlpha * twilightAlpha * sun.alpha * sunVisibility;
+      if (ctx.globalAlpha > 0.015) {
+        ctx.fillStyle = palette.sun || '#ffe596';
+        ctx.fillRect(sun.x, sun.y, sun.size, sun.size);
+        ctx.fillStyle = palette.sunCore || '#fff3b8';
+        ctx.fillRect(sun.x + sun.coreInset, sun.y + sun.coreInset, sun.coreSize, sun.coreSize);
+      }
+    }
+
+    const moon = getMoonPosition(scene, date);
+    if (moon) {
+      const moonVisibility = getCelestialCloudVisibility(scene, now, 'moon');
+      const weatherAlpha = scene.condition === 'rain' || scene.condition === 'storm' ? 0.34 : 0.78;
+      const daylightAlpha = scene.isDay ? 0.34 : 1;
+      ctx.globalAlpha = weatherAlpha * daylightAlpha * moon.alpha * moonVisibility;
+      if (ctx.globalAlpha > 0.015) {
+        drawPixelMoon(ctx, moon);
+      }
+    }
+
+    const starVisibility = getCelestialCloudVisibility(scene, now, 'stars');
+    if (!scene.isDay && starVisibility > 0.02) {
+      drawVisibleConstellation(ctx, scene, date, now, starVisibility);
+      ctx.globalAlpha = 0.72 * starVisibility;
+      for (let index = 0; index < 11; index += 1) {
+        const x = 42 + index * 38 + ((index * 17) % 19);
+        const y = 34 + ((index * 29 + Math.floor(now / 900)) % 110);
+        ctx.fillStyle = index % 3 === 0 ? '#f7efb1' : '#d8e9d2';
+        ctx.fillRect(x, y, 3, 3);
+      }
+    }
+    ctx.restore();
+  }
+
+  function getCelestialCloudVisibility(scene, now, type) {
+    const cover = getSkyCloudOcclusion(scene);
+    if (type === 'stars') {
+      return clamp(1 - (cover - 0.32) / 0.38, 0, 1, 1);
+    }
+
+    if (type === 'moon') {
+      return clamp(1 - (cover - 0.44) / 0.36, 0, 1, 1);
+    }
+
+    if (type === 'sun') {
+      const directVisibility = clamp(1 - (cover - 0.58) / 0.26, 0, 1, 1);
+      if (cover < 0.72) {
+        return directVisibility;
+      }
+
+      const breakthrough = getSunBreakthroughFactor(scene, now);
+      const weatherLimit = scene.condition === 'rain' || scene.condition === 'storm' ? 0.18 : 0.34;
+      const cloudLimit = clamp(1 - (cover - 0.78) / 0.28, 0.08, 1, 1);
+      return Math.max(directVisibility, breakthrough * weatherLimit * cloudLimit);
+    }
+
+    return 1;
+  }
+
+  function getSkyCloudOcclusion(scene) {
+    const cloudDensity = clamp(Number(scene.cloudDensity), 0, 1, 0);
+    const cloudCover = clamp(Number(scene.cloudCover), 0, 100, cloudDensity * 100);
+    const low = clamp(Number(scene.cloudCoverLow), 0, 100, cloudCover);
+    const mid = clamp(Number(scene.cloudCoverMid), 0, 100, cloudCover);
+    const high = clamp(Number(scene.cloudCoverHigh), 0, 100, cloudCover);
+    const weightedCover = (cloudCover * 0.42 + low * 0.23 + mid * 0.21 + high * 0.14) / 100;
+    return clamp(Math.max(cloudDensity, weightedCover), 0, 1, 0);
+  }
+
+  function getSunBreakthroughFactor(scene, now) {
+    const direction = Math.round(Number(scene.windDirection) || 0);
+    const seed = Math.round((Number(scene.cloudCover) || 0) * 11 + direction * 3 + 1709);
+    const phase = seededUnit(seed) * Math.PI * 2;
+    const slowOpening = (Math.sin(now / 5800 + phase) + 1) / 2;
+    const quickOpening = (Math.sin(now / 2100 + phase * 1.7) + 1) / 2;
+    return clamp((slowOpening * 0.72 + quickOpening * 0.28 - 0.68) / 0.32, 0, 1, 0);
+  }
+
+  function drawVisibleConstellation(ctx, scene, date, now, visibility) {
+    const constellation = selectVisibleConstellation(scene, date);
+    if (!constellation) {
+      return;
+    }
+
+    ctx.save();
+    ctx.globalAlpha = 0.34 * visibility;
+    ctx.fillStyle = '#d8e9d2';
+    constellation.lines.forEach(function(line) {
+      drawPixelConstellationLine(ctx, line[0], line[1], '#d8e9d2');
+    });
+
+    constellation.stars.forEach(function(star, index) {
+      const pulse = 0.80 + Math.sin(now / 420 + index * 1.7) * 0.14;
+      const starSize = star.mag < 1 ? 5 : star.mag < 2.2 ? 4 : 3;
+      ctx.globalAlpha = pulse * visibility;
+      ctx.fillStyle = star.mag < 1.5 ? '#fff6d4' : '#d8e9d2';
+      ctx.fillRect(Math.round(star.x - starSize / 2), Math.round(star.y - starSize / 2), starSize, starSize);
+      if (star.mag < 1.5) {
+        ctx.globalAlpha = pulse * 0.45 * visibility;
+        ctx.fillRect(Math.round(star.x - 1), Math.round(star.y - 4), 2, 8);
+        ctx.fillRect(Math.round(star.x - 4), Math.round(star.y - 1), 8, 2);
+      }
+    });
+    ctx.restore();
+  }
+
+  function selectVisibleConstellation(scene, date) {
+    const observer = getSceneObserver(scene);
+    let best = null;
+
+    constellationCatalog.forEach(function(constellation) {
+      const visibleStars = [];
+      const byId = new Map();
+
+      constellation.stars.forEach(function(star) {
+        const horizontal = getHorizontalCoordinates(date, observer.latitude, observer.longitude, {
+          rightAscension: star.ra,
+          declination: star.dec
+        });
+        const screen = projectConstellationStarToSky(horizontal);
+        if (!screen) {
+          return;
+        }
+
+        const projected = Object.assign({}, star, screen, { altitude: horizontal.altitude });
+        visibleStars.push(projected);
+        byId.set(star.id, projected);
+      });
+
+      if (visibleStars.length < (constellation.minStars || 4)) {
+        return;
+      }
+
+      const visibleLines = constellation.lines.map(function(line) {
+        const start = byId.get(line[0]);
+        const end = byId.get(line[1]);
+        return start && end ? [start, end] : null;
+      }).filter(Boolean);
+      if (visibleLines.length < 3) {
+        return;
+      }
+
+      const bounds = getPointBounds(visibleStars);
+      const widthPenalty = Math.max(0, bounds.width - 250) * 0.18;
+      const heightPenalty = Math.max(0, bounds.height - 170) * 0.25;
+      const compactPenalty = Math.max(0, 70 - Math.max(bounds.width, bounds.height)) * 0.22;
+      const readableSpread = Math.min(170, Math.max(bounds.width, bounds.height)) * 0.08;
+      const averageAltitude = visibleStars.reduce(function(total, star) {
+        return total + star.altitude;
+      }, 0) / visibleStars.length;
+      const score = visibleStars.length * 8 + visibleLines.length * 4 + averageAltitude + readableSpread
+        - widthPenalty - heightPenalty - compactPenalty;
+      if (!best || score > best.score) {
+        const fittedStars = fitConstellationForDisplay(visibleStars, bounds);
+        const fittedById = new Map(fittedStars.map(function(star) {
+          return [star.id, star];
+        }));
+        best = {
+          id: constellation.id,
+          stars: fittedStars,
+          lines: visibleLines.map(function(line) {
+            return [fittedById.get(line[0].id), fittedById.get(line[1].id)];
+          }),
+          score: score
+        };
+      }
+    });
+
+    return best;
+  }
+
+  function fitConstellationForDisplay(stars, bounds) {
+    const longestSide = Math.max(bounds.width, bounds.height);
+    if (longestSide >= 72) {
+      return stars;
+    }
+
+    const scale = Math.min(1.65, 72 / Math.max(1, longestSide));
+    const centerX = (bounds.left + bounds.right) / 2;
+    const centerY = (bounds.top + bounds.bottom) / 2;
+    return stars.map(function(star) {
+      return Object.assign({}, star, {
+        x: clamp(centerX + (star.x - centerX) * scale, 34, 478, star.x),
+        y: clamp(centerY + (star.y - centerY) * scale, 30, 286, star.y)
+      });
+    });
+  }
+
+  function projectConstellationStarToSky(horizontal) {
+    if (!horizontal || horizontal.altitude < 7) {
+      return null;
+    }
+
+    const altitude = clamp(horizontal.altitude, 7, 82, 7);
+    const altitudeProgress = clamp((altitude - 7) / 75, 0, 1, 0);
+    const altitudeEase = Math.sin(altitudeProgress * Math.PI / 2);
+    const azimuthSpread = 222 * Math.cos(toRadians(clamp(altitude, 0, 82, 0)));
+    const x = 256 + Math.sin(toRadians(horizontal.azimuth - 180)) * azimuthSpread;
+    const y = 292 - altitudeEase * 238;
+    if (x < 28 || x > 484 || y < 26 || y > 292) {
+      return null;
+    }
+
+    return { x: x, y: y };
+  }
+
+  function drawPixelConstellationLine(ctx, start, end, color) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 5));
+    ctx.fillStyle = color;
+
+    for (let index = 0; index <= steps; index += 1) {
+      const progress = index / steps;
+      const x = Math.round(start.x + dx * progress);
+      const y = Math.round(start.y + dy * progress);
+      ctx.fillRect(x, y, 2, 2);
+    }
+  }
+
+  function getPointBounds(points) {
+    return points.reduce(function(bounds, point) {
+      return {
+        left: Math.min(bounds.left, point.x),
+        right: Math.max(bounds.right, point.x),
+        top: Math.min(bounds.top, point.y),
+        bottom: Math.max(bounds.bottom, point.y),
+        width: Math.max(bounds.right, point.x) - Math.min(bounds.left, point.x),
+        height: Math.max(bounds.bottom, point.y) - Math.min(bounds.top, point.y)
+      };
+    }, {
+      left: Infinity,
+      right: -Infinity,
+      top: Infinity,
+      bottom: -Infinity,
+      width: 0,
+      height: 0
+    });
+  }
+
+  function getSunPosition(scene, date) {
+    const observer = getSceneObserver(scene);
+    const coordinates = getSolarCoordinates(date);
+    const horizontal = getHorizontalCoordinates(date, observer.latitude, observer.longitude, coordinates);
+    const altitudeFactor = clamp((horizontal.altitude + 2) / 74, 0, 1, 0);
+    const size = 40 + Math.round(altitudeFactor * 6);
+    const screen = projectCelestialToSky(horizontal, size, -3);
+    if (!screen) {
+      return null;
+    }
+
+    const coreInset = Math.max(8, Math.round(size * 0.23));
+    return {
+      x: screen.x,
+      y: screen.y,
+      size: size,
+      coreInset: coreInset,
+      coreSize: size - coreInset * 2,
+      altitude: horizontal.altitude,
+      azimuth: horizontal.azimuth,
+      alpha: screen.alpha
+    };
+  }
+
+  function getSunTimesForScene(scene, date) {
+    const sunrise = parseWeatherLocalTime(scene.sunriseAt);
+    const sunset = parseWeatherLocalTime(scene.sunsetAt);
+    if (sunrise && sunset && isSameLocalDate(date, sunrise)) {
+      return { sunrise: sunrise, sunset: sunset };
+    }
+
+    return calculateSunTimes(date, scene.latitude, scene.longitude);
+  }
+
+  function getMoonPosition(scene, date) {
+    const observer = getSceneObserver(scene);
+    const coordinates = getLunarCoordinates(date);
+    const horizontal = getHorizontalCoordinates(date, observer.latitude, observer.longitude, coordinates);
+    const phase = getMoonPhase(date, coordinates);
+    if (phase.illumination < 0.025) {
+      return null;
+    }
+
+    const altitudeFactor = clamp((horizontal.altitude + 2) / 74, 0, 1, 0);
+    const size = Math.round(28 + phase.illumination * 9 + altitudeFactor * 4);
+    const screen = projectCelestialToSky(horizontal, size, -2.5);
+    if (!screen) {
+      return null;
+    }
+
+    return {
+      x: screen.x,
+      y: screen.y,
+      size: size,
+      phase: phase,
+      altitude: horizontal.altitude,
+      azimuth: horizontal.azimuth,
+      alpha: screen.alpha * (0.35 + phase.illumination * 0.65)
+    };
+  }
+
+  function getSceneObserver(scene) {
+    const latitude = Number(scene.latitude);
+    const longitude = Number(scene.longitude);
+    return {
+      latitude: Number.isFinite(latitude) ? latitude : defaultWeatherLocation.latitude,
+      longitude: Number.isFinite(longitude) ? longitude : defaultWeatherLocation.longitude
+    };
+  }
+
+  function projectCelestialToSky(horizontal, size, minimumAltitude) {
+    if (!horizontal || horizontal.altitude < minimumAltitude) {
+      return null;
+    }
+
+    const visibleAltitude = clamp(horizontal.altitude, minimumAltitude, 82, 0);
+    const altitudeProgress = clamp((visibleAltitude - minimumAltitude) / (82 - minimumAltitude), 0, 1, 0);
+    const altitudeEase = Math.sin(altitudeProgress * Math.PI / 2);
+    const azimuthSpread = 226 * Math.cos(toRadians(clamp(visibleAltitude, 0, 80, 0)));
+    const azimuthOffset = Math.sin(toRadians(horizontal.azimuth - 180));
+    const x = clamp(256 + azimuthOffset * azimuthSpread - size / 2, 26, 486 - size, 256 - size / 2);
+    const y = clamp(292 - altitudeEase * 246 - size / 2, 30, 292 - size / 2, 292 - size / 2);
+    const alpha = clamp((horizontal.altitude - minimumAltitude) / 8, 0, 1, 0);
+
+    return {
+      x: Math.round(x),
+      y: Math.round(y),
+      alpha: alpha
+    };
+  }
+
+  function getSolarCoordinates(date) {
+    const days = getJulianDate(date) - 2451545.0;
+    const meanAnomaly = normalizeDegrees(357.5291 + 0.98560028 * days);
+    const equationOfCenter = 1.9148 * sinDeg(meanAnomaly)
+      + 0.0200 * sinDeg(2 * meanAnomaly)
+      + 0.0003 * sinDeg(3 * meanAnomaly);
+    const eclipticLongitude = normalizeDegrees(meanAnomaly + equationOfCenter + 102.9372 + 180);
+    const obliquity = getObliquity(days);
+    return Object.assign(eclipticToEquatorial(eclipticLongitude, 0, obliquity), {
+      eclipticLongitude: eclipticLongitude,
+      eclipticLatitude: 0
+    });
+  }
+
+  function getLunarCoordinates(date) {
+    const days = getJulianDate(date) - 2451543.5;
+    const ascendingNode = normalizeDegrees(125.1228 - 0.0529538083 * days);
+    const inclination = 5.1454;
+    const argumentOfPerigee = normalizeDegrees(318.0634 + 0.1643573223 * days);
+    const meanAnomaly = normalizeDegrees(115.3654 + 13.0649929509 * days);
+    const eccentricity = 0.054900;
+    const semiMajorAxis = 60.2666;
+    const eccentricAnomaly = toRadians(meanAnomaly
+      + eccentricity * toDegrees(Math.sin(toRadians(meanAnomaly))) * (1 + eccentricity * cosDeg(meanAnomaly)));
+    const xv = semiMajorAxis * (Math.cos(eccentricAnomaly) - eccentricity);
+    const yv = semiMajorAxis * Math.sqrt(1 - eccentricity * eccentricity) * Math.sin(eccentricAnomaly);
+    const trueAnomaly = toDegrees(Math.atan2(yv, xv));
+    const distance = Math.sqrt(xv * xv + yv * yv);
+    const argument = trueAnomaly + argumentOfPerigee;
+    const xh = distance * (cosDeg(ascendingNode) * cosDeg(argument)
+      - sinDeg(ascendingNode) * sinDeg(argument) * cosDeg(inclination));
+    const yh = distance * (sinDeg(ascendingNode) * cosDeg(argument)
+      + cosDeg(ascendingNode) * sinDeg(argument) * cosDeg(inclination));
+    const zh = distance * sinDeg(argument) * sinDeg(inclination);
+    let eclipticLongitude = normalizeDegrees(toDegrees(Math.atan2(yh, xh)));
+    let eclipticLatitude = toDegrees(Math.atan2(zh, Math.sqrt(xh * xh + yh * yh)));
+
+    const sunMeanAnomaly = normalizeDegrees(356.0470 + 0.9856002585 * days);
+    const sunMeanLongitude = normalizeDegrees(280.460 + 0.9856474 * days);
+    const moonMeanLongitude = normalizeDegrees(ascendingNode + argumentOfPerigee + meanAnomaly);
+    const elongation = normalizeDegrees(moonMeanLongitude - sunMeanLongitude);
+    const argumentOfLatitude = normalizeDegrees(moonMeanLongitude - ascendingNode);
+
+    eclipticLongitude = normalizeDegrees(eclipticLongitude
+      - 1.274 * sinDeg(meanAnomaly - 2 * elongation)
+      + 0.658 * sinDeg(2 * elongation)
+      - 0.186 * sinDeg(sunMeanAnomaly)
+      - 0.059 * sinDeg(2 * meanAnomaly - 2 * elongation)
+      - 0.057 * sinDeg(meanAnomaly - 2 * elongation + sunMeanAnomaly)
+      + 0.053 * sinDeg(meanAnomaly + 2 * elongation)
+      + 0.046 * sinDeg(2 * elongation - sunMeanAnomaly)
+      + 0.041 * sinDeg(meanAnomaly - sunMeanAnomaly)
+      - 0.035 * sinDeg(elongation)
+      - 0.031 * sinDeg(meanAnomaly + sunMeanAnomaly));
+
+    eclipticLatitude += -0.173 * sinDeg(argumentOfLatitude - 2 * elongation)
+      - 0.055 * sinDeg(meanAnomaly - argumentOfLatitude - 2 * elongation)
+      - 0.046 * sinDeg(meanAnomaly + argumentOfLatitude - 2 * elongation)
+      + 0.033 * sinDeg(argumentOfLatitude + 2 * elongation)
+      + 0.017 * sinDeg(2 * meanAnomaly + argumentOfLatitude);
+
+    const obliquity = getObliquity(days);
+    return Object.assign(eclipticToEquatorial(eclipticLongitude, eclipticLatitude, obliquity), {
+      eclipticLongitude: eclipticLongitude,
+      eclipticLatitude: eclipticLatitude,
+      distance: distance
+    });
+  }
+
+  function getMoonPhase(date, lunarCoordinates) {
+    const moon = lunarCoordinates || getLunarCoordinates(date);
+    const sun = getSolarCoordinates(date);
+    const fraction = normalizeDegrees(moon.eclipticLongitude - sun.eclipticLongitude) / 360;
+    const illumination = (1 - Math.cos(fraction * Math.PI * 2)) / 2;
+
+    return {
+      fraction: fraction,
+      illumination: illumination,
+      waxing: fraction < 0.5
+    };
+  }
+
+  function drawPixelMoon(ctx, moon) {
+    const block = Math.max(3, Math.round(moon.size / 9));
+    const radius = moon.size / 2;
+    const center = moon.size / 2;
+
+    for (let y = 0; y < moon.size; y += block) {
+      for (let x = 0; x < moon.size; x += block) {
+        const centerX = x + block / 2;
+        const centerY = y + block / 2;
+        const dx = centerX - center;
+        const dy = centerY - center;
+        if (dx * dx + dy * dy > radius * radius) {
+          continue;
+        }
+
+        const normalizedX = dx / radius;
+        const normalizedY = dy / radius;
+        const lit = isMoonBlockLit(normalizedX, normalizedY, moon.phase);
+        if (!lit) {
+          continue;
+        }
+
+        ctx.fillStyle = getMoonLightColor(moon.phase.illumination);
+        ctx.fillRect(moon.x + x, moon.y + y, block, block);
+      }
+    }
+  }
+
+  function isMoonBlockLit(normalizedX, normalizedY, phase) {
+    const illumination = phase.illumination;
+    if (illumination >= 0.97) {
+      return true;
+    }
+    if (illumination <= 0.03) {
+      return false;
+    }
+
+    const surfaceDepth = Math.sqrt(Math.max(0, 1 - normalizedX * normalizedX - normalizedY * normalizedY));
+    const phaseAngle = phase.fraction * Math.PI * 2;
+    return normalizedX * Math.sin(phaseAngle) - surfaceDepth * Math.cos(phaseAngle) > 0;
+  }
+
+  function getMoonLightColor(illumination) {
+    if (illumination > 0.82) {
+      return '#fff6d4';
+    }
+    if (illumination > 0.45) {
+      return '#f5f0c8';
+    }
+    return '#d9dfbc';
+  }
+
+  function getHorizontalCoordinates(date, latitude, longitude, coordinates) {
+    const localSiderealTime = normalizeDegrees(getGreenwichSiderealTime(date) + longitude);
+    const hourAngle = normalizeDegrees(localSiderealTime - coordinates.rightAscension);
+    const hourAngleRad = toRadians(hourAngle);
+    const latitudeRad = toRadians(latitude);
+    const declinationRad = toRadians(coordinates.declination);
+    const altitude = toDegrees(Math.asin(
+      Math.sin(latitudeRad) * Math.sin(declinationRad)
+      + Math.cos(latitudeRad) * Math.cos(declinationRad) * Math.cos(hourAngleRad)
+    ));
+    const azimuth = normalizeDegrees(toDegrees(Math.atan2(
+      Math.sin(hourAngleRad),
+      Math.cos(hourAngleRad) * Math.sin(latitudeRad) - Math.tan(declinationRad) * Math.cos(latitudeRad)
+    )) + 180);
+
+    return {
+      altitude: altitude,
+      azimuth: azimuth
+    };
+  }
+
+  function eclipticToEquatorial(longitude, latitude, obliquity) {
+    const longitudeRad = toRadians(longitude);
+    const latitudeRad = toRadians(latitude);
+    const obliquityRad = toRadians(obliquity);
+    const x = Math.cos(longitudeRad) * Math.cos(latitudeRad);
+    const y = Math.sin(longitudeRad) * Math.cos(latitudeRad);
+    const z = Math.sin(latitudeRad);
+    const equatorialY = y * Math.cos(obliquityRad) - z * Math.sin(obliquityRad);
+    const equatorialZ = y * Math.sin(obliquityRad) + z * Math.cos(obliquityRad);
+
+    return {
+      rightAscension: normalizeDegrees(toDegrees(Math.atan2(equatorialY, x))),
+      declination: toDegrees(Math.atan2(equatorialZ, Math.sqrt(x * x + equatorialY * equatorialY)))
+    };
+  }
+
+  function getGreenwichSiderealTime(date) {
+    const julianDate = getJulianDate(date);
+    const centuries = (julianDate - 2451545.0) / 36525;
+    return normalizeDegrees(
+      280.46061837
+      + 360.98564736629 * (julianDate - 2451545.0)
+      + 0.000387933 * centuries * centuries
+      - centuries * centuries * centuries / 38710000
+    );
+  }
+
+  function getJulianDate(date) {
+    return date.getTime() / 86400000 + 2440587.5;
+  }
+
+  function getObliquity(days) {
+    return 23.439291 - 0.00000036 * days;
+  }
+
+  function sinDeg(value) {
+    return Math.sin(toRadians(value));
+  }
+
+  function cosDeg(value) {
+    return Math.cos(toRadians(value));
+  }
+
+  function drawCloudLayer(ctx, scene, palette, now) {
+    const layers = [
+      {
+        cover: scene.cloudCoverHigh,
+        y: 36,
+        spacing: 122,
+        scale: 0.74,
+        speed: 190,
+        windResponse: 0.78,
+        depthResponse: 0.50,
+        alpha: 0.34,
+        color: palette.cloudLight,
+        light: 'rgba(255, 255, 247, 0.34)'
+      },
+      {
+        cover: scene.cloudCoverMid,
+        y: 74,
+        spacing: 116,
+        scale: 0.92,
+        speed: 235,
+        windResponse: 0.52,
+        depthResponse: 0.34,
+        alpha: 0.48,
+        color: palette.cloud,
+        light: palette.cloudLight
+      },
+      {
+        cover: scene.condition === 'clear' ? scene.cloudCoverLow : Math.max(scene.cloudCoverLow, 48),
+        y: 118,
+        spacing: 104,
+        scale: 1.08,
+        speed: 280,
+        windResponse: 0.36,
+        depthResponse: 0.22,
+        alpha: 0.58,
+        color: palette.cloud,
+        light: palette.cloudLight
+      }
+    ];
+
+    layers.forEach(function(layer, layerIndex) {
+      const cover = clamp(Number(layer.cover), 0, 100, 0);
+      const cloudCount = Math.min(8, Math.max(0, Math.round(cover / 17)));
+      if (!cloudCount) {
+        return;
+      }
+
+      const drift = getCloudFlowOffset(scene, now, layer, layerIndex, 'cloud');
+      const layerWave = now / 1700;
+      const cloudAlpha = Math.min(0.82, layer.alpha + cover / 230);
+      for (let index = 0; index < cloudCount; index += 1) {
+        const laneOffset = Math.sin(now / (9200 + index * 480) + index * 1.9 + layerIndex) * (2 + layer.windResponse * 4);
+        const x = positiveModulo(index * layer.spacing + drift.x + laneOffset + layerIndex * 41, 650) - 112;
+        const y = layer.y + drift.y + (index % 3) * 19 + Math.round(Math.sin(layerWave + index) * 2);
+        drawPixelCloud(
+          ctx,
+          x,
+          y,
+          layer.color,
+          layer.light,
+          layer.scale + (index % 2) * 0.12,
+          cloudAlpha
+        );
+      }
+    });
+
+    if (scene.condition === 'fog') {
+      ctx.save();
+      ctx.globalAlpha = 0.18 + (scene.cloudDensity || 0.8) * 0.18;
+      ctx.fillStyle = '#f3f8e6';
+      for (let index = 0; index < 4; index += 1) {
+        const y = 190 + index * 34;
+        const drift = getCloudFlowOffset(scene, now, {
+          speed: 310 - index * 18,
+          windResponse: 0.18 + index * 0.04,
+          depthResponse: 0.12
+        }, index, 'fog');
+        const x = positiveModulo(drift.x + index * 90, 620) - 90;
+        ctx.fillRect(x, y + Math.round(drift.y * 0.35), 420, 14 + index * 3);
+      }
+      ctx.restore();
+    }
+  }
+
+  function getCloudFlowOffset(scene, now, layer, layerIndex, group) {
+    const wind = getDynamicWindState(scene, now);
+    const key = (group || 'cloud') + ':' + layerIndex;
+    const state = getCloudFlowState(key, now);
+    const elapsed = state.lastNow === null ? 0 : clamp((now - state.lastNow) / 1000, 0, 0.12, 0);
+    state.lastNow = now;
+
+    const response = layer.windResponse || 0.3;
+    const depthResponse = layer.depthResponse || 0.2;
+    const speedKmh = clamp(Number(scene.windSpeed), 0, 180, 0);
+    const gustKmh = clamp(Number(scene.windGusts), 0, 220, speedKmh);
+    const gustBoost = Math.max(0, gustKmh - speedKmh) / 90;
+    const speedPx = (0.26 + speedKmh * 0.075 + gustBoost * 0.72 + wind.gustPulse * 0.32) * response;
+    const vectorX = Math.abs(wind.directionX) > 0.04 ? wind.directionX : wind.direction * 0.18;
+    const vectorY = wind.vectorY * depthResponse * 0.54;
+
+    state.x += vectorX * speedPx * elapsed;
+    state.yPhase += vectorY * speedPx * elapsed;
+
+    const verticalFlow = Math.sin(state.yPhase + layerIndex * 0.9) * (1.4 + depthResponse * 5.4);
+    const breathing = Math.sin(now / (7800 + layerIndex * 1000) + layerIndex) * (1 + depthResponse * 1.5);
+    return {
+      x: state.x,
+      y: Math.round(verticalFlow + breathing)
+    };
+  }
+
+  function getCloudFlowState(key, now) {
+    if (!runtime.cloudFlow) {
+      runtime.cloudFlow = { layers: {} };
+    }
+
+    if (!runtime.cloudFlow.layers) {
+      runtime.cloudFlow.layers = {};
+    }
+
+    if (!runtime.cloudFlow.layers[key]) {
+      runtime.cloudFlow.layers[key] = {
+        x: 0,
+        yPhase: 0,
+        lastNow: now
+      };
+    }
+
+    return runtime.cloudFlow.layers[key];
+  }
+
+  function drawPixelCloud(ctx, x, y, color, lightColor, scale, alpha) {
+    const size = scale || 1;
+    const rect = function(left, top, width, height) {
+      ctx.fillRect(
+        Math.round(x + left * size),
+        Math.round(y + top * size),
+        Math.round(width * size),
+        Math.round(height * size)
+      );
+    };
+    ctx.save();
+    ctx.globalAlpha = alpha || 1;
+    ctx.fillStyle = color;
+    rect(0, 18, 92, 22);
+    rect(18, 4, 38, 24);
+    rect(52, 10, 54, 26);
+    ctx.fillStyle = lightColor;
+    rect(16, 20, 32, 8);
+    rect(58, 18, 34, 8);
+    ctx.restore();
+  }
+
+  function drawWeatherLayer(ctx, scene, now) {
+    drawWindLayer(ctx, scene, now);
+
+    if (scene.condition === 'rain' || scene.condition === 'storm') {
+      drawRainLayer(ctx, scene, now);
+      drawStormLayer(ctx, scene, now);
+    } else if (scene.condition === 'snow') {
+      drawSnowLayer(ctx, scene, now);
+    }
+  }
+
+  function drawWindLayer(ctx, scene, now) {
+    const wind = getDynamicWindState(scene, now);
+    const windLevel = wind.level;
+    if (wind.averageLevel < 0.08 && windLevel < 0.12) {
+      return;
+    }
+
+    const count = Math.round(2 + wind.averageLevel * 9 + windLevel * 7 + wind.gustPulse * 4);
+    const speed = 78 - windLevel * 36 - wind.gustPulse * 10;
+    const drift = Math.floor(now / Math.max(24, speed)) * wind.direction * wind.screenDriftFactor;
+    const yDrift = Math.floor(now / 150);
+    const lengthBase = 10 + Math.round(windLevel * 22 + wind.gustPulse * 8);
+    const windScale = Math.max(0.22, wind.lateralFactor);
+    ctx.save();
+    ctx.globalAlpha = 0.045 + windLevel * 0.13 + wind.gustPulse * 0.04;
+    ctx.fillStyle = scene.isDay ? '#f7f4ce' : '#d4e5ce';
+    for (let index = 0; index < count; index += 1) {
+      const x = positiveModulo(index * 83 + drift * (3 + windLevel * 8), 590) - 38;
+      const y = 58 + ((index * 43 + yDrift) % 284);
+      const length = lengthBase + (index % 3) * 6;
+      ctx.fillRect(Math.round(x), Math.round(y), Math.max(3, Math.round(length * windScale)), 2);
+      if (wind.gustPulse > 0.48 && index % 2 === 0) {
+        ctx.fillRect(Math.round(x - wind.direction * 12), Math.round(y + 5), Math.max(4, Math.round(length * 0.42)), 2);
+      }
+      if (Math.abs(wind.vectorY) > 0.25) {
+        ctx.fillRect(Math.round(x + length * 0.4), Math.round(y + wind.vectorY * 5), 6, 2);
+      }
+    }
+    drawWindGustBands(ctx, scene, now, wind);
+    drawDepthWindPuffs(ctx, scene, now, wind);
+    ctx.restore();
+  }
+
+  function drawWindGustBands(ctx, scene, now, wind) {
+    if (wind.gustPulse < 0.56 || wind.averageLevel < 0.24) {
+      return;
+    }
+
+    ctx.globalAlpha = wind.gustPulse * (0.025 + wind.averageLevel * 0.07) * (0.22 + wind.lateralFactor * 0.58);
+    ctx.fillStyle = scene.isDay ? '#fff8cf' : '#d8ead6';
+    for (let index = 0; index < 3; index += 1) {
+      const speed = 34 - Math.min(8, wind.level * 8);
+      const drift = Math.floor(now / speed) * wind.direction * wind.screenDriftFactor;
+      const x = positiveModulo(index * 177 + drift * (8 + wind.level * 14), 760) - 150;
+      const y = 92 + index * 68 + Math.round(Math.sin(now / 940 + index) * 4);
+      const length = 30 + Math.round((wind.level * 44 + wind.gustPulse * 22) * wind.lateralFactor) + index * 7;
+      ctx.fillRect(Math.round(x), y, length, 3);
+      ctx.fillRect(Math.round(x + wind.direction * 20), y + 8, Math.round(length * 0.42), 2);
+    }
+  }
+
+  function drawDepthWindPuffs(ctx, scene, now, wind) {
+    if (wind.depthFactor < 0.34 || wind.gustPulse < 0.34 || wind.averageLevel < 0.18) {
+      return;
+    }
+
+    const count = Math.round(2 + wind.depthFactor * 3 + wind.gustPulse * 2);
+    ctx.globalAlpha = (0.025 + wind.gustPulse * 0.06) * wind.depthFactor;
+    ctx.fillStyle = scene.isDay ? '#fff8cf' : '#d8ead6';
+    for (let index = 0; index < count; index += 1) {
+      const seed = 6100 + index * 31;
+      const pulse = (now / (980 + seededUnit(seed) * 520) + seededUnit(seed + 1)) % 1;
+      const size = 5 + Math.round(pulse * 10 + wind.level * 5);
+      const x = Math.round(seededUnit(seed + 2) * 430 + 40 + Math.sin(now / 1800 + index) * 5);
+      const y = Math.round(66 + seededUnit(seed + 3) * 270 + wind.vectorY * pulse * 10);
+      ctx.fillRect(x - Math.round(size / 2), y, size, 2);
+      ctx.fillRect(x - Math.round(size * 0.32), y - Math.round(size * 0.24), Math.max(4, Math.round(size * 0.64)), 2);
+      if (pulse > 0.52) {
+        ctx.fillRect(x - 2, y - Math.round(size * 0.42), 4, 2);
+      }
+    }
+  }
+
+  function drawRainLayer(ctx, scene, now) {
+    const intensity = Math.max(0.12, scene.rainIntensity || 0);
+    const wind = getDynamicWindState(scene, now);
+    const baseCount = Math.round(36 + intensity * 94 + wind.averageLevel * 18);
+    const slant = getRainSlant(wind);
+    const cycleBase = Math.max(300, 820 - intensity * 270 - wind.level * 150);
+    const layers = [
+      {
+        seedOffset: 0,
+        count: Math.round(baseCount * 0.56),
+        alpha: 0.30 + intensity * 0.18,
+        color: scene.condition === 'storm' ? '#5f98d8' : '#6aa8e8',
+        width: 3,
+        length: 9 + intensity * 12,
+        speed: 1
+      },
+      {
+        seedOffset: 2000,
+        count: Math.round(baseCount * 0.34),
+        alpha: 0.22 + intensity * 0.12,
+        color: '#9fc7f1',
+        width: 2,
+        length: 6 + intensity * 8,
+        speed: 0.72
+      },
+      {
+        seedOffset: 4000,
+        count: Math.round(baseCount * 0.18),
+        alpha: 0.44 + intensity * 0.18,
+        color: '#c7e2ff',
+        width: 3,
+        length: 12 + intensity * 16,
+        speed: 1.22
+      }
+    ];
+
+    ctx.save();
+    layers.forEach(function(layer) {
+      drawRainDropLayer(ctx, now, scene, layer, cycleBase, slant, wind);
+    });
+    ctx.restore();
+  }
+
+  function getRainSlant(wind) {
+    const sign = wind.directionX >= 0 ? 1 : -1;
+    const lateral = Math.abs(wind.directionX);
+    const level = clamp(wind.level, 0, 1, 0);
+    const gust = clamp(wind.gustPulse, 0, 1, 0);
+    const target = 3 + Math.pow(level, 0.9) * 28 + gust * 4;
+    return sign * lateral * Math.min(38, target);
+  }
+
+  function drawRainDropLayer(ctx, now, scene, layer, cycleBase, slant, wind) {
+    const windLevel = wind.level;
+    const travelHeight = 620 - windLevel * 118;
+    const groundY = 442;
+
+    ctx.globalAlpha = layer.alpha;
+    ctx.fillStyle = layer.color;
+
+    for (let index = 0; index < layer.count; index += 1) {
+      const seed = layer.seedOffset + index * 37;
+      const cycleMs = cycleBase / layer.speed + seededUnit(seed + 1) * 210;
+      const phaseOffset = seededUnit(seed + 2) * cycleMs;
+      const progress = positiveModulo(now + phaseOffset, cycleMs) / cycleMs;
+      const spawnX = seededUnit(seed + 3) * 584 - 36;
+      const spawnY = -112 - seededUnit(seed + 4) * 80;
+      const windDrift = slant * progress * (1.16 + seededUnit(seed + 5) * 0.54);
+      const jitter = Math.round((seededUnit(seed + Math.floor(now / 180)) - 0.5) * 2);
+      const x = positiveModulo(spawnX + windDrift, 676) - 82 + jitter;
+      const y = spawnY + progress * travelHeight;
+      const length = Math.round(layer.length + seededUnit(seed + 6) * (7 + windLevel * 9) + wind.gustPulse * 3);
+      const width = layer.width + (seededUnit(seed + 7) > 0.86 ? 1 : 0);
+      const localSlant = Math.round(slant * (0.42 + seededUnit(seed + 8) * 0.22));
+
+      if (y < -40 || y > 476) {
+        continue;
+      }
+
+      drawRainDrop(ctx, x, y, localSlant, length, width);
+
+      if (y > groundY && seededUnit(seed + Math.floor(now / 90)) > 0.62) {
+        drawRainSplash(ctx, x + localSlant * 0.45, groundY + 3, layer.width);
+      }
+    }
+  }
+
+  function drawRainDrop(ctx, x, y, slant, height, width) {
+    const left = Math.round(x);
+    const top = Math.round(y);
+    const dropHeight = Math.max(5, Math.round(height));
+    const dropWidth = Math.max(2, Math.round(width));
+
+    if (Math.abs(slant) <= 2) {
+      ctx.fillRect(left, top, dropWidth, dropHeight);
+      ctx.fillRect(left + dropWidth, top + Math.round(dropHeight * 0.58), 1, Math.max(2, Math.round(dropHeight * 0.24)));
+      return;
+    }
+
+    const firstHeight = Math.max(4, Math.round(dropHeight * 0.52));
+    const secondHeight = Math.max(4, dropHeight - Math.round(dropHeight * 0.32));
+    const midOffset = Math.round(slant * 0.24);
+    const endOffset = Math.round(slant * 0.42);
+    ctx.fillRect(left, top, dropWidth, firstHeight);
+    ctx.fillRect(left + midOffset, top + Math.round(dropHeight * 0.34), dropWidth, secondHeight);
+    ctx.fillRect(left + endOffset, top + Math.round(dropHeight * 0.72), dropWidth, Math.max(3, Math.round(secondHeight * 0.55)));
+  }
+
+  function drawRainSplash(ctx, x, y, size) {
+    const left = Math.round(x);
+    const top = Math.round(y);
+    ctx.fillRect(left - 5, top, 4 + size, 2);
+    ctx.fillRect(left + 3, top - 1, 3 + size, 2);
+    if (size > 2) {
+      ctx.fillRect(left - 1, top - 4, 2, 2);
+    }
+  }
+
+  function drawStormLayer(ctx, scene, now) {
+    const intensity = scene.stormIntensity || 0;
+    if (intensity <= 0) {
+      return;
+    }
+
+    const cadence = Math.max(2, Math.round(8 - intensity * 5));
+    if (Math.floor(now / 1150) % cadence !== 0) {
+      return;
+    }
+
+    const flashPhase = (now % 1150) / 1150;
+    if (flashPhase > 0.26) {
+      return;
+    }
+
+    ctx.save();
+    ctx.globalAlpha = 0.14 + intensity * 0.20;
+    ctx.fillStyle = '#fff6b8';
+    ctx.fillRect(0, 0, 512, 512);
+    ctx.globalAlpha = 0.72;
+    ctx.fillStyle = '#fff0a4';
+    const startX = 96 + (Math.floor(now / 1150) * 97) % 320;
+    ctx.fillRect(startX, 44, 10, 66);
+    ctx.fillRect(startX - 18, 104, 42, 10);
+    ctx.fillRect(startX + 18, 104, 10, 54);
+    ctx.fillRect(startX - 4, 154, 34, 10);
+    ctx.fillRect(startX - 4, 154, 10, 46);
+    ctx.restore();
+  }
+
+  function drawSnowLayer(ctx, scene, now) {
+    const intensity = Math.max(0.12, scene.snowIntensity || 0);
+    const wind = getDynamicWindState(scene, now);
+    const baseCount = Math.round(24 + intensity * 58 + wind.averageLevel * 10);
+    const slant = wind.directionX * (2 + wind.level * 26 + wind.gustPulse * 8);
+    const cycleBase = Math.max(1300, 3150 - intensity * 820 - wind.level * 520);
+    const layers = [
+      {
+        seedOffset: 9000,
+        count: Math.round(baseCount * 0.52),
+        alpha: 0.52 + intensity * 0.16,
+        color: '#fffdf7',
+        size: 4,
+        speed: 0.82,
+        sway: 7
+      },
+      {
+        seedOffset: 11000,
+        count: Math.round(baseCount * 0.34),
+        alpha: 0.36 + intensity * 0.12,
+        color: '#edf6e6',
+        size: 3,
+        speed: 0.56,
+        sway: 10
+      },
+      {
+        seedOffset: 13000,
+        count: Math.round(baseCount * 0.22),
+        alpha: 0.64 + intensity * 0.14,
+        color: '#ffffff',
+        size: 5,
+        speed: 1.05,
+        sway: 5
+      }
+    ];
+
+    ctx.save();
+    layers.forEach(function(layer) {
+      drawSnowFlakeLayer(ctx, now, layer, cycleBase, slant, wind);
+    });
+    ctx.restore();
+  }
+
+  function drawSnowFlakeLayer(ctx, now, layer, cycleBase, slant, wind) {
+    const travelHeight = 462 - wind.level * 82;
+    ctx.globalAlpha = layer.alpha;
+    ctx.fillStyle = layer.color;
+
+    for (let index = 0; index < layer.count; index += 1) {
+      const seed = layer.seedOffset + index * 41;
+      const cycleMs = cycleBase / layer.speed + seededUnit(seed + 1) * 780;
+      const phaseOffset = seededUnit(seed + 2) * cycleMs;
+      const progress = positiveModulo(now + phaseOffset, cycleMs) / cycleMs;
+      const spawnX = seededUnit(seed + 3) * 560 - 24;
+      const spawnY = -74 - seededUnit(seed + 4) * 58;
+      const calmSway = Math.sin(now / (720 + seededUnit(seed + 5) * 420) + seed) * layer.sway * (1 - wind.level * 0.62);
+      const gustSway = Math.sin(now / 620 + seed) * wind.gustPulse * (3 + wind.level * 5);
+      const windDrift = slant * progress * (1.12 + seededUnit(seed + 6) * 0.82);
+      const x = positiveModulo(spawnX + windDrift + calmSway + gustSway, 620) - 54;
+      const y = spawnY + progress * travelHeight;
+      const size = layer.size + (seededUnit(seed + 7) > 0.72 ? 1 : 0);
+
+      if (y < -30 || y > 454) {
+        continue;
+      }
+
+      drawSnowFlake(ctx, x, y, size, slant, wind);
+    }
+  }
+
+  function drawSnowFlake(ctx, x, y, size, slant, wind) {
+    const left = Math.round(x);
+    const top = Math.round(y);
+    const flakeSize = Math.max(2, Math.round(size));
+    const streak = Math.round(Math.abs(slant) * 0.16 + wind.level * 4);
+
+    ctx.fillRect(left, top, flakeSize, flakeSize);
+    if (flakeSize >= 4) {
+      ctx.fillRect(left - 1, top + 1, flakeSize + 2, 2);
+      ctx.fillRect(left + 1, top - 1, 2, flakeSize + 2);
+    }
+
+    if (streak > 2) {
+      ctx.fillRect(left + Math.round(slant * 0.22), top + Math.round(flakeSize * 0.65), Math.min(5, streak), 2);
+    }
+  }
+
+  function drawWeatherForeground(ctx, now) {
+    const scene = getCurrentWeatherScene();
+    if (scene.condition === 'snow') {
+      drawSnowBaseOverlay(ctx, scene, now);
+    }
+
+    if (scene.condition === 'fog') {
+      drawFogForeground(ctx, scene, now);
+    }
+  }
+
+  function drawSnowGroundCover(ctx, scene, now, groundTop) {
+    const intensity = Math.max(0.18, scene.snowIntensity || 0.25);
+    ctx.save();
+    ctx.globalAlpha = 0.58 + intensity * 0.16;
+    ctx.fillStyle = '#f7fbef';
+    ctx.fillRect(0, groundTop - 1, 512, 9);
+    ctx.fillStyle = '#e4efd8';
+    ctx.fillRect(0, groundTop + 7, 512, 7);
+
+    ctx.globalAlpha = 0.42 + intensity * 0.18;
+    drawSnowCap(ctx, -10, groundTop - 9, 96, 9, 7011);
+    drawSnowCap(ctx, 84, groundTop - 12, 124, 11, 7043);
+    drawSnowCap(ctx, 204, groundTop - 8, 112, 8, 7079);
+    drawSnowCap(ctx, 318, groundTop - 11, 138, 10, 7109);
+    drawSnowCap(ctx, 438, groundTop - 8, 92, 8, 7151);
+    ctx.restore();
+  }
+
+  function drawSnowBaseOverlay(ctx, scene, now) {
+    const intensity = Math.max(0.18, scene.snowIntensity || 0.25);
+    const wind = getDynamicWindState(scene, now);
+    ctx.save();
+    const sway = Math.round(wind.directionX * wind.level * 4 + Math.sin(now / 1500) * 1.5);
+    ctx.globalAlpha = 0.62 + intensity * 0.16;
+    drawSnowCap(ctx, 34 + sway, 410, 92, 10, 7211);
+    drawSnowCap(ctx, 118 + sway, 424, 92, 12, 7247);
+    drawSnowCap(ctx, 202 + sway, 434, 112, 13, 7283);
+    drawSnowCap(ctx, 306 + sway, 424, 104, 12, 7319);
+    drawSnowCap(ctx, 398 + sway, 410, 88, 10, 7351);
+
+    ctx.globalAlpha = 0.42 + intensity * 0.12;
+    ctx.fillStyle = '#e7f0dc';
+    ctx.fillRect(72, 452, 368, 7);
+    ctx.fillRect(118, 459, 276, 5);
+    ctx.restore();
+  }
+
+  function drawSnowCap(ctx, x, y, width, height, seed) {
+    ctx.fillStyle = '#f8fff4';
+    ctx.fillRect(Math.round(x), Math.round(y + height * 0.35), Math.round(width), Math.max(3, Math.round(height * 0.65)));
+    for (let offset = 0; offset < width; offset += 10) {
+      const capHeight = 3 + Math.round(seededUnit(seed + offset) * height * 0.65);
+      const capWidth = 10 + Math.round(seededUnit(seed + offset + 3) * 8);
+      ctx.fillRect(Math.round(x + offset), Math.round(y + height - capHeight), capWidth, capHeight);
+    }
+
+    ctx.fillStyle = '#e2edd8';
+    ctx.fillRect(Math.round(x + width * 0.12), Math.round(y + height - 2), Math.round(width * 0.72), 2);
+  }
+
+  function drawFogForeground(ctx, scene, now) {
+    const density = Math.max(0.45, scene.cloudDensity || 0.72);
+    const wind = getDynamicWindState(scene, now);
+    const drift = Math.floor(now / Math.max(54, 112 - wind.level * 36)) * wind.direction * wind.screenDriftFactor;
+    const bands = [
+      { y: 156, height: 24, alpha: 0.13, width: 430, speed: 0.55 },
+      { y: 214, height: 34, alpha: 0.18, width: 520, speed: 0.82 },
+      { y: 286, height: 42, alpha: 0.20, width: 560, speed: 1.00 },
+      { y: 366, height: 38, alpha: 0.16, width: 470, speed: 0.68 }
+    ];
+
+    ctx.save();
+    bands.forEach(function(band, index) {
+      const x = positiveModulo(drift * band.speed + index * 137, 700) - 120;
+      ctx.globalAlpha = band.alpha + density * 0.16;
+      ctx.fillStyle = index % 2 === 0 ? '#eef7e7' : '#f7fbef';
+      ctx.fillRect(Math.round(x), band.y, band.width, band.height);
+      ctx.globalAlpha = band.alpha * 0.55 + density * 0.08;
+      ctx.fillRect(Math.round(x - 180), band.y + 9, band.width * 0.72, Math.max(10, band.height - 12));
+    });
+
+    ctx.globalAlpha = 0.08 + density * 0.08;
+    ctx.fillStyle = '#f7fbef';
+    ctx.fillRect(0, 118, 512, 318);
+    ctx.restore();
+  }
+
+  function getWindDrift(scene, now, speed, multiplier) {
+    const wind = getDynamicWindState(scene, now);
+    const windLevel = wind.level;
+    const baseSpeed = Math.max(44, speed - windLevel * 32);
+    return Math.floor(now / baseSpeed) * wind.direction * wind.screenDriftFactor * (multiplier || 1) * (1 + windLevel * 0.72);
+  }
+
+  function getDynamicWindState(scene, now) {
+    const source = scene || {};
+    const vector = source.windVector || { x: 1, y: 0 };
+    const measuredBaseLevel = clamp(Number(source.windLevel), 0, 1, 0);
+    const measuredGustLevel = clamp(Number(source.gustLevel), 0, 1, 0);
+    const baseLevel = clamp(Math.pow(measuredBaseLevel, 1.18) * 0.82, 0, 1, 0);
+    const gustLevel = clamp(Math.pow(measuredGustLevel, 1.22) * 0.70, 0, 1, 0);
+    const lateral = clamp(Number(vector.x), -1, 1, 0);
+    const depth = clamp(Number(vector.y), -1, 1, 0);
+    const lateralFactor = Math.abs(lateral);
+    const depthFactor = Math.abs(depth);
+    const direction = lateralFactor > 0.05 ? (lateral >= 0 ? 1 : -1) : (depth >= 0 ? 1 : -1);
+    const directionX = lateral;
+    const screenDriftFactor = 0.12 + lateralFactor * 0.52;
+    const phaseSeed = Math.round((Number(source.windDirection) || 0) * 19 + 911);
+    const phase = seededUnit(phaseSeed) * Math.PI * 2;
+    const slowWave = Math.sin(now / 5200 + phase) * 0.35 + Math.sin(now / 1900 + phase * 1.37) * 0.12;
+    const gustPrimary = (Math.sin(now / Math.max(2400, 3800 - gustLevel * 680) + phase * 2.1) + 1) / 2;
+    const gustSecondary = (Math.sin(now / 3400 + phase * 1.6) + 1) / 2;
+    const gustWave = smoothStep(0.42, 0.98, gustPrimary) * (0.68 + smoothStep(0.24, 0.94, gustSecondary) * 0.24);
+    const lullWave = smoothStep(0.14, 0.92, (-Math.sin(now / 5600 + phase * 0.7) + 1) / 2);
+    const swing = baseLevel * (0.08 + gustLevel * 0.12) + gustLevel * 0.04;
+    const gustLift = gustWave * (baseLevel * 0.08 + gustLevel * 0.16);
+    const lullDrop = lullWave * baseLevel * 0.08;
+    const level = clamp(baseLevel + slowWave * swing + gustLift - lullDrop, 0, 1, baseLevel);
+    const slowLift = smoothStep(0.0, 0.8, Math.max(0, slowWave));
+    const gustPulse = clamp(slowLift * 0.08 + gustWave * (baseLevel * 0.08 + gustLevel * 0.36), 0, 1, 0);
+
+    return {
+      averageLevel: baseLevel,
+      gustLevel: gustLevel,
+      gustPulse: gustPulse,
+      level: level,
+      direction: direction,
+      directionX: directionX,
+      lateralFactor: lateralFactor,
+      depthFactor: depthFactor,
+      screenDriftFactor: screenDriftFactor,
+      vectorY: depth
+    };
+  }
+
+  function smoothStep(edge0, edge1, value) {
+    const t = clamp((value - edge0) / Math.max(0.0001, edge1 - edge0), 0, 1, 0);
+    return t * t * (3 - 2 * t);
+  }
+
+  function seededUnit(seed) {
+    let value = Math.imul(seed ^ 0x9e3779b9, 0x85ebca6b);
+    value ^= value >>> 13;
+    value = Math.imul(value, 0xc2b2ae35);
+    value ^= value >>> 16;
+    return (value >>> 0) / 4294967295;
+  }
+
+  function drawLowGround(ctx, palette, now, scene) {
+    const groundTop = 428;
+    const wind = getDynamicWindState(scene, now);
+    const windLevel = wind.level;
+    const windX = wind.directionX;
+    const grassTime = Math.floor(now / Math.max(420, 820 - windLevel * 220));
+    const swayTime = now / 560;
+    ctx.fillStyle = palette.ground;
+    ctx.fillRect(0, groundTop, 512, 68);
+    ctx.fillStyle = palette.groundLight;
+    ctx.fillRect(0, groundTop, 512, 8);
+    ctx.fillStyle = palette.blade;
+
+    for (let x = -8; x < 520; x += 16) {
+      const sway = Math.round(Math.sin(swayTime + x * 0.13) * windLevel * 4 + windX * windLevel * 3);
+      const bladeHeight = 10 + ((x * 7 + grassTime) % 16);
+      ctx.fillRect(x + sway, groundTop - bladeHeight, 8, bladeHeight);
+    }
+
+    if (scene && scene.condition === 'snow') {
+      drawSnowGroundCover(ctx, scene, now, groundTop);
+    }
+  }

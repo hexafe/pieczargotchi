@@ -31,6 +31,13 @@ jobs:
           python -m py_compile scripts/build-imagegen-sprites.py scripts/generate-pixel-assets.py scripts/audit-sprite-consistency.py
           node --check scripts/validate-assets.mjs
           node --check scripts/capture-app-render.mjs
+          node --check scripts/check-client-syntax.mjs
+          node --check scripts/test-client-core.mjs
+
+      - name: Sprawdz klienta i reguly
+        run: |
+          node scripts/check-client-syntax.mjs
+          node scripts/test-client-core.mjs
 
       - name: Waliduj runtime PNG
         run: node scripts/validate-assets.mjs

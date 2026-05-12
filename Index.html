@@ -71,6 +71,127 @@
             <div class="inventory-row" data-inventory-row></div>
           </section>
 
+          <section class="panel-block panel-block--debug" aria-label="Menu developerskie">
+            <details data-debug-details>
+              <summary>Debug</summary>
+              <div class="debug-controls">
+                <label class="debug-toggle">
+                  <input type="checkbox" data-debug-enabled>
+                  Tryb testowy
+                </label>
+
+                <div class="debug-row debug-row--split">
+                  <label>
+                    Data
+                    <input type="date" data-debug-date>
+                  </label>
+                  <label>
+                    Godzina
+                    <input type="time" data-debug-time>
+                  </label>
+                </div>
+
+                <div class="debug-row debug-row--split">
+                  <label>
+                    Pogoda
+                    <select data-debug-weather>
+                      <option value="auto">Auto</option>
+                      <option value="clear">Czysto</option>
+                      <option value="cloudy">Pochmurno</option>
+                      <option value="rain">Deszcz</option>
+                      <option value="storm">Burza</option>
+                      <option value="snow">Śnieg</option>
+                      <option value="fog">Mgła</option>
+                    </select>
+                  </label>
+                  <label>
+                    Tryb
+                    <select data-debug-mode>
+                      <option value="awake">Czuwa</option>
+                      <option value="sleeping">Śpi</option>
+                    </select>
+                  </label>
+                </div>
+
+                <label class="debug-range">
+                  Zachmurzenie
+                  <input type="range" min="0" max="100" step="1" data-debug-cloud>
+                  <span data-debug-cloud-value>0%</span>
+                </label>
+
+                <label class="debug-range">
+                  Opad
+                  <input type="range" min="0" max="10" step="0.1" data-debug-precipitation>
+                  <span data-debug-precipitation-value>0 mm</span>
+                </label>
+
+                <label class="debug-range">
+                  Wiatr
+                  <input type="range" min="0" max="100" step="1" data-debug-wind>
+                  <span data-debug-wind-value>0 km/h</span>
+                </label>
+
+                <label class="debug-range">
+                  Kierunek wiatru
+                  <input type="range" min="0" max="359" step="1" data-debug-wind-direction>
+                  <span data-debug-wind-direction-value>0°</span>
+                </label>
+
+                <div class="debug-row debug-row--split">
+                  <label>
+                    Rozmiar
+                    <select data-debug-stage></select>
+                  </label>
+                  <label>
+                    Animacja
+                    <select data-debug-animation></select>
+                  </label>
+                </div>
+
+                <label>
+                  Easter egg
+                  <select data-debug-easter-egg>
+                    <option value="auto">Auto</option>
+                    <option value="off">Wyłącz</option>
+                    <option value="content">:| zadowolona</option>
+                    <option value="angry">:| gniewna</option>
+                    <option value="iwonia">:| Iwoniaście</option>
+                  </select>
+                </label>
+
+                <label class="debug-range">
+                  Wzrost
+                  <input type="range" min="0" max="100" step="1" data-debug-growth>
+                  <span data-debug-growth-value>0%</span>
+                </label>
+
+                <label>
+                  Preset
+                  <select data-debug-preset>
+                    <option value="">Wybierz...</option>
+                    <option value="healthy">Zdrowa</option>
+                    <option value="excellent">Idealna</option>
+                    <option value="dry">Sucha</option>
+                    <option value="hungry">Głodna</option>
+                    <option value="dirty">Brudna</option>
+                    <option value="tired">Zmęczona</option>
+                    <option value="sick">Chora</option>
+                    <option value="critical">Krytyczna</option>
+                    <option value="neglected">Zaniedbana</option>
+                  </select>
+                </label>
+
+                <div class="debug-stats" data-debug-stats></div>
+
+                <div class="debug-actions">
+                  <button class="ghost-button" type="button" data-debug-now>Teraz</button>
+                  <button class="ghost-button" type="button" data-debug-clear-cooldowns>Cooldowny</button>
+                  <button class="ghost-button" type="button" data-debug-reset>Wyłącz</button>
+                </div>
+              </div>
+            </details>
+          </section>
+
           <section class="panel-block panel-block--log">
             <div class="block-heading">
               <h2>Dziennik</h2>
@@ -85,6 +206,7 @@
     <script>
       window.PIECZARGOTCHI_CONFIG = <?!= clientConfigJson ?>;
     </script>
+    <?!= include('ClientCore'); ?>
     <?!= include('Client'); ?>
   </body>
 </html>

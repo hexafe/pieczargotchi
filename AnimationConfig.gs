@@ -160,6 +160,16 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
   }
 ];
 
+const PIECZARGOTCHI_EASTER_EGG_ANIMATIONS = [
+  {
+    state: 'neutral',
+    frameCount: 4,
+    frameDurationsMs: [420, 420, 520, 260],
+    loop: true,
+    priority: 42
+  }
+];
+
 function getAnimationManifest() {
   const entries = [];
 
@@ -172,6 +182,12 @@ function getAnimationManifest() {
   PIECZARGOTCHI_ANIMATION_STAGES.forEach(function(stage) {
     PIECZARGOTCHI_ACTIVITY_ANIMATIONS.forEach(function(animation) {
       entries.push(buildActivityAnimationEntry(stage, animation));
+    });
+  });
+
+  PIECZARGOTCHI_ANIMATION_STAGES.forEach(function(stage) {
+    PIECZARGOTCHI_EASTER_EGG_ANIMATIONS.forEach(function(animation) {
+      entries.push(buildEasterEggAnimationEntry(stage, animation));
     });
   });
 
@@ -218,6 +234,23 @@ function buildActivityAnimationEntry(stage, animation) {
     activity: animation.activity,
     minStage: null,
     fileName: 'activities/' + stage + '/' + animation.activity + '_sheet.png',
+    frameCount: animation.frameCount,
+    frameWidth: PIECZARGOTCHI_CANVAS_SIZE,
+    frameHeight: PIECZARGOTCHI_CANVAS_SIZE,
+    frameDurationsMs: animation.frameDurationsMs.slice(),
+    loop: animation.loop,
+    priority: animation.priority,
+    required: false
+  };
+}
+
+function buildEasterEggAnimationEntry(stage, animation) {
+  return {
+    key: stage + '.easter.' + animation.state,
+    kind: 'easterEgg',
+    stage: stage,
+    state: animation.state,
+    fileName: 'easter-eggs/' + stage + '/' + animation.state + '_sheet.png',
     frameCount: animation.frameCount,
     frameWidth: PIECZARGOTCHI_CANVAS_SIZE,
     frameHeight: PIECZARGOTCHI_CANVAS_SIZE,

@@ -42,15 +42,26 @@ ACTIVITIES = [
 EFFECTS = ["drops", "sparkle", "dust", "notes", "spore_cloud"]
 
 STAGE_LAYOUT = {
-    "spore": {"target_h": 132, "max_w": 240, "bottom": 424, "grass_behind": True},
-    "baby": {"target_h": 246, "max_w": 310, "bottom": 415, "grass_behind": True},
-    "young": {"target_h": 342, "max_w": 380, "bottom": 438, "grass_behind": True},
+    "spore": {"target_h": 132, "max_w": 240, "bottom": 424},
+    "baby": {"target_h": 246, "max_w": 310, "bottom": 415},
+    "young": {"target_h": 342, "max_w": 380, "bottom": 438},
     "adult": {"target_h": 430, "max_w": 456, "bottom": 454},
     "legendary": {"target_h": 430, "max_w": 470, "bottom": 454},
+}
+GRASS_VISIBLE_HEIGHT = 88
+GRASS_EDGE_VARIATION = 24
+GRASS_BOTTOM_Y = 512
+NEUTRAL_FACE_LAYOUT = {
+    "spore": {"clear": (244, 390, 274, 412), "sample": (236, 372, 282, 392), "mouth": (255, 402, 262, 403)},
+    "baby": {"clear": (238, 374, 278, 393), "sample": (224, 334, 288, 354), "mouth": (249, 383, 266, 386)},
+    "young": {"clear": (235, 343, 278, 367), "sample": (222, 326, 292, 348), "mouth": (247, 354, 267, 357)},
+    "adult": {"clear": (232, 328, 282, 352), "sample": (220, 310, 294, 333), "mouth": (247, 340, 269, 343)},
+    "legendary": {"clear": (236, 308, 280, 332), "sample": (222, 290, 294, 313), "mouth": (248, 321, 269, 324)},
 }
 
 SPORE_BODY_TARGET_H = 96
 SPORE_FULL_MAX_W = 430
+SPORE_DETACHED_STRIP_STATES = {"tired", "dry", "hungry", "dirty", "sick"}
 SPORE_GENERATED_ATLAS = GENERATED_DIR / "spore_full_generated_atlas.png"
 SPORE_GENERATED_VARIANTS = [
     "idle",
@@ -100,6 +111,10 @@ ACTIVITY_OFFSETS = {
     "harvest": [(0, 0), (0, -1), (0, -1), (0, 0)],
 }
 
+ACTIVITY_LAYOUT_OVERRIDES = {
+    ("legendary", "spores"): {"max_w": FRAME},
+}
+
 EFFECT_OFFSETS = {
     "drops": [(0, 0), (0, 6), (0, 12), (0, 18)],
     "sparkle": [(0, 0), (2, -2), (-2, 2), (0, 0)],
@@ -112,8 +127,10 @@ EFFECT_OFFSETS = {
 def main() -> None:
     sprawdz_zrodla()
     grass = przygotuj_warstwe_trawy()
-    zbuduj_stany(grass)
-    zbuduj_aktywnosci(grass)
+    body_bottom_targets = policz_docelowe_doly_korpusu(grass)
+    zbuduj_stany(grass, body_bottom_targets)
+    zbuduj_aktywnosci(grass, body_bottom_targets)
+    zbuduj_easter_eggi()
     zbuduj_efekty()
     print("Zbudowano imagegenowe sprite sheety.")
 
@@ -179,23 +196,77 @@ def poszarp_gorna_krawedz_trawy(mask: Image.Image) -> Image.Image:
     return result
 
 
-def zbuduj_stany(grass: Image.Image) -> None:
+def policz_docelowe_doly_korpusu(grass: Image.Image) -> dict[str, int]:
+    atlas = wczytaj_atlas("idle")
+    cutouts = przygotuj_cutouty_etapow(atlas, "idle")
+    targets: dict[str, int] = {}
+    grass_bbox = dopasuj_trawe_do_etapu(grass, "baby").getchannel("A").getbbox()
+
+    for stage, cutout in zip(STAGES, cutouts):
+        planted_min_bottom = policz_minimum_posadzenia(stage, grass_bbox)
+        character = dopasuj_do_etapu(cutout, stage)
+        x, y = policz_pozycje_postaci(character, stage, (0, 0))
+        grass_layer = dopasuj_trawe_do_etapu(grass, stage)
+        frame = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
+        frame.alpha_composite(character, (x, y))
+        frame.alpha_composite(grass_layer, (0, 0))
+        final_bbox = znajdz_bbox_widocznego_korpusu_w_kadrze(frame)
+        if final_bbox is not None:
+            targets[stage] = podnies_do_minimum_posadzenia(final_bbox[3], planted_min_bottom)
+            continue
+
+        visible_bbox = znajdz_widoczny_bbox_korpusu(character, grass_layer, x, y, stage)
+        if visible_bbox is not None:
+            targets[stage] = podnies_do_minimum_posadzenia(visible_bbox[3], planted_min_bottom)
+            continue
+
+        body_bbox = znajdz_bbox_korpusu_postaci(character, stage)
+        if body_bbox is None:
+            targets[stage] = podnies_do_minimum_posadzenia(STAGE_LAYOUT[stage]["bottom"], planted_min_bottom)
+        else:
+            targets[stage] = podnies_do_minimum_posadzenia(y + body_bbox[3], planted_min_bottom)
+
+    return targets
+
+
+def policz_minimum_posadzenia(stage: str, grass_bbox: tuple[int, int, int, int] | None) -> int | None:
+    if grass_bbox is None:
+        return None
+
+    grass_top = grass_bbox[1]
+    if stage == "spore":
+        return grass_top - 5
+    if stage in {"baby", "young"}:
+        return grass_top + 2
+    return None
+
+
+def podnies_do_minimum_posadzenia(value: int, planted_min_bottom: int | None) -> int:
+    if planted_min_bottom is None:
+        return value
+
+    return max(value, planted_min_bottom)
+
+
+def zbuduj_stany(grass: Image.Image, body_bottom_targets: dict[str, int]) -> None:
     for state in STATES:
         atlas = wczytaj_atlas(state)
         cutouts = przygotuj_cutouty_etapow(atlas, state)
         for stage, cutout in zip(STAGES, cutouts):
+            if stage == "spore" and state in SPORE_DETACHED_STRIP_STATES:
+                cutout = usun_odklejone_paski_zarodnika(cutout)
             zapisz_cutout("states", state, stage, cutout)
             offsets = STATE_OFFSETS[state]
             if stage == "spore" and state == "wake":
                 offsets = [(x, y - 7) for x, y in offsets]
             frames = [
-                zloz_klatke_z_trawa(cutout, grass, stage, offset)
+                zloz_klatke_z_trawa(cutout, grass, stage, offset, None, body_bottom_targets)
                 for offset in offsets
             ]
             zapisz_sheet(ASSETS / "stages" / stage / f"{state}_sheet.png", frames)
 
 
-def zbuduj_aktywnosci(grass: Image.Image) -> None:
+def zbuduj_aktywnosci(grass: Image.Image, body_bottom_targets: dict[str, int]) -> None:
     for activity in ACTIVITIES:
         atlas = wczytaj_atlas(activity)
         cutouts = przygotuj_cutouty_etapow(atlas, activity)
@@ -203,12 +274,12 @@ def zbuduj_aktywnosci(grass: Image.Image) -> None:
             zapisz_cutout("activities", activity, stage, cutout)
             if activity == "hydrate":
                 frames = [
-                    zloz_klatke_podlania(cutout, grass, stage, offset, frame_index)
+                    zloz_klatke_podlania(cutout, grass, stage, offset, frame_index, body_bottom_targets)
                     for frame_index, offset in enumerate(ACTIVITY_OFFSETS[activity])
                 ]
             else:
                 frames = [
-                    zloz_klatke_z_trawa(cutout, grass, stage, offset)
+                    zloz_klatke_z_trawa(cutout, grass, stage, offset, activity, body_bottom_targets)
                     for offset in ACTIVITY_OFFSETS[activity]
                 ]
             sciezka = ASSETS / "activities" / stage / f"{activity}_sheet.png"
@@ -366,16 +437,18 @@ def wytnij_postacie_z_atlasu(atlas: Image.Image, count: int) -> list[Image.Image
     return cutouts
 
 
-def zloz_klatke_z_trawa(cutout: Image.Image, grass: Image.Image, stage: str, offset: tuple[int, int]) -> Image.Image:
+def zloz_klatke_z_trawa(
+    cutout: Image.Image,
+    grass: Image.Image,
+    stage: str,
+    offset: tuple[int, int],
+    activity: str | None = None,
+    body_bottom_targets: dict[str, int] | None = None,
+) -> Image.Image:
     frame = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
-    character = dopasuj_do_etapu(cutout, stage)
-    x, y = policz_pozycje_postaci(character, stage, offset)
-    if STAGE_LAYOUT[stage].get("grass_behind"):
-        frame.alpha_composite(grass, (0, 0))
-        frame.alpha_composite(character, (x, y))
-    else:
-        frame.alpha_composite(character, (x, y))
-        frame.alpha_composite(grass, (0, 0))
+    character = dopasuj_do_etapu(cutout, stage, get_activity_layout_override(stage, activity))
+    x, y = policz_pozycje_postaci(character, stage, offset, get_body_bottom_target(stage, body_bottom_targets))
+    frame, _x, _y = zloz_postac_i_trawe(character, grass, stage, x, y, get_body_bottom_target(stage, body_bottom_targets))
     return frame
 
 
@@ -385,38 +458,355 @@ def zloz_klatke_podlania(
     stage: str,
     offset: tuple[int, int],
     frame_index: int,
+    body_bottom_targets: dict[str, int] | None = None,
 ) -> Image.Image:
     character_layer, character_bbox = usun_wode_z_podlania(cutout)
     if character_bbox is None:
-        return zloz_klatke_z_trawa(cutout, grass, stage, offset)
+        return zloz_klatke_z_trawa(cutout, grass, stage, offset, "hydrate", body_bottom_targets)
 
     character_source = character_layer.crop(character_bbox)
-    character, scale = dopasuj_do_etapu_ze_skala(character_source, stage)
-    character_x, character_y = policz_pozycje_postaci(character, stage, offset)
-    visible_top_y = character_y + znajdz_gorna_krawedz_postaci(character)
+    character, scale = dopasuj_do_etapu_ze_skala(character_source, stage, get_activity_layout_override(stage, "hydrate"))
+    character_x, character_y = policz_pozycje_postaci(
+        character,
+        stage,
+        offset,
+        get_body_bottom_target(stage, body_bottom_targets),
+    )
 
-    frame = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
-    if STAGE_LAYOUT[stage].get("grass_behind"):
-        frame.alpha_composite(grass, (0, 0))
-        frame.alpha_composite(character, (character_x, character_y))
-    else:
-        frame.alpha_composite(character, (character_x, character_y))
-        frame.alpha_composite(grass, (0, 0))
+    frame, character_x, character_y = zloz_postac_i_trawe(
+        character,
+        grass,
+        stage,
+        character_x,
+        character_y,
+        get_body_bottom_target(stage, body_bottom_targets),
+    )
+    visible_top_y = character_y + znajdz_gorna_krawedz_postaci(character)
 
     narysuj_zraszanie(frame, character_x, visible_top_y, character.width, character.height, frame_index, scale)
     return frame
 
 
-def policz_pozycje_postaci(character: Image.Image, stage: str, offset: tuple[int, int]) -> tuple[int, int]:
+def zloz_postac_i_trawe(
+    character: Image.Image,
+    grass: Image.Image,
+    stage: str,
+    character_x: int,
+    character_y: int,
+    body_bottom_target: int | None,
+) -> tuple[Image.Image, int, int]:
+    grass_layer = dopasuj_trawe_do_etapu(grass, stage)
+
+    def compose(y: int) -> Image.Image:
+        result = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
+        result.alpha_composite(character, (character_x, y))
+        result.alpha_composite(grass_layer, (0, 0))
+        return result
+
+    frame = compose(character_y)
+    if body_bottom_target is None:
+        return frame, character_x, character_y
+
+    for _attempt in range(3):
+        search_box = (
+            max(38, character_x),
+            max(0, character_y),
+            min(474, character_x + character.width),
+            min(455, character_y + character.height),
+        )
+        final_body = znajdz_bbox_widocznego_korpusu_w_kadrze(frame, search_box)
+        if final_body is None:
+            final_body = znajdz_widoczny_bbox_korpusu(character, grass_layer, character_x, character_y, stage)
+        if final_body is None:
+            return frame, character_x, character_y
+
+        delta_y = body_bottom_target - final_body[3]
+        if abs(delta_y) <= 1:
+            return frame, character_x, character_y
+
+        character_y += delta_y
+        frame = compose(character_y)
+
+    return frame, character_x, character_y
+
+
+def znajdz_bbox_widocznego_korpusu_w_kadrze(
+    frame: Image.Image,
+    search_box: tuple[int, int, int, int] | None = None,
+) -> tuple[int, int, int, int] | None:
+    pixels = frame.load()
+    points: set[tuple[int, int]] = set()
+    left, top, right, bottom = search_box or (38, 0, 474, 455)
+    left = max(38, min(FRAME, left))
+    top = max(0, min(455, top))
+    right = max(left, min(474, right))
+    bottom = max(top, min(455, bottom))
+
+    for y in range(top, bottom):
+        for x in range(left, right):
+            r, g, b, a = pixels[x, y]
+            if a <= 8:
+                continue
+            if czy_piksel_wody(r, g, b, a) or czy_piksel_liscia(r, g, b, a):
+                continue
+            if czy_piksel_kwiatka_lub_mchu(r, g, b, a, y):
+                continue
+
+            points.add((x, y))
+
+    return znajdz_bbox_najlepszej_srodkowej_skladowej(points)
+
+
+def czy_piksel_kwiatka_lub_mchu(r: int, g: int, b: int, a: int, y: int) -> bool:
+    if a <= 8 or y < 300:
+        return False
+
+    white_flower = r > 220 and g > 220 and b > 205 and max(r, g, b) - min(r, g, b) < 42
+    yellow_center = r > 150 and g > 115 and b < 120
+    return white_flower or yellow_center
+
+
+def znajdz_bbox_najlepszej_srodkowej_skladowej(points: set[tuple[int, int]]) -> tuple[int, int, int, int] | None:
+    best: list[tuple[int, int]] = []
+
+    for component in znajdz_skladowe(points, FRAME, FRAME):
+        if len(component) < 24:
+            continue
+
+        if not best or policz_wynik_skladowej_kadru(component) > policz_wynik_skladowej_kadru(best):
+            best = component
+
+    if not best:
+        return None
+
+    xs = [point[0] for point in best]
+    ys = [point[1] for point in best]
+    return min(xs), min(ys), max(xs) + 1, max(ys) + 1
+
+
+def policz_wynik_skladowej_kadru(component: list[tuple[int, int]]) -> float:
+    if not component:
+        return -1
+
+    xs = [point[0] for point in component]
+    ys = [point[1] for point in component]
+    width = max(xs) - min(xs) + 1
+    height = max(ys) - min(ys) + 1
+    center_x = (min(xs) + max(xs) + 1) / 2
+    return len(component) + width * height * 0.04 + height * 6 - abs(center_x - 256) * 12
+
+
+def znajdz_widoczny_bbox_korpusu(
+    character: Image.Image,
+    grass_layer: Image.Image,
+    character_x: int,
+    character_y: int,
+    stage: str,
+) -> tuple[int, int, int, int] | None:
+    pixels = character.load()
+    grass_alpha = grass_layer.getchannel("A").load()
+    points: set[tuple[int, int]] = set()
+
+    for local_y in range(character.height):
+        screen_y = character_y + local_y
+        if screen_y < 0 or screen_y >= FRAME:
+            continue
+
+        for local_x in range(character.width):
+            screen_x = character_x + local_x
+            if screen_x < 0 or screen_x >= FRAME or grass_alpha[screen_x, screen_y] > 8:
+                continue
+
+            r, g, b, a = pixels[local_x, local_y]
+            if a <= 8 or czy_piksel_wody(r, g, b, a) or czy_piksel_liscia(r, g, b, a):
+                continue
+
+            points.add((screen_x, screen_y))
+
+    best: list[tuple[int, int]] = []
+    for component in znajdz_skladowe(points, FRAME, FRAME):
+        if len(component) < 24:
+            continue
+
+        score = (
+            policz_wynik_skladowej_zarodnika(component, FRAME / 2)
+            if stage == "spore"
+            else policz_wynik_skladowej_postaci(component, FRAME / 2)
+        )
+        if not best:
+            best = component
+            continue
+
+        best_score = (
+            policz_wynik_skladowej_zarodnika(best, FRAME / 2)
+            if stage == "spore"
+            else policz_wynik_skladowej_postaci(best, FRAME / 2)
+        )
+        if score > best_score:
+            best = component
+
+    if not best:
+        return None
+
+    xs = [point[0] for point in best]
+    ys = [point[1] for point in best]
+    return min(xs), min(ys), max(xs) + 1, max(ys) + 1
+
+
+def dopasuj_trawe_do_etapu(grass: Image.Image, stage: str) -> Image.Image:
+    bbox = grass.getchannel("A").getbbox()
+    if bbox is None:
+        return grass
+
+    result = grass.copy()
+    alpha = result.getchannel("A")
+    pixels = alpha.load()
+    base_top = max(bbox[1], GRASS_BOTTOM_Y - GRASS_VISIBLE_HEIGHT)
+
+    for x in range(bbox[0], bbox[2]):
+        chip = (x * 17 + (x // 11) * 9) % GRASS_EDGE_VARIATION
+        if (x // 31) % 4 == 0:
+            chip -= 12
+        if (x // 47) % 5 == 0:
+            chip -= 8
+
+        local_top = max(bbox[1], min(bbox[3], base_top + chip))
+        for y in range(0, local_top):
+            pixels[x, y] = 0
+
+    result.putalpha(alpha)
+    visible_bbox = result.getchannel("A").getbbox()
+    if visible_bbox is None:
+        return result
+
+    visible_grass = result.crop(visible_bbox)
+    lowered = Image.new("RGBA", grass.size, (0, 0, 0, 0))
+    target_y = min(grass.height - visible_grass.height, max(0, GRASS_BOTTOM_Y - visible_grass.height))
+    lowered.alpha_composite(visible_grass, (visible_bbox[0], target_y))
+    return lowered
+
+
+def zbuduj_easter_eggi() -> None:
+    for stage in STAGES:
+        source = Image.open(ASSETS / "stages" / stage / "idle_sheet.png").convert("RGBA")
+        frames = []
+        for frame_index in range(source.width // FRAME):
+            frame = source.crop((frame_index * FRAME, 0, (frame_index + 1) * FRAME, FRAME))
+            narysuj_neutralna_mine(frame, stage)
+            frames.append(frame)
+
+        zapisz_sheet(ASSETS / "easter-eggs" / stage / "neutral_sheet.png", frames)
+
+
+def narysuj_neutralna_mine(frame: Image.Image, stage: str) -> None:
+    layout = NEUTRAL_FACE_LAYOUT[stage]
+    clear_box = layout["clear"]
+    mouth_box = layout["mouth"]
+    skin = pobierz_kolor_twarzy(frame, layout["sample"])
+    pixels = frame.load()
+
+    for y in range(clear_box[1], clear_box[3]):
+        for x in range(clear_box[0], clear_box[2]):
+            r, g, b, a = pixels[x, y]
+            if a <= 8 or czy_piksel_liscia(r, g, b, a) or czy_piksel_wody(r, g, b, a):
+                continue
+            pixels[x, y] = (skin[0], skin[1], skin[2], a)
+
+    for y in range(mouth_box[1], mouth_box[3]):
+        for x in range(mouth_box[0], mouth_box[2]):
+            r, g, b, a = pixels[x, y]
+            if a <= 8 or czy_piksel_liscia(r, g, b, a) or czy_piksel_wody(r, g, b, a):
+                continue
+            pixels[x, y] = (45, 34, 27, a)
+
+
+def pobierz_kolor_twarzy(frame: Image.Image, box: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    pixels = frame.load()
+    samples = []
+    for y in range(box[1], box[3]):
+        for x in range(box[0], box[2]):
+            r, g, b, a = pixels[x, y]
+            if a < 180:
+                continue
+
+            if r < 145 or g < 90 or b < 45:
+                continue
+
+            if g > r + 8 and g > b + 8:
+                continue
+
+            samples.append((r, g, b, a))
+
+    if not samples:
+        return (250, 204, 146, 255)
+
+    count = len(samples)
+    return (
+        round(sum(pixel[0] for pixel in samples) / count),
+        round(sum(pixel[1] for pixel in samples) / count),
+        round(sum(pixel[2] for pixel in samples) / count),
+        255,
+    )
+
+
+def get_body_bottom_target(stage: str, body_bottom_targets: dict[str, int] | None) -> int | None:
+    if not body_bottom_targets:
+        return None
+
+    return body_bottom_targets.get(stage)
+
+
+def znajdz_bbox_korpusu_postaci(image: Image.Image, stage: str) -> tuple[int, int, int, int] | None:
     if stage == "spore":
-        body_info = znajdz_cialo_zarodnika(character)
-        if body_info is not None:
-            body_bbox, _body_top = body_info
+        body_info = znajdz_cialo_zarodnika(image)
+        return body_info[0] if body_info is not None else None
+
+    pixels = image.load()
+    points: set[tuple[int, int]] = set()
+
+    for y in range(image.height):
+        for x in range(image.width):
+            r, g, b, a = pixels[x, y]
+            if a <= 8 or czy_piksel_wody(r, g, b, a) or czy_piksel_liscia(r, g, b, a):
+                continue
+            points.add((x, y))
+
+    best: list[tuple[int, int]] = []
+    center_x = image.width / 2
+    for component in znajdz_skladowe(points, image.width, image.height):
+        if len(component) < 24:
+            continue
+
+        if not best or policz_wynik_skladowej_postaci(component, center_x) > policz_wynik_skladowej_postaci(best, center_x):
+            best = component
+
+    if not best:
+        return None
+
+    xs = [point[0] for point in best]
+    ys = [point[1] for point in best]
+    return min(xs), min(ys), max(xs) + 1, max(ys) + 1
+
+
+def policz_pozycje_postaci(
+    character: Image.Image,
+    stage: str,
+    offset: tuple[int, int],
+    body_bottom_target: int | None = None,
+) -> tuple[int, int]:
+    body_bbox = znajdz_bbox_korpusu_postaci(character, stage)
+    if body_bbox is not None:
+        if stage == "spore":
             body_center_x = (body_bbox[0] + body_bbox[2]) / 2
-            return (
-                round(FRAME / 2 - body_center_x + offset[0]),
-                round(STAGE_LAYOUT[stage]["bottom"] - body_bbox[3] + offset[1]),
-            )
+            x = round(FRAME / 2 - body_center_x + offset[0])
+        else:
+            x = round((FRAME - character.width) / 2 + offset[0])
+
+        if body_bottom_target is not None:
+            return x, round(body_bottom_target - body_bbox[3])
+
+        if stage == "spore":
+            return x, round(STAGE_LAYOUT[stage]["bottom"] - body_bbox[3] + offset[1])
 
     return (
         round((FRAME - character.width) / 2 + offset[0]),
@@ -424,20 +814,33 @@ def policz_pozycje_postaci(character: Image.Image, stage: str, offset: tuple[int
     )
 
 
-def dopasuj_do_etapu(cutout: Image.Image, stage: str) -> Image.Image:
-    image, _scale = dopasuj_do_etapu_ze_skala(cutout, stage)
+def get_activity_layout_override(stage: str, activity: str | None) -> dict[str, float]:
+    if not activity:
+        return {}
+
+    return ACTIVITY_LAYOUT_OVERRIDES.get((stage, activity), {})
+
+
+def dopasuj_do_etapu(cutout: Image.Image, stage: str, layout_override: dict[str, float] | None = None) -> Image.Image:
+    image, _scale = dopasuj_do_etapu_ze_skala(cutout, stage, layout_override)
     return image
 
 
-def dopasuj_do_etapu_ze_skala(cutout: Image.Image, stage: str) -> tuple[Image.Image, float]:
+def dopasuj_do_etapu_ze_skala(
+    cutout: Image.Image,
+    stage: str,
+    layout_override: dict[str, float] | None = None,
+) -> tuple[Image.Image, float]:
     if stage == "spore":
         return dopasuj_zarodnik_do_etapu(cutout)
 
     layout = STAGE_LAYOUT[stage]
-    scale = layout["target_h"] / cutout.height
+    override = layout_override or {}
+    scale = layout["target_h"] / cutout.height * float(override.get("scale", 1.0))
+    max_width = int(override.get("max_w", layout["max_w"]))
     width = round(cutout.width * scale)
-    if width > layout["max_w"]:
-        scale = layout["max_w"] / cutout.width
+    if width > max_width:
+        scale = max_width / cutout.width
     width = max(1, round(cutout.width * scale))
     height = max(1, round(cutout.height * scale))
     return cutout.resize((width, height), Image.Resampling.NEAREST), scale
@@ -484,8 +887,78 @@ def usun_wode_z_podlania(cutout: Image.Image) -> tuple[Image.Image, tuple[int, i
             if mask_pixels[x, y] > 0:
                 pixels[x, y] = (0, 0, 0, 0)
 
-    bbox = character.getchannel("A").point(lambda value: 255 if value > 8 else 0).getbbox()
-    return character, bbox
+    component = znajdz_glowna_skladowa_alpha(character)
+    if component is None:
+        bbox = character.getchannel("A").point(lambda value: 255 if value > 8 else 0).getbbox()
+        return character, bbox
+
+    zachowaj_skladowa_alpha(character, component)
+    xs = [point[0] for point in component]
+    ys = [point[1] for point in component]
+    return character, (min(xs), min(ys), max(xs) + 1, max(ys) + 1)
+
+
+def znajdz_glowna_skladowa_alpha(image: Image.Image) -> list[tuple[int, int]] | None:
+    alpha = image.getchannel("A")
+    pixels = alpha.load()
+    points: set[tuple[int, int]] = set()
+
+    for y in range(image.height):
+        for x in range(image.width):
+            if pixels[x, y] > 8:
+                points.add((x, y))
+
+    if not points:
+        return None
+
+    best: list[tuple[int, int]] = []
+    center_x = image.width / 2
+
+    while points:
+        start = points.pop()
+        stack = [start]
+        component = [start]
+
+        while stack:
+            x, y = stack.pop()
+            for next_x in range(max(0, x - 1), min(image.width, x + 2)):
+                for next_y in range(max(0, y - 1), min(image.height, y + 2)):
+                    point = (next_x, next_y)
+                    if point not in points:
+                        continue
+
+                    points.remove(point)
+                    stack.append(point)
+                    component.append(point)
+
+        if len(component) < 24:
+            continue
+
+        if not best or policz_wynik_skladowej_postaci(component, center_x) > policz_wynik_skladowej_postaci(best, center_x):
+            best = component
+
+    return best or None
+
+
+def policz_wynik_skladowej_postaci(component: list[tuple[int, int]], center_x: float) -> float:
+    xs = [point[0] for point in component]
+    ys = [point[1] for point in component]
+    width = max(xs) - min(xs) + 1
+    height = max(ys) - min(ys) + 1
+    component_center_x = (min(xs) + max(xs) + 1) / 2
+    return len(component) + width * height * 0.08 + height * 12 - abs(component_center_x - center_x) * 16
+
+
+def zachowaj_skladowa_alpha(image: Image.Image, component: list[tuple[int, int]]) -> None:
+    old_alpha = image.getchannel("A")
+    old_pixels = old_alpha.load()
+    new_alpha = Image.new("L", image.size, 0)
+    new_pixels = new_alpha.load()
+
+    for x, y in component:
+        new_pixels[x, y] = old_pixels[x, y]
+
+    image.putalpha(new_alpha)
 
 
 def znajdz_gorna_krawedz_postaci(character: Image.Image) -> int:
@@ -630,6 +1103,39 @@ def usun_roslinny_listek_z_zalazka(image: Image.Image) -> None:
         if len(component) > 8 and touches_head and centered:
             for x, y in component:
                 pixels[x, y] = (0, 0, 0, 0)
+
+
+def usun_odklejone_paski_zarodnika(image: Image.Image) -> Image.Image:
+    result = image.copy()
+    body_info = znajdz_cialo_zarodnika(result)
+    if body_info is None:
+        return result
+
+    body_bbox, _body_top = body_info
+    body_width = max(1, body_bbox[2] - body_bbox[0])
+    alpha = result.getchannel("A")
+    pixels = result.load()
+    points: set[tuple[int, int]] = set()
+
+    for y in range(result.height):
+        for x in range(result.width):
+            if alpha.getpixel((x, y)) > 8:
+                points.add((x, y))
+
+    for component in znajdz_skladowe(points, result.width, result.height):
+        xs = [point[0] for point in component]
+        ys = [point[1] for point in component]
+        bbox = (min(xs), min(ys), max(xs) + 1, max(ys) + 1)
+        width = bbox[2] - bbox[0]
+        height = bbox[3] - bbox[1]
+        separated_above_body = bbox[3] <= body_bbox[1] - 18
+        strip_like = height <= 20 and width >= max(18, round(body_width * 0.35))
+
+        if separated_above_body and strip_like:
+            for x, y in component:
+                pixels[x, y] = (0, 0, 0, 0)
+
+    return przytnij_do_alpha(result, 14)
 
 
 def znajdz_skladowe(points: set[tuple[int, int]], width: int, height: int) -> list[list[tuple[int, int]]]:

@@ -1,0 +1,579 @@
+  function setTransientMessage(title, body) {
+    const now = getRuntimeNow();
+    runtime.state.currentActivity = {
+      type: 'notice',
+      label: title,
+      body: body,
+      startedAt: now,
+      until: now + 1500
+    };
+  }
+
+  function renderUi() {
+    renderIdentity();
+    renderStats();
+    renderActionStates();
+    renderInventory();
+    renderLog();
+    renderMessage();
+    renderAssetStatus();
+    renderDebugControls();
+  }
+
+  function renderIdentity() {
+    const state = runtime.state;
+    const createdAt = Date.parse(state.createdAt);
+    const day = Number.isFinite(createdAt)
+      ? Math.max(1, Math.floor((getRuntimeNow() - createdAt) / 86400000) + 1)
+      : 1;
+
+    dom.modePill.textContent = state.mode === 'awake' ? 'Czuwa' : 'Śpi';
+    dom.modePill.dataset.mode = state.mode;
+    dom.mushroomName.textContent = state.mushroomName;
+    dom.stageLabel.textContent = getStageLabel(state.stage);
+    dom.dayLabel.textContent = 'Dzień ' + day;
+    dom.healthLabel.textContent = Math.round(state.stats.health) + '%';
+    dom.coinsLabel.textContent = (Number(state.coins) || 0) + ' zarodników';
+  }
+
+  function renderStats() {
+    const statOrder = stateConfig.statOrder || Object.keys(runtime.state.stats);
+    dom.statsList.innerHTML = '';
+
+    statOrder.forEach(function(stat) {
+      const value = Math.round(runtime.state.stats[stat] || 0);
+      const row = document.createElement('div');
+      const name = document.createElement('span');
+      const track = document.createElement('div');
+      const fill = document.createElement('div');
+      const number = document.createElement('span');
+
+      row.className = 'stat-row';
+      name.className = 'stat-name';
+      track.className = 'stat-track';
+      fill.className = 'stat-fill';
+      number.className = 'stat-value';
+
+      name.textContent = statLabels[stat] || stat;
+      fill.style.width = value + '%';
+      fill.dataset.level = value < 30 ? 'low' : value < 60 ? 'medium' : 'high';
+      number.textContent = value;
+
+      track.appendChild(fill);
+      row.appendChild(name);
+      row.appendChild(track);
+      row.appendChild(number);
+      dom.statsList.appendChild(row);
+    });
+  }
+
+  function renderActions() {
+    dom.actionsGrid.innerHTML = '';
+    runtime.actionButtons.clear();
+
+    actions.forEach(function(action) {
+      const button = document.createElement('button');
+      const icon = document.createElement('span');
+      const label = document.createElement('span');
+      const badge = document.createElement('span');
+
+      button.className = 'action-button';
+      button.type = 'button';
+      button.dataset.actionId = action.id;
+      icon.className = 'action-icon';
+      label.className = 'action-label';
+      badge.className = 'shortcut-badge';
+
+      icon.textContent = action.icon || action.shortcut || action.label.slice(0, 3);
+      label.textContent = action.label;
+      badge.textContent = action.shortcut;
+
+      button.appendChild(icon);
+      button.appendChild(label);
+      button.appendChild(badge);
+      button.addEventListener('click', function() {
+        handleAction(action.id, 'button');
+      });
+
+      runtime.actionButtons.set(action.id, button);
+      dom.actionsGrid.appendChild(button);
+    });
+  }
+
+  function renderActionStates() {
+    const now = getRuntimeNow();
+    let soonestRemaining = 0;
+
+    actions.forEach(function(action) {
+      const button = runtime.actionButtons.get(action.id);
+      if (!button) {
+        return;
+      }
+
+      const check = canRunAction(action, now);
+      const cooldownUntil = Number(runtime.state.cooldowns[action.id]) || 0;
+      const remainingSeconds = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
+
+      button.disabled = !check.ok;
+      button.title = check.ok ? action.label + ' (' + action.shortcut + ')' : check.reason;
+
+      const oldChip = button.querySelector('.cooldown-chip');
+      if (oldChip) {
+        oldChip.remove();
+      }
+
+      if (remainingSeconds > 0) {
+        const chip = document.createElement('span');
+        chip.className = 'cooldown-chip';
+        chip.textContent = remainingSeconds + 's';
+        button.appendChild(chip);
+        soonestRemaining = soonestRemaining ? Math.min(soonestRemaining, remainingSeconds) : remainingSeconds;
+      }
+    });
+
+    dom.cooldownLabel.textContent = soonestRemaining ? 'Za ' + soonestRemaining + ' s' : 'Gotowe';
+  }
+
+  function flashActionButton(actionId) {
+    const button = runtime.actionButtons.get(actionId);
+    if (!button) {
+      return;
+    }
+
+    button.classList.remove('is-flashing');
+    void button.offsetWidth;
+    button.classList.add('is-flashing');
+    window.setTimeout(function() {
+      button.classList.remove('is-flashing');
+    }, 280);
+  }
+
+  function renderInventory() {
+    const inventoryOrder = stateConfig.inventoryOrder || Object.keys(runtime.state.inventory || {});
+    const patchRows = [
+      { label: 'Jakość', value: Math.round(runtime.state.patch.quality) + '%' },
+      { label: 'Grzybnia', value: Math.round(runtime.state.patch.mycelium) + '%' },
+      { label: 'Seria', value: runtime.state.patch.careStreak },
+      { label: 'Pomyłki', value: getCareMistakeTotal(runtime.state) }
+    ];
+    dom.inventoryRow.innerHTML = '';
+
+    inventoryOrder.forEach(function(item) {
+      appendInventoryItem(inventoryLabels[item] || item, runtime.state.inventory[item] || 0);
+    });
+
+    patchRows.forEach(function(row) {
+      appendInventoryItem(row.label, row.value);
+    });
+  }
+
+  function appendInventoryItem(label, value) {
+    const item = document.createElement('span');
+    const labelNode = document.createElement('span');
+    const valueNode = document.createElement('span');
+
+    item.className = 'inventory-item';
+    labelNode.className = 'inventory-label';
+    valueNode.className = 'inventory-value';
+    labelNode.textContent = label;
+    valueNode.textContent = value;
+
+    item.appendChild(labelNode);
+    item.appendChild(valueNode);
+    dom.inventoryRow.appendChild(item);
+  }
+
+  function getCareMistakeTotal(state) {
+    return Object.keys(state.careMistakes || {}).reduce(function(total, key) {
+      return total + (Number(state.careMistakes[key]) || 0);
+    }, 0);
+  }
+
+  function renderLog() {
+    const entries = runtime.state.log || [];
+    dom.eventLog.innerHTML = '';
+
+    if (!entries.length) {
+      const item = document.createElement('li');
+      item.textContent = 'Pieczarka czeka w grzybni.';
+      dom.eventLog.appendChild(item);
+      return;
+    }
+
+    entries.forEach(function(entry) {
+      const item = document.createElement('li');
+      item.textContent = formatLogTime(entry.at) + ' - ' + entry.text;
+      dom.eventLog.appendChild(item);
+    });
+  }
+
+  function formatLogTime(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return '--:--';
+    }
+
+    return logTimeFormatter ? logTimeFormatter.format(date) : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function renderMessage() {
+    const message = getMushroomMessage(runtime.state);
+    dom.messageTitle.textContent = message.title;
+    dom.messageBody.textContent = message.body;
+  }
+
+  function renderAssetStatus() {
+    dom.assetStatus.textContent = runtime.assetStatus;
+  }
+
+  function getMushroomMessage(state) {
+    const now = getRuntimeNow();
+
+    if (state.currentActivity && Number(state.currentActivity.until) > now) {
+      if (state.currentActivity.type === 'notice') {
+        return {
+          title: state.currentActivity.label,
+          body: state.currentActivity.body
+        };
+      }
+
+      if (state.currentActivity.type === 'wake') {
+        return {
+          title: 'Szeroko otwarte oczka',
+          body: 'Pieczarka mrugnęła po przebudzeniu i zrobiła minę O_O.'
+        };
+      }
+
+      if (state.currentActivity.type === 'music') {
+        return {
+          title: 'Czas muzyki',
+          body: state.currentActivity.label + ' niesie się po mchu.'
+        };
+      }
+
+      return {
+        title: state.currentActivity.label,
+        body: 'Pieczarka cieszy się, że ktoś o nią dba.'
+      };
+    }
+
+    if (state.attention && state.attention.activeNeed) {
+      const definition = rules.needDefinitions && rules.needDefinitions[state.attention.activeNeed];
+      if (definition) {
+        const deadline = Date.parse(state.attention.deadlineAt || '');
+        const secondsLeft = Number.isFinite(deadline) ? Math.max(0, Math.ceil((deadline - now) / 1000)) : 0;
+        const suffix = secondsLeft ? ' Czas na reakcję: ' + secondsLeft + ' s.' : '';
+        return {
+          title: state.attention.severity === 'critical' ? 'Pilna potrzeba: ' + definition.title : definition.title,
+          body: (state.attention.severity === 'critical' ? definition.criticalMessage : definition.mildMessage) + suffix
+        };
+      }
+    }
+
+    if (state.mode === 'sleeping') {
+      return {
+        title: 'Odpoczywa',
+        body: 'Energia wraca, a grzybnia cicho oddycha.'
+      };
+    }
+
+    const neutralEgg = getNeutralMushroomEasterEgg(state);
+    if (neutralEgg) {
+      return neutralEgg;
+    }
+
+    const mood = getMood(state);
+    return moodMessages[mood] || moodMessages.content;
+  }
+
+  const neutralEasterEggMessages = {
+    content: {
+      title: ':|',
+      body: 'Pieczarka czuje się wyjątkowo zadowolona.',
+      bubbleLines: [':|', 'wyjątkowo', 'zadowolona']
+    },
+    angry: {
+      title: ':|',
+      body: 'Pilnuj się, Pieczarka jest dziś gniewna.',
+      bubbleLines: [':|', 'dziś', 'gniewna']
+    },
+    iwonia: {
+      title: ':|',
+      body: 'Pieczarka czuje się Iwoniaście.',
+      bubbleLines: [':| czuje się...', 'Iwoniaście!']
+    }
+  };
+
+  const moodMessages = {
+    dry: {
+      title: 'Trochę sucho',
+      body: 'Mech prosi o parę świeżych kropli.'
+    },
+    hungry: {
+      title: 'Podłoże słabnie',
+      body: 'Porcja kompostu pomoże Pieczarce rosnąć.'
+    },
+    dirty: {
+      title: 'Bałagan w grzybni',
+      body: 'Sprzątanie mchu poprawi nastrój.'
+    },
+    tired: {
+      title: 'Opadający kapelusz',
+      body: 'Sen pomoże odzyskać energię.'
+    },
+    sick: {
+      title: 'Niedomaga',
+      body: 'Potrzebna jest spokojna, uważna opieka.'
+    },
+    happy: {
+      title: 'Promienieje',
+      body: 'Pieczarka świetnie rośnie w swojej grzybni.'
+    },
+    content: {
+      title: 'Zadowolona',
+      body: 'Na razie wszystko jest w dobrej równowadze.'
+    }
+  };
+
+  function getMood(state) {
+    const stats = state.stats;
+
+    if (stats.health < 35) {
+      return 'sick';
+    }
+
+    if (stats.hydration < 35) {
+      return 'dry';
+    }
+
+    if (stats.nutrients < 35) {
+      return 'hungry';
+    }
+
+    if (stats.cleanliness < 35) {
+      return 'dirty';
+    }
+
+    if (stats.energy < 25) {
+      return 'tired';
+    }
+
+    if (stats.happiness > 78 && stats.health > 72) {
+      return 'happy';
+    }
+
+    return 'content';
+  }
+
+  function getNeutralMushroomEasterEgg(state) {
+    const override = runtime.debug && runtime.debug.enabled
+      ? runtime.debug.neutralEasterEggOverride || 'auto'
+      : 'auto';
+
+    if (override === 'off') {
+      return null;
+    }
+
+    if (neutralEasterEggMessages[override]) {
+      return neutralEasterEggMessages[override];
+    }
+
+    if (!state || state.mode === 'sleeping' || hasActiveBlockingMessage(state)) {
+      return null;
+    }
+
+    const roll = hashStringToUnit((state.playerId || 'player') + ':' + getLocalDateKey() + ':neutral-easter-egg');
+    if (roll > 0.025) {
+      return null;
+    }
+
+    const variants = ['content', 'angry', 'iwonia'];
+    const variantIndex = Math.floor(hashStringToUnit((state.playerId || 'player') + ':' + getLocalDateKey() + ':neutral-variant') * variants.length);
+    return neutralEasterEggMessages[variants[Math.min(variants.length - 1, variantIndex)]];
+  }
+
+  function hasActiveBlockingMessage(state) {
+    const now = getRuntimeNow();
+    return Boolean(
+      state.currentActivity && Number(state.currentActivity.until) > now
+    ) || Boolean(state.attention && state.attention.activeNeed);
+  }
+
+  function getLocalDateKey() {
+    const date = getRuntimeDate();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return date.getFullYear() + '-' + month + '-' + day;
+  }
+
+  function hashStringToUnit(value) {
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index += 1) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+
+    return (hash >>> 0) / 4294967295;
+  }
+
+  function triggerEffect(type) {
+    runtime.effects.push({
+      type: type,
+      createdAt: performance.now(),
+      duration: type === 'sleep' ? 1200 : 1800,
+      particles: createParticles(type)
+    });
+  }
+
+  function createParticles(type) {
+    const anchor = getStageEffectAnchor();
+    const countByType = {
+      water: 10,
+      clean: 14,
+      hearts: 7,
+      music: 8,
+      spores: 16,
+      wake: 6,
+      sleep: 5
+    };
+    const count = countByType[type] || 8;
+    const particles = [];
+
+    for (let index = 0; index < count; index += 1) {
+      particles.push({
+        x: anchor.particleX - anchor.particleSpreadX / 2 + Math.random() * anchor.particleSpreadX,
+        y: anchor.particleY + Math.random() * anchor.particleSpreadY,
+        dx: -30 + Math.random() * 60,
+        dy: -anchor.particleLiftMin - Math.random() * anchor.particleLiftRange,
+        size: 5 + Math.random() * 11,
+        phase: Math.random() * Math.PI * 2
+      });
+    }
+
+    return particles;
+  }
+
+  function getStageEffectAnchor(stageId) {
+    const stage = stageId || (runtime.state && runtime.state.stage) || 'adult';
+    const anchors = {
+      spore: {
+        sleepCloudX: 315,
+        sleepCloudY: 288,
+        sleepZ: [326, 292],
+        sleepSmallZ: [358, 274],
+        sleepLargeRise: 6,
+        sleepSmallRise: 5,
+        tiredZ: [320, 282],
+        tiredSmallZ: [350, 258],
+        bubbleX: 306,
+        bubbleY: 244,
+        particleX: 256,
+        particleY: 304,
+        particleSpreadX: 112,
+        particleSpreadY: 58,
+        particleLiftMin: 56,
+        particleLiftRange: 54,
+        wakeCenterX: 258,
+        wakeCenterY: 360,
+        wakeInner: 42,
+        wakeOuter: 64,
+        alarmX: 336,
+        alarmY: 236,
+        sparkles: [[176, 292], [338, 282], [318, 374], [202, 390]]
+      },
+      baby: {
+        sleepCloudX: 338,
+        sleepCloudY: 162,
+        sleepZ: [350, 156],
+        sleepSmallZ: [382, 132],
+        tiredZ: [326, 210],
+        tiredSmallZ: [358, 186],
+        bubbleX: 322,
+        bubbleY: 148,
+        particleX: 258,
+        particleY: 246,
+        particleSpreadX: 138,
+        particleSpreadY: 72,
+        particleLiftMin: 74,
+        particleLiftRange: 60,
+        wakeCenterX: 262,
+        wakeCenterY: 318,
+        wakeInner: 58,
+        wakeOuter: 82,
+        alarmX: 364,
+        alarmY: 148,
+        sparkles: [[132, 226], [386, 180], [350, 332], [158, 356]]
+      },
+      young: {
+        sleepCloudX: 346,
+        sleepCloudY: 118,
+        sleepZ: [358, 112],
+        sleepSmallZ: [390, 88],
+        tiredZ: [336, 166],
+        tiredSmallZ: [368, 142],
+        bubbleX: 330,
+        bubbleY: 108,
+        particleX: 258,
+        particleY: 214,
+        particleSpreadX: 154,
+        particleSpreadY: 84,
+        particleLiftMin: 82,
+        particleLiftRange: 68,
+        wakeCenterX: 262,
+        wakeCenterY: 288,
+        wakeInner: 66,
+        wakeOuter: 92,
+        alarmX: 378,
+        alarmY: 112,
+        sparkles: [[118, 176], [398, 146], [362, 318], [154, 338]]
+      },
+      adult: {
+        sleepCloudX: 350,
+        sleepCloudY: 96,
+        sleepZ: [362, 102],
+        sleepSmallZ: [394, 78],
+        tiredZ: [344, 188],
+        tiredSmallZ: [372, 164],
+        bubbleX: 332,
+        bubbleY: 104,
+        particleX: 260,
+        particleY: 250,
+        particleSpreadX: 160,
+        particleSpreadY: 96,
+        particleLiftMin: 90,
+        particleLiftRange: 70,
+        wakeCenterX: 264,
+        wakeCenterY: 284,
+        wakeInner: 74,
+        wakeOuter: 98,
+        alarmX: 388,
+        alarmY: 88,
+        sparkles: [[112, 158], [398, 138], [362, 318], [154, 338]]
+      },
+      legendary: {
+        sleepCloudX: 350,
+        sleepCloudY: 96,
+        sleepZ: [362, 102],
+        sleepSmallZ: [394, 78],
+        tiredZ: [344, 188],
+        tiredSmallZ: [372, 164],
+        bubbleX: 332,
+        bubbleY: 104,
+        particleX: 260,
+        particleY: 250,
+        particleSpreadX: 168,
+        particleSpreadY: 98,
+        particleLiftMin: 90,
+        particleLiftRange: 72,
+        wakeCenterX: 264,
+        wakeCenterY: 284,
+        wakeInner: 74,
+        wakeOuter: 98,
+        alarmX: 388,
+        alarmY: 88,
+        sparkles: [[112, 158], [398, 138], [362, 318], [154, 338]]
+      }
+    };
+
+    return anchors[stage] || anchors.adult;
+  }

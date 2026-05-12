@@ -1,6 +1,7 @@
 # Pieczargotchi Real App Next Steps
 
 Last researched: 2026-05-09
+Last repo checkpoint: 2026-05-11
 
 This plan is for turning the MVP into a real, fun virtual-pet app. It is not a narrow MVP checklist.
 
@@ -172,7 +173,7 @@ Possible systems:
 - Airflow/light: too much/too little causes stress.
 - Mycelium: long-term hidden growth layer.
 - Spores: adult-stage reproduction/resource action.
-- Scene lighting: background now follows location weather, calculated sunrise/sunset, day phase, golden hour, blue hour, real sun/moon sky positions, moon phase, visible night constellations, and fallback Katowice timing when geolocation is unavailable.
+- Scene lighting: background now follows location weather, calculated sunrise/sunset, day phase, golden hour, blue hour, real sun/moon sky positions, moon phase, visible night constellations, and fallback Katowice timing when geolocation is unavailable. Current balance rule: rain actively increases hydration, storm hydrates but costs happiness/cleanliness, wind and heat dry the patch.
 - Patch decorations: small cosmetic unlocks that also affect mood.
 
 ### 5. Interaction And Minigames
@@ -284,13 +285,16 @@ Suggested scripts:
 4. Convert the current canvas `O_O` overlay into `wake_surprise_sheet.png`.
 5. Add animation manifest and `selectAnimation()`.
 
-### Phase B - Need Signaling
+### Phase B - Maintainable Core And Need Signaling
 
-1. Add mild and critical thresholds per stat.
-2. Implement visual clues for dry, hungry, dirty, tired, and sick states.
-3. Add attention call state and deadline.
-4. Add care mistakes.
-5. Update logs/messages around attention calls.
+0. Keep client logic split across Apps Script partials; do not grow a monolithic client file again.
+1. Expand `ClientCore.html` and its Node tests for state migration, cooldowns, attention calls, weather balance, and animation priority.
+2. Add mild and critical thresholds per stat.
+3. Implement visual clues for dry, hungry, dirty, tired, and sick states.
+4. Add attention call state and deadline.
+5. Add care mistakes.
+6. Update logs/messages around attention calls.
+
 
 ### Phase C - More Fun Interactions
 

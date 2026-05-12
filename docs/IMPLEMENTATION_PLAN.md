@@ -5,11 +5,12 @@
 - GitHub repository: `hexafe/pieczargotchi`
 - Default branch: `main`
 - Local path: `/home/hexaf/Projects/pieczargotchi`
-- Current repo contents: Apps Script source scaffold, client runtime, `LICENSE`, contributor guide, implementation plan, and prepared MVP PNG assets.
+- Current repo contents: Apps Script source scaffold, modular client runtime, `LICENSE`, contributor guide, implementation plan, and prepared MVP PNG assets.
 - Real-app roadmap: `docs/REAL_APP_NEXT_STEPS.md`
 - Target platform: Google Apps Script Web App
 - MVP persistence: browser `localStorage`
 - Asset policy: mushroom faces and main states come from PNG assets loaded through Apps Script as data URLs; JavaScript only draws temporary effects.
+- Client policy: keep the browser runtime split into Apps Script partials by responsibility. `Client.html` should remain an include aggregator, not a monolithic implementation file.
 
 ## Product Direction
 

@@ -1,0 +1,424 @@
+  function createDefaultDebugSettings() {
+    return {
+      enabled: false,
+      fixedAt: null,
+      weather: 'auto',
+      cloudCoverOverride: null,
+      precipitationOverride: null,
+      windSpeedOverride: null,
+      windDirectionOverride: null,
+      forcedAnimation: 'auto',
+      forcedAnimationStartedAt: 0,
+      neutralEasterEggOverride: 'auto',
+      panelOpen: false
+    };
+  }
+
+  function loadDebugSettings() {
+    try {
+      return normalizeDebugSettings(JSON.parse(window.localStorage.getItem(debugStorageKey) || '{}'));
+    } catch (error) {
+      return createDefaultDebugSettings();
+    }
+  }
+
+  function saveDebugSettings() {
+    window.localStorage.setItem(debugStorageKey, JSON.stringify(runtime.debug));
+  }
+
+  function normalizeDebugSettings(settings) {
+    const base = createDefaultDebugSettings();
+    const result = Object.assign({}, base, settings || {});
+    result.enabled = Boolean(result.enabled);
+    result.fixedAt = Number.isFinite(Number(result.fixedAt)) ? Number(result.fixedAt) : null;
+    result.weather = ['auto', 'clear', 'cloudy', 'rain', 'storm', 'snow', 'fog'].includes(result.weather)
+      ? result.weather
+      : 'auto';
+    result.cloudCoverOverride = normalizeDebugNumber(result.cloudCoverOverride, 0, 100);
+    result.precipitationOverride = normalizeDebugNumber(result.precipitationOverride, 0, 10);
+    result.windSpeedOverride = normalizeDebugNumber(result.windSpeedOverride, 0, 100);
+    result.windDirectionOverride = normalizeDebugNumber(result.windDirectionOverride, 0, 359);
+    result.forcedAnimation = debugAnimationOptions.some(function(option) {
+      return option.id === result.forcedAnimation;
+    }) ? result.forcedAnimation : 'auto';
+    result.neutralEasterEggOverride = ['auto', 'off', 'content', 'angry', 'iwonia'].includes(result.neutralEasterEggOverride)
+      ? result.neutralEasterEggOverride
+      : 'auto';
+    result.forcedAnimationStartedAt = Number.isFinite(Number(result.forcedAnimationStartedAt))
+      ? Number(result.forcedAnimationStartedAt)
+      : 0;
+    result.panelOpen = Boolean(result.panelOpen);
+    return result;
+  }
+
+  function normalizeDebugNumber(value, min, max) {
+    if (value === null || value === '' || typeof value === 'undefined') {
+      return null;
+    }
+
+    const number = Number(value);
+    return Number.isFinite(number) ? clamp(number, min, max, min) : null;
+  }
+
+  function getRuntimeNow() {
+    if (runtime.debug && runtime.debug.enabled && Number.isFinite(Number(runtime.debug.fixedAt))) {
+      return Number(runtime.debug.fixedAt);
+    }
+
+    return Date.now();
+  }
+
+  function getRuntimeDate() {
+    return new Date(getRuntimeNow());
+  }
+
+  function renderDebugControls() {
+    if (!dom.debugEnabled) {
+      return;
+    }
+
+    const debug = runtime.debug || createDefaultDebugSettings();
+    const debugDate = getRuntimeDate();
+    const stage = runtime.state ? runtime.state.stage : 'spore';
+    const growth = runtime.state && runtime.state.stats ? Math.round(runtime.state.stats.growth || 0) : 0;
+
+    if (dom.debugDetails) {
+      dom.debugDetails.open = debug.panelOpen;
+    }
+    dom.debugEnabled.checked = Boolean(debug.enabled);
+    dom.debugDate.value = formatDateInput(debugDate);
+    dom.debugTime.value = formatTimeInput(debugDate);
+    dom.debugWeather.value = debug.weather || 'auto';
+    renderDebugWeatherMeters();
+    dom.debugMode.value = runtime.state && runtime.state.mode === 'sleeping' ? 'sleeping' : 'awake';
+    renderDebugStageOptions(stage);
+    renderDebugAnimationOptions(debug.forcedAnimation || 'auto');
+    if (dom.debugEasterEgg) {
+      dom.debugEasterEgg.value = debug.neutralEasterEggOverride || 'auto';
+    }
+    dom.debugGrowth.value = String(clamp(growth, 0, 100, 0));
+    dom.debugGrowthValue.textContent = Math.round(clamp(growth, 0, 100, 0)) + '%';
+    renderDebugStats();
+  }
+
+  function renderDebugStageOptions(activeStage) {
+    if (!dom.debugStage || dom.debugStage.options.length) {
+      if (dom.debugStage) {
+        dom.debugStage.value = activeStage;
+      }
+      return;
+    }
+
+    (rules.stageThresholds || []).forEach(function(stage) {
+      const option = document.createElement('option');
+      option.value = stage.id;
+      option.textContent = stage.label || stage.id;
+      dom.debugStage.appendChild(option);
+    });
+    dom.debugStage.value = activeStage;
+  }
+
+  function renderDebugAnimationOptions(activeAnimation) {
+    if (!dom.debugAnimation || dom.debugAnimation.options.length) {
+      if (dom.debugAnimation) {
+        dom.debugAnimation.value = activeAnimation;
+      }
+      return;
+    }
+
+    debugAnimationOptions.forEach(function(item) {
+      const option = document.createElement('option');
+      option.value = item.id;
+      option.textContent = item.label;
+      dom.debugAnimation.appendChild(option);
+    });
+    dom.debugAnimation.value = activeAnimation;
+  }
+
+  function renderDebugStats() {
+    if (!dom.debugStats || !runtime.state || !runtime.state.stats) {
+      return;
+    }
+
+    dom.debugStats.replaceChildren();
+    debugStatIds.forEach(function(stat) {
+      const row = document.createElement('label');
+      row.className = 'debug-stat-row';
+      row.innerHTML = '<span>' + (statLabels[stat] || stat) + '</span>'
+        + '<input type="range" min="0" max="100" step="1" data-debug-stat="' + stat + '">'
+        + '<span data-debug-stat-value="' + stat + '"></span>';
+      const input = row.querySelector('input');
+      const value = row.querySelector('[data-debug-stat-value]');
+      const statValue = Math.round(clamp(runtime.state.stats[stat], 0, 100, 0));
+      input.value = String(statValue);
+      value.textContent = String(statValue);
+      dom.debugStats.appendChild(row);
+    });
+  }
+
+  function renderDebugWeatherMeters() {
+    const scene = runtime.weatherScene || createLocalWeatherScene(defaultWeatherLocation);
+    const debug = runtime.debug || createDefaultDebugSettings();
+    const cloud = debug.cloudCoverOverride === null ? scene.cloudCover : debug.cloudCoverOverride;
+    const precipitation = debug.precipitationOverride === null ? scene.precipitation : debug.precipitationOverride;
+    const wind = debug.windSpeedOverride === null ? scene.windSpeed : debug.windSpeedOverride;
+    const direction = debug.windDirectionOverride === null ? scene.windDirection : debug.windDirectionOverride;
+
+    setDebugMeter('debugCloud', cloud, Math.round(cloud) + '%');
+    setDebugMeter('debugPrecipitation', precipitation, precipitation.toFixed(1) + ' mm');
+    setDebugMeter('debugWind', wind, Math.round(wind) + ' km/h');
+    setDebugMeter('debugWindDirection', direction, formatWindDirection(direction));
+  }
+
+  function formatWindDirection(value) {
+    const direction = clamp(Number(value), 0, 359, 0);
+    const labels = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+    const label = labels[Math.round(direction / 45) % labels.length];
+    return Math.round(direction) + '° ' + label;
+  }
+
+  function setDebugMeter(key, value, label) {
+    const input = dom[key];
+    const valueNode = dom[key + 'Value'];
+    if (input) {
+      input.value = String(value);
+    }
+    if (valueNode) {
+      valueNode.textContent = label;
+    }
+  }
+
+  function bindDebugControls() {
+    if (!dom.debugEnabled) {
+      return;
+    }
+
+    if (dom.debugDetails) {
+      dom.debugDetails.addEventListener('toggle', function() {
+        runtime.debug.panelOpen = dom.debugDetails.open;
+        saveDebugSettings();
+      });
+    }
+
+    dom.debugEnabled.addEventListener('change', function() {
+      runtime.debug.enabled = dom.debugEnabled.checked;
+      if (runtime.debug.enabled && !Number.isFinite(Number(runtime.debug.fixedAt))) {
+        runtime.debug.fixedAt = Date.now();
+      }
+      syncStateClockToRuntime();
+      commitDebugChanges(false);
+    });
+
+    dom.debugDate.addEventListener('change', applyDebugDateTime);
+    dom.debugTime.addEventListener('change', applyDebugDateTime);
+
+    dom.debugWeather.addEventListener('change', function() {
+      enableDebugMode();
+      runtime.debug.weather = dom.debugWeather.value;
+      commitDebugChanges(false);
+    });
+
+    bindDebugWeatherMeter(dom.debugCloud, 'cloudCoverOverride');
+    bindDebugWeatherMeter(dom.debugPrecipitation, 'precipitationOverride');
+    bindDebugWeatherMeter(dom.debugWind, 'windSpeedOverride');
+    bindDebugWeatherMeter(dom.debugWindDirection, 'windDirectionOverride');
+
+    dom.debugMode.addEventListener('change', function() {
+      enableDebugMode();
+      runtime.state.mode = dom.debugMode.value === 'sleeping' ? 'sleeping' : 'awake';
+      commitDebugChanges(true);
+    });
+
+    dom.debugStage.addEventListener('change', function() {
+      enableDebugMode();
+      setStageForDebug(dom.debugStage.value);
+      commitDebugChanges(true);
+    });
+
+    dom.debugAnimation.addEventListener('change', function() {
+      enableDebugMode();
+      runtime.debug.forcedAnimation = dom.debugAnimation.value;
+      runtime.debug.forcedAnimationStartedAt = getRuntimeNow();
+      commitDebugChanges(false);
+    });
+
+    if (dom.debugEasterEgg) {
+      dom.debugEasterEgg.addEventListener('change', function() {
+        enableDebugMode();
+        runtime.debug.neutralEasterEggOverride = dom.debugEasterEgg.value;
+        commitDebugChanges(false);
+      });
+    }
+
+    dom.debugGrowth.addEventListener('input', function() {
+      enableDebugMode();
+      runtime.state.stats.growth = clamp(Number(dom.debugGrowth.value), 0, 100, 0);
+      runtime.state.stage = getStageForGrowth(runtime.state.stats.growth);
+      commitDebugChanges(true);
+    });
+
+    dom.debugPreset.addEventListener('change', function() {
+      if (!dom.debugPreset.value) {
+        return;
+      }
+
+      enableDebugMode();
+      applyDebugPreset(dom.debugPreset.value);
+      dom.debugPreset.value = '';
+      commitDebugChanges(true);
+    });
+
+    dom.debugStats.addEventListener('input', function(event) {
+      const stat = event.target && event.target.dataset ? event.target.dataset.debugStat : null;
+      if (!stat) {
+        return;
+      }
+
+      enableDebugMode();
+      runtime.state.stats[stat] = clamp(Number(event.target.value), 0, 100, 0);
+      const valueLabel = dom.debugStats.querySelector('[data-debug-stat-value="' + stat + '"]');
+      if (valueLabel) {
+        valueLabel.textContent = String(Math.round(runtime.state.stats[stat]));
+      }
+      commitDebugChanges(true, { skipDebugRender: true });
+    });
+
+    dom.debugNow.addEventListener('click', function() {
+      enableDebugMode();
+      runtime.debug.fixedAt = Date.now();
+      syncStateClockToRuntime();
+      commitDebugChanges(false);
+    });
+
+    dom.debugClearCooldowns.addEventListener('click', function() {
+      enableDebugMode();
+      runtime.state.cooldowns = {};
+      runtime.state.currentActivity = null;
+      addLog(runtime.state, 'Debug: cooldowny wyczyszczone.', getRuntimeNow());
+      commitDebugChanges(true);
+    });
+
+    dom.debugReset.addEventListener('click', function() {
+      runtime.debug = createDefaultDebugSettings();
+      syncStateClockToRuntime();
+      commitDebugChanges(false);
+    });
+  }
+
+  function bindDebugWeatherMeter(input, field) {
+    if (!input) {
+      return;
+    }
+
+    input.addEventListener('input', function() {
+      enableDebugMode();
+      runtime.debug[field] = Number(input.value);
+      commitDebugChanges(false, { skipDebugRender: true });
+      renderDebugWeatherMeters();
+    });
+  }
+
+  function applyDebugDateTime() {
+    const dateValue = dom.debugDate.value;
+    const timeValue = dom.debugTime.value || '12:00';
+    if (!dateValue) {
+      return;
+    }
+
+    const parsed = new Date(dateValue + 'T' + timeValue);
+    if (Number.isNaN(parsed.getTime())) {
+      return;
+    }
+
+    enableDebugMode();
+    runtime.debug.fixedAt = parsed.getTime();
+    syncStateClockToRuntime();
+    commitDebugChanges(false);
+  }
+
+  function enableDebugMode() {
+    runtime.debug.enabled = true;
+    if (!Number.isFinite(Number(runtime.debug.fixedAt))) {
+      runtime.debug.fixedAt = getRuntimeNow();
+    }
+  }
+
+  function setStageForDebug(stageId) {
+    const stage = (rules.stageThresholds || []).find(function(candidate) {
+      return candidate.id === stageId;
+    });
+    if (!stage || !runtime.state || !runtime.state.stats) {
+      return;
+    }
+
+    runtime.state.stats.growth = stage.growth;
+    runtime.state.stage = stage.id;
+  }
+
+  function applyDebugPreset(preset) {
+    const presets = {
+      healthy: { hydration: 72, nutrients: 72, energy: 72, happiness: 72, cleanliness: 72, health: 92 },
+      excellent: { hydration: 94, nutrients: 94, energy: 90, happiness: 95, cleanliness: 95, health: 100 },
+      dry: { hydration: 12, nutrients: 70, energy: 70, happiness: 58, cleanliness: 75, health: 70 },
+      hungry: { hydration: 70, nutrients: 12, energy: 68, happiness: 56, cleanliness: 72, health: 70 },
+      dirty: { hydration: 70, nutrients: 70, energy: 68, happiness: 54, cleanliness: 10, health: 68 },
+      tired: { hydration: 70, nutrients: 70, energy: 8, happiness: 54, cleanliness: 74, health: 74 },
+      sick: { hydration: 36, nutrients: 36, energy: 28, happiness: 34, cleanliness: 36, health: 18 },
+      critical: { hydration: 10, nutrients: 10, energy: 8, happiness: 14, cleanliness: 10, health: 8 },
+      neglected: { hydration: 24, nutrients: 22, energy: 20, happiness: 18, cleanliness: 18, health: 26 }
+    };
+    const values = presets[preset];
+    if (!values || !runtime.state || !runtime.state.stats) {
+      return;
+    }
+
+    Object.keys(values).forEach(function(stat) {
+      runtime.state.stats[stat] = values[stat];
+    });
+    runtime.state.mode = preset === 'tired' ? 'sleeping' : 'awake';
+    runtime.state.patch.quality = preset === 'excellent' ? 96 : preset === 'neglected' || preset === 'critical' ? 18 : 72;
+    runtime.state.patch.mycelium = preset === 'excellent' ? 88 : runtime.state.patch.mycelium;
+  }
+
+  function commitDebugChanges(stateChanged, options) {
+    const settings = options || {};
+    if (stateChanged) {
+      runtime.state.stats = clampAllStats(runtime.state.stats);
+      runtime.state.stage = getStageForGrowth(runtime.state.stats.growth || 0);
+      evaluateAttention(runtime.state, getRuntimeNow());
+      syncStateClockToRuntime();
+    }
+
+    if (runtime.state) {
+      saveState(runtime.state);
+    }
+
+    saveDebugSettings();
+    renderUi();
+    if (!settings.skipDebugRender) {
+      renderDebugControls();
+    }
+  }
+
+  function syncStateClockToRuntime() {
+    if (!runtime.state) {
+      return;
+    }
+
+    runtime.state.lastUpdatedAt = new Date(getRuntimeNow()).toISOString();
+  }
+
+  function formatDateInput(date) {
+    return [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, '0'),
+      String(date.getDate()).padStart(2, '0')
+    ].join('-');
+  }
+
+  function formatTimeInput(date) {
+    return [
+      String(date.getHours()).padStart(2, '0'),
+      String(date.getMinutes()).padStart(2, '0')
+    ].join(':');
+  }
