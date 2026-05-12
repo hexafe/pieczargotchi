@@ -22,7 +22,7 @@ Wymagane atlasy:
 
 - stany: `idle`, `sleep`, `wake`, `happy`, `excellent`, `tired`, `dry`, `hungry`, `dirty`, `sick`, `critical`
 - akcje: `hydrate`, `feed`, `clean`, `play`, `instrument`, `sing`, `spores`, `harvest`
-- easter eggi: `neutral_atlas.png` dla miny `:|`
+- easter eggi: `neutral_atlas.png` dla miny `:|`, `neutral_rain_atlas.png` dla Iwoniastej Pieczarki z parasolka
 - efekty: `effects`
 
 Kazdy atlas stanu lub akcji ma jeden rzad pieciu postaci: `spore`, `baby`, `young`, `adult`, `legendary`. Tlo atlasu jest plaskim chroma-key `#ff00ff`.
@@ -34,9 +34,11 @@ Neutralny easter egg `:|` tez ma osobne wyrenderowane zrodla:
 ```text
 assets/source/imagegen/raw/neutral_atlas.png
 assets/source/imagegen/cutouts/easter-eggs/neutral/<stage>.png
+assets/source/imagegen/raw/neutral_rain_atlas.png
+assets/source/imagegen/cutouts/easter-eggs/neutral_rain/<stage>.png
 ```
 
-Builder nie rysuje ani nie dokleja miny `:|` do `idle_sheet.png`; runtime `assets/easter-eggs/<stage>/neutral_sheet.png` jest skladany z tych neutralnych cutoutow i wspolnej frontowej trawy.
+Builder nie rysuje ani nie dokleja miny `:|` do `idle_sheet.png` i nie rysuje parasolki pixel po pixelu. Runtime `assets/easter-eggs/<stage>/neutral_sheet.png` oraz `assets/easter-eggs/<stage>/neutral_rain_sheet.png` sa skladane z wyrenderowanych cutoutow i wspolnej frontowej trawy.
 
 ## Prompt Bazowy
 
@@ -67,6 +69,7 @@ Skrypt tworzy:
 - `assets/activities/<stage>/<activity>_sheet.png`
 - kompatybilne fallbacki `assets/activities/<activity>_sheet.png` z wariantu `adult`
 - `assets/easter-eggs/<stage>/neutral_sheet.png`
+- `assets/easter-eggs/<stage>/neutral_rain_sheet.png`
 - `assets/effects/<effect>_sheet.png`
 - pomocnicze wycinki w `assets/source/imagegen/cutouts/`
 
@@ -85,7 +88,7 @@ PIECZARGOTCHI_CAPTURE_VIEWPORT=1 PIECZARGOTCHI_CAPTURE_STAGES=1 PIECZARGOTCHI_CA
 
 Ostatnia walidacja:
 
-- `113` runtime PNG przechodzi `validate-assets`,
+- `118` runtime PNG przechodzi `validate-assets`,
 - stany bazowe, aktywnosci i neutralne easter eggi trzymaja rozmiar/baseline w kazdym etapie,
 - lokalny capture potwierdza osobne animacje akcji dla `spore`, `baby`, `young`, `adult` i `legendary`,
 - viewport capture `1194x891` potwierdza czytelny prawy panel i brak checkerboardu w obszarze canvasu.

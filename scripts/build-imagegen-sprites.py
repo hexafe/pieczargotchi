@@ -13,6 +13,7 @@ ASSETS = ROOT / "assets"
 RAW_DIR = ASSETS / "source" / "imagegen" / "raw"
 CUTOUT_DIR = ASSETS / "source" / "imagegen" / "cutouts"
 NEUTRAL_EASTER_CUTOUT_DIR = CUTOUT_DIR / "easter-eggs" / "neutral"
+NEUTRAL_RAIN_EASTER_CUTOUT_DIR = CUTOUT_DIR / "easter-eggs" / "neutral_rain"
 GENERATED_DIR = ASSETS / "source" / "imagegen" / "generated"
 FRAME = 512
 
@@ -138,6 +139,10 @@ def sprawdz_zrodla() -> None:
     brakujace_neutralne = [stage for stage in STAGES if not (NEUTRAL_EASTER_CUTOUT_DIR / f"{stage}.png").exists()]
     if brakujace_neutralne:
         raise FileNotFoundError("Brak wyrenderowanych neutralnych cutoutow: " + ", ".join(brakujace_neutralne))
+
+    brakujace_deszczowe = [stage for stage in STAGES if not (NEUTRAL_RAIN_EASTER_CUTOUT_DIR / f"{stage}.png").exists()]
+    if brakujace_deszczowe:
+        raise FileNotFoundError("Brak wyrenderowanych deszczowych neutralnych cutoutow: " + ", ".join(brakujace_deszczowe))
 
 
 def przygotuj_warstwe_trawy() -> Image.Image:
@@ -532,6 +537,21 @@ def znajdz_bbox_widocznego_korpusu_w_kadrze(
     frame: Image.Image,
     search_box: tuple[int, int, int, int] | None = None,
 ) -> tuple[int, int, int, int] | None:
+    return znajdz_bbox_widocznego_korpusu_w_kadrze_z_filtrem(frame, search_box, False)
+
+
+def znajdz_bbox_widocznego_korpusu_w_kadrze_bez_parasolki(
+    frame: Image.Image,
+    search_box: tuple[int, int, int, int] | None = None,
+) -> tuple[int, int, int, int] | None:
+    return znajdz_bbox_widocznego_korpusu_w_kadrze_z_filtrem(frame, search_box, True)
+
+
+def znajdz_bbox_widocznego_korpusu_w_kadrze_z_filtrem(
+    frame: Image.Image,
+    search_box: tuple[int, int, int, int] | None,
+    ignore_umbrella: bool,
+) -> tuple[int, int, int, int] | None:
     pixels = frame.load()
     points: set[tuple[int, int]] = set()
     left, top, right, bottom = search_box or (38, 0, 474, 455)
@@ -546,6 +566,8 @@ def znajdz_bbox_widocznego_korpusu_w_kadrze(
             if a <= 8:
                 continue
             if czy_piksel_wody(r, g, b, a) or czy_piksel_liscia(r, g, b, a):
+                continue
+            if ignore_umbrella and czy_piksel_parasolki(r, g, b, a):
                 continue
             if czy_piksel_kwiatka_lub_mchu(r, g, b, a, y):
                 continue
@@ -694,6 +716,61 @@ def zbuduj_easter_eggi(grass: Image.Image, body_bottom_targets: dict[str, int]) 
 
         zapisz_sheet(ASSETS / "easter-eggs" / stage / "neutral_sheet.png", frames)
 
+        rain_cutout = Image.open(NEUTRAL_RAIN_EASTER_CUTOUT_DIR / f"{stage}.png").convert("RGBA")
+        rain_frames = [
+            zloz_klatke_z_parasolka(rain_cutout, grass, stage, offset, body_bottom_targets)
+            for offset in STATE_OFFSETS["idle"]
+        ]
+        zapisz_sheet(ASSETS / "easter-eggs" / stage / "neutral_rain_sheet.png", rain_frames)
+
+
+def zloz_klatke_z_parasolka(
+    cutout: Image.Image,
+    grass: Image.Image,
+    stage: str,
+    offset: tuple[int, int],
+    body_bottom_targets: dict[str, int],
+) -> Image.Image:
+    frame = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
+    character = dopasuj_parasolke_do_etapu(cutout, stage)
+    body_bbox = znajdz_bbox_korpusu_postaci_bez_parasolki(character, stage)
+    if body_bbox is None:
+        return zloz_klatke_z_trawa(cutout, grass, stage, offset, None, body_bottom_targets)
+
+    target_bottom = get_body_bottom_target(stage, body_bottom_targets) or STAGE_LAYOUT[stage]["bottom"]
+    body_center_x = (body_bbox[0] + body_bbox[2]) / 2
+    x = round(FRAME / 2 - body_center_x + offset[0])
+    y = round(target_bottom - body_bbox[3] + offset[1])
+
+    x = min(FRAME - character.width, max(0, x))
+    y = min(FRAME - character.height, max(0, y))
+
+    frame.alpha_composite(character, (x, y))
+    frame.alpha_composite(dopasuj_trawe_do_etapu(grass, stage), (0, 0))
+    return frame
+
+
+def dopasuj_parasolke_do_etapu(cutout: Image.Image, stage: str) -> Image.Image:
+    body_bbox = znajdz_bbox_korpusu_postaci_bez_parasolki(cutout, stage)
+    if body_bbox is None:
+        return dopasuj_do_etapu(cutout, stage)
+
+    target_body_height = policz_docelowa_wysokosc_neutralnego_korpusu(stage)
+    body_height = max(1, body_bbox[3] - body_bbox[1])
+    scale = target_body_height / body_height
+    scale = min(scale, (FRAME - 16) / cutout.width, (FRAME - 12) / cutout.height)
+    return zmien_rozmiar_pixel_art(cutout, scale)
+
+
+def policz_docelowa_wysokosc_neutralnego_korpusu(stage: str) -> int:
+    neutral = Image.open(NEUTRAL_EASTER_CUTOUT_DIR / f"{stage}.png").convert("RGBA")
+    fitted = dopasuj_do_etapu(neutral, stage)
+    body_bbox = znajdz_bbox_korpusu_postaci(fitted, stage)
+    if body_bbox is None:
+        return STAGE_LAYOUT[stage]["target_h"]
+
+    return max(1, body_bbox[3] - body_bbox[1])
+
 
 def get_body_bottom_target(stage: str, body_bottom_targets: dict[str, int] | None) -> int | None:
     if not body_bottom_targets:
@@ -724,6 +801,50 @@ def znajdz_bbox_korpusu_postaci(image: Image.Image, stage: str) -> tuple[int, in
             continue
 
         if not best or policz_wynik_skladowej_postaci(component, center_x) > policz_wynik_skladowej_postaci(best, center_x):
+            best = component
+
+    if not best:
+        return None
+
+    xs = [point[0] for point in best]
+    ys = [point[1] for point in best]
+    return min(xs), min(ys), max(xs) + 1, max(ys) + 1
+
+
+def znajdz_bbox_korpusu_postaci_bez_parasolki(image: Image.Image, stage: str) -> tuple[int, int, int, int] | None:
+    pixels = image.load()
+    points: set[tuple[int, int]] = set()
+
+    for y in range(image.height):
+        for x in range(image.width):
+            r, g, b, a = pixels[x, y]
+            if a <= 8 or czy_piksel_wody(r, g, b, a) or czy_piksel_liscia(r, g, b, a) or czy_piksel_parasolki(r, g, b, a):
+                continue
+            if stage == "spore" and not czy_piksel_ciala_zarodnika(r, g, b, a):
+                continue
+            points.add((x, y))
+
+    best: list[tuple[int, int]] = []
+    center_x = image.width / 2
+    for component in znajdz_skladowe(points, image.width, image.height):
+        if len(component) < 24:
+            continue
+
+        score = (
+            policz_wynik_skladowej_zarodnika(component, center_x)
+            if stage == "spore"
+            else policz_wynik_skladowej_postaci(component, center_x)
+        )
+        if not best:
+            best = component
+            continue
+
+        best_score = (
+            policz_wynik_skladowej_zarodnika(best, center_x)
+            if stage == "spore"
+            else policz_wynik_skladowej_postaci(best, center_x)
+        )
+        if score > best_score:
             best = component
 
     if not best:
@@ -1006,6 +1127,15 @@ def czy_piksel_wody(r: int, g: int, b: int, a: int) -> bool:
         return False
 
     return b >= 130 and g >= 70 and b > r + 22
+
+
+def czy_piksel_parasolki(r: int, g: int, b: int, a: int) -> bool:
+    if a <= 8:
+        return False
+
+    bright_violet = b > 105 and r > 75 and g < 150 and b >= g + 30 and r >= g + 18
+    dark_violet = b > 44 and r > 35 and g < 80 and b >= g + 14 and r >= g + 4
+    return bright_violet or dark_violet
 
 
 def przygotuj_zarodnik_grzybni(cutout: Image.Image, variant_id: str) -> Image.Image:

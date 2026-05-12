@@ -16,6 +16,7 @@ STAGES_DIR = ROOT / "assets" / "stages"
 ACTIVITIES_DIR = ROOT / "assets" / "activities"
 EASTER_EGGS_DIR = ROOT / "assets" / "easter-eggs"
 NEUTRAL_EASTER_CUTOUT_DIR = ROOT / "assets" / "source" / "imagegen" / "cutouts" / "easter-eggs" / "neutral"
+NEUTRAL_RAIN_EASTER_CUTOUT_DIR = ROOT / "assets" / "source" / "imagegen" / "cutouts" / "easter-eggs" / "neutral_rain"
 STAGES = ["spore", "baby", "young", "adult", "legendary"]
 BASE_STATES = ["sleep", "wake", "idle"]
 ALL_STATES = [
@@ -40,7 +41,29 @@ MAX_BODY_BASELINE_DELTA = 3
 MAX_NEUTRAL_BODY_HEIGHT_DELTA = 90
 MAX_NEUTRAL_BODY_CENTER_DELTA = 55
 MAX_NEUTRAL_FRAME_DRIFT = 8
+MAX_NEUTRAL_RAIN_BODY_HEIGHT_DELTA = 115
+MAX_NEUTRAL_RAIN_BODY_CENTER_DELTA = 90
+MAX_NEUTRAL_RAIN_BASELINE_DELTA = 70
 SPORE_DETACHED_STRIP_STATES = ["tired", "dry", "hungry", "dirty", "sick"]
+
+EASTER_EGG_VARIANTS = [
+    {
+        "state": "neutral",
+        "label": "neutral",
+        "source_dir": NEUTRAL_EASTER_CUTOUT_DIR,
+        "max_baseline_delta": MAX_BODY_BASELINE_DELTA,
+        "max_height_delta": MAX_NEUTRAL_BODY_HEIGHT_DELTA,
+        "max_center_delta": MAX_NEUTRAL_BODY_CENTER_DELTA,
+    },
+    {
+        "state": "neutral_rain",
+        "label": "neutral_rain",
+        "source_dir": NEUTRAL_RAIN_EASTER_CUTOUT_DIR,
+        "max_baseline_delta": MAX_NEUTRAL_RAIN_BASELINE_DELTA,
+        "max_height_delta": MAX_NEUTRAL_RAIN_BODY_HEIGHT_DELTA,
+        "max_center_delta": MAX_NEUTRAL_RAIN_BODY_CENTER_DELTA,
+    },
+]
 
 
 def main() -> None:
@@ -103,7 +126,7 @@ def main() -> None:
             if item["drift"] > MAX_ACTIVITY_FRAME_DRIFT:
                 failures.append(f"{stage}.activity.{activity}: klatki Pieczarki dryfują o {item['drift']:.1f}px")
 
-        audit_neutral_easter_egg(stage, builder, failures)
+        audit_neutral_easter_eggs(stage, builder, failures)
         if stage == "spore":
             audit_spore_detached_strips(builder, failures)
 
@@ -192,30 +215,42 @@ def measure_body_sheet(path: Path, builder) -> dict[str, float]:
     }
 
 
-def audit_neutral_easter_egg(stage: str, builder, failures: list[str]) -> None:
+def audit_neutral_easter_eggs(stage: str, builder, failures: list[str]) -> None:
+    print("  [easter :|]")
+    for variant in EASTER_EGG_VARIANTS:
+        audit_neutral_easter_egg_variant(stage, builder, failures, variant)
+
+
+def audit_neutral_easter_egg_variant(stage: str, builder, failures: list[str], variant: dict[str, object]) -> None:
+    state_name = str(variant["state"])
+    label = str(variant["label"])
+    source_dir = Path(variant["source_dir"])
+    max_baseline_delta = float(variant["max_baseline_delta"])
+    max_height_delta = float(variant["max_height_delta"])
+    max_center_delta = float(variant["max_center_delta"])
+
     base_path = STAGES_DIR / stage / "idle_sheet.png"
-    neutral_path = EASTER_EGGS_DIR / stage / "neutral_sheet.png"
-    source_path = NEUTRAL_EASTER_CUTOUT_DIR / f"{stage}.png"
+    neutral_path = EASTER_EGGS_DIR / stage / f"{state_name}_sheet.png"
+    source_path = source_dir / f"{stage}.png"
     if not source_path.exists():
-        failures.append(f"{stage}.easter.neutral: brakuje wyrenderowanego source cutoutu {source_path.relative_to(ROOT)}")
+        failures.append(f"{stage}.easter.{state_name}: brakuje wyrenderowanego source cutoutu {source_path.relative_to(ROOT)}")
         return
 
     if not neutral_path.exists():
-        failures.append(f"{stage}.easter.neutral: brakuje {neutral_path.relative_to(ROOT)}")
+        failures.append(f"{stage}.easter.{state_name}: brakuje {neutral_path.relative_to(ROOT)}")
         return
 
     base = Image.open(base_path).convert("RGBA")
     neutral = Image.open(neutral_path).convert("RGBA")
-    print("  [easter :|]")
 
     if neutral.size != base.size:
-        failures.append(f"{stage}.easter.neutral: rozmiar arkusza {neutral.size} różni się od idle {base.size}")
+        failures.append(f"{stage}.easter.{state_name}: rozmiar arkusza {neutral.size} różni się od idle {base.size}")
         return
 
     base_frames = base.width // FRAME
     neutral_frames = neutral.width // FRAME
     if base_frames != neutral_frames or base.height != FRAME or neutral.height != FRAME:
-        failures.append(f"{stage}.easter.neutral: liczba klatek lub wysokość arkusza różni się od idle")
+        failures.append(f"{stage}.easter.{state_name}: liczba klatek lub wysokość arkusza różni się od idle")
         return
 
     bbox_changed_frames = 0
@@ -226,11 +261,17 @@ def audit_neutral_easter_egg(stage: str, builder, failures: list[str]) -> None:
         left = index * FRAME
         base_frame = base.crop((left, 0, left + FRAME, FRAME))
         neutral_frame = neutral.crop((left, 0, left + FRAME, FRAME))
+        full_bbox = neutral_frame.getchannel("A").point(lambda value: 255 if value > 8 else 0).getbbox()
+        if full_bbox is None:
+            failures.append(f"{stage}.easter.{state_name}: klatka {index + 1} jest pusta")
+            continue
+        if full_bbox[0] <= 0 or full_bbox[1] <= 0 or full_bbox[2] >= FRAME:
+            failures.append(f"{stage}.easter.{state_name}: klatka {index + 1} dotyka krawędzi kadru {full_bbox}")
 
         base_body_box = find_character_body_bbox(base_frame, builder)
-        neutral_body_box = find_character_body_bbox(neutral_frame, builder)
+        neutral_body_box = find_easter_egg_body_bbox(neutral_frame, builder, state_name)
         if base_body_box is None or neutral_body_box is None:
-            failures.append(f"{stage}.easter.neutral: klatka {index + 1} nie ma wykrywalnego korpusu Pieczarki")
+            failures.append(f"{stage}.easter.{state_name}: klatka {index + 1} nie ma wykrywalnego korpusu Pieczarki")
             continue
 
         base_body_boxes.append(base_body_box)
@@ -238,14 +279,14 @@ def audit_neutral_easter_egg(stage: str, builder, failures: list[str]) -> None:
         bbox_changed_frames += int(base_body_box != neutral_body_box)
 
         bottom_delta = abs(neutral_body_box[3] - base_body_box[3])
-        if bottom_delta > MAX_BODY_BASELINE_DELTA:
-            failures.append(f"{stage}.easter.neutral: klatka {index + 1} baseline różni się od idle o {bottom_delta:.1f}px")
+        if bottom_delta > max_baseline_delta:
+            failures.append(f"{stage}.easter.{state_name}: klatka {index + 1} baseline różni się od idle o {bottom_delta:.1f}px")
 
     if base_body_boxes and neutral_body_boxes:
         base_metrics = metrics_from_boxes(base_body_boxes)
         neutral_metrics = metrics_from_boxes(neutral_body_boxes)
         print(
-            f"  neutral   "
+            f"  {label:12s} "
             f"{neutral_metrics['width']:6.1f}x{neutral_metrics['height']:6.1f} "
             f"center={neutral_metrics['center_x']:6.1f},{neutral_metrics['center_y']:6.1f} "
             f"bbox_changed_frames={bbox_changed_frames}/{base_frames}"
@@ -255,12 +296,19 @@ def audit_neutral_easter_egg(stage: str, builder, failures: list[str]) -> None:
             (neutral_metrics["center_x"] - base_metrics["center_x"]) ** 2
             + (neutral_metrics["center_y"] - base_metrics["center_y"]) ** 2
         ) ** 0.5
-        if height_delta > MAX_NEUTRAL_BODY_HEIGHT_DELTA:
-            failures.append(f"{stage}.easter.neutral: wysokość wyrenderowanego assetu różni się od idle o {height_delta:.1f}px")
-        if center_delta > MAX_NEUTRAL_BODY_CENTER_DELTA:
-            failures.append(f"{stage}.easter.neutral: środek wyrenderowanego assetu różni się od idle o {center_delta:.1f}px")
+        if height_delta > max_height_delta:
+            failures.append(f"{stage}.easter.{state_name}: wysokość wyrenderowanego assetu różni się od idle o {height_delta:.1f}px")
+        if center_delta > max_center_delta:
+            failures.append(f"{stage}.easter.{state_name}: środek wyrenderowanego assetu różni się od idle o {center_delta:.1f}px")
         if neutral_metrics["drift"] > MAX_NEUTRAL_FRAME_DRIFT:
-            failures.append(f"{stage}.easter.neutral: klatki neutralnego assetu dryfują o {neutral_metrics['drift']:.1f}px")
+            failures.append(f"{stage}.easter.{state_name}: klatki neutralnego assetu dryfują o {neutral_metrics['drift']:.1f}px")
+
+
+def find_easter_egg_body_bbox(frame: Image.Image, builder, state_name: str) -> tuple[int, int, int, int] | None:
+    if state_name == "neutral_rain" and hasattr(builder, "znajdz_bbox_widocznego_korpusu_w_kadrze_bez_parasolki"):
+        return builder.znajdz_bbox_widocznego_korpusu_w_kadrze_bez_parasolki(frame)
+
+    return find_character_body_bbox(frame, builder)
 
 
 def audit_spore_detached_strips(builder, failures: list[str]) -> None:

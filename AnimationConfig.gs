@@ -167,6 +167,13 @@ const PIECZARGOTCHI_EASTER_EGG_ANIMATIONS = [
     frameDurationsMs: [420, 420, 520, 260],
     loop: true,
     priority: 42
+  },
+  {
+    state: 'neutral_rain',
+    frameCount: 4,
+    frameDurationsMs: [420, 420, 520, 260],
+    loop: true,
+    priority: 43
   }
 ];
 

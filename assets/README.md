@@ -17,12 +17,13 @@ Runtime assets live in this directory.
 - `stages/` - animacje etapów wzrostu: `spore`, `baby`, `young`, `adult`, `legendary`.
 - `activities/<stage>/` - jednorazowe reakcje na akcje opieki, muzykę, zarodniki i plon dla konkretnego etapu.
 - `activities/*.png` - fallbacki kompatybilnosci z wariantu `adult`.
-- `easter-eggs/<stage>/` - rzadkie warianty specjalne budowane z osobnych wyrenderowanych source cutoutow, np. neutralna mina `:|`.
+- `easter-eggs/<stage>/` - rzadkie warianty specjalne budowane z osobnych wyrenderowanych source cutoutow, np. neutralna mina `:|` i deszczowa wersja Iwoniastej Pieczarki z parasolka.
 - `effects/` - małe opcjonalne efekty pomocnicze z atlasu imagegen.
 - `reference/` - źródłowe referencje stylu, nie ładować ich w aplikacji.
-- `source/imagegen/raw/` - surowe atlasy z wbudowanego generatora obrazow, w tym `neutral_atlas.png` dla easter egga `:|`.
+- `source/imagegen/raw/` - surowe atlasy z wbudowanego generatora obrazow, w tym `neutral_atlas.png` i `neutral_rain_atlas.png` dla easter eggow `:|`.
 - `source/imagegen/cutouts/` - wycinki pomocnicze z atlasow.
 - `source/imagegen/cutouts/easter-eggs/neutral/` - wyrenderowane cutouty neutralnej miny; nie doklejaj miny skryptem do gotowego runtime sprite.
+- `source/imagegen/cutouts/easter-eggs/neutral_rain/` - wyrenderowane cutouty neutralnej Iwoniastej Pieczarki z fioletowa parasolka; nie rysuj parasolki w canvasie ani skryptem pixel po pixelu.
 - `source/imagegen/generated/*_midgen_*.png` - lokalne eksperymenty/scratch output, ignorowane przez Git.
 - `awake.png` i `sleeping_sheet.png` - starsze assety zachowane jako punkt odniesienia i kompatybilny materiał źródłowy.
 

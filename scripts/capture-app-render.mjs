@@ -28,12 +28,14 @@ function createCaptureDebugSettings() {
   const wind = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_WIND');
   const windDirection = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_WIND_DIRECTION');
   const fixedAt = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_FIXED_AT');
+  const easterEgg = process.env.PIECZARGOTCHI_DEBUG_EASTER_EGG || 'auto';
   const hasDebugWeather = weather !== 'auto'
     || cloud !== null
     || precipitation !== null
     || wind !== null
     || windDirection !== null
-    || fixedAt !== null;
+    || fixedAt !== null
+    || easterEgg !== 'auto';
 
   if (!hasDebugWeather) {
     return null;
@@ -49,7 +51,7 @@ function createCaptureDebugSettings() {
     windDirectionOverride: windDirection,
     forcedAnimation: 'auto',
     forcedAnimationStartedAt: 0,
-    neutralEasterEggOverride: 'auto',
+    neutralEasterEggOverride: easterEgg,
     panelOpen: false
   };
 }
@@ -135,7 +137,7 @@ async function captureState(cdp, mode) {
       ? 'spore.sleep'
       : mode === 'wake'
         ? 'spore.wake'
-        : 'spore.idle'
+        : getExpectedAwakeIdleAnimationKey('spore')
   });
 }
 
@@ -144,7 +146,7 @@ async function captureStage(cdp, stage, growth) {
     mode: 'awake',
     growth,
     activity: 'null',
-    expectedAnimationKey: `${stage}.idle`
+    expectedAnimationKey: getExpectedAwakeIdleAnimationKey(stage)
   });
 }
 
@@ -155,6 +157,27 @@ async function captureActivity(cdp, stage, growth, activity) {
     activity: `{ type: ${JSON.stringify(activity)}, label: ${JSON.stringify(activity)}, startedAt: Date.now(), until: Date.now() + 2400 }`,
     expectedAnimationKey: `${stage}.activity.${activity}`
   });
+}
+
+function getExpectedAwakeIdleAnimationKey(stage) {
+  if (!captureDebugSettings || captureDebugSettings.neutralEasterEggOverride === 'auto') {
+    return `${stage}.idle`;
+  }
+
+  if (captureDebugSettings.neutralEasterEggOverride === 'iwonia' && isCaptureRainy()) {
+    return `${stage}.easter.neutral_rain`;
+  }
+
+  return `${stage}.easter.neutral`;
+}
+
+function isCaptureRainy() {
+  if (!captureDebugSettings) {
+    return false;
+  }
+
+  return ['rain', 'storm'].includes(captureDebugSettings.weather)
+    && Math.max(0, Number(captureDebugSettings.precipitationOverride) || 0) > 0;
 }
 
 async function captureCanvas(cdp, label, options) {

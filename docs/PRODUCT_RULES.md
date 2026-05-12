@@ -24,7 +24,7 @@ Pogoda nie powinna jeszcze automatycznie robić care mistakes. Najpierw ma być 
 
 Wizualnie pogoda musi używać tych samych pól, które trafiają do balansu. Zachmurzenie może zasłaniać słońce, księżyc i gwiazdy. Kierunek i siła wiatru wpływają na kąt deszczu, dryf śniegu, porywy, mgłę, chmury i trawę; chwilowe porywy mogą rosnąć i cichnąć, ale średnia siła ma pozostać zgodna z aktualną pogodą.
 
-Rzadkie easter eggi mogą zmieniać komunikat i neutralny sprite, ale nie mogą przykrywać pilnych potrzeb, aktywności ani snu.
+Rzadkie easter eggi mogą zmieniać komunikat i neutralny sprite, ale nie mogą przykrywać pilnych potrzeb, aktywności ani snu. Wariant Iwoniastej Pieczarki podczas deszczu lub burzy używa osobnego wyrenderowanego sprite sheeta z fioletową parasolką.
 
 ## Attention I Care Mistakes
 

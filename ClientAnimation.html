@@ -57,7 +57,11 @@
 
     const neutralEgg = getNeutralMushroomEasterEgg(state);
     if (neutralEgg) {
-      return buildAnimationSelection(findEasterEggAnimation(stage, 'neutral') || findStageAnimation(stage, 'idle'), null);
+      const neutralState = getNeutralEasterEggAnimationState(neutralEgg);
+      return buildAnimationSelection(
+        findEasterEggAnimation(stage, neutralState) || findEasterEggAnimation(stage, 'neutral') || findStageAnimation(stage, 'idle'),
+        null
+      );
     }
 
     const need = getStrongestNeed(state);
@@ -135,6 +139,29 @@
     return animationsByKey.get(stage + '.easter.' + stateName)
       || animationsByKey.get('adult.easter.' + stateName)
       || null;
+  }
+
+  function getNeutralEasterEggAnimationState(neutralEgg) {
+    if (neutralEgg && neutralEgg.id === 'iwonia' && isRainyEasterEggWeather()) {
+      return 'neutral_rain';
+    }
+
+    return 'neutral';
+  }
+
+  function isRainyEasterEggWeather() {
+    const scene = getCurrentWeatherScene();
+    if (!scene || !['rain', 'storm'].includes(scene.condition)) {
+      return false;
+    }
+
+    return Math.max(
+      0,
+      Number(scene.rain) || 0,
+      Number(scene.showers) || 0,
+      Number(scene.precipitation) || 0,
+      Number(scene.rainIntensity) || 0
+    ) > 0;
   }
 
   function buildAnimationSelection(animation, startedAt) {
