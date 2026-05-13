@@ -14,6 +14,10 @@
           <h1>Pieczargotchi</h1>
         </div>
         <div class="topbar__status" aria-live="polite">
+          <div class="view-switch" data-view-switch hidden>
+            <button class="view-switch__button" type="button" data-view-care aria-pressed="true">Opieka</button>
+            <button class="view-switch__button" type="button" data-view-arena aria-pressed="false">Arena</button>
+          </div>
           <span class="status-pill" data-mode-pill>Śpi</span>
           <button class="ghost-button" type="button" data-reset-button title="Wyczyść zapis gry">Od nowa</button>
         </div>
@@ -23,7 +27,7 @@
         <section class="stage-panel" aria-label="Scena pieczarki">
           <div class="stage-toolbar">
             <div>
-              <p class="eyebrow">Grzybnia</p>
+              <p class="eyebrow" data-stage-eyebrow>Grzybnia</p>
               <h2 data-mushroom-name>Pieczarka</h2>
             </div>
             <div class="stage-meta">
@@ -48,7 +52,7 @@
         </section>
 
         <aside class="side-panel" aria-label="Panel opieki">
-          <section class="panel-block panel-block--status">
+          <section class="panel-block panel-block--status" data-care-panel>
             <div class="block-heading">
               <h2>Status</h2>
               <span data-health-label>100%</span>
@@ -56,7 +60,7 @@
             <div class="stats-list" data-stats-list></div>
           </section>
 
-          <section class="panel-block panel-block--actions">
+          <section class="panel-block panel-block--actions" data-care-panel>
             <div class="block-heading">
               <h2>Opieka</h2>
               <span data-cooldown-label>Gotowe</span>
@@ -64,7 +68,7 @@
             <div class="actions-grid" data-actions-grid></div>
           </section>
 
-          <section class="panel-block panel-block--compact panel-block--resources">
+          <section class="panel-block panel-block--compact panel-block--resources" data-care-panel>
             <div class="block-heading">
               <h2>Zasoby</h2>
               <span data-coins-label>0 zarodników</span>
@@ -72,7 +76,35 @@
             <div class="inventory-row" data-inventory-row></div>
           </section>
 
-          <section class="panel-block panel-block--debug" aria-label="Menu developerskie">
+          <section class="panel-block panel-block--arena" data-arena-panel hidden aria-label="Panel areny">
+            <div class="block-heading">
+              <h2>Arena</h2>
+              <span data-battle-record>0-0</span>
+            </div>
+
+            <div class="arena-command-row">
+              <button class="ghost-button" type="button" data-battle-start>Start walki</button>
+              <span data-battle-result>Gotowa</span>
+            </div>
+
+            <div class="battle-moves" data-battle-moves></div>
+            <div class="battle-training" data-battle-training></div>
+            <div class="battle-status" data-battle-status>
+              <div class="battle-meter-row">
+                <span>Pieczarka</span>
+                <strong data-battle-player-hp>HP --</strong>
+                <strong data-battle-player-stamina>ST --</strong>
+              </div>
+              <div class="battle-meter-row">
+                <span>Rywal</span>
+                <strong data-battle-opponent-hp>HP --</strong>
+                <strong data-battle-opponent-stamina>ST --</strong>
+              </div>
+            </div>
+            <ol class="battle-log" data-battle-log></ol>
+          </section>
+
+          <section class="panel-block panel-block--debug" data-care-panel aria-label="Menu developerskie">
             <details data-debug-details>
               <summary>Debug</summary>
               <div class="debug-controls">
@@ -226,7 +258,7 @@
             </details>
           </section>
 
-          <section class="panel-block panel-block--log">
+          <section class="panel-block panel-block--log" data-care-panel>
             <div class="block-heading">
               <h2>Dziennik</h2>
               <span data-asset-status>Ładowanie grafik</span>

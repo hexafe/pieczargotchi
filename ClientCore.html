@@ -474,6 +474,173 @@
     return currentIndex >= 0 && unlockIndex >= 0 && currentIndex >= unlockIndex;
   }
 
+  function getActionAvailability(state, action, now, rules) {
+    const currentState = isPlainObject(state) ? state : {};
+    const currentAction = isPlainObject(action) ? action : {};
+    const timestamp = Number(now) || 0;
+    const cooldowns = isPlainObject(currentState.cooldowns) ? currentState.cooldowns : {};
+    const cooldownUntil = Number(cooldowns[currentAction.id]) || 0;
+    const remainingMs = cooldownUntil - timestamp;
+
+    if (remainingMs > 0) {
+      return {
+        ok: false,
+        reason: 'Gotowe za ' + Math.ceil(remainingMs / 1000) + ' s.'
+      };
+    }
+
+    if (currentAction.awakeOnly && currentState.mode !== 'awake') {
+      return {
+        ok: false,
+        reason: 'Najpierw obudź Pieczarkę.'
+      };
+    }
+
+    if (currentAction.requiresStage && !isStageAtLeastCore(currentState.stage, currentAction.requiresStage, rules)) {
+      return {
+        ok: false,
+        reason: 'Potrzebny etap dorosłej pieczarki.'
+      };
+    }
+
+    const stats = isPlainObject(currentState.stats) ? currentState.stats : {};
+    if ((Number(stats.energy) || 0) <= 0 && currentAction.id !== 'sleepWake') {
+      return {
+        ok: false,
+        reason: 'Brakuje energii.'
+      };
+    }
+
+    return { ok: true, reason: '' };
+  }
+
+  function isStageAtLeastCore(currentStage, requiredStage, rules) {
+    if (!requiredStage || currentStage === requiredStage) {
+      return true;
+    }
+
+    const thresholds = Array.isArray(rules && rules.stageThresholds) ? rules.stageThresholds : [];
+    const order = thresholds.map(function(stage) {
+      return stage.id;
+    });
+    const currentIndex = order.indexOf(currentStage);
+    const requiredIndex = order.indexOf(requiredStage);
+    return currentIndex >= 0 && requiredIndex >= 0 && currentIndex >= requiredIndex;
+  }
+
+  function evaluateAttentionState(rawState, rules, now) {
+    const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    const timestamp = Number(now) || 0;
+    state.attention = normalizeAttentionCore(state.attention);
+    state.careMistakes = normalizeCareMistakesCore(state.careMistakes);
+    state.patch = normalizePatchCore(state.patch);
+    state.stats = isPlainObject(state.stats) ? Object.assign({}, state.stats) : {};
+
+    const strongestNeed = getStrongestNeedCore(state, rules);
+    const events = [];
+    if (!strongestNeed) {
+      if (state.attention.activeNeed) {
+        events.push({ type: 'resolved', need: state.attention.activeNeed });
+      }
+      state.attention = normalizeAttentionCore({});
+      return { state: state, events: events };
+    }
+
+    const attentionRules = rules && rules.attention ? rules.attention : {};
+    const activeNeed = state.attention.activeNeed;
+    const deadline = Date.parse(state.attention.deadlineAt || '');
+    const lastMistake = Date.parse(state.attention.lastMistakeAt || '');
+    const repeatedCooldown = attentionRules.repeatedMistakeCooldownMs || 900000;
+
+    if (activeNeed !== strongestNeed.id) {
+      state.attention = {
+        activeNeed: strongestNeed.id,
+        severity: strongestNeed.severity,
+        startedAt: new Date(timestamp).toISOString(),
+        deadlineAt: new Date(timestamp + strongestNeed.deadlineMs).toISOString(),
+        lastMistakeAt: state.attention.lastMistakeAt || null
+      };
+      events.push({ type: 'start', need: strongestNeed.id, severity: strongestNeed.severity });
+      return { state: state, events: events };
+    }
+
+    state.attention.severity = strongestNeed.severity;
+    if (Number.isFinite(deadline) && timestamp >= deadline) {
+      const canRecordMistake = !Number.isFinite(lastMistake) || timestamp - lastMistake >= repeatedCooldown;
+      if (canRecordMistake) {
+        recordCareMistakeCore(state, strongestNeed, timestamp);
+        events.push({ type: 'mistake', need: strongestNeed.id, severity: strongestNeed.severity });
+      }
+      state.attention.deadlineAt = new Date(timestamp + strongestNeed.deadlineMs).toISOString();
+    }
+
+    return { state: state, events: events };
+  }
+
+  function resolveAttentionAction(rawState, actionId, rules, now) {
+    const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    const activeNeed = state.attention && state.attention.activeNeed;
+    const definitions = rules && rules.needDefinitions ? rules.needDefinitions : {};
+    const definition = activeNeed ? definitions[activeNeed] : null;
+    const handledNeed = definition && definition.actionId === actionId;
+
+    state.patch = normalizePatchCore(state.patch);
+    if (!handledNeed) {
+      return { state: state, handled: false };
+    }
+
+    state.patch.careStreak += 1;
+    state.patch.quality = clampNumber(Number(state.patch.quality) + 4, 0, 100, 72);
+    state.patch.mycelium = clampNumber(Number(state.patch.mycelium) + 2.5, 0, 100, 0);
+    state.attention = normalizeAttentionCore({});
+    return {
+      state: state,
+      handled: true,
+      event: { type: 'goodReaction', need: activeNeed, at: new Date(Number(now) || 0).toISOString() }
+    };
+  }
+
+  function getAnimationIntent(state, rules, now) {
+    if (!isPlainObject(state)) {
+      return { type: 'none', state: null };
+    }
+
+    const timestamp = Number(now) || 0;
+    const activity = getActiveActivityCore(state, timestamp);
+    if (activity) {
+      return {
+        type: activity.type === 'wake' ? 'wake' : 'activity',
+        state: activity.type === 'wake' ? 'wake' : activity.type
+      };
+    }
+
+    if (state.mode === 'sleeping') {
+      return { type: 'state', state: 'sleep' };
+    }
+
+    const need = getStrongestNeedCore(state, rules);
+    if (need) {
+      return {
+        type: 'need',
+        state: need.severity === 'critical' ? 'critical' : getNeedAnimationStateCore(need.id),
+        need: need.id,
+        severity: need.severity
+      };
+    }
+
+    const stats = isPlainObject(state.stats) ? state.stats : {};
+    const patch = isPlainObject(state.patch) ? state.patch : {};
+    if (Number(stats.happiness) > 82 && Number(stats.health) > 78 && Number(patch.quality) > 82) {
+      return { type: 'state', state: 'excellent' };
+    }
+
+    if (Number(stats.happiness) > 78 && Number(stats.health) > 72 && Number(patch.quality) > 70) {
+      return { type: 'state', state: 'happy' };
+    }
+
+    return { type: 'state', state: 'idle' };
+  }
+
   function deriveBattleStats(state, battleRules) {
     const stats = isPlainObject(state && state.stats) ? state.stats : {};
     const battle = normalizeBattleState(state && state.battle);
@@ -494,11 +661,164 @@
     return {
       hp: Math.round(52 + health * 0.42 + hydration * 0.10 + training.defense * 1.4),
       stamina: Math.round(42 + energy * 0.42 + happiness * 0.10 + training.focus * 1.1),
+      strength: Math.round(7 + nutrients * 0.10 + training.strength * 1.3),
       attack: Math.round(8 + nutrients * 0.10 + happiness * 0.04 + training.strength * 1.25),
       defense: Math.round(7 + cleanliness * 0.09 + health * 0.05 + training.defense * 1.2),
       speed: Math.round(7 + energy * 0.10 + hydration * 0.04 + training.speed * 1.25),
       focus: Math.round(7 + happiness * 0.09 + health * 0.04 + training.focus * 1.25)
     };
+  }
+
+  function trainBattleStat(rawState, statId, rules, now) {
+    const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    const battleRules = rules && rules.battle ? rules.battle : {};
+    const caps = battleRules.trainingCaps || {};
+    const validStats = ['strength', 'defense', 'speed', 'focus'];
+    const cost = Math.max(1, clampInteger(battleRules.trainingCost, 1, 999, 1));
+
+    state.inventory = Object.assign({ spores: 0 }, state.inventory || {});
+    state.battle = normalizeBattleState(state.battle);
+
+    if (!isArenaUnlocked(state, rules)) {
+      return { ok: false, reason: 'Arena jest zablokowana.', state: state };
+    }
+    if (!validStats.includes(statId)) {
+      return { ok: false, reason: 'Nieznany trening.', state: state };
+    }
+
+    const cap = Math.max(0, clampInteger(caps[statId], 0, 999, 20));
+    if (state.battle.training[statId] >= cap) {
+      return { ok: false, reason: 'Ten trening ma już limit.', state: state };
+    }
+
+    const availableSpores = Math.max(Number(state.inventory.spores) || 0, Number(state.coins) || 0);
+    if (availableSpores < cost) {
+      return { ok: false, reason: 'Brakuje zarodników.', state: state };
+    }
+
+    const remaining = availableSpores - cost;
+    state.inventory.spores = remaining;
+    state.coins = remaining;
+    state.battle.training[statId] += 1;
+    state.battle.mode = 'training';
+    addBattleLog(state.battle, 'Trening: ' + statId + ' +' + 1 + '.', now, rules);
+    return { ok: true, state: state };
+  }
+
+  function startBattle(rawState, rules, now, seedInput) {
+    const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    const battleRules = rules && rules.battle ? rules.battle : {};
+    const timestamp = Number(now) || Date.now();
+    const seed = clampInteger(seedInput || buildBattleSeed(state, timestamp), 1, 2147483646, 1);
+
+    state.battle = normalizeBattleState(state.battle);
+    if (!isArenaUnlocked(state, rules)) {
+      return { ok: false, reason: 'Arena jest zablokowana.', state: state };
+    }
+
+    const playerStats = deriveBattleStats(state, battleRules);
+    const opponentStats = createBattleOpponent(state, battleRules, seed);
+    const activeBattle = {
+      id: 'battle_' + seed + '_' + timestamp,
+      seed: seed,
+      rngSeed: seed,
+      mode: 'choosingMove',
+      turn: 0,
+      startedAt: new Date(timestamp).toISOString(),
+      careSnapshot: deepClone(state.stats || {}),
+      trainingSnapshot: deepClone(state.battle.training || {}),
+      player: Object.assign({ name: state.mushroomName || 'Pieczarka' }, playerStats, {
+        hp: playerStats.hp,
+        maxHp: playerStats.hp,
+        stamina: playerStats.stamina,
+        maxStamina: playerStats.stamina,
+        guard: 0
+      }),
+      opponent: Object.assign({ name: opponentStats.name || 'Rywal' }, opponentStats, {
+        hp: opponentStats.hp,
+        maxHp: opponentStats.hp,
+        stamina: opponentStats.stamina,
+        maxStamina: opponentStats.stamina,
+        guard: 0
+      }),
+      selectedMoves: null,
+      events: [],
+      rewarded: false
+    };
+
+    state.battle.mode = 'choosingMove';
+    state.battle.activeBattle = activeBattle;
+    addBattleLog(state.battle, 'Walka rozpoczęta.', timestamp, rules);
+    return { ok: true, state: state, battle: activeBattle };
+  }
+
+  function resolveBattleRound(activeBattle, playerMoveId, moveCatalog) {
+    const opponentSelection = chooseOpponentMove(activeBattle, moveCatalog);
+    const battleWithSelectionSeed = Object.assign({}, activeBattle, {
+      rngSeed: opponentSelection.rngSeed
+    });
+    const resolved = resolveBattleTurn(
+      battleWithSelectionSeed,
+      playerMoveId,
+      opponentSelection.moveId,
+      moveCatalog
+    );
+    return Object.assign({}, resolved, {
+      selectedMoves: {
+        player: playerMoveId,
+        opponent: opponentSelection.moveId
+      }
+    });
+  }
+
+  function chooseOpponentMove(activeBattle, moveCatalog) {
+    const catalog = indexMoves(moveCatalog);
+    const moves = Object.keys(catalog).map(function(key) {
+      return catalog[key];
+    });
+    const opponent = normalizeCombatant(activeBattle && activeBattle.opponent);
+    const viable = moves.filter(function(move) {
+      return opponent.stamina >= clampInteger(move.staminaCost, 0, 999, 0);
+    });
+    const roll = nextRandom(activeBattle && activeBattle.rngSeed);
+    const candidates = viable.length ? viable : moves;
+    const selected = candidates[Math.floor(roll.value * candidates.length)] || firstMove(catalog);
+    return {
+      moveId: selected.id,
+      rngSeed: roll.seed
+    };
+  }
+
+  function applyBattleOutcomeRewards(rawState, rules, now) {
+    const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    const battleRules = rules && rules.battle ? rules.battle : {};
+    const victoryRewards = battleRules.victoryRewards || { spores: 2, wins: 1, trophies: 1 };
+    const defeatRewards = battleRules.defeatRewards || { losses: 1 };
+    const battle = normalizeBattleState(state.battle);
+    const activeBattle = isPlainObject(battle.activeBattle) ? deepClone(battle.activeBattle) : null;
+
+    state.inventory = Object.assign({ spores: 0 }, state.inventory || {});
+    state.battle = battle;
+    if (!activeBattle || activeBattle.rewarded || !['victory', 'defeat'].includes(activeBattle.mode)) {
+      return { ok: false, state: state };
+    }
+
+    if (activeBattle.mode === 'victory') {
+      const spores = Math.max(0, clampInteger(victoryRewards.spores, 0, 999, 2));
+      state.battle.rewards.wins += Math.max(0, clampInteger(victoryRewards.wins, 0, 99, 1));
+      state.battle.rewards.trophies += Math.max(0, clampInteger(victoryRewards.trophies, 0, 99, 1));
+      state.inventory.spores = (Number(state.inventory.spores) || 0) + spores;
+      state.coins = (Number(state.coins) || 0) + spores;
+      addBattleLog(state.battle, 'Wygrana: +' + spores + ' zarodniki i trofeum.', now, rules);
+    } else {
+      state.battle.rewards.losses += Math.max(0, clampInteger(defeatRewards.losses, 0, 99, 1));
+      addBattleLog(state.battle, 'Porażka zapisana bez kary dla opieki.', now, rules);
+    }
+
+    activeBattle.rewarded = true;
+    state.battle.mode = activeBattle.mode;
+    state.battle.activeBattle = activeBattle;
+    return { ok: true, state: state };
   }
 
   function resolveBattleTurn(activeBattle, playerMoveId, opponentMoveId, moveCatalog) {
@@ -560,9 +880,15 @@
 
   function normalizeCombatant(rawCombatant) {
     const combatant = isPlainObject(rawCombatant) ? rawCombatant : {};
+    const hp = clampInteger(combatant.hp, 0, 999, 80);
+    const stamina = clampInteger(combatant.stamina, 0, 999, 50);
     return {
-      hp: clampInteger(combatant.hp, 0, 999, 80),
-      stamina: clampInteger(combatant.stamina, 0, 999, 50),
+      name: combatant.name || '',
+      hp: hp,
+      maxHp: clampInteger(combatant.maxHp, Math.max(1, hp), 999, Math.max(1, hp)),
+      stamina: stamina,
+      maxStamina: clampInteger(combatant.maxStamina, Math.max(1, stamina), 999, Math.max(1, stamina)),
+      strength: clampInteger(combatant.strength, 0, 999, 10),
       attack: clampInteger(combatant.attack, 0, 999, 12),
       defense: clampInteger(combatant.defense, 0, 999, 10),
       speed: clampInteger(combatant.speed, 0, 999, 10),
@@ -603,6 +929,147 @@
     };
   }
 
+  function normalizeAttentionCore(attention) {
+    const source = isPlainObject(attention) ? attention : {};
+    return {
+      activeNeed: source.activeNeed || null,
+      severity: source.severity || null,
+      startedAt: source.startedAt || null,
+      deadlineAt: source.deadlineAt || null,
+      lastMistakeAt: source.lastMistakeAt || null
+    };
+  }
+
+  function normalizeCareMistakesCore(careMistakes) {
+    const source = isPlainObject(careMistakes) ? careMistakes : {};
+    return {
+      physical: Math.max(0, Math.floor(Number(source.physical) || 0)),
+      mental: Math.max(0, Math.floor(Number(source.mental) || 0)),
+      environment: Math.max(0, Math.floor(Number(source.environment) || 0)),
+      rest: Math.max(0, Math.floor(Number(source.rest) || 0))
+    };
+  }
+
+  function normalizePatchCore(patch) {
+    const source = isPlainObject(patch) ? patch : {};
+    return {
+      quality: clampNumber(Number(source.quality), 0, 100, 72),
+      mycelium: clampNumber(Number(source.mycelium), 0, 100, 0),
+      harvests: Math.max(0, Math.floor(Number(source.harvests) || 0)),
+      careStreak: Math.max(0, Math.floor(Number(source.careStreak) || 0))
+    };
+  }
+
+  function getActiveActivityCore(state, now) {
+    const activity = state.currentActivity;
+    if (!activity || Number(activity.until) <= now || activity.type === 'notice') {
+      return null;
+    }
+
+    return activity;
+  }
+
+  function getStrongestNeedCore(state, rules) {
+    const definitions = rules && rules.needDefinitions ? rules.needDefinitions : {};
+    const attentionRules = rules && rules.attention ? rules.attention : {};
+    const mildThreshold = attentionRules.mildThreshold || 45;
+    const criticalThreshold = attentionRules.criticalThreshold || 25;
+    const stats = isPlainObject(state.stats) ? state.stats : {};
+    const needs = Object.keys(definitions).map(function(stat) {
+      if (stat === 'energy' && state.mode === 'sleeping') {
+        return null;
+      }
+
+      const value = Number(stats[stat]);
+      if (!Number.isFinite(value) || value >= mildThreshold) {
+        return null;
+      }
+
+      const severity = value < criticalThreshold ? 'critical' : 'mild';
+      const definition = definitions[stat];
+      return {
+        id: stat,
+        value: value,
+        severity: severity,
+        definition: definition,
+        message: severity === 'critical' ? definition.criticalMessage : definition.mildMessage,
+        deadlineMs: severity === 'critical'
+          ? attentionRules.criticalDeadlineMs || 90000
+          : attentionRules.deadlineMs || 180000
+      };
+    }).filter(Boolean);
+
+    needs.sort(function(a, b) {
+      if (a.severity !== b.severity) {
+        return a.severity === 'critical' ? -1 : 1;
+      }
+
+      return a.value - b.value;
+    });
+
+    return needs[0] || null;
+  }
+
+  function recordCareMistakeCore(state, need, now) {
+    const category = need.definition.category || 'physical';
+    state.careMistakes[category] = (Number(state.careMistakes[category]) || 0) + 1;
+    state.attention.lastMistakeAt = new Date(now).toISOString();
+    state.patch.careStreak = 0;
+    state.stats.health = (Number(state.stats.health) || 0) - (need.severity === 'critical' ? 8 : 4);
+    state.stats.happiness = (Number(state.stats.happiness) || 0) - (need.severity === 'critical' ? 6 : 3);
+  }
+
+  function getNeedAnimationStateCore(needId) {
+    const stateByNeed = {
+      hydration: 'dry',
+      nutrients: 'hungry',
+      happiness: 'happy',
+      cleanliness: 'dirty',
+      energy: 'tired',
+      health: 'sick'
+    };
+    return stateByNeed[needId] || 'idle';
+  }
+
+  function buildBattleSeed(state, now) {
+    const rewards = state && state.battle && state.battle.rewards ? state.battle.rewards : {};
+    const base = Math.floor(Number(now) || 1)
+      + (Number(rewards.wins) || 0) * 9973
+      + (Number(rewards.losses) || 0) * 3181
+      + (Number(rewards.trophies) || 0) * 7919;
+    return positiveModulo(base, 2147483646) + 1;
+  }
+
+  function createBattleOpponent(state, battleRules, seed) {
+    const rewards = state && state.battle && state.battle.rewards ? state.battle.rewards : {};
+    const trophies = Math.max(0, Number(rewards.trophies) || 0);
+    const rank = 1 + Math.floor(trophies / 2);
+    const firstRoll = nextRandom(seed);
+    const secondRoll = nextRandom(firstRoll.seed);
+    const speedLean = Math.round(firstRoll.value * 4);
+    const focusLean = Math.round(secondRoll.value * 4);
+
+    return {
+      name: rank > 3 ? 'Mistrz grzybni' : 'Rywal grzybni',
+      hp: 68 + rank * 8,
+      stamina: 46 + rank * 5,
+      strength: 9 + rank * 2,
+      attack: 11 + rank * 2,
+      defense: 9 + rank * 2,
+      speed: 8 + rank * 2 + speedLean,
+      focus: 8 + rank * 2 + focusLean
+    };
+  }
+
+  function addBattleLog(battle, message, now, rules) {
+    const maxEntries = rules && rules.maxLogEntries ? rules.maxLogEntries : 8;
+    const entry = {
+      at: new Date(Number(now) || Date.now()).toISOString(),
+      text: message || 'Arena poruszyła grzybnię.'
+    };
+    battle.log = [entry].concat(Array.isArray(battle.log) ? battle.log : []).slice(0, maxEntries);
+  }
+
   function nextRandom(seed) {
     const nextSeed = Math.imul(clampInteger(seed, 1, 2147483646, 1), 48271) % 2147483647;
     const safeSeed = nextSeed > 0 ? nextSeed : nextSeed + 2147483646;
@@ -617,7 +1084,14 @@
   }
 
   function deepClone(value) {
+    if (typeof value === 'undefined') {
+      return undefined;
+    }
     return JSON.parse(JSON.stringify(value));
+  }
+
+  function positiveModulo(value, size) {
+    return ((value % size) + size) % size;
   }
 
   function clampInteger(value, min, max, fallback) {
@@ -646,12 +1120,21 @@
     calculateAmbientLife: calculateAmbientLife,
     calculateWeatherStatDeltas: calculateWeatherStatDeltas,
     classifyWeatherCondition: classifyWeatherCondition,
+    applyBattleOutcomeRewards: applyBattleOutcomeRewards,
+    chooseOpponentMove: chooseOpponentMove,
     createDefaultBattleState: createDefaultBattleState,
     deriveBattleStats: deriveBattleStats,
+    evaluateAttentionState: evaluateAttentionState,
+    getActionAvailability: getActionAvailability,
+    getAnimationIntent: getAnimationIntent,
     isArenaUnlocked: isArenaUnlocked,
     migrateStateVersion: migrateStateVersion,
     normalizeBattleState: normalizeBattleState,
+    resolveAttentionAction: resolveAttentionAction,
+    resolveBattleRound: resolveBattleRound,
     resolveBattleTurn: resolveBattleTurn,
+    startBattle: startBattle,
+    trainBattleStat: trainBattleStat,
     defaultWeatherBalance: defaultWeatherBalance
   };
 })(typeof window !== 'undefined' ? window : globalThis);

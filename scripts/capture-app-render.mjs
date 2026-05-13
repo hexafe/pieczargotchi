@@ -137,6 +137,10 @@ try {
     }
   }
 
+  if (process.env.PIECZARGOTCHI_CAPTURE_ARENA === '1') {
+    await captureArena(cdp);
+  }
+
   await cdp.close();
 } finally {
   browser.kill('SIGTERM');
@@ -182,6 +186,203 @@ async function captureActivity(cdp, stage, growth, activity) {
     activity: `{ type: ${JSON.stringify(activity)}, label: ${JSON.stringify(activity)}, startedAt: runtimeNow, until: runtimeNow + 2400 }`,
     expectedAnimationKey: `${stage}.activity.${activity}`
   });
+}
+
+async function captureArena(cdp) {
+  await assertArenaUnlockVisibility(cdp);
+  const now = Date.now();
+  const stateExpression = `(() => {
+    const config = window.PIECZARGOTCHI_CONFIG;
+    const state = JSON.parse(JSON.stringify(config.state.defaultState));
+    const iso = new Date(${now}).toISOString();
+    state.version = config.stateVersion;
+    state.playerId = 'arena-audit';
+    state.createdAt = iso;
+    state.lastUpdatedAt = iso;
+    state.mode = 'awake';
+    state.stats.growth = 100;
+    state.stats.hydration = 86;
+    state.stats.nutrients = 86;
+    state.stats.energy = 90;
+    state.stats.happiness = 88;
+    state.stats.cleanliness = 90;
+    state.stats.health = 100;
+    state.inventory.spores = 6;
+    state.coins = 6;
+    localStorage.setItem(config.storageKey, JSON.stringify(state));
+  })()`;
+
+  await cdp.send('Runtime.evaluate', { expression: stateExpression, awaitPromise: true });
+  await waitForLoad(cdp, () => cdp.send('Page.reload', { ignoreCache: true }));
+  await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.booted)`, 6000);
+  await cdp.send('Runtime.evaluate', {
+    expression: `document.querySelector('[data-view-arena]').click()`,
+    awaitPromise: true
+  });
+  await waitForExpression(cdp, `!document.querySelector('[data-arena-panel]').hidden`, 2000);
+  await cdp.send('Runtime.evaluate', {
+    expression: `document.querySelector('[data-battle-start]').click()`,
+    awaitPromise: true
+  });
+  await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime.state.battle.activeBattle)`, 2000);
+  await delay(captureDelayMs);
+
+  const info = await getArenaLayout(cdp);
+  assertArenaLayout(info);
+
+  const screenshot = await cdp.send('Page.captureScreenshot', {
+    format: 'png',
+    fromSurface: true,
+    clip: { x: 0, y: 0, width: viewportWidth, height: viewportHeight, scale: 1 }
+  });
+  const filePath = `${outputPrefix}-arena-${viewportWidth}x${viewportHeight}.png`;
+  writeFileSync(filePath, Buffer.from(screenshot.data, 'base64'));
+  console.log(`arena: ${filePath}`);
+  console.log(`arena layout: moves=${info.moveColumns}, minMoveHeight=${Math.round(info.minMoveHeight)}px, arenaHidden=${info.arenaHidden}`);
+}
+
+async function assertArenaUnlockVisibility(cdp) {
+  await setCaptureGrowth(cdp, 70);
+  let visibility = await getArenaVisibility(cdp);
+  if (!visibility.switchHidden || !visibility.arenaHidden) {
+    throw new Error('Arena powinna być ukryta przed etapem legendary.');
+  }
+
+  await setCaptureGrowth(cdp, 100);
+  visibility = await getArenaVisibility(cdp);
+  if (visibility.switchHidden) {
+    throw new Error('Przełącznik areny powinien być widoczny na etapie legendary.');
+  }
+}
+
+async function setCaptureGrowth(cdp, growth) {
+  const now = Date.now();
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const config = window.PIECZARGOTCHI_CONFIG;
+      const state = JSON.parse(JSON.stringify(config.state.defaultState));
+      const iso = new Date(${now}).toISOString();
+      state.version = config.stateVersion;
+      state.playerId = 'arena-unlock-audit';
+      state.createdAt = iso;
+      state.lastUpdatedAt = iso;
+      state.mode = 'awake';
+      state.stats.growth = ${growth};
+      state.stats.hydration = 80;
+      state.stats.nutrients = 80;
+      state.stats.energy = 80;
+      state.stats.happiness = 80;
+      state.stats.cleanliness = 80;
+      state.stats.health = 100;
+      localStorage.setItem(config.storageKey, JSON.stringify(state));
+    })()`,
+    awaitPromise: true
+  });
+  await waitForLoad(cdp, () => cdp.send('Page.reload', { ignoreCache: true }));
+  await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.booted)`, 6000);
+}
+
+async function getArenaVisibility(cdp) {
+  const result = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const viewSwitch = document.querySelector('[data-view-switch]');
+      const arenaPanel = document.querySelector('[data-arena-panel]');
+      return {
+        switchHidden: !viewSwitch || viewSwitch.hidden || getComputedStyle(viewSwitch).display === 'none',
+        arenaHidden: !arenaPanel || arenaPanel.hidden || getComputedStyle(arenaPanel).display === 'none'
+      };
+    })()`,
+    returnByValue: true
+  });
+  return result.result.value;
+}
+
+async function getArenaLayout(cdp) {
+  const result = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const rectOf = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) {
+          return null;
+        }
+        const rect = element.getBoundingClientRect();
+        return {
+          top: rect.top,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height
+        };
+      };
+      const moveButtons = Array.from(document.querySelectorAll('.battle-move-button')).map((button) => {
+        const rect = button.getBoundingClientRect();
+        return {
+          height: rect.height,
+          text: button.textContent,
+          clipped: button.scrollWidth > button.clientWidth + 1 || button.scrollHeight > button.clientHeight + 1
+        };
+      });
+      const moves = document.querySelector('.battle-moves');
+      const moveColumns = moves
+        ? getComputedStyle(moves).gridTemplateColumns.split(' ').filter(Boolean).length
+        : 0;
+      const canvas = document.getElementById('mushroomCanvas');
+      const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+      let nonBlank = 0;
+      for (let index = 3; index < imageData.length; index += 40) {
+        if (imageData[index] !== 0) {
+          nonBlank += 1;
+        }
+      }
+      return {
+        innerWidth,
+        innerHeight,
+        documentWidth: document.documentElement.scrollWidth,
+        stage: rectOf('.stage-panel'),
+        message: rectOf('.message-panel'),
+        arena: rectOf('[data-arena-panel]'),
+        moves: rectOf('.battle-moves'),
+        status: rectOf('.battle-status'),
+        log: rectOf('.battle-log'),
+        moveColumns,
+        minMoveHeight: moveButtons.reduce((min, button) => Math.min(min, button.height), Infinity),
+        clippedMoves: moveButtons.filter((button) => button.clipped).map((button) => button.text),
+        arenaHidden: document.querySelector('[data-arena-panel]').hidden,
+        nonBlank
+      };
+    })()`,
+    returnByValue: true
+  });
+  return result.result.value;
+}
+
+function assertArenaLayout(info) {
+  if (info.documentWidth > info.innerWidth + 1) {
+    throw new Error(`Arena wychodzi poza viewport: document=${info.documentWidth}, width=${info.innerWidth}`);
+  }
+  if (!info.stage || !info.message || !info.arena || !info.moves || !info.status || !info.log) {
+    throw new Error('Brakuje kluczowych elementów areny.');
+  }
+  if (info.arenaHidden) {
+    throw new Error('Panel areny jest ukryty po przełączeniu.');
+  }
+  if (info.moveColumns !== 2) {
+    throw new Error(`Ruchy areny powinny mieć 2 kolumny, wykryto ${info.moveColumns}.`);
+  }
+  if (info.minMoveHeight < 48) {
+    throw new Error(`Ruchy areny mają za niski touch target: ${Math.round(info.minMoveHeight)}px.`);
+  }
+  if (info.clippedMoves.length) {
+    throw new Error(`Ucięte etykiety ruchów areny: ${info.clippedMoves.join(', ')}`);
+  }
+  if (info.moves.top < info.message.bottom - 1) {
+    throw new Error('Ruchy areny nakładają się na komunikat.');
+  }
+  if (info.status.top < info.moves.bottom - 1 || info.log.top < info.status.bottom - 1) {
+    throw new Error('Status i log areny powinny być pod ruchami.');
+  }
+  if (info.nonBlank < 100) {
+    throw new Error('Canvas areny wygląda na pusty.');
+  }
 }
 
 function getExpectedAwakeIdleAnimationKey(stage) {

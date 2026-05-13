@@ -175,6 +175,7 @@
     weatherScene: createLocalWeatherScene(defaultWeatherLocation),
     actionButtons: new Map(),
     debug: createDefaultDebugSettings(),
+    viewMode: 'care',
     currentAnimationKey: null,
     currentAnimationStartedAt: 0,
     renderStarted: false,
@@ -223,6 +224,10 @@
   function bindDom() {
     dom.modePill = document.querySelector('[data-mode-pill]');
     dom.resetButton = document.querySelector('[data-reset-button]');
+    dom.viewSwitch = document.querySelector('[data-view-switch]');
+    dom.viewCare = document.querySelector('[data-view-care]');
+    dom.viewArena = document.querySelector('[data-view-arena]');
+    dom.stageEyebrow = document.querySelector('[data-stage-eyebrow]');
     dom.mushroomName = document.querySelector('[data-mushroom-name]');
     dom.stageLabel = document.querySelector('[data-stage-label]');
     dom.dayLabel = document.querySelector('[data-day-label]');
@@ -264,6 +269,18 @@
     dom.debugNow = document.querySelector('[data-debug-now]');
     dom.debugClearCooldowns = document.querySelector('[data-debug-clear-cooldowns]');
     dom.debugReset = document.querySelector('[data-debug-reset]');
+    dom.carePanels = Array.from(document.querySelectorAll('[data-care-panel]'));
+    dom.arenaPanel = document.querySelector('[data-arena-panel]');
+    dom.battleRecord = document.querySelector('[data-battle-record]');
+    dom.battlePlayerHp = document.querySelector('[data-battle-player-hp]');
+    dom.battlePlayerStamina = document.querySelector('[data-battle-player-stamina]');
+    dom.battleOpponentHp = document.querySelector('[data-battle-opponent-hp]');
+    dom.battleOpponentStamina = document.querySelector('[data-battle-opponent-stamina]');
+    dom.battleStart = document.querySelector('[data-battle-start]');
+    dom.battleResult = document.querySelector('[data-battle-result]');
+    dom.battleMoves = document.querySelector('[data-battle-moves]');
+    dom.battleTraining = document.querySelector('[data-battle-training]');
+    dom.battleLog = document.querySelector('[data-battle-log]');
   }
 
   function setupCanvas() {
@@ -287,6 +304,15 @@
       triggerEffect('clean');
     });
 
+    dom.viewCare.addEventListener('click', function() {
+      setViewMode('care');
+    });
+
+    dom.viewArena.addEventListener('click', function() {
+      setViewMode('arena');
+    });
+
+    dom.battleStart.addEventListener('click', handleBattleStart);
     bindDebugControls();
   }
 

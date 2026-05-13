@@ -189,6 +189,7 @@ check_required_files() {
     "ClientState.html"
     "ClientActions.html"
     "ClientUi.html"
+    "ClientBattleScene.html"
     "ClientAnimation.html"
     "ClientScene.html"
     "ClientScenePalette.html"

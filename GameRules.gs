@@ -111,11 +111,20 @@ function getGameRulesConfig() {
     },
     battle: {
       unlockStage: 'legendary',
+      trainingCost: 1,
       trainingCaps: {
         strength: 20,
         defense: 20,
         speed: 20,
         focus: 20
+      },
+      victoryRewards: {
+        spores: 2,
+        wins: 1,
+        trophies: 1
+      },
+      defeatRewards: {
+        losses: 1
       },
       moveCatalog: [
         {

@@ -4,6 +4,12 @@
 
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, canvasSize, canvasSize);
+
+    if (runtime.viewMode === 'arena' && isArenaUnlockedForRuntime() && typeof drawBattleFrame === 'function') {
+      drawBattleFrame(ctx, now, wallNow);
+      return;
+    }
+
     drawStageBackground(ctx, now);
 
     const selectedAnimation = selectAnimation(runtime.state, wallNow);
@@ -58,20 +64,20 @@
       return buildAnimationSelection(findStageAnimation(stage, 'sleep'), null);
     }
 
-    const neutralEgg = getNeutralMushroomEasterEgg(state);
-    if (neutralEgg) {
-      const neutralState = getNeutralEasterEggAnimationState(neutralEgg);
-      return buildAnimationSelection(
-        findEasterEggAnimation(stage, neutralState) || findEasterEggAnimation(stage, 'neutral') || findStageAnimation(stage, 'idle'),
-        null
-      );
-    }
-
     const need = getStrongestNeed(state);
     if (need) {
       const needState = need.severity === 'critical' ? 'critical' : getNeedAnimationState(need.id);
       return buildAnimationSelection(
         findStageAnimation(stage, needState) || findStageAnimation(stage, 'idle'),
+        null
+      );
+    }
+
+    const neutralEgg = getNeutralMushroomEasterEgg(state);
+    if (neutralEgg) {
+      const neutralState = getNeutralEasterEggAnimationState(neutralEgg);
+      return buildAnimationSelection(
+        findEasterEggAnimation(stage, neutralState) || findEasterEggAnimation(stage, 'neutral') || findStageAnimation(stage, 'idle'),
         null
       );
     }

@@ -35,7 +35,94 @@
     renderUi();
   }
 
+  function setViewMode(mode) {
+    runtime.viewMode = mode === 'arena' && isArenaUnlockedForRuntime()
+      ? 'arena'
+      : 'care';
+    renderUi();
+  }
+
+  function normalizeViewMode() {
+    if (runtime.viewMode === 'arena' && !isArenaUnlockedForRuntime()) {
+      runtime.viewMode = 'care';
+    }
+  }
+
+  function isArenaUnlockedForRuntime() {
+    const core = window.PieczargotchiCore;
+    return Boolean(core && core.isArenaUnlocked && runtime.state && core.isArenaUnlocked(runtime.state, rules));
+  }
+
+  function handleBattleStart() {
+    const core = window.PieczargotchiCore;
+    if (!core || !core.startBattle) {
+      return;
+    }
+
+    const now = getRuntimeNow();
+    runtime.state = applyElapsedTime(runtime.state, now);
+    const result = core.startBattle(runtime.state, rules, now);
+    if (!result.ok) {
+      setTransientMessage('Arena', result.reason);
+      renderUi();
+      return;
+    }
+
+    runtime.state = result.state;
+    runtime.state.lastUpdatedAt = new Date(now).toISOString();
+    saveState(runtime.state);
+    renderUi();
+  }
+
+  function handleBattleTrain(statId) {
+    const core = window.PieczargotchiCore;
+    if (!core || !core.trainBattleStat) {
+      return;
+    }
+
+    const now = getRuntimeNow();
+    runtime.state = applyElapsedTime(runtime.state, now);
+    const result = core.trainBattleStat(runtime.state, statId, rules, now);
+    if (!result.ok) {
+      setTransientMessage('Trening', result.reason);
+      renderUi();
+      return;
+    }
+
+    runtime.state = result.state;
+    runtime.state.lastUpdatedAt = new Date(now).toISOString();
+    saveState(runtime.state);
+    renderUi();
+  }
+
+  function handleBattleMove(moveId) {
+    const core = window.PieczargotchiCore;
+    const activeBattle = runtime.state && runtime.state.battle && runtime.state.battle.activeBattle;
+    if (!core || !core.resolveBattleRound || !activeBattle || ['victory', 'defeat'].includes(activeBattle.mode)) {
+      return;
+    }
+
+    const now = getRuntimeNow();
+    const resolved = core.resolveBattleRound(activeBattle, moveId, rules.battle && rules.battle.moveCatalog);
+    runtime.state.battle.activeBattle = resolved;
+    runtime.state.battle.mode = resolved.mode;
+    addBattleLogEntry(runtime.state, formatBattleEvents(resolved), now);
+
+    if (['victory', 'defeat'].includes(resolved.mode) && core.applyBattleOutcomeRewards) {
+      runtime.state = core.applyBattleOutcomeRewards(runtime.state, rules, now).state;
+    }
+
+    runtime.state.lastUpdatedAt = new Date(now).toISOString();
+    saveState(runtime.state);
+    renderUi();
+  }
+
   function canRunAction(action, now) {
+    const core = window.PieczargotchiCore;
+    if (core && core.getActionAvailability) {
+      return core.getActionAvailability(runtime.state, action, now, rules);
+    }
+
     const cooldownUntil = Number(runtime.state.cooldowns[action.id]) || 0;
     const remainingMs = cooldownUntil - now;
 
@@ -180,6 +267,39 @@
     };
     const maxEntries = rules.maxLogEntries || 8;
     state.log = [entry].concat(state.log || []).slice(0, maxEntries);
+  }
+
+  function addBattleLogEntry(state, message, now) {
+    const battle = state.battle || {};
+    const entry = {
+      at: new Date(now).toISOString(),
+      text: message || 'Tura areny zakończona.'
+    };
+    battle.log = [entry].concat(Array.isArray(battle.log) ? battle.log : []).slice(0, rules.maxLogEntries || 8);
+    state.battle = battle;
+  }
+
+  function formatBattleEvents(activeBattle) {
+    const movesById = new Map((rules.battle && rules.battle.moveCatalog || []).map(function(move) {
+      return [move.id, move];
+    }));
+    const events = Array.isArray(activeBattle.events) ? activeBattle.events : [];
+    if (!events.length) {
+      return 'Arena czeka na ruch.';
+    }
+
+    return events.map(function(event) {
+      const actor = event.actor === 'player' ? 'Pieczarka' : 'Rywal';
+      const move = movesById.get(event.moveId);
+      const label = move ? move.label : event.moveId;
+      if (event.type === 'rest') {
+        return actor + ' odpoczywa';
+      }
+      if (event.type === 'miss') {
+        return actor + ' pudłuje: ' + label;
+      }
+      return actor + ' trafia: ' + label + ' (-' + event.damage + ' HP)';
+    }).join(' | ');
   }
 
   function cleanupActivity(now) {

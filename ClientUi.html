@@ -10,14 +10,47 @@
   }
 
   function renderUi() {
+    normalizeViewMode();
+    renderViewSwitch();
     renderIdentity();
     renderStats();
     renderActionStates();
     renderInventory();
     renderLog();
+    renderBattleUi();
     renderMessage();
     renderAssetStatus();
     renderDebugControls();
+  }
+
+  function renderViewSwitch() {
+    const unlocked = isArenaUnlockedForRuntime();
+    if (dom.viewSwitch) {
+      dom.viewSwitch.hidden = !unlocked;
+    }
+
+    if (!unlocked) {
+      runtime.viewMode = 'care';
+    }
+
+    if (dom.viewCare && dom.viewArena) {
+      dom.viewCare.setAttribute('aria-pressed', runtime.viewMode === 'care' ? 'true' : 'false');
+      dom.viewArena.setAttribute('aria-pressed', runtime.viewMode === 'arena' ? 'true' : 'false');
+    }
+
+    if (dom.carePanels) {
+      dom.carePanels.forEach(function(panel) {
+        panel.hidden = runtime.viewMode === 'arena';
+      });
+    }
+
+    if (dom.arenaPanel) {
+      dom.arenaPanel.hidden = runtime.viewMode !== 'arena';
+    }
+
+    if (dom.stageEyebrow) {
+      dom.stageEyebrow.textContent = runtime.viewMode === 'arena' ? 'Arena' : 'Grzybnia';
+    }
   }
 
   function renderIdentity() {
@@ -207,6 +240,144 @@
     });
   }
 
+  function renderBattleUi() {
+    if (!dom.arenaPanel || !isArenaUnlockedForRuntime()) {
+      return;
+    }
+
+    const battle = runtime.state.battle || {};
+    const active = battle.activeBattle || null;
+    const rewards = battle.rewards || {};
+    const activeTerminal = active && ['victory', 'defeat'].includes(active.mode);
+    const activeRunning = active && !activeTerminal;
+
+    dom.battleRecord.textContent = (Number(rewards.wins) || 0) + '-' + (Number(rewards.losses) || 0)
+      + ' / ' + (Number(rewards.trophies) || 0);
+
+    renderBattleCombatant(dom.battlePlayerHp, dom.battlePlayerStamina, active && active.player);
+    renderBattleCombatant(dom.battleOpponentHp, dom.battleOpponentStamina, active && active.opponent);
+
+    dom.battleStart.disabled = Boolean(activeRunning);
+    dom.battleStart.textContent = activeRunning ? 'Walka trwa' : 'Start walki';
+    dom.battleResult.textContent = getBattleResultLabel(active);
+
+    renderBattleMoves(active, activeRunning);
+    renderBattleTraining(activeRunning);
+    renderBattleLog();
+  }
+
+  function renderBattleCombatant(hpNode, staminaNode, combatant) {
+    if (!combatant) {
+      hpNode.textContent = 'HP --';
+      staminaNode.textContent = 'ST --';
+      return;
+    }
+
+    hpNode.textContent = 'HP ' + Math.max(0, Math.round(combatant.hp)) + '/' + Math.round(combatant.maxHp || combatant.hp || 0);
+    staminaNode.textContent = 'ST ' + Math.max(0, Math.round(combatant.stamina)) + '/' + Math.round(combatant.maxStamina || combatant.stamina || 0);
+  }
+
+  function getBattleResultLabel(active) {
+    if (!active) {
+      return 'Gotowa';
+    }
+    if (active.mode === 'victory') {
+      return 'Wygrana';
+    }
+    if (active.mode === 'defeat') {
+      return 'Porażka';
+    }
+
+    return 'Tura ' + (Number(active.turn) + 1);
+  }
+
+  function renderBattleMoves(active, activeRunning) {
+    const moves = rules.battle && Array.isArray(rules.battle.moveCatalog) ? rules.battle.moveCatalog : [];
+    dom.battleMoves.innerHTML = '';
+
+    moves.forEach(function(move) {
+      const button = document.createElement('button');
+      const label = document.createElement('span');
+      const meta = document.createElement('span');
+      const player = active && active.player ? active.player : {};
+      const lowStamina = activeRunning && (Number(player.stamina) || 0) < (Number(move.staminaCost) || 0);
+
+      button.className = 'battle-move-button';
+      button.type = 'button';
+      button.disabled = !activeRunning;
+      button.title = lowStamina ? 'Odpoczynek przy braku staminy' : move.label;
+      label.className = 'battle-move-name';
+      meta.className = 'battle-move-meta';
+      label.textContent = move.label;
+      meta.textContent = (move.staminaCost || 0) + ' ST';
+      if (lowStamina) {
+        meta.textContent += ' / odp.';
+      }
+      button.appendChild(label);
+      button.appendChild(meta);
+      button.addEventListener('click', function() {
+        handleBattleMove(move.id);
+      });
+      dom.battleMoves.appendChild(button);
+    });
+  }
+
+  function renderBattleTraining(activeRunning) {
+    const labels = {
+      strength: 'Siła',
+      defense: 'Obrona',
+      speed: 'Szybkość',
+      focus: 'Skupienie'
+    };
+    const battleRules = rules.battle || {};
+    const caps = battleRules.trainingCaps || {};
+    const training = runtime.state.battle && runtime.state.battle.training ? runtime.state.battle.training : {};
+    const cost = Number(battleRules.trainingCost) || 1;
+    const availableSpores = Math.max(Number(runtime.state.inventory.spores) || 0, Number(runtime.state.coins) || 0);
+
+    dom.battleTraining.innerHTML = '';
+    Object.keys(labels).forEach(function(statId) {
+      const value = Number(training[statId]) || 0;
+      const cap = Number(caps[statId]) || 20;
+      const button = document.createElement('button');
+      const label = document.createElement('span');
+      const meta = document.createElement('span');
+
+      button.className = 'battle-train-button';
+      button.type = 'button';
+      button.disabled = activeRunning || value >= cap || availableSpores < cost;
+      button.title = labels[statId] + ' ' + value + '/' + cap;
+      label.textContent = labels[statId];
+      meta.textContent = value + '/' + cap + ' - ' + cost + 'Z';
+      button.appendChild(label);
+      button.appendChild(meta);
+      button.addEventListener('click', function() {
+        handleBattleTrain(statId);
+      });
+      dom.battleTraining.appendChild(button);
+    });
+  }
+
+  function renderBattleLog() {
+    const entries = runtime.state.battle && Array.isArray(runtime.state.battle.log)
+      ? runtime.state.battle.log
+      : [];
+    dom.battleLog.innerHTML = '';
+
+    if (!entries.length) {
+      const item = document.createElement('li');
+      item.textContent = 'Arena czeka w mchu.';
+      dom.battleLog.appendChild(item);
+      return;
+    }
+
+    entries.forEach(function(entry) {
+      const item = document.createElement('li');
+      item.textContent = formatLogTime(entry.at) + ' - ' + entry.text;
+      dom.battleLog.appendChild(item);
+    });
+  }
+
   function formatLogTime(value) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) {
@@ -228,6 +399,10 @@
 
   function getMushroomMessage(state) {
     const now = getRuntimeNow();
+
+    if (runtime.viewMode === 'arena') {
+      return getBattleMessage(state, now);
+    }
 
     if (state.currentActivity && Number(state.currentActivity.until) > now) {
       if (state.currentActivity.type === 'notice') {
@@ -284,6 +459,40 @@
 
     const mood = getMood(state);
     return moodMessages[mood] || moodMessages.content;
+  }
+
+  function getBattleMessage(state, now) {
+    if (state.currentActivity && state.currentActivity.type === 'notice' && Number(state.currentActivity.until) > now) {
+      return {
+        title: state.currentActivity.label,
+        body: state.currentActivity.body
+      };
+    }
+
+    const active = state.battle && state.battle.activeBattle;
+    if (!active) {
+      return {
+        title: 'Arena',
+        body: 'Mech areny cicho sprężynuje.'
+      };
+    }
+    if (active.mode === 'victory') {
+      return {
+        title: 'Wygrana',
+        body: 'Pieczarka unosi kapelusz nad areną.'
+      };
+    }
+    if (active.mode === 'defeat') {
+      return {
+        title: 'Porażka',
+        body: 'Pieczarka wraca do mchu bez strat w opiece.'
+      };
+    }
+
+    return {
+      title: 'Tura ' + (Number(active.turn) + 1),
+      body: 'Pieczarka i rywal mierzą oddech.'
+    };
   }
 
   const neutralEasterEggMessages = {

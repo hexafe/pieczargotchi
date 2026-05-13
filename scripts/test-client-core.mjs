@@ -141,6 +141,233 @@ test('arena unlocks only at legendary stage', () => {
   assert(core.isArenaUnlocked({ stage: 'legendary' }, rules), 'legendary stage should unlock arena');
 });
 
+test('care actions respect cooldown, awake, stage, and energy blocks', () => {
+  const now = 1_000_000;
+  const rules = {
+    stageThresholds: [
+      { id: 'spore' },
+      { id: 'adult' },
+      { id: 'legendary' }
+    ]
+  };
+  const baseState = {
+    mode: 'awake',
+    stage: 'adult',
+    stats: { energy: 12 },
+    cooldowns: {}
+  };
+
+  assert(!core.getActionAvailability(
+    { ...baseState, cooldowns: { hydrate: now + 1500 } },
+    { id: 'hydrate', awakeOnly: true },
+    now,
+    rules
+  ).ok, 'cooldown should block the action');
+  assert(!core.getActionAvailability(
+    { ...baseState, mode: 'sleeping' },
+    { id: 'hydrate', awakeOnly: true },
+    now,
+    rules
+  ).ok, 'sleeping should block awake-only actions');
+  assert(!core.getActionAvailability(
+    { ...baseState, stage: 'spore' },
+    { id: 'spores', requiresStage: 'adult' },
+    now,
+    rules
+  ).ok, 'stage requirement should block early actions');
+  assert(!core.getActionAvailability(
+    { ...baseState, stats: { energy: 0 } },
+    { id: 'play', awakeOnly: true },
+    now,
+    rules
+  ).ok, 'empty energy should block care actions');
+  assert(core.getActionAvailability(
+    { ...baseState, stats: { energy: 0 } },
+    { id: 'sleepWake' },
+    now,
+    rules
+  ).ok, 'sleep/wake should remain available at zero energy');
+});
+
+test('attention call starts, records missed deadline, and clears after the right care action', () => {
+  const now = Date.parse('2026-05-13T12:00:00.000Z');
+  const rules = {
+    attention: {
+      mildThreshold: 45,
+      criticalThreshold: 25,
+      deadlineMs: 1000,
+      criticalDeadlineMs: 500,
+      repeatedMistakeCooldownMs: 10_000
+    },
+    needDefinitions: {
+      hydration: {
+        category: 'physical',
+        actionId: 'hydrate',
+        title: 'Chce wilgoci',
+        mildMessage: 'Sucho.',
+        criticalMessage: 'Bardzo sucho.'
+      }
+    }
+  };
+  const state = {
+    mode: 'awake',
+    stats: { hydration: 40, health: 100, happiness: 80 },
+    attention: {},
+    careMistakes: {},
+    patch: { quality: 72, mycelium: 0, harvests: 0, careStreak: 0 }
+  };
+  const started = core.evaluateAttentionState(state, rules, now);
+  assert(started.state.attention.activeNeed === 'hydration', 'expected hydration attention');
+  assert(started.events[0].type === 'start', 'expected attention start event');
+  assert(Date.parse(started.state.attention.deadlineAt) === now + 1000, 'expected mild deadline');
+
+  const missed = core.evaluateAttentionState(started.state, rules, now + 1001);
+  assert(missed.state.careMistakes.physical === 1, 'expected one physical care mistake');
+  assert(missed.state.stats.health === 96, `expected health penalty, got ${missed.state.stats.health}`);
+  assert(missed.events[0].type === 'mistake', 'expected missed-deadline event');
+
+  const handled = core.resolveAttentionAction(started.state, 'hydrate', rules, now + 400);
+  assert(handled.handled, 'expected hydrate to handle hydration attention');
+  assert(handled.state.attention.activeNeed === null, 'expected attention to clear');
+  assert(handled.state.patch.careStreak === 1, 'expected care streak reward');
+});
+
+test('animation intent keeps activity and wake above sleep, need above happy, then idle', () => {
+  const now = 1_000_000;
+  const rules = {
+    attention: { mildThreshold: 45, criticalThreshold: 25 },
+    needDefinitions: {
+      hydration: { category: 'physical', actionId: 'hydrate' }
+    }
+  };
+  const excellentState = {
+    mode: 'awake',
+    stats: { hydration: 80, happiness: 90, health: 90 },
+    patch: { quality: 90 }
+  };
+
+  assert(core.getAnimationIntent({
+    ...excellentState,
+    mode: 'sleeping',
+    currentActivity: { type: 'play', until: now + 1000 }
+  }, rules, now).state === 'play', 'activity should outrank sleep');
+  assert(core.getAnimationIntent({
+    ...excellentState,
+    currentActivity: { type: 'wake', until: now + 1000 }
+  }, rules, now).state === 'wake', 'wake should be explicit');
+  assert(core.getAnimationIntent({
+    ...excellentState,
+    mode: 'sleeping',
+    currentActivity: null
+  }, rules, now).state === 'sleep', 'sleep should outrank needs while asleep');
+  assert(core.getAnimationIntent({
+    ...excellentState,
+    stats: { hydration: 20, happiness: 90, health: 90 }
+  }, rules, now).state === 'critical', 'critical need should outrank excellent mood');
+  assert(core.getAnimationIntent(excellentState, rules, now).state === 'excellent', 'excellent mood should be selected before idle');
+  assert(core.getAnimationIntent({
+    mode: 'awake',
+    stats: { hydration: 80, happiness: 50, health: 90 },
+    patch: { quality: 70 }
+  }, rules, now).state === 'idle', 'neutral care state should idle');
+});
+
+test('battle training spends one spore and respects the configured cap', () => {
+  const rules = getBattleTestRules();
+  const state = getLegendaryBattleState({
+    inventory: { spores: 2 },
+    coins: 2,
+    battle: { training: { strength: 19, defense: 0, speed: 0, focus: 0 } }
+  });
+  const trained = core.trainBattleStat(state, 'strength', rules, Date.now());
+
+  assert(trained.ok, `expected training success: ${trained.reason}`);
+  assert(trained.state.battle.training.strength === 20, 'expected strength to reach cap');
+  assert(trained.state.inventory.spores === 1, 'expected one spore spent');
+  assert(trained.state.coins === 1, 'expected spore label balance to match');
+  assert(!core.trainBattleStat(trained.state, 'strength', rules, Date.now()).ok, 'cap should block further training');
+});
+
+test('battle start stores seed and care snapshot without mutating care stats', () => {
+  const rules = getBattleTestRules();
+  const state = getLegendaryBattleState();
+  const beforeStats = JSON.stringify(state.stats);
+  const started = core.startBattle(state, rules, Date.parse('2026-05-13T12:00:00.000Z'), 777);
+
+  assert(started.ok, `expected battle start: ${started.reason}`);
+  assert(JSON.stringify(state.stats) === beforeStats, 'input care stats should not mutate');
+  assert(started.state.battle.activeBattle.seed === 777, 'expected stored seed');
+  started.state.stats.hydration = 1;
+  assert(started.state.battle.activeBattle.careSnapshot.hydration === 80, 'care snapshot should stay stable');
+});
+
+test('battle round is deterministic and low stamina forces rest instead of an attack', () => {
+  const rules = getBattleTestRules();
+  const started = core.startBattle(getLegendaryBattleState(), rules, Date.now(), 12345).state.battle.activeBattle;
+  const first = core.resolveBattleRound(started, 'sporeJab', rules.battle.moveCatalog);
+  const second = core.resolveBattleRound(started, 'sporeJab', rules.battle.moveCatalog);
+  assert(JSON.stringify(first) === JSON.stringify(second), 'expected deterministic battle round');
+
+  const tiredBattle = {
+    rngSeed: 5,
+    mode: 'choosingMove',
+    turn: 0,
+    player: { hp: 80, stamina: 0, attack: 14, defense: 10, speed: 12, focus: 8, strength: 12 },
+    opponent: { hp: 70, stamina: 0, attack: 12, defense: 9, speed: 10, focus: 7, strength: 8 }
+  };
+  const rested = core.resolveBattleRound(tiredBattle, 'focusBloom', rules.battle.moveCatalog);
+  const playerEvent = rested.events.find((event) => event.actor === 'player');
+  assert(playerEvent.type === 'rest', `expected rest event, got ${playerEvent.type}`);
+  assert(rested.player.stamina > 0, 'expected stamina recovery on forced rest');
+});
+
+test('battle victory and defeat rewards do not touch care stats', () => {
+  const rules = getBattleTestRules();
+  const base = getLegendaryBattleState({ inventory: { spores: 0 }, coins: 0 });
+  const careStats = JSON.stringify(base.stats);
+  const victory = core.applyBattleOutcomeRewards({
+    ...base,
+    battle: {
+      ...base.battle,
+      mode: 'victory',
+      activeBattle: { mode: 'victory', rewarded: false }
+    }
+  }, rules, Date.now());
+
+  assert(victory.ok, 'expected victory rewards');
+  assert(victory.state.battle.rewards.wins === 1, 'expected win increment');
+  assert(victory.state.battle.rewards.trophies === 1, 'expected trophy increment');
+  assert(victory.state.inventory.spores === 2, 'expected two spore reward');
+  assert(JSON.stringify(victory.state.stats) === careStats, 'victory should not change care stats');
+
+  const defeat = core.applyBattleOutcomeRewards({
+    ...base,
+    battle: {
+      ...base.battle,
+      mode: 'defeat',
+      activeBattle: { mode: 'defeat', rewarded: false }
+    }
+  }, rules, Date.now());
+  assert(defeat.ok, 'expected defeat accounting');
+  assert(defeat.state.battle.rewards.losses === 1, 'expected loss increment');
+  assert(defeat.state.inventory.spores === 0, 'defeat should not grant spores');
+  assert(JSON.stringify(defeat.state.stats) === careStats, 'defeat should not change care stats');
+});
+
+test('active battle save data normalizes back into a resumable fight', () => {
+  const rules = getBattleTestRules();
+  const activeBattle = core.startBattle(getLegendaryBattleState(), rules, Date.now(), 42).state.battle.activeBattle;
+  const normalized = core.normalizeBattleState({
+    mode: 'choosingMove',
+    activeBattle,
+    rewards: { wins: 0, losses: 0, trophies: 0 }
+  });
+
+  assert(normalized.activeBattle.player.hp > 0, 'expected player combatant to survive normalization');
+  assert(normalized.activeBattle.opponent.hp > 0, 'expected opponent combatant to survive normalization');
+  assert(normalized.activeBattle.seed === 42, 'expected seed to survive normalization');
+});
+
 test('battle turn resolution is deterministic for a fixed seed', () => {
   const battle = {
     rngSeed: 12345,
@@ -247,6 +474,50 @@ test('fireflies appear in the right summer evening window', () => {
   assert(noon.fireflyIntensity === 0, `expected no noon fireflies, got ${noon.fireflyIntensity}`);
   assert(january.fireflyIntensity === 0, `expected no winter fireflies, got ${january.fireflyIntensity}`);
 });
+
+function getBattleTestRules() {
+  return {
+    battle: {
+      unlockStage: 'legendary',
+      trainingCost: 1,
+      trainingCaps: { strength: 20, defense: 20, speed: 20, focus: 20 },
+      victoryRewards: { spores: 2, wins: 1, trophies: 1 },
+      defeatRewards: { losses: 1 },
+      moveCatalog: [
+        { id: 'sporeJab', staminaCost: 8, power: 14, accuracy: 0.94, stat: 'strength' },
+        { id: 'capGuard', staminaCost: 6, power: 4, accuracy: 1, stat: 'defense', guard: 0.35 },
+        { id: 'myceliumFeint', staminaCost: 10, power: 10, accuracy: 0.9, stat: 'speed' },
+        { id: 'focusBloom', staminaCost: 12, power: 18, accuracy: 0.82, stat: 'focus' }
+      ]
+    },
+    maxLogEntries: 8,
+    stageThresholds: [
+      { id: 'spore' },
+      { id: 'adult' },
+      { id: 'legendary' }
+    ]
+  };
+}
+
+function getLegendaryBattleState(overrides = {}) {
+  const battle = core.normalizeBattleState(overrides.battle || {});
+  return {
+    stage: 'legendary',
+    mushroomName: 'Pieczarka',
+    stats: {
+      hydration: 80,
+      nutrients: 80,
+      energy: 80,
+      happiness: 80,
+      cleanliness: 80,
+      health: 100,
+      growth: 100
+    },
+    inventory: { spores: 5, ...(overrides.inventory || {}) },
+    coins: overrides.coins ?? 5,
+    battle
+  };
+}
 
 function test(name, fn) {
   try {
