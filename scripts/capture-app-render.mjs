@@ -374,7 +374,7 @@ function assertArenaLayout(info) {
   if (info.clippedMoves.length) {
     throw new Error(`Ucięte etykiety ruchów areny: ${info.clippedMoves.join(', ')}`);
   }
-  if (info.moves.top < info.message.bottom - 1) {
+  if (rectsHorizontallyOverlap(info.moves, info.message) && info.moves.top < info.message.bottom - 1) {
     throw new Error('Ruchy areny nakładają się na komunikat.');
   }
   if (info.status.top < info.moves.bottom - 1 || info.log.top < info.status.bottom - 1) {
@@ -383,6 +383,13 @@ function assertArenaLayout(info) {
   if (info.nonBlank < 100) {
     throw new Error('Canvas areny wygląda na pusty.');
   }
+}
+
+function rectsHorizontallyOverlap(first, second) {
+  if (!first || !second) {
+    return false;
+  }
+  return first.left < second.right - 1 && second.left < first.right - 1;
 }
 
 function getExpectedAwakeIdleAnimationKey(stage) {

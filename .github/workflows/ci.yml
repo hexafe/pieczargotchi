@@ -37,6 +37,7 @@ jobs:
       - name: Check capture scripts
         run: |
           node --check scripts/capture-app-render.mjs
+          node --check scripts/capture-life-motion.mjs
           node --check scripts/capture-weather-matrix.mjs
 
       - name: Check Apps Script syntax
@@ -51,6 +52,9 @@ jobs:
 
       - name: Audit sprite consistency
         run: python scripts/audit-sprite-consistency.py
+
+      - name: Audit spore sprites
+        run: python scripts/audit-spore-sprites.py
 
       - name: Check local preview bootstrap
         run: bash scripts/run-local-linux.sh --check-only
