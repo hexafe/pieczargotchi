@@ -31,6 +31,9 @@ jobs:
       - name: Check client partial syntax
         run: node scripts/check-client-syntax.mjs
 
+      - name: Check Apps Script deployment readiness
+        run: node scripts/check-deployment-readiness.mjs
+
       - name: Run client core tests
         run: node scripts/test-client-core.mjs
 
@@ -39,6 +42,7 @@ jobs:
           node --check scripts/capture-app-render.mjs
           node --check scripts/capture-life-motion.mjs
           node --check scripts/capture-weather-matrix.mjs
+          node --check scripts/check-deployment-readiness.mjs
 
       - name: Check Apps Script syntax
         run: |

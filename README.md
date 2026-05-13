@@ -33,6 +33,7 @@ The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake l
 - `docs/IMAGEGEN_ASSET_PIPELINE.md` - imagegen atlas prompts, source paths, build steps, and validation commands.
 - `docs/UI_RENDER_AUDIT_2026-05-10.md` - screenshot-driven UI/rendering fixes and viewport validation.
 - `docs/SPRITE_AUDIT_2026-05-10.md` - focused audit for sprite size and wake-face alignment.
+- `docs/APPS_SCRIPT_DEPLOYMENT_DRY_RUN.md` - test deployment checklist that keeps `.clasp.json`, script IDs, and private Drive IDs local.
 - `docs/PROJECT_STATE_2026-05-13.md` - current architecture and maintenance checkpoint.
 - `docs/PRODUCT_RULES.md` - gameplay and balance rules for future development.
 - `.github/workflows/ci.yml` - GitHub Actions checks for client syntax, core rules, assets, sprite consistency, and local preview scripts.
@@ -41,6 +42,7 @@ The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake l
 - `scripts/validate-assets.mjs` - local PNG dimension, frame, and centering validation.
 - `scripts/audit-sprite-consistency.py` - local size/center consistency audit for stage animations.
 - `scripts/audit-spore-sprites.py` - local spore-stage sprite audit.
+- `scripts/check-deployment-readiness.mjs` - credential-free Apps Script deployment preflight.
 - `scripts/capture-life-motion.mjs` - local browser capture gate for butterflies, crawling bugs, fireflies, and mobile scene-life layout.
 - `scripts/capture-weather-matrix.mjs` - local weather and sky capture matrix for debug QA scenarios.
 
@@ -51,10 +53,12 @@ The interface is Polish-first. The current build includes manifest-driven growth
 `appsscript.json` is committed for a Google Apps Script V8 web app. To deploy with `clasp`, bind the repository to an Apps Script project, then push:
 
 ```sh
+node scripts/check-deployment-readiness.mjs
 npx @google/clasp push
 ```
 
 Do not commit `.clasp.json`, private Apps Script script IDs, private Drive URLs, or deployment credentials. The repo `.gitignore` keeps `.clasp.json` local.
+Use `docs/APPS_SCRIPT_DEPLOYMENT_DRY_RUN.md` for the full test-project dry-run checklist.
 
 Set the Drive file IDs for runtime assets in `Config.gs`:
 
@@ -120,6 +124,7 @@ Quick local syntax checks:
 
 ```sh
 node scripts/check-client-syntax.mjs
+node scripts/check-deployment-readiness.mjs
 node scripts/test-client-core.mjs
 env TZ=UTC node scripts/test-client-core.mjs
 node -e "const fs=require('fs'); for (const f of ['Code.gs','Config.gs','AnimationConfig.gs','AssetService.gs','StateModel.gs','GameRules.gs','Actions.gs']) { new Function(fs.readFileSync(f,'utf8')); console.log(f + ' syntax ok'); }"
