@@ -49,6 +49,8 @@ Aktualnie repo zawiera 8 sheetów aktywności:
 - `spores_sheet.png`
 - `harvest_sheet.png`
 
+W runtime manifest używa wariantów `assets/activities/<stage>/...`; root-level `assets/activities/*.png` zostają tylko fallbackami kompatybilności i są raportowane przez walidator jako pliki poza manifestem.
+
 ### Efekty pomocnicze
 
 Aktualnie repo zawiera 5 opcjonalnych sheetów efektów:
@@ -58,6 +60,8 @@ Aktualnie repo zawiera 5 opcjonalnych sheetów efektów:
 - `dust_sheet.png`
 - `notes_sheet.png`
 - `spore_cloud_sheet.png`
+
+Efekty są walidowane razem z sheetami, ale nie są jeszcze ładowane przez runtime manifest.
 
 ## 2. Format techniczny
 

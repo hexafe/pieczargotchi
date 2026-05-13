@@ -1,0 +1,213 @@
+  function getScenePalette(scene) {
+    const phase = scene.dayPhase || (scene.isDay ? 'noon' : 'night');
+    const tone = scene.dayTone || 'neutral';
+    const base = getDayPhasePalette(phase, tone);
+    return applyWeatherPalette(base, scene);
+  }
+  function getDayPhasePalette(phase, tone) {
+    const palettes = {
+      sunrise: {
+        skyTop: '#738bb2',
+        skyMid: '#efa172',
+        skyLow: '#f2cf83',
+        cloud: 'rgba(255, 218, 166, 0.56)',
+        cloudLight: 'rgba(255, 247, 207, 0.54)',
+        ground: '#5f873d',
+        groundLight: '#83a94e',
+        blade: '#9abd5f',
+        sun: '#ffd36f',
+        sunCore: '#fff0ad'
+      },
+      morning: {
+        skyTop: '#cfe9cf',
+        skyMid: '#dcefb9',
+        skyLow: '#c8e99a',
+        cloud: 'rgba(255, 253, 230, 0.55)',
+        cloudLight: 'rgba(255, 255, 247, 0.50)',
+        ground: '#69a344',
+        groundLight: '#83b955',
+        blade: '#91ca60',
+        sun: '#ffe596',
+        sunCore: '#fff3b8'
+      },
+      noon: {
+        skyTop: '#dff0c6',
+        skyMid: '#d8edb8',
+        skyLow: '#c8e99a',
+        cloud: 'rgba(255, 253, 230, 0.55)',
+        cloudLight: 'rgba(255, 255, 247, 0.50)',
+        ground: '#69a344',
+        groundLight: '#83b955',
+        blade: '#91ca60',
+        sun: '#ffe596',
+        sunCore: '#fff3b8'
+      },
+      afternoon: {
+        skyTop: '#d8e7bd',
+        skyMid: '#d9e7a6',
+        skyLow: '#bddf8e',
+        cloud: 'rgba(255, 244, 214, 0.50)',
+        cloudLight: 'rgba(255, 255, 239, 0.46)',
+        ground: '#649b41',
+        groundLight: '#7fb24e',
+        blade: '#8dc25b',
+        sun: '#ffd77f',
+        sunCore: '#fff1b2'
+      },
+      evening: {
+        skyTop: '#a9b6bd',
+        skyMid: '#c9c88f',
+        skyLow: '#b5d17d',
+        cloud: 'rgba(205, 196, 151, 0.56)',
+        cloudLight: 'rgba(255, 235, 189, 0.42)',
+        ground: '#537f39',
+        groundLight: '#719845',
+        blade: '#86a850',
+        sun: '#ffc46e',
+        sunCore: '#ffe7a0'
+      },
+      sunset: {
+        skyTop: '#6f7a9c',
+        skyMid: '#ce7e72',
+        skyLow: '#eca65e',
+        cloud: 'rgba(154, 103, 103, 0.58)',
+        cloudLight: 'rgba(255, 199, 151, 0.44)',
+        ground: '#456b35',
+        groundLight: '#637f3d',
+        blade: '#7a944b',
+        sun: '#ffb35f',
+        sunCore: '#ffe39a'
+      },
+      night: {
+        skyTop: '#172743',
+        skyMid: '#243b52',
+        skyLow: '#3e5846',
+        cloud: 'rgba(91, 107, 129, 0.55)',
+        cloudLight: 'rgba(142, 153, 170, 0.36)',
+        ground: '#365f38',
+        groundLight: '#4b7942',
+        blade: '#638b47',
+        sun: '#f5f0c8',
+        sunCore: '#fff7d1'
+      }
+    };
+
+    return applyDayTonePalette(palettes[phase] || palettes.noon, tone);
+  }
+
+  function applyDayTonePalette(base, tone) {
+    if (tone === 'dawnBlue') {
+      return Object.assign({}, base, {
+        skyTop: '#50627f',
+        skyMid: '#788aa2',
+        skyLow: '#d4b783',
+        cloud: 'rgba(132, 150, 174, 0.46)',
+        cloudLight: 'rgba(223, 232, 217, 0.40)',
+        sun: '#f0c77c',
+        sunCore: '#fff0b5'
+      });
+    }
+
+    if (tone === 'dawnGold') {
+      return Object.assign({}, base, {
+        skyTop: '#7b8fb4',
+        skyMid: '#f0a875',
+        skyLow: '#f4d18a',
+        cloud: 'rgba(255, 216, 156, 0.58)',
+        cloudLight: 'rgba(255, 246, 207, 0.56)',
+        sun: '#ffd06b',
+        sunCore: '#fff1b5'
+      });
+    }
+
+    if (tone === 'duskGold') {
+      return Object.assign({}, base, {
+        skyTop: '#8a879e',
+        skyMid: '#d89076',
+        skyLow: '#eab45f',
+        cloud: 'rgba(185, 124, 108, 0.54)',
+        cloudLight: 'rgba(255, 210, 163, 0.44)',
+        sun: '#ffbd68',
+        sunCore: '#ffe7a4'
+      });
+    }
+
+    if (tone === 'duskBlue') {
+      return Object.assign({}, base, {
+        skyTop: '#3e506d',
+        skyMid: '#6d6f8e',
+        skyLow: '#b5846d',
+        cloud: 'rgba(91, 105, 134, 0.56)',
+        cloudLight: 'rgba(172, 176, 189, 0.34)',
+        sun: '#f0b463',
+        sunCore: '#ffe1a0'
+      });
+    }
+
+    return base;
+  }
+
+  function applyWeatherPalette(base, scene) {
+    const condition = scene.condition;
+    const cloudDensity = Number(scene.cloudDensity) || 0;
+    if (condition === 'rain' || condition === 'storm') {
+      return Object.assign({}, base, {
+        skyTop: condition === 'storm' ? '#52616e' : base.skyTop,
+        skyMid: '#9fb79f',
+        skyLow: condition === 'storm' ? '#8ea18f' : '#aebf98',
+        cloud: condition === 'storm' ? 'rgba(61, 72, 77, 0.82)' : 'rgba(91, 111, 103, 0.74)',
+        cloudLight: condition === 'storm' ? 'rgba(157, 170, 164, 0.46)' : 'rgba(176, 193, 169, 0.50)',
+        ground: base.ground === '#365f38' ? '#315a36' : '#5f8f43',
+        groundLight: base.ground === '#365f38' ? '#426c3c' : '#77aa4e',
+        blade: base.ground === '#365f38' ? '#567f42' : '#84ba54'
+      });
+    }
+
+    if (condition === 'snow') {
+      return Object.assign({}, base, {
+        skyTop: '#d5e5d4',
+        skyMid: '#daeac7',
+        skyLow: '#d3e8bb',
+        cloud: 'rgba(196, 211, 196, 0.72)',
+        cloudLight: 'rgba(255, 255, 247, 0.56)',
+        ground: '#d9e5cf',
+        groundLight: '#f4fbec',
+        blade: '#c6d7ae'
+      });
+    }
+
+    if (condition === 'fog') {
+      return Object.assign({}, base, {
+        skyTop: '#d5e5d4',
+        skyMid: '#daeac7',
+        skyLow: '#d3e8bb',
+        cloud: 'rgba(196, 211, 196, 0.72)',
+        cloudLight: 'rgba(255, 255, 247, 0.56)',
+        ground: '#82a861',
+        groundLight: '#a3bd78',
+        blade: '#b5c98b'
+      });
+    }
+
+    if (condition === 'cloudy') {
+      const cloudAlpha = (0.44 + cloudDensity * 0.22).toFixed(2);
+      const cloudLightAlpha = (0.32 + cloudDensity * 0.16).toFixed(2);
+      return Object.assign({}, base, {
+        cloud: 'rgba(154, 169, 145, ' + cloudAlpha + ')',
+        cloudLight: 'rgba(238, 244, 213, ' + cloudLightAlpha + ')'
+      });
+    }
+
+    return base;
+  }
+
+  function drawSkyBands(ctx, palette) {
+    const sky = ctx.createLinearGradient(0, 0, 0, 512);
+    sky.addColorStop(0, palette.skyTop);
+    sky.addColorStop(0.64, palette.skyMid);
+    sky.addColorStop(1, palette.skyLow);
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, 512, 512);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+    ctx.fillRect(0, 0, 512, 54);
+  }

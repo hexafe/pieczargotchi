@@ -1,0 +1,321 @@
+  function drawFrame(now) {
+    const ctx = runtime.ctx;
+    const wallNow = getRuntimeNow();
+
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, canvasSize, canvasSize);
+
+    if (runtime.viewMode === 'arena' && isArenaUnlockedForRuntime() && typeof drawBattleFrame === 'function') {
+      drawBattleFrame(ctx, now, wallNow);
+      return;
+    }
+
+    drawStageBackground(ctx, now);
+
+    const selectedAnimation = selectAnimation(runtime.state, wallNow);
+    runtime.currentAnimationKey = selectedAnimation && selectedAnimation.animation
+      ? selectedAnimation.animation.key
+      : null;
+    const drewAnimation = drawSelectedAnimation(ctx, selectedAnimation, wallNow);
+
+    if (!drewAnimation) {
+      drawFallbackMushroom(ctx, runtime.state && runtime.state.mode === 'sleeping' ? 'sleeping' : 'awake');
+    }
+
+    drawGroundForeground(ctx, now);
+    drawAmbientLifeForeground(ctx, now);
+
+    if (runtime.state && runtime.state.mode === 'sleeping') {
+      drawSleepAmbient(ctx, now);
+    } else {
+      drawTemporaryOverlays(ctx, now, wallNow, selectedAnimation, drewAnimation);
+    }
+
+    drawEffects(ctx, now);
+    drawNeutralEasterEggCue(ctx, now);
+    drawWeatherForeground(ctx, now);
+  }
+
+  function selectAnimation(state, now) {
+    if (!state) {
+      return null;
+    }
+
+    const stage = state.stage || getStageForGrowth(state.stats && state.stats.growth ? state.stats.growth : 0);
+    const debugSelection = getDebugAnimationSelection(stage, now);
+    if (debugSelection) {
+      return debugSelection;
+    }
+
+    const activity = getActiveActivity(state, now);
+
+    if (activity) {
+      if (activity.type === 'wake') {
+        return buildAnimationSelection(findStageAnimation(stage, 'wake'), getActivityStartedAt(activity, now));
+      }
+
+      const activityAnimation = findActivityAnimation(activity.type, stage);
+      if (activityAnimation) {
+        return buildAnimationSelection(activityAnimation, getActivityStartedAt(activity, now));
+      }
+    }
+
+    if (state.mode === 'sleeping') {
+      return buildAnimationSelection(findStageAnimation(stage, 'sleep'), null);
+    }
+
+    const need = getStrongestNeed(state);
+    if (need) {
+      const needState = need.severity === 'critical' ? 'critical' : getNeedAnimationState(need.id);
+      return buildAnimationSelection(
+        findStageAnimation(stage, needState) || findStageAnimation(stage, 'idle'),
+        null
+      );
+    }
+
+    const neutralEgg = getNeutralMushroomEasterEgg(state);
+    if (neutralEgg) {
+      const neutralState = getNeutralEasterEggAnimationState(neutralEgg);
+      return buildAnimationSelection(
+        findEasterEggAnimation(stage, neutralState) || findEasterEggAnimation(stage, 'neutral') || findStageAnimation(stage, 'idle'),
+        null
+      );
+    }
+
+    if (state.stats.happiness > 82 && state.stats.health > 78 && state.patch.quality > 82) {
+      return buildAnimationSelection(findStageAnimation(stage, 'excellent') || findStageAnimation(stage, 'happy'), null);
+    }
+
+    if (state.stats.happiness > 78 && state.stats.health > 72 && state.patch.quality > 70) {
+      return buildAnimationSelection(findStageAnimation(stage, 'happy'), null);
+    }
+
+    return buildAnimationSelection(findStageAnimation(stage, 'idle'), null);
+  }
+
+  function getDebugAnimationSelection(stage, now) {
+    if (!runtime.debug || !runtime.debug.enabled || !runtime.debug.forcedAnimation || runtime.debug.forcedAnimation === 'auto') {
+      return null;
+    }
+
+    const parts = runtime.debug.forcedAnimation.split('.');
+    const kind = parts[0];
+    const name = parts[1];
+    if (!name) {
+      return null;
+    }
+
+    const startedAt = runtime.debug.forcedAnimationStartedAt || now;
+    if (kind === 'activity') {
+      return buildAnimationSelection(findActivityAnimation(name, stage), startedAt);
+    }
+
+    return buildAnimationSelection(findStageAnimation(stage, name), startedAt);
+  }
+
+  function getActiveActivity(state, now) {
+    const activity = state.currentActivity;
+    if (!activity || Number(activity.until) <= now || activity.type === 'notice') {
+      return null;
+    }
+
+    return activity;
+  }
+
+  function findStageAnimation(stage, stateName) {
+    return animationsByKey.get(stage + '.' + stateName)
+      || animationsByKey.get(stage + '.idle')
+      || animationsByKey.get('spore.' + stateName)
+      || animationsByKey.get('spore.idle')
+      || null;
+  }
+
+  function findActivityAnimation(activityType, stage) {
+    const animation = animationsByKey.get(stage + '.activity.' + activityType)
+      || animationsByKey.get('activity.' + activityType);
+    if (!animation) {
+      return null;
+    }
+
+    if (animation.minStage && !isStageAtLeast(stage, animation.minStage)) {
+      return null;
+    }
+
+    return animation;
+  }
+
+  function findEasterEggAnimation(stage, stateName) {
+    return animationsByKey.get(stage + '.easter.' + stateName)
+      || animationsByKey.get('adult.easter.' + stateName)
+      || null;
+  }
+
+  function getNeutralEasterEggAnimationState(neutralEgg) {
+    if (neutralEgg && neutralEgg.id === 'iwonia' && isRainyEasterEggWeather()) {
+      return 'neutral_rain';
+    }
+
+    return 'neutral';
+  }
+
+  function isRainyEasterEggWeather() {
+    const scene = getCurrentWeatherScene();
+    if (!scene || !['rain', 'storm'].includes(scene.condition)) {
+      return false;
+    }
+
+    return Math.max(
+      0,
+      Number(scene.rain) || 0,
+      Number(scene.showers) || 0,
+      Number(scene.precipitation) || 0,
+      Number(scene.rainIntensity) || 0
+    ) > 0;
+  }
+
+  function buildAnimationSelection(animation, startedAt) {
+    if (!animation) {
+      return null;
+    }
+
+    return {
+      animation: animation,
+      startedAt: startedAt
+    };
+  }
+
+  function getActivityStartedAt(activity, now) {
+    const startedAt = Number(activity.startedAt);
+    if (Number.isFinite(startedAt) && startedAt > 0) {
+      return startedAt;
+    }
+
+    const until = Number(activity.until);
+    if (Number.isFinite(until) && until > now) {
+      return until - (rules.activityMs || 2400);
+    }
+
+    return now;
+  }
+
+  function getNeedAnimationState(needId) {
+    const mapping = {
+      hydration: 'dry',
+      nutrients: 'hungry',
+      happiness: 'tired',
+      cleanliness: 'dirty',
+      energy: 'tired',
+      health: 'sick'
+    };
+
+    return mapping[needId] || 'idle';
+  }
+
+  function drawSelectedAnimation(ctx, selection, now) {
+    if (!selection || !selection.animation) {
+      return false;
+    }
+
+    const animation = selection.animation;
+    const image = runtime.assets[animation.key];
+    if (!image) {
+      ensureAssetLoaded(animation.key);
+      return false;
+    }
+
+    const requestedStart = selection.startedAt
+      || (runtime.currentAnimationKey === animation.key ? runtime.currentAnimationStartedAt : now)
+      || now;
+    if (
+      runtime.currentAnimationKey !== animation.key
+      || Math.abs((runtime.currentAnimationStartedAt || 0) - requestedStart) > 50
+    ) {
+      runtime.currentAnimationKey = animation.key;
+      runtime.currentAnimationStartedAt = requestedStart;
+    }
+
+    const frame = getAnimationFrame(animation, now - runtime.currentAnimationStartedAt);
+    const frameWidth = animation.frameWidth || canvasSize;
+    const frameHeight = animation.frameHeight || canvasSize;
+    ctx.drawImage(image, frame * frameWidth, 0, frameWidth, frameHeight, 0, 0, canvasSize, canvasSize);
+    return true;
+  }
+
+  function getAnimationFrame(animation, elapsedMs) {
+    const durations = Array.isArray(animation.frameDurationsMs) && animation.frameDurationsMs.length
+      ? animation.frameDurationsMs
+      : [1000 / (animation.fps || 4)];
+    const totalDuration = durations.reduce(function(total, duration) {
+      return total + Math.max(1, Number(duration) || 1);
+    }, 0);
+    let remaining = animation.loop === false
+      ? Math.min(Math.max(0, elapsedMs), totalDuration - 1)
+      : positiveModulo(elapsedMs, totalDuration);
+
+    for (let index = 0; index < durations.length; index += 1) {
+      const duration = Math.max(1, Number(durations[index]) || 1);
+      if (remaining < duration) {
+        return Math.min(index, (animation.frameCount || durations.length) - 1);
+      }
+
+      remaining -= duration;
+    }
+
+    return Math.max(0, (animation.frameCount || durations.length) - 1);
+  }
+
+  function positiveModulo(value, modulo) {
+    return ((value % modulo) + modulo) % modulo;
+  }
+
+  function drawNeutralEasterEggCue(ctx, now) {
+    const neutralEgg = getNeutralMushroomEasterEgg(runtime.state);
+    if (!neutralEgg) {
+      return;
+    }
+
+    drawNeutralEasterEggBubble(ctx, now, neutralEgg.bubbleLines || [':|']);
+  }
+
+  function drawNeutralEasterEggBubble(ctx, now, lines) {
+    const anchor = getStageEffectAnchor();
+    const width = 150;
+    const height = 78;
+    const x = Math.min(512 - width - 18, Math.max(18, anchor.bubbleX - 28));
+    const y = Math.min(330, Math.max(24, anchor.bubbleY + Math.sin(now / 560) * 3));
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 253, 247, 0.92)';
+    ctx.fillRect(Math.round(x), Math.round(y + 16), width, height - 16);
+    ctx.fillRect(Math.round(x + 24), Math.round(y), width - 48, 26);
+    ctx.fillRect(Math.round(x - 18), Math.round(y + height - 16), 18, 14);
+    ctx.fillStyle = '#2f4f35';
+    ctx.font = 'bold 15px sans-serif';
+    lines.slice(0, 3).forEach(function(line, index) {
+      ctx.fillText(line, x + 14, y + 35 + index * 18);
+    });
+    ctx.restore();
+  }
+
+  function drawTemporaryOverlays(ctx, now, wallNow, selectedAnimation, drewAnimation) {
+    const need = getStrongestNeed(runtime.state);
+    const activity = getActiveActivity(runtime.state, wallNow);
+
+    if (!drewAnimation) {
+      drawNeedOverlay(ctx, now);
+      return;
+    }
+
+    if (!need && selectedAnimation && selectedAnimation.animation.state === 'idle') {
+      drawAwakeIdleDetails(ctx, now);
+    }
+
+    if (!need && runtime.state.patch.quality > 82 && runtime.state.stats.happiness > 72) {
+      drawSparkles(ctx, now, '#fff6b8');
+    }
+
+    if (need && need.severity === 'critical') {
+      const pulse = 0.5 + Math.sin(now / 220) * 0.5;
+      drawAttentionAlarm(ctx, pulse);
+    }
+  }

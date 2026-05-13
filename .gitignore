@@ -13,6 +13,7 @@ __pycache__/
 # Generated scratch output
 tmp/
 output/
+assets/source/imagegen/generated/*_midgen_*.png
 
 # Local agent/session metadata
 .codex/

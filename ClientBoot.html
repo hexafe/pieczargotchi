@@ -1,0 +1,347 @@
+<script>
+(function() {
+  'use strict';
+
+  const config = window.PIECZARGOTCHI_CONFIG || {};
+  const rules = config.rules || {};
+  const runtimeOptions = Object.assign({
+    debugEnabled: false,
+    exposeRuntime: false,
+    assetMode: 'full'
+  }, config.runtime || {});
+  const isDebugAvailable = Boolean(runtimeOptions.debugEnabled);
+  const canvasSize = config.canvasSize || rules.canvasSize || 512;
+  const stateConfig = config.state || {};
+  const actions = Array.isArray(config.actions) ? config.actions : [];
+  const actionsById = new Map(actions.map(function(action) {
+    return [action.id, action];
+  }));
+  const animationManifest = Array.isArray(config.animations) ? config.animations : [];
+  const animationsByKey = new Map(animationManifest.map(function(animation) {
+    return [animation.key, animation];
+  }));
+  const assetManifest = Array.isArray(config.assets) ? config.assets : [];
+  const assetsByKey = new Map(assetManifest.map(function(asset) {
+    return [asset.key, asset];
+  }));
+
+  const statLabels = {
+    hydration: 'Wilgoć',
+    nutrients: 'Odżywki',
+    energy: 'Energia',
+    happiness: 'Radość',
+    cleanliness: 'Czystość',
+    health: 'Zdrowie',
+    growth: 'Wzrost'
+  };
+
+  const inventoryLabels = {
+    water: 'Woda',
+    compost: 'Kompost',
+    toys: 'Zabawki',
+    substrate: 'Podłoże',
+    spores: 'Zarodniki'
+  };
+  const logTimeFormatter = typeof Intl !== 'undefined' && Intl.DateTimeFormat
+    ? new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' })
+    : null;
+
+  const debugStorageKey = (config.storageKey || 'pieczargotchi_state_v2') + '_debug';
+  const debugStatIds = ['hydration', 'nutrients', 'energy', 'happiness', 'cleanliness', 'health'];
+  const debugAnimationOptions = [
+    { id: 'auto', label: 'Auto' },
+    { id: 'state.idle', label: 'Idle' },
+    { id: 'state.sleep', label: 'Sen' },
+    { id: 'state.wake', label: 'Pobudka' },
+    { id: 'state.happy', label: 'Radość' },
+    { id: 'state.excellent', label: 'Idealnie' },
+    { id: 'state.tired', label: 'Zmęczenie' },
+    { id: 'state.dry', label: 'Suchość' },
+    { id: 'state.hungry', label: 'Głód' },
+    { id: 'state.dirty', label: 'Brud' },
+    { id: 'state.sick', label: 'Choroba' },
+    { id: 'state.critical', label: 'Krytyczna' },
+    { id: 'activity.hydrate', label: 'Akcja: zraszanie' },
+    { id: 'activity.feed', label: 'Akcja: karmienie' },
+    { id: 'activity.clean', label: 'Akcja: czyszczenie' },
+    { id: 'activity.play', label: 'Akcja: zabawa' },
+    { id: 'activity.instrument', label: 'Akcja: instrument' },
+    { id: 'activity.sing', label: 'Akcja: śpiew' },
+    { id: 'activity.spores', label: 'Akcja: zarodniki' },
+    { id: 'activity.harvest', label: 'Akcja: plon' }
+  ];
+
+  const defaultWeatherLocation = {
+    label: 'Katowice',
+    latitude: 50.2649,
+    longitude: 19.0238,
+    fallback: true
+  };
+
+  const weatherRefreshMs = 30 * 60 * 1000;
+  const constellationCatalog = [
+    {
+      id: 'bigDipper',
+      minStars: 5,
+      stars: [
+        { id: 'dubhe', ra: 165.932, dec: 61.751, mag: 1.8 },
+        { id: 'merak', ra: 165.460, dec: 56.382, mag: 2.4 },
+        { id: 'phecda', ra: 178.457, dec: 53.695, mag: 2.4 },
+        { id: 'megrez', ra: 183.856, dec: 57.033, mag: 3.3 },
+        { id: 'alioth', ra: 193.507, dec: 55.959, mag: 1.8 },
+        { id: 'mizar', ra: 200.981, dec: 54.925, mag: 2.2 },
+        { id: 'alkaid', ra: 206.885, dec: 49.313, mag: 1.9 }
+      ],
+      lines: [
+        ['dubhe', 'merak'],
+        ['merak', 'phecda'],
+        ['phecda', 'megrez'],
+        ['megrez', 'dubhe'],
+        ['megrez', 'alioth'],
+        ['alioth', 'mizar'],
+        ['mizar', 'alkaid']
+      ]
+    },
+    {
+      id: 'cassiopeia',
+      minStars: 5,
+      stars: [
+        { id: 'caph', ra: 2.295, dec: 59.150, mag: 2.3 },
+        { id: 'schedar', ra: 10.127, dec: 56.537, mag: 2.2 },
+        { id: 'gammaCas', ra: 14.177, dec: 60.717, mag: 2.5 },
+        { id: 'ruchbah', ra: 21.454, dec: 60.235, mag: 2.7 },
+        { id: 'segin', ra: 28.599, dec: 63.670, mag: 3.4 }
+      ],
+      lines: [
+        ['caph', 'schedar'],
+        ['schedar', 'gammaCas'],
+        ['gammaCas', 'ruchbah'],
+        ['ruchbah', 'segin']
+      ]
+    },
+    {
+      id: 'orion',
+      minStars: 5,
+      stars: [
+        { id: 'betelgeuse', ra: 88.793, dec: 7.407, mag: 0.5 },
+        { id: 'bellatrix', ra: 81.283, dec: 6.350, mag: 1.6 },
+        { id: 'mintaka', ra: 83.002, dec: -0.299, mag: 2.2 },
+        { id: 'alnilam', ra: 84.053, dec: -1.202, mag: 1.7 },
+        { id: 'alnitak', ra: 85.190, dec: -1.943, mag: 1.8 },
+        { id: 'saiph', ra: 86.939, dec: -9.670, mag: 2.1 },
+        { id: 'rigel', ra: 78.635, dec: -8.202, mag: 0.2 }
+      ],
+      lines: [
+        ['betelgeuse', 'bellatrix'],
+        ['betelgeuse', 'alnitak'],
+        ['bellatrix', 'mintaka'],
+        ['mintaka', 'alnilam'],
+        ['alnilam', 'alnitak'],
+        ['alnitak', 'saiph'],
+        ['mintaka', 'rigel'],
+        ['saiph', 'rigel']
+      ]
+    },
+    {
+      id: 'cygnus',
+      minStars: 5,
+      stars: [
+        { id: 'deneb', ra: 310.358, dec: 45.280, mag: 1.3 },
+        { id: 'sadr', ra: 305.557, dec: 40.257, mag: 2.2 },
+        { id: 'gienah', ra: 305.253, dec: 33.970, mag: 2.5 },
+        { id: 'deltaCyg', ra: 296.244, dec: 45.131, mag: 2.9 },
+        { id: 'albireo', ra: 292.680, dec: 27.959, mag: 3.1 }
+      ],
+      lines: [
+        ['deneb', 'sadr'],
+        ['sadr', 'albireo'],
+        ['gienah', 'sadr'],
+        ['sadr', 'deltaCyg']
+      ]
+    }
+  ];
+
+  const dom = {};
+  const runtime = {
+    state: null,
+    ctx: null,
+    canvas: null,
+    assets: {},
+    assetPromises: {},
+    assetStatus: 'Ładowanie grafik',
+    effects: [],
+    wakeSurpriseUntil: 0,
+    weatherLocation: null,
+    weatherScene: createLocalWeatherScene(defaultWeatherLocation),
+    actionButtons: new Map(),
+    debug: createDefaultDebugSettings(),
+    viewMode: 'care',
+    currentAnimationKey: null,
+    currentAnimationStartedAt: 0,
+    renderStarted: false,
+    booted: false
+  };
+
+  document.addEventListener('DOMContentLoaded', init);
+
+  function init() {
+    bindDom();
+    setupCanvas();
+    applyRuntimeVisibility();
+    if (runtimeOptions.exposeRuntime) {
+      window.__pieczargotchiRuntime = runtime;
+    }
+    runtime.debug = loadDebugSettings();
+    loadAssets();
+    initWeatherScene().then(finishInit).catch(finishInit);
+  }
+
+  function finishInit() {
+    if (runtime.booted) {
+      return;
+    }
+
+    runtime.booted = true;
+    runtime.state = loadState();
+    runtime.state = applyElapsedTime(runtime.state, getRuntimeNow());
+    saveState(runtime.state);
+
+    renderActions();
+    renderDebugControls();
+    bindControls();
+    bindKeyboardShortcuts();
+    renderUi();
+    startTimers();
+    startRenderLoop();
+  }
+
+  function applyRuntimeVisibility() {
+    if (dom.debugPanel) {
+      dom.debugPanel.hidden = !isDebugAvailable;
+    }
+  }
+
+  function bindDom() {
+    dom.modePill = document.querySelector('[data-mode-pill]');
+    dom.resetButton = document.querySelector('[data-reset-button]');
+    dom.viewSwitch = document.querySelector('[data-view-switch]');
+    dom.viewCare = document.querySelector('[data-view-care]');
+    dom.viewArena = document.querySelector('[data-view-arena]');
+    dom.stageEyebrow = document.querySelector('[data-stage-eyebrow]');
+    dom.mushroomName = document.querySelector('[data-mushroom-name]');
+    dom.stageLabel = document.querySelector('[data-stage-label]');
+    dom.dayLabel = document.querySelector('[data-day-label]');
+    dom.messageTitle = document.querySelector('[data-message-title]');
+    dom.messageBody = document.querySelector('[data-message-body]');
+    dom.healthLabel = document.querySelector('[data-health-label]');
+    dom.statsList = document.querySelector('[data-stats-list]');
+    dom.actionsGrid = document.querySelector('[data-actions-grid]');
+    dom.cooldownLabel = document.querySelector('[data-cooldown-label]');
+    dom.inventoryRow = document.querySelector('[data-inventory-row]');
+    dom.coinsLabel = document.querySelector('[data-coins-label]');
+    dom.eventLog = document.querySelector('[data-event-log]');
+    dom.assetStatus = document.querySelector('[data-asset-status]');
+    dom.debugPanel = document.querySelector('.panel-block--debug');
+    dom.debugDetails = document.querySelector('[data-debug-details]');
+    dom.debugEnabled = document.querySelector('[data-debug-enabled]');
+    dom.debugDate = document.querySelector('[data-debug-date]');
+    dom.debugTime = document.querySelector('[data-debug-time]');
+    dom.debugWeather = document.querySelector('[data-debug-weather]');
+    dom.debugLocation = document.querySelector('[data-debug-location]');
+    dom.debugMoonPhase = document.querySelector('[data-debug-moon-phase]');
+    dom.debugConstellation = document.querySelector('[data-debug-constellation]');
+    dom.debugCloud = document.querySelector('[data-debug-cloud]');
+    dom.debugCloudValue = document.querySelector('[data-debug-cloud-value]');
+    dom.debugPrecipitation = document.querySelector('[data-debug-precipitation]');
+    dom.debugPrecipitationValue = document.querySelector('[data-debug-precipitation-value]');
+    dom.debugWind = document.querySelector('[data-debug-wind]');
+    dom.debugWindValue = document.querySelector('[data-debug-wind-value]');
+    dom.debugWindDirection = document.querySelector('[data-debug-wind-direction]');
+    dom.debugWindDirectionValue = document.querySelector('[data-debug-wind-direction-value]');
+    dom.debugMode = document.querySelector('[data-debug-mode]');
+    dom.debugStage = document.querySelector('[data-debug-stage]');
+    dom.debugAnimation = document.querySelector('[data-debug-animation]');
+    dom.debugEasterEgg = document.querySelector('[data-debug-easter-egg]');
+    dom.debugGrowth = document.querySelector('[data-debug-growth]');
+    dom.debugGrowthValue = document.querySelector('[data-debug-growth-value]');
+    dom.debugPreset = document.querySelector('[data-debug-preset]');
+    dom.debugStats = document.querySelector('[data-debug-stats]');
+    dom.debugNow = document.querySelector('[data-debug-now]');
+    dom.debugClearCooldowns = document.querySelector('[data-debug-clear-cooldowns]');
+    dom.debugReset = document.querySelector('[data-debug-reset]');
+    dom.carePanels = Array.from(document.querySelectorAll('[data-care-panel]'));
+    dom.arenaPanel = document.querySelector('[data-arena-panel]');
+    dom.battleRecord = document.querySelector('[data-battle-record]');
+    dom.battlePlayerHp = document.querySelector('[data-battle-player-hp]');
+    dom.battlePlayerStamina = document.querySelector('[data-battle-player-stamina]');
+    dom.battleOpponentHp = document.querySelector('[data-battle-opponent-hp]');
+    dom.battleOpponentStamina = document.querySelector('[data-battle-opponent-stamina]');
+    dom.battleStart = document.querySelector('[data-battle-start]');
+    dom.battleResult = document.querySelector('[data-battle-result]');
+    dom.battleMoves = document.querySelector('[data-battle-moves]');
+    dom.battleTraining = document.querySelector('[data-battle-training]');
+    dom.battleLog = document.querySelector('[data-battle-log]');
+  }
+
+  function setupCanvas() {
+    runtime.canvas = document.getElementById('mushroomCanvas');
+    runtime.canvas.width = canvasSize;
+    runtime.canvas.height = canvasSize;
+    runtime.ctx = runtime.canvas.getContext('2d');
+    runtime.ctx.imageSmoothingEnabled = false;
+  }
+
+  function bindControls() {
+    dom.resetButton.addEventListener('click', function() {
+      if (!window.confirm('Zresetować Pieczargotchi i wyczyścić zapis gry?')) {
+        return;
+      }
+
+      runtime.state = createDefaultState();
+      addLog(runtime.state, 'Nowa grzybnia jest gotowa.', getRuntimeNow());
+      saveState(runtime.state);
+      renderUi();
+      triggerEffect('clean');
+    });
+
+    dom.viewCare.addEventListener('click', function() {
+      setViewMode('care');
+    });
+
+    dom.viewArena.addEventListener('click', function() {
+      setViewMode('arena');
+    });
+
+    dom.battleStart.addEventListener('click', handleBattleStart);
+    bindDebugControls();
+  }
+
+  function bindKeyboardShortcuts() {
+    document.addEventListener('keydown', function(event) {
+      if (event.defaultPrevented || shouldIgnoreShortcut(event.target)) {
+        return;
+      }
+
+      const key = event.key.toUpperCase();
+      const action = actions.find(function(candidate) {
+        return candidate.shortcut === key;
+      });
+
+      if (!action) {
+        return;
+      }
+
+      event.preventDefault();
+      handleAction(action.id, 'keyboard');
+      flashActionButton(action.id);
+    });
+  }
+
+  function shouldIgnoreShortcut(target) {
+    if (!target) {
+      return false;
+    }
+
+    const tagName = target.tagName ? target.tagName.toLowerCase() : '';
+    return tagName === 'input' || tagName === 'textarea' || tagName === 'select' || target.isContentEditable;
+  }

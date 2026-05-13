@@ -1,6 +1,7 @@
 # Pieczargotchi Real App Next Steps
 
 Last researched: 2026-05-09
+Last repo checkpoint: 2026-05-13
 
 This plan is for turning the MVP into a real, fun virtual-pet app. It is not a narrow MVP checklist.
 
@@ -9,6 +10,7 @@ This plan is for turning the MVP into a real, fun virtual-pet app. It is not a n
 - `assets/sleeping_sheet.png` is now centered frame-by-frame.
 - `assets/awake.png` now uses the same cap, grass, body placement, and palette as the sleeping sheet, with only the default awake eyes redrawn.
 - The current `O_O` wake face is still a temporary canvas overlay. It works for now, but a polished app should move this into a real runtime sprite sheet.
+- Ambient scene life is now renderer-native: butterflies fly on smooth irregular paths, fireflies drift calmly in a bounded range, and ground bugs enter/leave through screen edges or tall grass.
 - Detailed next implementation plan for all growth-stage sprites and activity animations: `docs/ASSET_ANIMATION_IMPLEMENTATION_PLAN.md`.
 
 ## Research Summary
@@ -62,6 +64,17 @@ The core loop should be:
 Idle life -> need threshold -> attention call -> player response or care mistake -> reaction -> growth/evolution consequence
 ```
 
+## Current Repo Checkpoint - 2026-05-13
+
+Implemented local v1 systems:
+
+- Polish-first care UI with manifest-driven growth-stage sprites, activity reactions, attention calls, care mistakes, patch quality, mycelium progress, and spore rewards.
+- Weather-driven scene with day/night, celestial bodies, wind, precipitation, grass movement, seasonal ambient life, and browser capture tooling.
+- Local Legendary Arena with unlock at `legendary`, separate `ClientBattleScene.html`, training, deterministic turns, rewards, mobile layout checks, and `state.battle` persistence.
+- Focused QA gates now include core tests in local and UTC timezones, asset audits, local preview bootstrap, arena captures, and `scripts/capture-life-motion.mjs`.
+
+Immediate next product slices should start from `docs/PROJECT_STATE_2026-05-13.md`, not from the older MVP checklist below.
+
 ## Real App Systems Plan
 
 ### 1. Sprite And Animation Bible
@@ -99,7 +112,7 @@ Initial sheets:
 
 ### 2. State-Driven Animation Engine
 
-Replace the current simple `mode -> draw sprite` logic with an animation selector.
+Maintain and extend the current state-driven animation selector instead of returning to a simple `mode -> draw sprite` path.
 
 Priority order:
 
@@ -172,7 +185,7 @@ Possible systems:
 - Airflow/light: too much/too little causes stress.
 - Mycelium: long-term hidden growth layer.
 - Spores: adult-stage reproduction/resource action.
-- Scene lighting: background now follows location weather, calculated sunrise/sunset, day phase, golden hour, blue hour, real sun/moon sky positions, moon phase, visible night constellations, and fallback Katowice timing when geolocation is unavailable.
+- Scene lighting: background now follows location weather, calculated sunrise/sunset, day phase, golden hour, blue hour, real sun/moon sky positions, moon phase, visible night constellations, and fallback Katowice timing when geolocation is unavailable. Current balance rule: rain actively increases hydration, storm hydrates but costs happiness/cleanliness, wind and heat dry the patch.
 - Patch decorations: small cosmetic unlocks that also affect mood.
 
 ### 5. Interaction And Minigames
@@ -253,7 +266,7 @@ Acceptance:
 
 ### 9. Test And Tooling Plan
 
-Add tests before the state machine gets complex.
+Keep tests ahead of new state-machine and rendering complexity.
 
 Test targets:
 
@@ -266,6 +279,8 @@ Test targets:
 - cooldown behavior
 - evolution branch selection
 - asset manifest validation
+- local arena battle reducer and reward settlement
+- ambient life profile and browser capture checks
 
 Suggested scripts:
 
@@ -273,6 +288,7 @@ Suggested scripts:
 - `scripts/extract-sprite-frame.mjs`
 - `scripts/build-sprite-sheet.mjs`
 - `scripts/smoke-preview.mjs`
+- `scripts/capture-life-motion.mjs`
 
 ## Suggested Implementation Order
 
@@ -284,13 +300,16 @@ Suggested scripts:
 4. Convert the current canvas `O_O` overlay into `wake_surprise_sheet.png`.
 5. Add animation manifest and `selectAnimation()`.
 
-### Phase B - Need Signaling
+### Phase B - Maintainable Core And Need Signaling
 
-1. Add mild and critical thresholds per stat.
-2. Implement visual clues for dry, hungry, dirty, tired, and sick states.
-3. Add attention call state and deadline.
-4. Add care mistakes.
-5. Update logs/messages around attention calls.
+0. Keep client logic split across Apps Script partials; do not grow a monolithic client file again.
+1. Keep expanding `ClientCore.html` and its Node tests when new state, balance, animation, arena, or ambient-life contracts are added.
+2. Add mild and critical thresholds per stat.
+3. Implement visual clues for dry, hungry, dirty, tired, and sick states.
+4. Add attention call state and deadline.
+5. Add care mistakes.
+6. Update logs/messages around attention calls.
+
 
 ### Phase C - More Fun Interactions
 
@@ -361,6 +380,12 @@ Status legend: `[ ]` not started, `[~]` in progress, `[x]` complete.
   - Scope: run syntax checks, asset checks, and local preview response verification.
 - [x] Growth-stage asset pack
   - Scope: add manifest-driven sprites for all growth stages, activity reactions, optional effect sheets, Sprite Bible, and asset validation tooling.
+- [x] Local Legendary Arena
+  - Scope: add legendary-only arena switch, battle renderer, training, deterministic move resolution, rewards, mobile capture checks, and battle persistence.
+- [x] Seasonal ambient life motion
+  - Scope: move butterflies, small flying insects, crawling bugs, and fireflies with behavior-specific paths instead of static decorative dots.
+- [x] Release-readiness checkpoint
+  - Scope: refresh README/project state, add focused life-motion capture gate, and document current validation commands.
 
 Implemented in this slice:
 
@@ -371,3 +396,5 @@ Implemented in this slice:
 - Good care improves podłoże quality and grzybnia. Mature grzybnia produces zarodniki and a visible spore effect.
 - The animation manifest now covers 63 runtime animations: 5 growth stages with 11 state sheets each, plus 8 activity sheets.
 - The asset folder now also includes 5 optional effect sheets and `scripts/validate-assets.mjs` validates 68 PNG sheets.
+- The local Arena now lives outside the care renderer and is testable through deterministic core helpers plus browser captures.
+- Scene life now has a dedicated capture gate for warm daylight insects, summer night fireflies, and mobile layout.

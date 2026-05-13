@@ -2,12 +2,12 @@
 
 Pieczargotchi is a small Google Apps Script web app for a pixel-art mushroom care game.
 
-The MVP targets a 512x512 canvas, local browser persistence, a sleep/wake loop, care actions, visible cooldowns, and keyboard shortcuts. See `docs/IMPLEMENTATION_PLAN.md` for the implementation roadmap.
+The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake loop, care actions, visible cooldowns, keyboard shortcuts, weather-driven scene life, and a local Legendary Arena. See `docs/IMPLEMENTATION_PLAN.md` for the original implementation roadmap and `docs/PROJECT_STATE_2026-05-13.md` for the current checkpoint.
 
 ## Current Layout
 
 - `Code.gs` - Apps Script `doGet()` entrypoint and HTML partial include helper.
-- `Config.gs` - app constants, state version, canvas size, and Drive asset IDs.
+- `Config.gs` - app constants, state version, canvas size, runtime flags, and Drive asset IDs.
 - `AnimationConfig.gs` - runtime animation manifest for stage and activity sprite sheets.
 - `AssetService.gs` - Drive PNG to data URL loading for the client.
 - `StateModel.gs` - default state shape and state metadata exposed to the client.
@@ -15,7 +15,9 @@ The MVP targets a 512x512 canvas, local browser persistence, a sleep/wake loop, 
 - `Actions.gs` - care action definitions, cooldowns, shortcuts, and stat deltas.
 - `Index.html` - web app shell.
 - `Styles.html` - responsive pixel-game CSS.
-- `Client.html` - canvas renderer, localStorage state, actions, cooldowns, effects, and keyboard shortcuts.
+- `Client.html` - thin Apps Script include aggregator for client partials.
+- `ClientCore.html` - small browser-global core helpers that are testable from Node, including weather balance, state migrations, and battle reducer primitives.
+- `ClientBoot.html`, `ClientDebug.html`, `ClientRuntime.html`, `ClientWeather.html`, `ClientState.html`, `ClientActions.html`, `ClientUi.html`, `ClientBattleScene.html`, `ClientAnimation.html`, `ClientScene*.html`, and `ClientSprites.html` - client runtime split by responsibility. `ClientBattleScene.html` renders the local arena; `ClientScene.html` is the care-scene orchestrator; palette, celestial, weather, seasonal ambient life, and ground rendering live in focused scene partials.
 - `assets/awake.png` - prepared awake mushroom sprite.
 - `assets/sleeping_sheet.png` - prepared four-frame sleeping sprite sheet.
 - `assets/stages/` - growth-stage sprite sheets.
@@ -31,27 +33,40 @@ The MVP targets a 512x512 canvas, local browser persistence, a sleep/wake loop, 
 - `docs/IMAGEGEN_ASSET_PIPELINE.md` - imagegen atlas prompts, source paths, build steps, and validation commands.
 - `docs/UI_RENDER_AUDIT_2026-05-10.md` - screenshot-driven UI/rendering fixes and viewport validation.
 - `docs/SPRITE_AUDIT_2026-05-10.md` - focused audit for sprite size and wake-face alignment.
+- `docs/APPS_SCRIPT_DEPLOYMENT_DRY_RUN.md` - test deployment checklist that keeps `.clasp.json`, script IDs, and private Drive IDs local.
+- `docs/PROJECT_STATE_2026-05-13.md` - current architecture and maintenance checkpoint.
+- `docs/PRODUCT_RULES.md` - gameplay and balance rules for future development.
+- `.github/workflows/ci.yml` - GitHub Actions checks for client syntax, core rules, assets, sprite consistency, and local preview scripts.
 - `scripts/build-imagegen-sprites.py` - builds runtime sheets from imagegen atlases.
 - `scripts/generate-pixel-assets.py` - compatibility entrypoint; delegates to the imagegen builder when imagegen sources exist.
 - `scripts/validate-assets.mjs` - local PNG dimension, frame, and centering validation.
 - `scripts/audit-sprite-consistency.py` - local size/center consistency audit for stage animations.
-- `AGENTS.md` - contributor and agent guidance.
+- `scripts/audit-spore-sprites.py` - local spore-stage sprite audit.
+- `scripts/check-deployment-readiness.mjs` - credential-free Apps Script deployment preflight.
+- `scripts/capture-life-motion.mjs` - local browser capture gate for butterflies, crawling bugs, fireflies, and mobile scene-life layout.
+- `scripts/capture-weather-matrix.mjs` - local weather and sky capture matrix for debug QA scenarios.
 
-The interface is Polish-first. The current build includes manifest-driven growth-stage animations, a short `O_O` wake expression, imagegen-based `spore`, `baby`, `young`, `adult`, and `legendary` silhouettes with a shared grass base, stage-specific activity reactions, need-driven sprite states, attention calls, care mistakes, patch quality, mycelium progress, and spore harvest rewards.
+The interface is Polish-first. The current build includes manifest-driven growth-stage animations, a short `O_O` wake expression, imagegen-based `spore`, `baby`, `young`, `adult`, and `legendary` silhouettes with a shared grass base, wind/weather-reactive procedural grass, moving seasonal butterflies, small insects, crawling bugs, fireflies, stage-specific activity reactions, need-driven sprite states, attention calls, care mistakes, patch quality, mycelium progress, spore harvest rewards, and a local Legendary Arena with deterministic battle state under `state.battle`.
 
 ## Development
 
 `appsscript.json` is committed for a Google Apps Script V8 web app. To deploy with `clasp`, bind the repository to an Apps Script project, then push:
 
 ```sh
+node scripts/check-deployment-readiness.mjs
 npx @google/clasp push
 ```
+
+Do not commit `.clasp.json`, private Apps Script script IDs, private Drive URLs, or deployment credentials. The repo `.gitignore` keeps `.clasp.json` local.
+Use `docs/APPS_SCRIPT_DEPLOYMENT_DRY_RUN.md` for the full test-project dry-run checklist.
 
 Set the Drive file IDs for runtime assets in `Config.gs`:
 
 - keys matching the animation manifest, for example `spore.idle`, `baby.sleep`, and `baby.activity.hydrate`
 
 If the IDs are blank or unavailable, the local preview loads PNG files from `assets/`. In a deployed Apps Script environment, missing Drive IDs fall back to canvas placeholders instead of showing a blank app. Reference files under `assets/reference/` are not loaded at runtime.
+
+Production runtime flags live in `Config.gs`. By default the deployed config keeps the debug panel and `window.__pieczargotchiRuntime` private; `dev-server.mjs` enables both for local preview and capture tooling.
 
 ## Local Preview
 
@@ -108,9 +123,29 @@ The preview server renders the Apps Script partials locally, injects a client co
 Quick local syntax checks:
 
 ```sh
-node -e "const fs=require('fs'); const s=fs.readFileSync('Client.html','utf8').replace(/^<script>\n/,'').replace(/\n<\/script>\s*$/,''); new Function(s); console.log('Client syntax ok');"
+node scripts/check-client-syntax.mjs
+node scripts/check-deployment-readiness.mjs
+node scripts/test-client-core.mjs
+env TZ=UTC node scripts/test-client-core.mjs
 node -e "const fs=require('fs'); for (const f of ['Code.gs','Config.gs','AnimationConfig.gs','AssetService.gs','StateModel.gs','GameRules.gs','Actions.gs']) { new Function(fs.readFileSync(f,'utf8')); console.log(f + ' syntax ok'); }"
-python3 scripts/build-imagegen-sprites.py
 node scripts/validate-assets.mjs
 python3 scripts/audit-sprite-consistency.py
+python3 scripts/audit-spore-sprites.py
+bash scripts/run-local-linux.sh --check-only
+```
+
+For repeatable scene-life screenshots, `scripts/capture-app-render.mjs` accepts the existing debug weather/date variables plus capture-only `PIECZARGOTCHI_DEBUG_TEMPERATURE`, `PIECZARGOTCHI_DEBUG_HUMIDITY`, `PIECZARGOTCHI_CAPTURE_DELAY_MS`, and `PIECZARGOTCHI_CAPTURE_LIFE_PROFILE=1`.
+
+Focused browser capture gates:
+
+```sh
+node scripts/capture-life-motion.mjs
+node dev-server.mjs 8092
+```
+
+With that preview server running:
+
+```sh
+PIECZARGOTCHI_CAPTURE_ARENA=1 node scripts/capture-app-render.mjs http://127.0.0.1:8092/ /tmp/pieczargotchi-arena
+PIECZARGOTCHI_CAPTURE_ARENA=1 PIECZARGOTCHI_VIEWPORT_WIDTH=390 PIECZARGOTCHI_VIEWPORT_HEIGHT=844 PIECZARGOTCHI_EMULATE_MOBILE=1 node scripts/capture-app-render.mjs http://127.0.0.1:8092/ /tmp/pieczargotchi-arena-mobile
 ```

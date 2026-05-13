@@ -3,6 +3,7 @@
   <head>
     <base target="_top">
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title><?= PIECZARGOTCHI_APP_TITLE ?></title>
     <?!= include('Styles'); ?>
   </head>
@@ -13,6 +14,10 @@
           <h1>Pieczargotchi</h1>
         </div>
         <div class="topbar__status" aria-live="polite">
+          <div class="view-switch" data-view-switch hidden>
+            <button class="view-switch__button" type="button" data-view-care aria-pressed="true">Opieka</button>
+            <button class="view-switch__button" type="button" data-view-arena aria-pressed="false">Arena</button>
+          </div>
           <span class="status-pill" data-mode-pill>Śpi</span>
           <button class="ghost-button" type="button" data-reset-button title="Wyczyść zapis gry">Od nowa</button>
         </div>
@@ -22,7 +27,7 @@
         <section class="stage-panel" aria-label="Scena pieczarki">
           <div class="stage-toolbar">
             <div>
-              <p class="eyebrow">Grzybnia</p>
+              <p class="eyebrow" data-stage-eyebrow>Grzybnia</p>
               <h2 data-mushroom-name>Pieczarka</h2>
             </div>
             <div class="stage-meta">
@@ -47,7 +52,7 @@
         </section>
 
         <aside class="side-panel" aria-label="Panel opieki">
-          <section class="panel-block">
+          <section class="panel-block panel-block--status" data-care-panel>
             <div class="block-heading">
               <h2>Status</h2>
               <span data-health-label>100%</span>
@@ -55,7 +60,7 @@
             <div class="stats-list" data-stats-list></div>
           </section>
 
-          <section class="panel-block">
+          <section class="panel-block panel-block--actions" data-care-panel>
             <div class="block-heading">
               <h2>Opieka</h2>
               <span data-cooldown-label>Gotowe</span>
@@ -63,7 +68,7 @@
             <div class="actions-grid" data-actions-grid></div>
           </section>
 
-          <section class="panel-block panel-block--compact">
+          <section class="panel-block panel-block--compact panel-block--resources" data-care-panel>
             <div class="block-heading">
               <h2>Zasoby</h2>
               <span data-coins-label>0 zarodników</span>
@@ -71,7 +76,189 @@
             <div class="inventory-row" data-inventory-row></div>
           </section>
 
-          <section class="panel-block panel-block--log">
+          <section class="panel-block panel-block--arena" data-arena-panel hidden aria-label="Panel areny">
+            <div class="block-heading">
+              <h2>Arena</h2>
+              <span data-battle-record>0-0</span>
+            </div>
+
+            <div class="arena-command-row">
+              <button class="ghost-button" type="button" data-battle-start>Start walki</button>
+              <span data-battle-result>Gotowa</span>
+            </div>
+
+            <div class="battle-moves" data-battle-moves></div>
+            <div class="battle-training" data-battle-training></div>
+            <div class="battle-status" data-battle-status>
+              <div class="battle-meter-row">
+                <span>Pieczarka</span>
+                <strong data-battle-player-hp>HP --</strong>
+                <strong data-battle-player-stamina>ST --</strong>
+              </div>
+              <div class="battle-meter-row">
+                <span>Rywal</span>
+                <strong data-battle-opponent-hp>HP --</strong>
+                <strong data-battle-opponent-stamina>ST --</strong>
+              </div>
+            </div>
+            <ol class="battle-log" data-battle-log></ol>
+          </section>
+
+          <section class="panel-block panel-block--debug" data-care-panel aria-label="Menu developerskie">
+            <details data-debug-details>
+              <summary>Debug</summary>
+              <div class="debug-controls">
+                <label class="debug-toggle">
+                  <input type="checkbox" data-debug-enabled>
+                  Tryb testowy
+                </label>
+
+                <div class="debug-row debug-row--split">
+                  <label>
+                    Data
+                    <input type="date" data-debug-date>
+                  </label>
+                  <label>
+                    Godzina
+                    <input type="time" data-debug-time>
+                  </label>
+                </div>
+
+                <div class="debug-row debug-row--split">
+                  <label>
+                    Pogoda
+                    <select data-debug-weather>
+                      <option value="auto">Auto</option>
+                      <option value="clear">Czysto</option>
+                      <option value="cloudy">Pochmurno</option>
+                      <option value="rain">Deszcz</option>
+                      <option value="storm">Burza</option>
+                      <option value="snow">Śnieg</option>
+                      <option value="fog">Mgła</option>
+                    </select>
+                  </label>
+                  <label>
+                    Tryb
+                    <select data-debug-mode>
+                      <option value="awake">Czuwa</option>
+                      <option value="sleeping">Śpi</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div class="debug-row debug-row--split">
+                  <label>
+                    Lokalizacja nieba
+                    <select data-debug-location>
+                      <option value="auto">Auto</option>
+                      <option value="katowice">Katowice</option>
+                      <option value="tromso">Tromso</option>
+                      <option value="equator">Rownik</option>
+                      <option value="sydney">Sydney</option>
+                    </select>
+                  </label>
+                  <label>
+                    Księżyc
+                    <select data-debug-moon-phase>
+                      <option value="auto">Auto</option>
+                      <option value="full">Pełnia</option>
+                      <option value="crescent">Sierp</option>
+                      <option value="new">Nów</option>
+                    </select>
+                  </label>
+                </div>
+
+                <label>
+                  Konstelacja
+                  <select data-debug-constellation>
+                    <option value="auto">Auto</option>
+                    <option value="bigDipper">Wielki Wóz</option>
+                    <option value="cassiopeia">Kasjopeja</option>
+                    <option value="orion">Orion</option>
+                    <option value="cygnus">Łabędź</option>
+                  </select>
+                </label>
+
+                <label class="debug-range">
+                  Zachmurzenie
+                  <input type="range" min="0" max="100" step="1" data-debug-cloud>
+                  <span data-debug-cloud-value>0%</span>
+                </label>
+
+                <label class="debug-range">
+                  Opad
+                  <input type="range" min="0" max="10" step="0.1" data-debug-precipitation>
+                  <span data-debug-precipitation-value>0 mm</span>
+                </label>
+
+                <label class="debug-range">
+                  Wiatr
+                  <input type="range" min="0" max="100" step="1" data-debug-wind>
+                  <span data-debug-wind-value>0 km/h</span>
+                </label>
+
+                <label class="debug-range">
+                  Kierunek wiatru
+                  <input type="range" min="0" max="359" step="1" data-debug-wind-direction>
+                  <span data-debug-wind-direction-value>0°</span>
+                </label>
+
+                <div class="debug-row debug-row--split">
+                  <label>
+                    Rozmiar
+                    <select data-debug-stage></select>
+                  </label>
+                  <label>
+                    Animacja
+                    <select data-debug-animation></select>
+                  </label>
+                </div>
+
+                <label>
+                  Easter egg
+                  <select data-debug-easter-egg>
+                    <option value="auto">Auto</option>
+                    <option value="off">Wyłącz</option>
+                    <option value="content">:| zadowolona</option>
+                    <option value="angry">:| gniewna</option>
+                    <option value="iwonia">:| Iwoniaście</option>
+                  </select>
+                </label>
+
+                <label class="debug-range">
+                  Wzrost
+                  <input type="range" min="0" max="100" step="1" data-debug-growth>
+                  <span data-debug-growth-value>0%</span>
+                </label>
+
+                <label>
+                  Preset
+                  <select data-debug-preset>
+                    <option value="">Wybierz...</option>
+                    <option value="healthy">Zdrowa</option>
+                    <option value="excellent">Idealna</option>
+                    <option value="dry">Sucha</option>
+                    <option value="hungry">Głodna</option>
+                    <option value="dirty">Brudna</option>
+                    <option value="tired">Zmęczona</option>
+                    <option value="sick">Chora</option>
+                    <option value="critical">Krytyczna</option>
+                    <option value="neglected">Zaniedbana</option>
+                  </select>
+                </label>
+
+                <div class="debug-stats" data-debug-stats></div>
+
+                <div class="debug-actions">
+                  <button class="ghost-button" type="button" data-debug-now>Teraz</button>
+                  <button class="ghost-button" type="button" data-debug-clear-cooldowns>Cooldowny</button>
+                  <button class="ghost-button" type="button" data-debug-reset>Wyłącz</button>
+                </div>
+              </div>
+            </details>
+          </section>
+
+          <section class="panel-block panel-block--log" data-care-panel>
             <div class="block-heading">
               <h2>Dziennik</h2>
               <span data-asset-status>Ładowanie grafik</span>
@@ -85,6 +272,7 @@
     <script>
       window.PIECZARGOTCHI_CONFIG = <?!= clientConfigJson ?>;
     </script>
+    <?!= include('ClientCore'); ?>
     <?!= include('Client'); ?>
   </body>
 </html>

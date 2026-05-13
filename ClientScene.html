@@ -1,0 +1,11 @@
+  function drawStageBackground(ctx, now) {
+    const scene = getCurrentWeatherScene();
+    const palette = getScenePalette(scene);
+
+    drawSkyBands(ctx, palette);
+    drawCelestial(ctx, scene, palette, now);
+    drawCloudLayer(ctx, scene, palette, now);
+    drawWeatherLayer(ctx, scene, now);
+    drawLowGround(ctx, palette, now, scene);
+    drawAmbientLifeBackground(ctx, palette, now, scene);
+  }

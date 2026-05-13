@@ -1,0 +1,728 @@
+  function initWeatherScene() {
+    const initialWeather = updateWeatherScene();
+    window.setInterval(updateWeatherScene, weatherRefreshMs);
+    return initialWeather;
+  }
+
+  function updateWeatherScene() {
+    const locationPromise = runtime.weatherLocation
+      ? Promise.resolve(runtime.weatherLocation)
+      : resolveWeatherLocation().then(function(location) {
+        runtime.weatherLocation = location;
+        return location;
+      });
+
+    return locationPromise
+      .then(fetchWeatherScene)
+      .then(function(scene) {
+        runtime.weatherScene = scene;
+      })
+      .catch(function() {
+        runtime.weatherScene = createLocalWeatherScene(defaultWeatherLocation, getRuntimeDate());
+        return runtime.weatherScene;
+      });
+  }
+
+  function resolveWeatherLocation() {
+    return new Promise(function(resolve) {
+      if (!navigator.geolocation) {
+        resolve(defaultWeatherLocation);
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(function(position) {
+        resolve({
+          label: 'Twoja okolica',
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          fallback: false
+        });
+      }, function() {
+        resolve(defaultWeatherLocation);
+      }, {
+        enableHighAccuracy: false,
+        maximumAge: 15 * 60 * 1000,
+        timeout: 3500
+      });
+    });
+  }
+
+  function fetchWeatherScene(location) {
+    if (!window.fetch) {
+      return Promise.resolve(createLocalWeatherScene(location, getRuntimeDate()));
+    }
+
+    const params = new URLSearchParams({
+      latitude: String(location.latitude),
+      longitude: String(location.longitude),
+      current: [
+        'temperature_2m',
+        'relative_humidity_2m',
+        'apparent_temperature',
+        'weather_code',
+        'is_day',
+        'precipitation',
+        'rain',
+        'showers',
+        'snowfall',
+        'cloud_cover',
+        'cloud_cover_low',
+        'cloud_cover_mid',
+        'cloud_cover_high',
+        'pressure_msl',
+        'wind_speed_10m',
+        'wind_direction_10m',
+        'wind_gusts_10m'
+      ].join(','),
+      daily: 'sunrise,sunset',
+      timezone: 'auto',
+      forecast_hours: '1'
+    });
+
+    return window.fetch('https://api.open-meteo.com/v1/forecast?' + params.toString(), {
+      cache: 'no-store'
+    }).then(function(response) {
+      if (!response.ok) {
+        throw new Error('Nie udało się pobrać pogody.');
+      }
+
+      return response.json();
+    }).then(function(data) {
+      return createWeatherScene(data, location);
+    });
+  }
+
+  function createWeatherScene(data, location) {
+    const current = data && data.current ? data.current : {};
+    const weatherDate = parseWeatherLocalTime(current.time) || getRuntimeDate();
+    const sunTimes = getSunTimesForWeather(data, location, weatherDate);
+    const code = Number(current.weather_code);
+    const cloudCover = clamp(Number(current.cloud_cover), 0, 100, 35);
+    const rain = Math.max(0, Number(current.rain) || 0);
+    const showers = Math.max(0, Number(current.showers) || 0);
+    const snowfall = Math.max(0, Number(current.snowfall) || 0);
+    const precipitation = Math.max(
+      0,
+      Number(current.precipitation) || 0,
+      rain,
+      showers,
+      snowfall
+    );
+    const dayPhase = sunTimes
+      ? getDayPhaseFromSun(weatherDate, sunTimes.sunrise, sunTimes.sunset)
+      : getLocalDayPhase(weatherDate);
+    const dayTone = sunTimes
+      ? getDayToneFromSun(weatherDate, sunTimes.sunrise, sunTimes.sunset)
+      : getLocalDayTone(weatherDate);
+
+    return finalizeWeatherScene({
+      locationLabel: location.label,
+      latitude: location.latitude,
+      longitude: location.longitude,
+      isFallbackLocation: Boolean(location.fallback),
+      code: Number.isFinite(code) ? code : 0,
+      temperature: readOptionalNumber(current.temperature_2m),
+      apparentTemperature: readOptionalNumber(current.apparent_temperature),
+      humidity: clamp(Number(current.relative_humidity_2m), 0, 100, 60),
+      pressure: readOptionalNumber(current.pressure_msl),
+      isDay: isDayPhase(dayPhase),
+      dayPhase: dayPhase,
+      dayTone: dayTone,
+      condition: getWeatherCondition(code, precipitation, cloudCover, snowfall),
+      cloudCover: cloudCover,
+      cloudCoverLow: clamp(Number(current.cloud_cover_low), 0, 100, cloudCover),
+      cloudCoverMid: clamp(Number(current.cloud_cover_mid), 0, 100, cloudCover),
+      cloudCoverHigh: clamp(Number(current.cloud_cover_high), 0, 100, cloudCover),
+      precipitation: precipitation,
+      rain: rain,
+      showers: showers,
+      snowfall: snowfall,
+      windSpeed: clamp(Number(current.wind_speed_10m), 0, 180, 0),
+      windDirection: normalizeDegrees(Number(current.wind_direction_10m) || 0),
+      windGusts: clamp(Number(current.wind_gusts_10m), 0, 220, 0),
+      sunriseAt: sunTimes ? sunTimes.sunrise.toISOString() : null,
+      sunsetAt: sunTimes ? sunTimes.sunset.toISOString() : null,
+      updatedAt: getRuntimeNow()
+    });
+  }
+
+  function createLocalWeatherScene(location, date) {
+    const now = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
+    const sunTimes = calculateSunTimes(now, location.latitude, location.longitude);
+    const dayPhase = sunTimes
+      ? getDayPhaseFromSun(now, sunTimes.sunrise, sunTimes.sunset)
+      : getLocalDayPhase(now);
+    const dayTone = sunTimes
+      ? getDayToneFromSun(now, sunTimes.sunrise, sunTimes.sunset)
+      : getLocalDayTone(now);
+
+    return finalizeWeatherScene({
+      locationLabel: location.label,
+      latitude: location.latitude,
+      longitude: location.longitude,
+      isFallbackLocation: Boolean(location.fallback),
+      code: 0,
+      temperature: null,
+      apparentTemperature: null,
+      humidity: 62,
+      pressure: null,
+      isDay: isDayPhase(dayPhase),
+      dayPhase: dayPhase,
+      dayTone: dayTone,
+      condition: 'clear',
+      cloudCover: 25,
+      cloudCoverLow: 14,
+      cloudCoverMid: 20,
+      cloudCoverHigh: 26,
+      precipitation: 0,
+      rain: 0,
+      showers: 0,
+      snowfall: 0,
+      windSpeed: 6,
+      windDirection: 250,
+      windGusts: 12,
+      sunriseAt: sunTimes ? sunTimes.sunrise.toISOString() : null,
+      sunsetAt: sunTimes ? sunTimes.sunset.toISOString() : null,
+      updatedAt: now.getTime()
+    });
+  }
+
+  function getCurrentWeatherScene() {
+    const scene = runtime.weatherScene || createLocalWeatherScene(defaultWeatherLocation, getRuntimeDate());
+    const now = getRuntimeDate();
+    const dayPhase = getDayPhaseForScene(scene, now);
+    const dayTone = getDayToneForScene(scene, now);
+    const isDay = isDayPhase(dayPhase);
+    const debugWeather = runtime.debug && runtime.debug.enabled ? runtime.debug.weather : 'auto';
+    const baseFields = getBaseWeatherFields(scene);
+    const condition = debugWeather && debugWeather !== 'auto' ? debugWeather : baseFields.condition;
+    const hasDebugOverrides = runtime.debug && runtime.debug.enabled && hasDebugWeatherFieldOverrides(runtime.debug);
+    if (scene.isDay === isDay && scene.dayPhase === dayPhase && scene.dayTone === dayTone && scene.condition === condition && !hasDebugOverrides && scene.matchesBaseWeather) {
+      return scene;
+    }
+
+    const useConditionPreset = Boolean(debugWeather && debugWeather !== 'auto');
+    const debugFields = runtime.debug && runtime.debug.enabled
+      ? getDebugWeatherFields(condition, scene, runtime.debug, useConditionPreset)
+      : {};
+    const nextFields = Object.assign({}, baseFields, debugFields, {
+      condition: condition
+    });
+
+    runtime.weatherScene = finalizeWeatherScene(Object.assign({}, scene, {
+      isDay: isDay,
+      dayPhase: dayPhase,
+      dayTone: dayTone,
+      daylightUpdatedAt: getRuntimeNow()
+    }, getBaseWeatherMarkers(baseFields), nextFields, {
+      matchesBaseWeather: !runtime.debug || !runtime.debug.enabled || (!useConditionPreset && !hasDebugOverrides)
+    }));
+    return runtime.weatherScene;
+  }
+
+  function resetWeatherSceneToBase() {
+    if (!runtime.weatherScene) {
+      return;
+    }
+
+    const baseFields = getBaseWeatherFields(runtime.weatherScene);
+    runtime.weatherScene = finalizeWeatherScene(Object.assign(
+      {},
+      runtime.weatherScene,
+      getBaseWeatherMarkers(baseFields),
+      baseFields,
+      { matchesBaseWeather: true }
+    ));
+  }
+
+  function getBaseWeatherFields(scene) {
+    return {
+      code: Number.isFinite(Number(scene.baseCode)) ? Number(scene.baseCode) : scene.code,
+      condition: scene.baseCondition || scene.condition || 'clear',
+      humidity: Number.isFinite(Number(scene.baseHumidity)) ? Number(scene.baseHumidity) : scene.humidity,
+      cloudCover: Number.isFinite(Number(scene.baseCloudCover)) ? Number(scene.baseCloudCover) : scene.cloudCover,
+      cloudCoverLow: Number.isFinite(Number(scene.baseCloudCoverLow)) ? Number(scene.baseCloudCoverLow) : scene.cloudCoverLow,
+      cloudCoverMid: Number.isFinite(Number(scene.baseCloudCoverMid)) ? Number(scene.baseCloudCoverMid) : scene.cloudCoverMid,
+      cloudCoverHigh: Number.isFinite(Number(scene.baseCloudCoverHigh)) ? Number(scene.baseCloudCoverHigh) : scene.cloudCoverHigh,
+      precipitation: Number.isFinite(Number(scene.basePrecipitation)) ? Number(scene.basePrecipitation) : scene.precipitation,
+      rain: Number.isFinite(Number(scene.baseRain)) ? Number(scene.baseRain) : scene.rain,
+      showers: Number.isFinite(Number(scene.baseShowers)) ? Number(scene.baseShowers) : scene.showers,
+      snowfall: Number.isFinite(Number(scene.baseSnowfall)) ? Number(scene.baseSnowfall) : scene.snowfall,
+      windSpeed: Number.isFinite(Number(scene.baseWindSpeed)) ? Number(scene.baseWindSpeed) : scene.windSpeed,
+      windDirection: Number.isFinite(Number(scene.baseWindDirection)) ? Number(scene.baseWindDirection) : scene.windDirection,
+      windGusts: Number.isFinite(Number(scene.baseWindGusts)) ? Number(scene.baseWindGusts) : scene.windGusts
+    };
+  }
+
+  function getBaseWeatherMarkers(baseFields) {
+    return {
+      baseCode: baseFields.code,
+      baseCondition: baseFields.condition,
+      baseHumidity: baseFields.humidity,
+      baseCloudCover: baseFields.cloudCover,
+      baseCloudCoverLow: baseFields.cloudCoverLow,
+      baseCloudCoverMid: baseFields.cloudCoverMid,
+      baseCloudCoverHigh: baseFields.cloudCoverHigh,
+      basePrecipitation: baseFields.precipitation,
+      baseRain: baseFields.rain,
+      baseShowers: baseFields.showers,
+      baseSnowfall: baseFields.snowfall,
+      baseWindSpeed: baseFields.windSpeed,
+      baseWindDirection: baseFields.windDirection,
+      baseWindGusts: baseFields.windGusts
+    };
+  }
+
+  function finalizeWeatherScene(scene) {
+    const cloudCover = clamp(Number(scene.cloudCover), 0, 100, 25);
+    const low = clamp(Number(scene.cloudCoverLow), 0, 100, cloudCover);
+    const mid = clamp(Number(scene.cloudCoverMid), 0, 100, cloudCover);
+    const high = clamp(Number(scene.cloudCoverHigh), 0, 100, cloudCover);
+    const rain = Math.max(0, Number(scene.rain) || 0);
+    const showers = Math.max(0, Number(scene.showers) || 0);
+    const snowfall = Math.max(0, Number(scene.snowfall) || 0);
+    const precipitation = Math.max(0, Number(scene.precipitation) || 0, rain, showers, snowfall);
+    const windSpeed = clamp(Number(scene.windSpeed), 0, 180, 0);
+    const windGusts = clamp(Number(scene.windGusts), 0, 220, windSpeed);
+    const windDirection = normalizeDegrees(Number(scene.windDirection) || 0);
+    const rainAmount = Math.max(rain, showers, scene.condition === 'storm' ? precipitation : 0);
+    const snowAmount = scene.condition === 'snow' ? Math.max(snowfall, precipitation) : snowfall;
+    const rainIntensity = (scene.condition === 'rain' || scene.condition === 'storm') && rainAmount > 0
+      ? clamp(rainAmount / 7, 0.12, 1, 0.12)
+      : 0;
+    const snowIntensity = scene.condition === 'snow' && snowAmount > 0 ? clamp(snowAmount / 4, 0.12, 1, 0.12) : 0;
+    const windLevel = clamp(Math.max(windSpeed, windGusts * 0.78) / 82, 0, 1, 0);
+    const gustLevel = clamp(Math.max(0, windGusts - windSpeed) / 55, 0, 1, 0);
+    const cloudDensity = clamp((cloudCover * 0.5 + low * 0.2 + mid * 0.18 + high * 0.12) / 100, 0, 1, 0.25);
+    const thunderCode = [95, 96, 99].includes(Number(scene.code));
+    const stormIntensity = scene.condition === 'storm'
+      ? clamp((rainIntensity * 0.45) + (windLevel * 0.28) + (gustLevel * 0.18) + (thunderCode ? 0.25 : 0.08), thunderCode ? 0.18 : 0, 1, 0)
+      : 0;
+    const windVector = getWindVector(windDirection);
+
+    return Object.assign({}, scene, {
+      cloudCover: cloudCover,
+      cloudCoverLow: low,
+      cloudCoverMid: mid,
+      cloudCoverHigh: high,
+      cloudDensity: cloudDensity,
+      precipitation: precipitation,
+      rain: rain,
+      showers: showers,
+      snowfall: snowfall,
+      rainIntensity: rainIntensity,
+      snowIntensity: snowIntensity,
+      stormIntensity: stormIntensity,
+      windSpeed: windSpeed,
+      windDirection: windDirection,
+      windGusts: windGusts,
+      windLevel: windLevel,
+      gustLevel: gustLevel,
+      windVector: windVector,
+      weatherSeverity: Math.max(rainIntensity, snowIntensity, stormIntensity, windLevel * 0.58, cloudDensity * 0.45)
+    });
+  }
+
+  function readOptionalNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function getWindVector(direction) {
+    const travelDirection = normalizeDegrees(direction + 180);
+    const radians = toRadians(travelDirection);
+    return {
+      x: Math.sin(radians),
+      y: -Math.cos(radians)
+    };
+  }
+
+  function hasDebugWeatherFieldOverrides(debug) {
+    return debug.cloudCoverOverride !== null
+      || debug.precipitationOverride !== null
+      || debug.windSpeedOverride !== null
+      || debug.windDirectionOverride !== null;
+  }
+
+  function getDebugWeatherFields(condition, scene, debug, useConditionPreset) {
+    let fields = {};
+
+    if (!useConditionPreset) {
+      return applyDebugWeatherMeterOverrides(fields, debug, condition);
+    }
+
+    if (condition === 'clear') {
+      fields = {
+        cloudCover: 12,
+        cloudCoverLow: 6,
+        cloudCoverMid: 8,
+        cloudCoverHigh: 18,
+        precipitation: 0,
+        rain: 0,
+        showers: 0,
+        snowfall: 0,
+        windSpeed: scene.windSpeed || 7,
+        windGusts: scene.windGusts || 12
+      };
+    } else if (condition === 'cloudy') {
+      fields = {
+        cloudCover: 86,
+        cloudCoverLow: 62,
+        cloudCoverMid: 74,
+        cloudCoverHigh: 70,
+        precipitation: 0,
+        rain: 0,
+        showers: 0,
+        snowfall: 0,
+        windSpeed: Math.max(scene.windSpeed || 0, 15),
+        windGusts: Math.max(scene.windGusts || 0, 26)
+      };
+    } else if (condition === 'rain') {
+      fields = {
+        cloudCover: 88,
+        cloudCoverLow: 82,
+        cloudCoverMid: 76,
+        cloudCoverHigh: 58,
+        precipitation: 2.4,
+        rain: 2.4,
+        showers: 1.2,
+        snowfall: 0,
+        windSpeed: Math.max(scene.windSpeed || 0, 20),
+        windGusts: Math.max(scene.windGusts || 0, 34)
+      };
+    } else if (condition === 'storm') {
+      fields = {
+        code: 95,
+        cloudCover: 96,
+        cloudCoverLow: 92,
+        cloudCoverMid: 90,
+        cloudCoverHigh: 76,
+        precipitation: 5.8,
+        rain: 5.2,
+        showers: 3.6,
+        snowfall: 0,
+        windSpeed: Math.max(scene.windSpeed || 0, 46),
+        windGusts: Math.max(scene.windGusts || 0, 82)
+      };
+    } else if (condition === 'snow') {
+      fields = {
+        cloudCover: 86,
+        cloudCoverLow: 70,
+        cloudCoverMid: 78,
+        cloudCoverHigh: 82,
+        precipitation: 1.4,
+        rain: 0,
+        showers: 0,
+        snowfall: 1.4,
+        windSpeed: Math.max(scene.windSpeed || 0, 14),
+        windGusts: Math.max(scene.windGusts || 0, 25)
+      };
+    } else if (condition === 'fog') {
+      fields = {
+        humidity: 96,
+        cloudCover: 94,
+        cloudCoverLow: 100,
+        cloudCoverMid: 48,
+        cloudCoverHigh: 36,
+        precipitation: 0,
+        rain: 0,
+        showers: 0,
+        snowfall: 0,
+        windSpeed: Math.min(scene.windSpeed || 6, 8),
+        windGusts: Math.min(scene.windGusts || 10, 12)
+      };
+    }
+
+    return applyDebugWeatherMeterOverrides(fields, debug, condition);
+  }
+
+  function applyDebugWeatherMeterOverrides(fields, debug, condition) {
+    const result = Object.assign({}, fields);
+    if (debug.cloudCoverOverride !== null) {
+      const cloud = clamp(Number(debug.cloudCoverOverride), 0, 100, 0);
+      result.cloudCover = cloud;
+      result.cloudCoverLow = cloud;
+      result.cloudCoverMid = Math.max(0, cloud - 8);
+      result.cloudCoverHigh = Math.max(0, cloud - 16);
+    }
+
+    if (debug.precipitationOverride !== null) {
+      const precipitation = clamp(Number(debug.precipitationOverride), 0, 10, 0);
+      const isSnow = condition === 'snow';
+      result.precipitation = precipitation;
+      result.rain = isSnow ? 0 : precipitation;
+      result.showers = isSnow ? 0 : precipitation * 0.45;
+      result.snowfall = isSnow ? precipitation : 0;
+    }
+
+    if (debug.windSpeedOverride !== null) {
+      const wind = clamp(Number(debug.windSpeedOverride), 0, 100, 0);
+      result.windSpeed = wind;
+      result.windGusts = Math.max(wind, wind * 1.25);
+    }
+
+    if (debug.windDirectionOverride !== null) {
+      result.windDirection = clamp(Number(debug.windDirectionOverride), 0, 359, 0);
+    }
+
+    return result;
+  }
+
+  function isLocalDay(date) {
+    return isDayPhase(getLocalDayPhase(date));
+  }
+
+  function getSunTimesForWeather(data, location, date) {
+    const sunrise = parseWeatherLocalTime(getWeatherDailyTime(data, 'sunrise'));
+    const sunset = parseWeatherLocalTime(getWeatherDailyTime(data, 'sunset'));
+    if (sunrise && sunset) {
+      return { sunrise: sunrise, sunset: sunset };
+    }
+
+    return calculateSunTimes(date, location.latitude, location.longitude);
+  }
+
+  function getDayPhaseForScene(scene, date) {
+    const sunrise = parseWeatherLocalTime(scene.sunriseAt);
+    const sunset = parseWeatherLocalTime(scene.sunsetAt);
+    if (sunrise && sunset && isSameLocalDate(date, sunrise)) {
+      return getDayPhaseFromSun(date, sunrise, sunset);
+    }
+
+    const sunTimes = calculateSunTimes(date, scene.latitude, scene.longitude);
+    if (sunTimes) {
+      return getDayPhaseFromSun(date, sunTimes.sunrise, sunTimes.sunset);
+    }
+
+    return getLocalDayPhase(date);
+  }
+
+  function getDayToneForScene(scene, date) {
+    const sunrise = parseWeatherLocalTime(scene.sunriseAt);
+    const sunset = parseWeatherLocalTime(scene.sunsetAt);
+    if (sunrise && sunset && isSameLocalDate(date, sunrise)) {
+      return getDayToneFromSun(date, sunrise, sunset);
+    }
+
+    const sunTimes = calculateSunTimes(date, scene.latitude, scene.longitude);
+    if (sunTimes) {
+      return getDayToneFromSun(date, sunTimes.sunrise, sunTimes.sunset);
+    }
+
+    return getLocalDayTone(date);
+  }
+
+  function getWeatherDailyTime(data, key) {
+    const values = data && data.daily && Array.isArray(data.daily[key]) ? data.daily[key] : null;
+    return values && values.length ? values[0] : null;
+  }
+
+  function parseWeatherLocalTime(value) {
+    if (!value) {
+      return null;
+    }
+
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function getLocalDayPhase(date) {
+    const hour = date.getHours() + date.getMinutes() / 60;
+    if (hour >= 5 && hour < 6.5) {
+      return 'sunrise';
+    }
+    if (hour >= 6.5 && hour < 10.5) {
+      return 'morning';
+    }
+    if (hour >= 10.5 && hour < 14) {
+      return 'noon';
+    }
+    if (hour >= 14 && hour < 17) {
+      return 'afternoon';
+    }
+    if (hour >= 17 && hour < 19) {
+      return 'evening';
+    }
+    if (hour >= 19 && hour < 20.5) {
+      return 'sunset';
+    }
+    return 'night';
+  }
+
+  function getLocalDayTone(date) {
+    const hour = date.getHours() + date.getMinutes() / 60;
+    if (hour >= 4.5 && hour < 5.4) {
+      return 'dawnBlue';
+    }
+    if (hour >= 5.4 && hour < 7) {
+      return 'dawnGold';
+    }
+    if (hour >= 18 && hour < 19.5) {
+      return 'duskGold';
+    }
+    if (hour >= 19.5 && hour < 20.7) {
+      return 'duskBlue';
+    }
+    return 'neutral';
+  }
+
+  function getDayPhaseFromSun(date, sunrise, sunset) {
+    const current = minutesOfDay(date);
+    const sunriseMinute = minutesOfDay(sunrise);
+    const sunsetMinute = minutesOfDay(sunset);
+    const noonMinute = sunriseMinute + (sunsetMinute - sunriseMinute) / 2;
+
+    if (current < sunriseMinute - 45 || current >= sunsetMinute + 60) {
+      return 'night';
+    }
+    if (current < sunriseMinute + 60) {
+      return 'sunrise';
+    }
+    if (current < Math.min(noonMinute - 90, sunriseMinute + 240)) {
+      return 'morning';
+    }
+    if (current < noonMinute + 90) {
+      return 'noon';
+    }
+    if (current < sunsetMinute - 180) {
+      return 'afternoon';
+    }
+    if (current < sunsetMinute - 45) {
+      return 'evening';
+    }
+    return 'sunset';
+  }
+
+  function getDayToneFromSun(date, sunrise, sunset) {
+    const current = minutesOfDay(date);
+    const sunriseMinute = minutesOfDay(sunrise);
+    const sunsetMinute = minutesOfDay(sunset);
+
+    if (current >= sunriseMinute - 45 && current < sunriseMinute - 10) {
+      return 'dawnBlue';
+    }
+    if (current >= sunriseMinute - 10 && current < sunriseMinute + 90) {
+      return 'dawnGold';
+    }
+    if (current >= sunsetMinute - 90 && current < sunsetMinute + 15) {
+      return 'duskGold';
+    }
+    if (current >= sunsetMinute + 15 && current < sunsetMinute + 70) {
+      return 'duskBlue';
+    }
+    return 'neutral';
+  }
+
+  function calculateSunTimes(date, latitude, longitude) {
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      return null;
+    }
+
+    const sunrise = calculateSunTime(date, latitude, longitude, true);
+    const sunset = calculateSunTime(date, latitude, longitude, false);
+    return sunrise && sunset ? { sunrise: sunrise, sunset: sunset } : null;
+  }
+
+  function calculateSunTime(date, latitude, longitude, sunrise) {
+    const zenith = 90.833;
+    const day = getDayOfYear(date);
+    const lngHour = longitude / 15;
+    const targetHour = sunrise ? 6 : 18;
+    const t = day + (targetHour - lngHour) / 24;
+    const meanAnomaly = normalizeDegrees(0.9856 * t - 3.289);
+    const trueLongitude = normalizeDegrees(
+      meanAnomaly
+      + 1.916 * Math.sin(toRadians(meanAnomaly))
+      + 0.020 * Math.sin(toRadians(2 * meanAnomaly))
+      + 282.634
+    );
+    let rightAscension = toDegrees(Math.atan(0.91764 * Math.tan(toRadians(trueLongitude))));
+    rightAscension = normalizeDegrees(rightAscension);
+    rightAscension += Math.floor(trueLongitude / 90) * 90 - Math.floor(rightAscension / 90) * 90;
+    rightAscension /= 15;
+
+    const sinDec = 0.39782 * Math.sin(toRadians(trueLongitude));
+    const cosDec = Math.cos(Math.asin(sinDec));
+    const cosHour = (
+      Math.cos(toRadians(zenith)) - sinDec * Math.sin(toRadians(latitude))
+    ) / (cosDec * Math.cos(toRadians(latitude)));
+
+    if (cosHour > 1 || cosHour < -1) {
+      return null;
+    }
+
+    let hourAngle = sunrise
+      ? 360 - toDegrees(Math.acos(cosHour))
+      : toDegrees(Math.acos(cosHour));
+    hourAngle /= 15;
+
+    const localMeanTime = hourAngle + rightAscension - 0.06571 * t - 6.622;
+    const universalTime = normalizeHours(localMeanTime - lngHour);
+    const utcMidnight = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+    return new Date(utcMidnight + universalTime * 60 * 60 * 1000);
+  }
+
+  function getDayOfYear(date) {
+    const start = Date.UTC(date.getFullYear(), 0, 0);
+    const current = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+    return Math.floor((current - start) / 86400000);
+  }
+
+  function normalizeDegrees(value) {
+    return ((value % 360) + 360) % 360;
+  }
+
+  function normalizeHours(value) {
+    return ((value % 24) + 24) % 24;
+  }
+
+  function toRadians(value) {
+    return value * Math.PI / 180;
+  }
+
+  function toDegrees(value) {
+    return value * 180 / Math.PI;
+  }
+
+  function isSameLocalDate(left, right) {
+    return left.getFullYear() === right.getFullYear()
+      && left.getMonth() === right.getMonth()
+      && left.getDate() === right.getDate();
+  }
+
+  function minutesOfDay(date) {
+    return date.getHours() * 60 + date.getMinutes();
+  }
+
+  function isDayPhase(dayPhase) {
+    return dayPhase !== 'night';
+  }
+
+  function getWeatherCondition(code, precipitation, cloudCover, snowfall) {
+    const core = window.PieczargotchiCore;
+    if (core && core.classifyWeatherCondition) {
+      return core.classifyWeatherCondition(code, precipitation, cloudCover, snowfall);
+    }
+
+    if ([95, 96, 99].includes(code)) {
+      return 'storm';
+    }
+
+    if ((code >= 71 && code <= 77) || code === 85 || code === 86 || snowfall > 0.05) {
+      return 'snow';
+    }
+
+    if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82) || precipitation > 0.05) {
+      return 'rain';
+    }
+
+    if (code === 45 || code === 48) {
+      return 'fog';
+    }
+
+    if ((code >= 1 && code <= 3) || cloudCover > 62) {
+      return 'cloudy';
+    }
+
+    return 'clear';
+  }

@@ -9,8 +9,12 @@ const outputPrefix = process.argv[3] || path.join(tmpdir(), 'pieczargotchi-rende
 const chromiumPath = process.env.CHROMIUM_BIN || '/usr/bin/chromium';
 const viewportWidth = Number(process.env.PIECZARGOTCHI_VIEWPORT_WIDTH) || 1194;
 const viewportHeight = Number(process.env.PIECZARGOTCHI_VIEWPORT_HEIGHT) || 891;
+const emulateMobile = process.env.PIECZARGOTCHI_EMULATE_MOBILE === '1';
+const captureDelayMs = Number(process.env.PIECZARGOTCHI_CAPTURE_DELAY_MS) || 350;
 const port = 9237 + Math.floor(Math.random() * 400);
 const userDataDir = path.join(tmpdir(), `pieczargotchi-cdp-${Date.now()}`);
+const captureDebugSettings = createCaptureDebugSettings();
+const captureSceneOverrides = createCaptureSceneOverrides();
 const stageSamples = [
   ['spore', 0],
   ['baby', 12],
@@ -19,6 +23,73 @@ const stageSamples = [
   ['legendary', 100]
 ];
 const activitySamples = ['hydrate', 'feed', 'clean', 'play', 'instrument', 'sing', 'spores', 'harvest'];
+
+function createCaptureDebugSettings() {
+  const weather = process.env.PIECZARGOTCHI_DEBUG_WEATHER || 'auto';
+  const cloud = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_CLOUD');
+  const precipitation = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_PRECIPITATION');
+  const wind = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_WIND');
+  const windDirection = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_WIND_DIRECTION');
+  const fixedAt = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_FIXED_AT');
+  const easterEgg = process.env.PIECZARGOTCHI_DEBUG_EASTER_EGG || 'auto';
+  const location = process.env.PIECZARGOTCHI_DEBUG_LOCATION || 'auto';
+  const moonPhase = process.env.PIECZARGOTCHI_DEBUG_MOON_PHASE || 'auto';
+  const constellation = process.env.PIECZARGOTCHI_DEBUG_CONSTELLATION || 'auto';
+  const hasDebugWeather = weather !== 'auto'
+    || cloud !== null
+    || precipitation !== null
+    || wind !== null
+    || windDirection !== null
+    || fixedAt !== null
+    || easterEgg !== 'auto'
+    || location !== 'auto'
+    || moonPhase !== 'auto'
+    || constellation !== 'auto';
+
+  if (!hasDebugWeather) {
+    return null;
+  }
+
+  return {
+    enabled: true,
+    fixedAt: fixedAt === null ? Date.now() : fixedAt,
+    weather,
+    cloudCoverOverride: cloud,
+    precipitationOverride: precipitation,
+    windSpeedOverride: wind,
+    windDirectionOverride: windDirection,
+    locationOverride: location,
+    moonPhaseOverride: moonPhase,
+    forcedConstellation: constellation,
+    forcedAnimation: 'auto',
+    forcedAnimationStartedAt: 0,
+    neutralEasterEggOverride: easterEgg,
+    panelOpen: false
+  };
+}
+
+function readOptionalEnvNumber(name) {
+  const value = process.env[name];
+  if (value === undefined || value === '') {
+    return null;
+  }
+
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function createCaptureSceneOverrides() {
+  const temperature = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_TEMPERATURE');
+  const humidity = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_HUMIDITY');
+  if (temperature === null && humidity === null) {
+    return null;
+  }
+
+  return {
+    temperature,
+    humidity
+  };
+}
 
 const browser = spawn(chromiumPath, [
   '--headless=new',
@@ -41,7 +112,7 @@ try {
     width: viewportWidth,
     height: viewportHeight,
     deviceScaleFactor: 1,
-    mobile: false
+    mobile: emulateMobile
   });
 
   await navigate(cdp, appUrl);
@@ -66,6 +137,10 @@ try {
     }
   }
 
+  if (process.env.PIECZARGOTCHI_CAPTURE_ARENA === '1') {
+    await captureArena(cdp);
+  }
+
   await cdp.close();
 } finally {
   browser.kill('SIGTERM');
@@ -85,13 +160,13 @@ async function captureState(cdp, mode) {
     mode: mode === 'sleeping' ? 'sleeping' : 'awake',
     growth: 0,
     activity: mode === 'wake'
-      ? `{ type: 'wake', label: 'O_O', startedAt: Date.now(), until: Date.now() + 1800 }`
+      ? `{ type: 'wake', label: 'O_O', startedAt: runtimeNow, until: runtimeNow + 1800 }`
       : 'null',
     expectedAnimationKey: mode === 'sleeping'
       ? 'spore.sleep'
       : mode === 'wake'
         ? 'spore.wake'
-        : 'spore.idle'
+        : getExpectedAwakeIdleAnimationKey('spore')
   });
 }
 
@@ -100,7 +175,7 @@ async function captureStage(cdp, stage, growth) {
     mode: 'awake',
     growth,
     activity: 'null',
-    expectedAnimationKey: `${stage}.idle`
+    expectedAnimationKey: getExpectedAwakeIdleAnimationKey(stage)
   });
 }
 
@@ -108,9 +183,234 @@ async function captureActivity(cdp, stage, growth, activity) {
   await captureCanvas(cdp, `activity-${stage}-${activity}`, {
     mode: 'awake',
     growth,
-    activity: `{ type: ${JSON.stringify(activity)}, label: ${JSON.stringify(activity)}, startedAt: Date.now(), until: Date.now() + 2400 }`,
+    activity: `{ type: ${JSON.stringify(activity)}, label: ${JSON.stringify(activity)}, startedAt: runtimeNow, until: runtimeNow + 2400 }`,
     expectedAnimationKey: `${stage}.activity.${activity}`
   });
+}
+
+async function captureArena(cdp) {
+  await assertArenaUnlockVisibility(cdp);
+  const now = Date.now();
+  const stateExpression = `(() => {
+    const config = window.PIECZARGOTCHI_CONFIG;
+    const state = JSON.parse(JSON.stringify(config.state.defaultState));
+    const iso = new Date(${now}).toISOString();
+    state.version = config.stateVersion;
+    state.playerId = 'arena-audit';
+    state.createdAt = iso;
+    state.lastUpdatedAt = iso;
+    state.mode = 'awake';
+    state.stats.growth = 100;
+    state.stats.hydration = 86;
+    state.stats.nutrients = 86;
+    state.stats.energy = 90;
+    state.stats.happiness = 88;
+    state.stats.cleanliness = 90;
+    state.stats.health = 100;
+    state.inventory.spores = 6;
+    state.coins = 6;
+    localStorage.setItem(config.storageKey, JSON.stringify(state));
+  })()`;
+
+  await cdp.send('Runtime.evaluate', { expression: stateExpression, awaitPromise: true });
+  await waitForLoad(cdp, () => cdp.send('Page.reload', { ignoreCache: true }));
+  await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.booted)`, 6000);
+  await cdp.send('Runtime.evaluate', {
+    expression: `document.querySelector('[data-view-arena]').click()`,
+    awaitPromise: true
+  });
+  await waitForExpression(cdp, `!document.querySelector('[data-arena-panel]').hidden`, 2000);
+  await cdp.send('Runtime.evaluate', {
+    expression: `document.querySelector('[data-battle-start]').click()`,
+    awaitPromise: true
+  });
+  await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime.state.battle.activeBattle)`, 2000);
+  await delay(captureDelayMs);
+
+  const info = await getArenaLayout(cdp);
+  assertArenaLayout(info);
+
+  const screenshot = await cdp.send('Page.captureScreenshot', {
+    format: 'png',
+    fromSurface: true,
+    clip: { x: 0, y: 0, width: viewportWidth, height: viewportHeight, scale: 1 }
+  });
+  const filePath = `${outputPrefix}-arena-${viewportWidth}x${viewportHeight}.png`;
+  writeFileSync(filePath, Buffer.from(screenshot.data, 'base64'));
+  console.log(`arena: ${filePath}`);
+  console.log(`arena layout: moves=${info.moveColumns}, minMoveHeight=${Math.round(info.minMoveHeight)}px, arenaHidden=${info.arenaHidden}`);
+}
+
+async function assertArenaUnlockVisibility(cdp) {
+  await setCaptureGrowth(cdp, 70);
+  let visibility = await getArenaVisibility(cdp);
+  if (!visibility.switchHidden || !visibility.arenaHidden) {
+    throw new Error('Arena powinna być ukryta przed etapem legendary.');
+  }
+
+  await setCaptureGrowth(cdp, 100);
+  visibility = await getArenaVisibility(cdp);
+  if (visibility.switchHidden) {
+    throw new Error('Przełącznik areny powinien być widoczny na etapie legendary.');
+  }
+}
+
+async function setCaptureGrowth(cdp, growth) {
+  const now = Date.now();
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const config = window.PIECZARGOTCHI_CONFIG;
+      const state = JSON.parse(JSON.stringify(config.state.defaultState));
+      const iso = new Date(${now}).toISOString();
+      state.version = config.stateVersion;
+      state.playerId = 'arena-unlock-audit';
+      state.createdAt = iso;
+      state.lastUpdatedAt = iso;
+      state.mode = 'awake';
+      state.stats.growth = ${growth};
+      state.stats.hydration = 80;
+      state.stats.nutrients = 80;
+      state.stats.energy = 80;
+      state.stats.happiness = 80;
+      state.stats.cleanliness = 80;
+      state.stats.health = 100;
+      localStorage.setItem(config.storageKey, JSON.stringify(state));
+    })()`,
+    awaitPromise: true
+  });
+  await waitForLoad(cdp, () => cdp.send('Page.reload', { ignoreCache: true }));
+  await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.booted)`, 6000);
+}
+
+async function getArenaVisibility(cdp) {
+  const result = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const viewSwitch = document.querySelector('[data-view-switch]');
+      const arenaPanel = document.querySelector('[data-arena-panel]');
+      return {
+        switchHidden: !viewSwitch || viewSwitch.hidden || getComputedStyle(viewSwitch).display === 'none',
+        arenaHidden: !arenaPanel || arenaPanel.hidden || getComputedStyle(arenaPanel).display === 'none'
+      };
+    })()`,
+    returnByValue: true
+  });
+  return result.result.value;
+}
+
+async function getArenaLayout(cdp) {
+  const result = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const rectOf = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) {
+          return null;
+        }
+        const rect = element.getBoundingClientRect();
+        return {
+          top: rect.top,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height
+        };
+      };
+      const moveButtons = Array.from(document.querySelectorAll('.battle-move-button')).map((button) => {
+        const rect = button.getBoundingClientRect();
+        return {
+          height: rect.height,
+          text: button.textContent,
+          clipped: button.scrollWidth > button.clientWidth + 1 || button.scrollHeight > button.clientHeight + 1
+        };
+      });
+      const moves = document.querySelector('.battle-moves');
+      const moveColumns = moves
+        ? getComputedStyle(moves).gridTemplateColumns.split(' ').filter(Boolean).length
+        : 0;
+      const canvas = document.getElementById('mushroomCanvas');
+      const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+      let nonBlank = 0;
+      for (let index = 3; index < imageData.length; index += 40) {
+        if (imageData[index] !== 0) {
+          nonBlank += 1;
+        }
+      }
+      return {
+        innerWidth,
+        innerHeight,
+        documentWidth: document.documentElement.scrollWidth,
+        stage: rectOf('.stage-panel'),
+        message: rectOf('.message-panel'),
+        arena: rectOf('[data-arena-panel]'),
+        moves: rectOf('.battle-moves'),
+        status: rectOf('.battle-status'),
+        log: rectOf('.battle-log'),
+        moveColumns,
+        minMoveHeight: moveButtons.reduce((min, button) => Math.min(min, button.height), Infinity),
+        clippedMoves: moveButtons.filter((button) => button.clipped).map((button) => button.text),
+        arenaHidden: document.querySelector('[data-arena-panel]').hidden,
+        nonBlank
+      };
+    })()`,
+    returnByValue: true
+  });
+  return result.result.value;
+}
+
+function assertArenaLayout(info) {
+  if (info.documentWidth > info.innerWidth + 1) {
+    throw new Error(`Arena wychodzi poza viewport: document=${info.documentWidth}, width=${info.innerWidth}`);
+  }
+  if (!info.stage || !info.message || !info.arena || !info.moves || !info.status || !info.log) {
+    throw new Error('Brakuje kluczowych elementów areny.');
+  }
+  if (info.arenaHidden) {
+    throw new Error('Panel areny jest ukryty po przełączeniu.');
+  }
+  if (info.moveColumns !== 2) {
+    throw new Error(`Ruchy areny powinny mieć 2 kolumny, wykryto ${info.moveColumns}.`);
+  }
+  if (info.minMoveHeight < 48) {
+    throw new Error(`Ruchy areny mają za niski touch target: ${Math.round(info.minMoveHeight)}px.`);
+  }
+  if (info.clippedMoves.length) {
+    throw new Error(`Ucięte etykiety ruchów areny: ${info.clippedMoves.join(', ')}`);
+  }
+  if (rectsHorizontallyOverlap(info.moves, info.message) && info.moves.top < info.message.bottom - 1) {
+    throw new Error('Ruchy areny nakładają się na komunikat.');
+  }
+  if (info.status.top < info.moves.bottom - 1 || info.log.top < info.status.bottom - 1) {
+    throw new Error('Status i log areny powinny być pod ruchami.');
+  }
+  if (info.nonBlank < 100) {
+    throw new Error('Canvas areny wygląda na pusty.');
+  }
+}
+
+function rectsHorizontallyOverlap(first, second) {
+  if (!first || !second) {
+    return false;
+  }
+  return first.left < second.right - 1 && second.left < first.right - 1;
+}
+
+function getExpectedAwakeIdleAnimationKey(stage) {
+  if (!captureDebugSettings || captureDebugSettings.neutralEasterEggOverride === 'auto') {
+    return `${stage}.idle`;
+  }
+
+  if (captureDebugSettings.neutralEasterEggOverride === 'iwonia' && isCaptureRainy()) {
+    return `${stage}.easter.neutral_rain`;
+  }
+
+  return `${stage}.easter.neutral`;
+}
+
+function isCaptureRainy() {
+  if (!captureDebugSettings) {
+    return false;
+  }
+
+  return ['rain', 'storm'].includes(captureDebugSettings.weather)
+    && Math.max(0, Number(captureDebugSettings.precipitationOverride) || 0) > 0;
 }
 
 async function captureCanvas(cdp, label, options) {
@@ -118,7 +418,11 @@ async function captureCanvas(cdp, label, options) {
   const stateExpression = `(() => {
     const config = window.PIECZARGOTCHI_CONFIG;
     const state = JSON.parse(JSON.stringify(config.state.defaultState));
-    const iso = new Date(${now}).toISOString();
+    const debugSettings = ${JSON.stringify(captureDebugSettings)};
+    const runtimeNow = debugSettings && Number.isFinite(Number(debugSettings.fixedAt))
+      ? Number(debugSettings.fixedAt)
+      : ${now};
+    const iso = new Date(runtimeNow).toISOString();
     state.version = config.stateVersion;
     state.playerId = 'audit';
     state.createdAt = iso;
@@ -137,12 +441,17 @@ async function captureCanvas(cdp, label, options) {
     state.attention.severity = null;
     state.currentActivity = ${options.activity};
     localStorage.setItem(config.storageKey, JSON.stringify(state));
+    if (debugSettings) {
+      localStorage.setItem((config.storageKey || 'pieczargotchi_state_v2') + '_debug', JSON.stringify(debugSettings));
+    }
   })()`;
 
   await cdp.send('Runtime.evaluate', { expression: stateExpression, awaitPromise: true });
   await waitForLoad(cdp, () => cdp.send('Page.reload', { ignoreCache: true }));
   await waitForExpression(cdp, `document.querySelector('[data-asset-status]') && document.querySelector('[data-asset-status]').textContent.includes('Grafiki załadowane')`, 6000);
-  await delay(350);
+  await applyCaptureSceneOverrides(cdp);
+  await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.booted && window.__pieczargotchiRuntime.currentAnimationKey)`, 6000);
+  await delay(captureDelayMs);
 
   const animationKey = await getCurrentAnimationKey(cdp);
   if (options.expectedAnimationKey && animationKey !== options.expectedAnimationKey) {
@@ -161,28 +470,137 @@ async function captureCanvas(cdp, label, options) {
   if (animationKey) {
     console.log(`${label} animation: ${animationKey}`);
   }
+
+  if (process.env.PIECZARGOTCHI_CAPTURE_LIFE_PROFILE === '1') {
+    const profile = await cdp.send('Runtime.evaluate', {
+      expression: `(() => {
+        const runtime = window.__pieczargotchiRuntime;
+        if (!runtime || !window.PieczargotchiCore || !window.PieczargotchiCore.calculateAmbientLife) {
+          return null;
+        }
+        return window.PieczargotchiCore.calculateAmbientLife(runtime.weatherScene, new Date(runtime.debug && runtime.debug.fixedAt || Date.now()));
+      })()`,
+      returnByValue: true
+    });
+    console.log(`${label} life: ${JSON.stringify(profile.result.value)}`);
+    const sceneSummary = await cdp.send('Runtime.evaluate', {
+      expression: `(() => {
+        const scene = window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.weatherScene;
+        if (!scene) {
+          return null;
+        }
+        return {
+          condition: scene.condition,
+          dayPhase: scene.dayPhase,
+          temperature: scene.temperature,
+          apparentTemperature: scene.apparentTemperature,
+          windSpeed: scene.windSpeed,
+          windLevel: scene.windLevel,
+          gustLevel: scene.gustLevel,
+          precipitation: scene.precipitation
+        };
+      })()`,
+      returnByValue: true
+    });
+    console.log(`${label} scene: ${JSON.stringify(sceneSummary.result.value)}`);
+  }
+}
+
+async function applyCaptureSceneOverrides(cdp) {
+  if (!captureSceneOverrides) {
+    return;
+  }
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const runtime = window.__pieczargotchiRuntime;
+      const overrides = ${JSON.stringify(captureSceneOverrides)};
+      if (!runtime || !runtime.weatherScene || !overrides) {
+        return;
+      }
+      if (overrides.temperature !== null) {
+        runtime.weatherScene.temperature = overrides.temperature;
+        runtime.weatherScene.apparentTemperature = overrides.temperature;
+      }
+      if (overrides.humidity !== null) {
+        runtime.weatherScene.humidity = overrides.humidity;
+      }
+    })()`,
+    awaitPromise: true
+  });
 }
 
 async function captureViewport(cdp) {
   await waitForExpression(cdp, `document.querySelector('[data-asset-status]') && document.querySelector('[data-asset-status]').textContent.includes('Grafiki załadowane')`, 6000);
-  await delay(350);
+  await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.booted && window.__pieczargotchiRuntime.currentAnimationKey)`, 6000);
+  await delay(captureDelayMs);
 
   const layout = await cdp.send('Runtime.evaluate', {
     expression: `(() => {
-      const side = document.querySelector('.side-panel').getBoundingClientRect();
-      const canvas = document.querySelector('.canvas-wrap').getBoundingClientRect();
+      const rectOf = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) {
+          return null;
+        }
+
+        const rect = element.getBoundingClientRect();
+        return {
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height
+        };
+      };
+      const actionButtons = Array.from(document.querySelectorAll('.action-button')).map((button) => {
+        const rect = button.getBoundingClientRect();
+        const label = button.querySelector('.action-label');
+        return {
+          top: rect.top,
+          left: rect.left,
+          width: rect.width,
+          height: rect.height,
+          labelText: label ? label.textContent : '',
+          labelClipped: label ? label.scrollWidth > label.clientWidth + 1 || label.scrollHeight > label.clientHeight + 1 : false
+        };
+      });
+      const actionsGrid = document.querySelector('.actions-grid');
+      const actionColumns = actionsGrid
+        ? getComputedStyle(actionsGrid).gridTemplateColumns.split(' ').filter(Boolean).length
+        : 0;
       return {
         innerWidth,
         innerHeight,
-        side: { left: side.left, right: side.right, top: side.top, bottom: side.bottom, width: side.width, height: side.height },
-        canvas: { left: canvas.left, right: canvas.right, top: canvas.top, bottom: canvas.bottom, width: canvas.width, height: canvas.height }
+        documentWidth: document.documentElement.scrollWidth,
+        bodyWidth: document.body.scrollWidth,
+        app: rectOf('.app'),
+        stage: rectOf('.stage-panel'),
+        message: rectOf('.message-panel'),
+        side: rectOf('.side-panel'),
+        actions: rectOf('.panel-block--actions'),
+        status: rectOf('.panel-block--status'),
+        resources: rectOf('.panel-block--resources'),
+        log: rectOf('.panel-block--log'),
+        debug: rectOf('.panel-block--debug'),
+        canvas: rectOf('.canvas-wrap'),
+        actionColumns,
+        actionButtons
       };
     })()`,
     returnByValue: true
   });
   const info = layout.result.value;
-  if (info.side.right > info.innerWidth + 1) {
+  if (info.documentWidth > info.innerWidth + 1 || info.bodyWidth > info.innerWidth + 1) {
+    throw new Error(`Strona wychodzi poza viewport: document=${info.documentWidth}, body=${info.bodyWidth}, width=${info.innerWidth}`);
+  }
+
+  if (info.side && info.side.right > info.innerWidth + 1) {
     throw new Error(`Panel boczny wychodzi poza viewport: right=${info.side.right}, width=${info.innerWidth}`);
+  }
+
+  if (viewportWidth <= 640 || emulateMobile) {
+    assertMobileLayout(info);
   }
 
   const screenshot = await cdp.send('Page.captureScreenshot', {
@@ -193,7 +611,48 @@ async function captureViewport(cdp) {
   const filePath = `${outputPrefix}-viewport-${viewportWidth}x${viewportHeight}.png`;
   writeFileSync(filePath, Buffer.from(screenshot.data, 'base64'));
   console.log(`viewport: ${filePath}`);
-  console.log(`viewport layout: side=${Math.round(info.side.width)}x${Math.round(info.side.height)}, canvas=${Math.round(info.canvas.width)}x${Math.round(info.canvas.height)}`);
+  console.log(`viewport layout: side=${Math.round(info.side.width)}x${Math.round(info.side.height)}, canvas=${Math.round(info.canvas.width)}x${Math.round(info.canvas.height)}, actionColumns=${info.actionColumns}`);
+}
+
+function assertMobileLayout(info) {
+  if (!info.stage || !info.canvas || !info.message || !info.actions || !info.status) {
+    throw new Error('Brakuje kluczowych elementów layoutu mobilnego.');
+  }
+
+  const canvasTopLimit = info.innerWidth <= 640 || info.innerHeight <= 500 ? 150 : 190;
+  if (info.canvas.top > canvasTopLimit) {
+    throw new Error(`Canvas jest zbyt nisko na mobile: top=${Math.round(info.canvas.top)}px, limit=${canvasTopLimit}px`);
+  }
+
+  if (info.actions.top < info.stage.bottom - 1) {
+    throw new Error('Panel akcji nakłada się na scenę.');
+  }
+
+  if (info.actions.top - info.stage.bottom > 18) {
+    throw new Error(`Akcje są za daleko od sceny: gap=${Math.round(info.actions.top - info.stage.bottom)}px`);
+  }
+
+  if (info.status.top < info.actions.bottom - 1) {
+    throw new Error('Status powinien być pod akcjami w układzie mobilnym.');
+  }
+
+  if (info.actionColumns < 2) {
+    throw new Error(`Akcje mobilne powinny mieć 2 kolumny, wykryto ${info.actionColumns}.`);
+  }
+
+  const shortButtons = info.actionButtons.filter((button) => button.height < 48);
+  if (shortButtons.length) {
+    throw new Error(`Za niskie touch targety akcji: ${shortButtons.map((button) => `${button.labelText}:${Math.round(button.height)}px`).join(', ')}`);
+  }
+
+  const clippedLabels = info.actionButtons.filter((button) => button.labelClipped);
+  if (clippedLabels.length) {
+    throw new Error(`Ucięte etykiety akcji: ${clippedLabels.map((button) => button.labelText).join(', ')}`);
+  }
+
+  if (info.innerWidth >= 390 && info.innerWidth <= 430 && info.innerHeight >= 844 && info.actions.bottom > info.innerHeight + 24) {
+    throw new Error(`Pełny panel akcji nie mieści się wystarczająco wysoko na 390x844: bottom=${Math.round(info.actions.bottom)}px`);
+  }
 }
 
 async function getCurrentAnimationKey(cdp) {

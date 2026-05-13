@@ -1,0 +1,211 @@
+  function drawBattleFrame(ctx, now, wallNow) {
+    runtime.currentAnimationKey = 'battle.scene';
+    drawBattleArenaBackground(ctx, now);
+
+    const active = runtime.state && runtime.state.battle ? runtime.state.battle.activeBattle : null;
+    if (!active) {
+      drawBattleSprite(ctx, 'legendary', 'idle', 164, 178, 184, false, wallNow);
+      drawBattleRing(ctx, 256, 385, 86, '#f0c45b');
+      drawBattleSceneTitle(ctx, 'ARENA');
+      return;
+    }
+
+    drawBattleRing(ctx, 154, 398, 86, '#b6d66f');
+    drawBattleRing(ctx, 360, 398, 82, '#d8646f');
+    drawBattleSprite(ctx, 'legendary', getBattlePose(active, 'player'), 72, 205, 172, false, wallNow);
+    drawBattleSprite(ctx, 'adult', getBattlePose(active, 'opponent'), 270, 213, 164, true, wallNow);
+    drawBattleImpactEffects(ctx, active, now);
+    drawBattleBars(ctx, active);
+    drawBattleTurnMarker(ctx, active);
+  }
+
+  function drawBattleArenaBackground(ctx, now) {
+    const pulse = Math.sin(now / 900) * 4;
+    ctx.fillStyle = '#cde8a8';
+    ctx.fillRect(0, 0, canvasSize, canvasSize);
+    ctx.fillStyle = '#9bc268';
+    ctx.fillRect(0, 326, canvasSize, 186);
+    ctx.fillStyle = '#7ca44f';
+    ctx.fillRect(0, 386, canvasSize, 126);
+    ctx.fillStyle = 'rgba(255, 253, 247, 0.28)';
+    ctx.fillRect(58, 74 + pulse, 88, 14);
+    ctx.fillRect(352, 108 - pulse, 92, 14);
+    ctx.strokeStyle = '#3c2b20';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(42, 318, 428, 132);
+    ctx.strokeStyle = 'rgba(60, 43, 32, 0.22)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(68, 382);
+    ctx.lineTo(444, 382);
+    ctx.moveTo(256, 318);
+    ctx.lineTo(256, 450);
+    ctx.stroke();
+  }
+
+  function drawBattleRing(ctx, x, y, radius, color) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.32;
+    ctx.beginPath();
+    ctx.ellipse(x, y, radius, 22, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawBattleSprite(ctx, stage, stateName, x, y, size, flip, wallNow) {
+    const animation = animationsByKey.get(stage + '.' + stateName)
+      || animationsByKey.get(stage + '.idle')
+      || animationsByKey.get('legendary.idle')
+      || animationsByKey.get('adult.idle');
+    const image = animation ? runtime.assets[animation.key] : null;
+
+    ctx.save();
+    if (flip) {
+      ctx.translate(x + size, y);
+      ctx.scale(-1, 1);
+      x = 0;
+      y = 0;
+    }
+
+    if (image && animation) {
+      const frame = getBattleSceneFrameIndex(animation, wallNow);
+      ctx.drawImage(
+        image,
+        frame * (animation.frameWidth || canvasSize),
+        0,
+        animation.frameWidth || canvasSize,
+        animation.frameHeight || canvasSize,
+        x,
+        y,
+        size,
+        size
+      );
+      if (flip) {
+        ctx.fillStyle = 'rgba(70, 38, 64, 0.18)';
+        ctx.fillRect(x, y, size, size);
+      }
+      ctx.restore();
+      return;
+    }
+
+    drawBattleFallback(ctx, x, y, size, flip);
+    ctx.restore();
+  }
+
+  function getBattleSceneFrameIndex(animation, now) {
+    const durations = Array.isArray(animation.frameDurationsMs) && animation.frameDurationsMs.length
+      ? animation.frameDurationsMs
+      : [1000 / (animation.fps || 4)];
+    const total = durations.reduce(function(sum, duration) {
+      return sum + duration;
+    }, 0);
+    let remaining = now % total;
+
+    for (let index = 0; index < durations.length; index += 1) {
+      if (remaining < durations[index]) {
+        return Math.min(index, (animation.frameCount || durations.length) - 1);
+      }
+      remaining -= durations[index];
+    }
+
+    return 0;
+  }
+
+  function drawBattleFallback(ctx, x, y, size, flip) {
+    const unit = size / 16;
+    ctx.fillStyle = flip ? '#8a5b7e' : '#f5d7a3';
+    ctx.fillRect(x + unit * 5, y + unit * 7, unit * 6, unit * 7);
+    ctx.fillStyle = flip ? '#6f315e' : '#fff0c9';
+    ctx.fillRect(x + unit * 2, y + unit * 3, unit * 12, unit * 4);
+    ctx.fillRect(x + unit * 4, y + unit * 2, unit * 8, unit * 3);
+    ctx.fillStyle = '#2e211a';
+    ctx.fillRect(x + unit * 6, y + unit * 9, unit, unit * 1.5);
+    ctx.fillRect(x + unit * 9, y + unit * 9, unit, unit * 1.5);
+  }
+
+  function getBattlePose(active, actor) {
+    const events = Array.isArray(active.events) ? active.events : [];
+    const actorEvent = events.find(function(event) {
+      return event.actor === actor;
+    });
+    if (!actorEvent) {
+      return 'idle';
+    }
+    if (actorEvent.type === 'rest') {
+      return 'tired';
+    }
+    if (actorEvent.type === 'miss') {
+      return 'wake';
+    }
+    return actor === 'player' ? 'happy' : 'critical';
+  }
+
+  function drawBattleImpactEffects(ctx, active, now) {
+    const events = Array.isArray(active.events) ? active.events : [];
+    events.forEach(function(event, index) {
+      if (event.type !== 'hit') {
+        return;
+      }
+
+      const targetX = event.actor === 'player' ? 360 : 154;
+      const targetY = 258 + index * 18;
+      ctx.save();
+      ctx.globalAlpha = 0.72 + Math.sin(now / 120) * 0.2;
+      ctx.fillStyle = '#fff6b8';
+      ctx.fillRect(targetX - 18, targetY, 36, 8);
+      ctx.fillRect(targetX - 4, targetY - 14, 8, 36);
+      ctx.fillStyle = '#d8646f';
+      ctx.fillRect(targetX + 20, targetY - 18, 8, 8);
+      ctx.fillRect(targetX - 28, targetY + 16, 8, 8);
+      ctx.restore();
+    });
+  }
+
+  function drawBattleBars(ctx, active) {
+    drawBattleBar(ctx, 38, 36, active.player, '#4f8f39');
+    drawBattleBar(ctx, 300, 36, active.opponent, '#d8646f');
+    drawBattleStaminaBar(ctx, 38, 62, active.player);
+    drawBattleStaminaBar(ctx, 300, 62, active.opponent);
+  }
+
+  function drawBattleBar(ctx, x, y, combatant, color) {
+    const ratio = combatant && combatant.maxHp ? Math.max(0, combatant.hp / combatant.maxHp) : 0;
+    ctx.fillStyle = '#fffdf7';
+    ctx.fillRect(x, y, 174, 18);
+    ctx.strokeStyle = '#3c2b20';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x, y, 174, 18);
+    ctx.fillStyle = color;
+    ctx.fillRect(x + 3, y + 3, Math.round(168 * ratio), 12);
+  }
+
+  function drawBattleStaminaBar(ctx, x, y, combatant) {
+    const ratio = combatant && combatant.maxStamina ? Math.max(0, combatant.stamina / combatant.maxStamina) : 0;
+    ctx.fillStyle = '#fffdf7';
+    ctx.fillRect(x, y, 174, 10);
+    ctx.fillStyle = '#317fb5';
+    ctx.fillRect(x + 2, y + 2, Math.round(170 * ratio), 6);
+  }
+
+  function drawBattleTurnMarker(ctx, active) {
+    ctx.fillStyle = 'rgba(255, 253, 247, 0.82)';
+    ctx.fillRect(212, 34, 88, 34);
+    ctx.strokeStyle = '#3c2b20';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(212, 34, 88, 34);
+    ctx.fillStyle = '#221814';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillText(active.mode === 'victory' ? 'WIN' : active.mode === 'defeat' ? 'LOSS' : 'TURA ' + (Number(active.turn) + 1), 226, 56);
+  }
+
+  function drawBattleSceneTitle(ctx, label) {
+    ctx.fillStyle = 'rgba(255, 253, 247, 0.82)';
+    ctx.fillRect(196, 42, 120, 40);
+    ctx.strokeStyle = '#3c2b20';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(196, 42, 120, 40);
+    ctx.fillStyle = '#221814';
+    ctx.font = 'bold 18px sans-serif';
+    ctx.fillText(label, 222, 68);
+  }

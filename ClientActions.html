@@ -1,0 +1,314 @@
+  function isStageAtLeast(currentStage, requiredStage) {
+    const order = (rules.stageThresholds || []).map(function(stage) {
+      return stage.id;
+    });
+    return order.indexOf(currentStage) >= order.indexOf(requiredStage);
+  }
+  function handleAction(actionId, source) {
+    const action = actionsById.get(actionId);
+    if (!action) {
+      return;
+    }
+
+    const now = getRuntimeNow();
+    runtime.state = applyElapsedTime(runtime.state, now);
+
+    const check = canRunAction(action, now);
+    if (!check.ok) {
+      setTransientMessage('Jeszcze nie', check.reason);
+      flashActionButton(actionId);
+      renderUi();
+      return;
+    }
+
+    if (actionId === 'sleepWake') {
+      applySleepWake(action, now);
+    } else {
+      applyAction(action, now, source);
+    }
+
+    runtime.state.stats = clampAllStats(runtime.state.stats);
+    runtime.state.stage = getStageForGrowth(runtime.state.stats.growth || 0);
+    updateArenaUnlock(runtime.state);
+    runtime.state.lastUpdatedAt = new Date(now).toISOString();
+    saveState(runtime.state);
+    renderUi();
+  }
+
+  function setViewMode(mode) {
+    runtime.viewMode = mode === 'arena' && isArenaUnlockedForRuntime()
+      ? 'arena'
+      : 'care';
+    renderUi();
+  }
+
+  function normalizeViewMode() {
+    if (runtime.viewMode === 'arena' && !isArenaUnlockedForRuntime()) {
+      runtime.viewMode = 'care';
+    }
+  }
+
+  function isArenaUnlockedForRuntime() {
+    const core = window.PieczargotchiCore;
+    return Boolean(core && core.isArenaUnlocked && runtime.state && core.isArenaUnlocked(runtime.state, rules));
+  }
+
+  function handleBattleStart() {
+    const core = window.PieczargotchiCore;
+    if (!core || !core.startBattle) {
+      return;
+    }
+
+    const now = getRuntimeNow();
+    runtime.state = applyElapsedTime(runtime.state, now);
+    const result = core.startBattle(runtime.state, rules, now);
+    if (!result.ok) {
+      setTransientMessage('Arena', result.reason);
+      renderUi();
+      return;
+    }
+
+    runtime.state = result.state;
+    runtime.state.lastUpdatedAt = new Date(now).toISOString();
+    saveState(runtime.state);
+    renderUi();
+  }
+
+  function handleBattleTrain(statId) {
+    const core = window.PieczargotchiCore;
+    if (!core || !core.trainBattleStat) {
+      return;
+    }
+
+    const now = getRuntimeNow();
+    runtime.state = applyElapsedTime(runtime.state, now);
+    const result = core.trainBattleStat(runtime.state, statId, rules, now);
+    if (!result.ok) {
+      setTransientMessage('Trening', result.reason);
+      renderUi();
+      return;
+    }
+
+    runtime.state = result.state;
+    runtime.state.lastUpdatedAt = new Date(now).toISOString();
+    saveState(runtime.state);
+    renderUi();
+  }
+
+  function handleBattleMove(moveId) {
+    const core = window.PieczargotchiCore;
+    const activeBattle = runtime.state && runtime.state.battle && runtime.state.battle.activeBattle;
+    if (!core || !core.resolveBattleRound || !activeBattle || ['victory', 'defeat'].includes(activeBattle.mode)) {
+      return;
+    }
+
+    const now = getRuntimeNow();
+    const resolved = core.resolveBattleRound(activeBattle, moveId, rules.battle && rules.battle.moveCatalog);
+    runtime.state.battle.activeBattle = resolved;
+    runtime.state.battle.mode = resolved.mode;
+    addBattleLogEntry(runtime.state, formatBattleEvents(resolved), now);
+
+    if (['victory', 'defeat'].includes(resolved.mode) && core.applyBattleOutcomeRewards) {
+      runtime.state = core.applyBattleOutcomeRewards(runtime.state, rules, now).state;
+    }
+
+    runtime.state.lastUpdatedAt = new Date(now).toISOString();
+    saveState(runtime.state);
+    renderUi();
+  }
+
+  function canRunAction(action, now) {
+    const core = window.PieczargotchiCore;
+    if (core && core.getActionAvailability) {
+      return core.getActionAvailability(runtime.state, action, now, rules);
+    }
+
+    const cooldownUntil = Number(runtime.state.cooldowns[action.id]) || 0;
+    const remainingMs = cooldownUntil - now;
+
+    if (remainingMs > 0) {
+      return {
+        ok: false,
+        reason: 'Gotowe za ' + Math.ceil(remainingMs / 1000) + ' s.'
+      };
+    }
+
+    if (action.awakeOnly && runtime.state.mode !== 'awake') {
+      return {
+        ok: false,
+        reason: 'Najpierw obudź Pieczarkę.'
+      };
+    }
+
+    if (action.requiresStage && !isStageAtLeast(runtime.state.stage, action.requiresStage)) {
+      return {
+        ok: false,
+        reason: 'Potrzebny etap dorosłej pieczarki.'
+      };
+    }
+
+    if ((runtime.state.stats.energy || 0) <= 0 && action.id !== 'sleepWake') {
+      return {
+        ok: false,
+        reason: 'Brakuje energii.'
+      };
+    }
+
+    return { ok: true, reason: '' };
+  }
+
+  function applySleepWake(action, now) {
+    const waking = runtime.state.mode === 'sleeping';
+
+    runtime.state.mode = waking ? 'awake' : 'sleeping';
+    runtime.state.cooldowns[action.id] = now + action.cooldownSeconds * 1000;
+    runtime.state.currentActivity = waking
+      ? { type: 'wake', label: 'O_O', startedAt: now, until: now + (rules.wakeSurpriseMs || 1800) }
+      : null;
+
+    if (waking) {
+      runtime.state.flags.firstWakeDone = true;
+      runtime.wakeSurpriseUntil = now + (rules.wakeSurpriseMs || 1800);
+      triggerEffect('wake');
+      addLog(runtime.state, 'Pieczarka obudziła się z miną O_O.', now);
+    } else {
+      runtime.wakeSurpriseUntil = 0;
+      triggerEffect('sleep');
+      rewardCareIfNeeded(runtime.state, action, now);
+      addLog(runtime.state, 'Pieczarka wtuliła się pod mech.', now);
+    }
+  }
+
+  function applyAction(action, now, source) {
+    applyStatDeltas(runtime.state, action.stats || {});
+
+    if (action.coins) {
+      runtime.state.coins = (Number(runtime.state.coins) || 0) + action.coins;
+      runtime.state.inventory.spores = (Number(runtime.state.inventory.spores) || 0) + action.coins;
+    }
+
+    if (action.flag) {
+      runtime.state.flags[action.flag] = true;
+    }
+
+    runtime.state.cooldowns[action.id] = now + action.cooldownSeconds * 1000;
+    runtime.state.currentActivity = {
+      type: action.animationType || action.effectType || action.id,
+      label: getActivityLabel(action),
+      startedAt: now,
+      until: now + (rules.activityMs || 2400)
+    };
+
+    if (action.id === 'instrument') {
+      const instrument = pickRandomInstrument();
+      runtime.state.lastRandomInstrument = instrument.label;
+      runtime.state.currentActivity.label = instrument.label;
+      runtime.state.currentActivity.instrumentVariant = instrument.variant;
+      addLog(runtime.state, 'Pieczarka zagrała na instrumencie: ' + instrument.label + '.', now);
+    } else if (action.id === 'sing') {
+      addLog(runtime.state, 'Pieczarka zaśpiewała miękką kapeluszową piosenkę.', now);
+    } else {
+      addLog(runtime.state, action.log, now);
+    }
+
+    triggerEffect(action.effectType || action.id);
+    rewardCareIfNeeded(runtime.state, action, now);
+    flashActionButton(action.id);
+  }
+
+  function rewardCareIfNeeded(state, action, now) {
+    const activeNeed = state.attention && state.attention.activeNeed;
+    const definition = activeNeed && rules.needDefinitions ? rules.needDefinitions[activeNeed] : null;
+    const handledNeed = definition && definition.actionId === action.id;
+
+    if (!handledNeed && action.id !== 'clean' && action.id !== 'play') {
+      return;
+    }
+
+    state.patch.careStreak += 1;
+    state.patch.quality += handledNeed ? 4 : 1.5;
+    state.patch.mycelium += handledNeed ? 2.5 : 0.75;
+    state.patch = normalizePatch(state.patch);
+    checkPatchHarvest(state, now);
+
+    if (handledNeed) {
+      addLog(state, 'Dobra reakcja! Pieczarka zapamiętuje szybką opiekę.', now);
+      state.attention = normalizeAttention({});
+    }
+  }
+
+  function applyStatDeltas(state, deltas) {
+    Object.keys(deltas).forEach(function(stat) {
+      state.stats[stat] = (Number(state.stats[stat]) || 0) + deltas[stat];
+    });
+  }
+
+  function getActivityLabel(action) {
+    if (action.id === 'sing') {
+      return 'Śpiewa';
+    }
+
+    return action.label;
+  }
+
+  function pickRandomInstrument() {
+    const instruments = rules.instruments || ['mała kalimba'];
+    const index = Math.floor(Math.random() * instruments.length);
+    return {
+      label: instruments[index],
+      variant: positiveModulo(index, 4)
+    };
+  }
+
+  function addLog(state, message, now) {
+    const entry = {
+      at: new Date(now).toISOString(),
+      text: message || 'Coś poruszyło się w grzybni.'
+    };
+    const maxEntries = rules.maxLogEntries || 8;
+    state.log = [entry].concat(state.log || []).slice(0, maxEntries);
+  }
+
+  function addBattleLogEntry(state, message, now) {
+    const battle = state.battle || {};
+    const entry = {
+      at: new Date(now).toISOString(),
+      text: message || 'Tura areny zakończona.'
+    };
+    battle.log = [entry].concat(Array.isArray(battle.log) ? battle.log : []).slice(0, rules.maxLogEntries || 8);
+    state.battle = battle;
+  }
+
+  function formatBattleEvents(activeBattle) {
+    const movesById = new Map((rules.battle && rules.battle.moveCatalog || []).map(function(move) {
+      return [move.id, move];
+    }));
+    const events = Array.isArray(activeBattle.events) ? activeBattle.events : [];
+    if (!events.length) {
+      return 'Arena czeka na ruch.';
+    }
+
+    return events.map(function(event) {
+      const actor = event.actor === 'player' ? 'Pieczarka' : 'Rywal';
+      const move = movesById.get(event.moveId);
+      const label = move ? move.label : event.moveId;
+      if (event.type === 'rest') {
+        return actor + ' odpoczywa';
+      }
+      if (event.type === 'miss') {
+        return actor + ' pudłuje: ' + label;
+      }
+      return actor + ' trafia: ' + label + ' (-' + event.damage + ' HP)';
+    }).join(' | ');
+  }
+
+  function cleanupActivity(now) {
+    const state = runtime.state;
+    if (!state || !state.currentActivity) {
+      return;
+    }
+
+    if (Number(state.currentActivity.until) <= now) {
+      state.currentActivity = null;
+    }
+  }

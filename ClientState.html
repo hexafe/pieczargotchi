@@ -1,0 +1,368 @@
+  function createDefaultState() {
+    const now = new Date(getRuntimeNow()).toISOString();
+    const base = deepClone(stateConfig.defaultState || {});
+
+    return normalizeState(Object.assign(base, {
+      version: config.stateVersion || 3,
+      playerId: createPlayerId(),
+      createdAt: now,
+      lastUpdatedAt: now,
+      log: []
+    }));
+  }
+
+  function loadState() {
+    const key = config.storageKey || 'pieczargotchi_state_v2';
+
+    try {
+      const rawState = window.localStorage.getItem(key);
+      if (!rawState) {
+        return createDefaultState();
+      }
+
+      return migrateState(JSON.parse(rawState));
+    } catch (error) {
+      return createDefaultState();
+    }
+  }
+
+  function saveState(state) {
+    const key = config.storageKey || 'pieczargotchi_state_v2';
+    window.localStorage.setItem(key, JSON.stringify(state));
+  }
+
+  function migrateState(rawState) {
+    const targetVersion = config.stateVersion || 3;
+    const core = window.PieczargotchiCore;
+    const migratedState = core && core.migrateStateVersion
+      ? core.migrateStateVersion(rawState, targetVersion)
+      : rawState;
+    const base = createDefaultState();
+    const merged = mergeState(base, migratedState || {});
+    merged.version = targetVersion;
+    return normalizeState(merged);
+  }
+
+  function mergeState(base, override) {
+    const result = Object.assign({}, base, override);
+    result.stats = Object.assign({}, base.stats, override.stats || {});
+    result.inventory = Object.assign({}, base.inventory, override.inventory || {});
+    result.patch = Object.assign({}, base.patch, override.patch || {});
+    result.attention = Object.assign({}, base.attention, override.attention || {});
+    result.careMistakes = Object.assign({}, base.careMistakes, override.careMistakes || {});
+    result.battle = Object.assign({}, base.battle, override.battle || {});
+    result.cooldowns = Object.assign({}, base.cooldowns, override.cooldowns || {});
+    result.flags = Object.assign({}, base.flags, override.flags || {});
+    result.log = Array.isArray(override.log) ? override.log.slice(0, rules.maxLogEntries || 8) : base.log;
+    return result;
+  }
+
+  function normalizeState(state) {
+    state.mode = state.mode === 'awake' ? 'awake' : 'sleeping';
+    state.mushroomName = state.mushroomName || 'Pieczarka';
+    state.createdAt = state.createdAt || new Date(getRuntimeNow()).toISOString();
+    state.lastUpdatedAt = state.lastUpdatedAt || state.createdAt;
+    state.stats = clampAllStats(state.stats || {});
+    state.inventory = state.inventory || {};
+    state.patch = normalizePatch(state.patch || {});
+    state.attention = normalizeAttention(state.attention || {});
+    state.careMistakes = normalizeCareMistakes(state.careMistakes || {});
+    state.battle = normalizeBattleForRuntime(state.battle || {});
+    state.cooldowns = state.cooldowns || {};
+    state.flags = state.flags || {};
+    state.log = Array.isArray(state.log) ? state.log.slice(0, rules.maxLogEntries || 8) : [];
+    state.stage = getStageForGrowth(state.stats.growth || 0);
+    updateArenaUnlock(state);
+    return state;
+  }
+
+  function normalizePatch(patch) {
+    return {
+      quality: clamp(Number(patch.quality), 0, 100, 72),
+      mycelium: clamp(Number(patch.mycelium), 0, 100, 0),
+      harvests: Math.max(0, Math.floor(Number(patch.harvests) || 0)),
+      careStreak: Math.max(0, Math.floor(Number(patch.careStreak) || 0))
+    };
+  }
+
+  function normalizeAttention(attention) {
+    return {
+      activeNeed: attention.activeNeed || null,
+      severity: attention.severity || null,
+      startedAt: attention.startedAt || null,
+      deadlineAt: attention.deadlineAt || null,
+      lastMistakeAt: attention.lastMistakeAt || null
+    };
+  }
+
+  function normalizeCareMistakes(careMistakes) {
+    return {
+      physical: Math.max(0, Math.floor(Number(careMistakes.physical) || 0)),
+      mental: Math.max(0, Math.floor(Number(careMistakes.mental) || 0)),
+      environment: Math.max(0, Math.floor(Number(careMistakes.environment) || 0)),
+      rest: Math.max(0, Math.floor(Number(careMistakes.rest) || 0))
+    };
+  }
+
+  function normalizeBattleForRuntime(battle) {
+    const core = window.PieczargotchiCore;
+    if (core && core.normalizeBattleState) {
+      return core.normalizeBattleState(battle);
+    }
+
+    return battle || {};
+  }
+
+  function updateArenaUnlock(state) {
+    const core = window.PieczargotchiCore;
+    const unlocked = core && core.isArenaUnlocked
+      ? core.isArenaUnlocked(state, rules)
+      : state.stage === 'legendary';
+    if (unlocked && state.battle && !state.battle.unlockedAt) {
+      state.battle.unlockedAt = state.lastUpdatedAt || new Date(getRuntimeNow()).toISOString();
+    }
+  }
+
+  function createPlayerId() {
+    return 'player_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+  }
+
+  function deepClone(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function applyElapsedTime(state, now) {
+    const lastUpdated = Date.parse(state.lastUpdatedAt);
+    const safeLastUpdated = Number.isFinite(lastUpdated) ? lastUpdated : now;
+    const elapsedMs = Math.max(0, now - safeLastUpdated);
+
+    if (elapsedMs < 1000) {
+      state.lastUpdatedAt = new Date(now).toISOString();
+      cleanupActivity(now);
+      evaluateAttention(state, now);
+      return state;
+    }
+
+    const elapsedHours = elapsedMs / 3600000;
+    const decay = (rules.decayPerHour && rules.decayPerHour[state.mode]) || {};
+
+    Object.keys(decay).forEach(function(stat) {
+      state.stats[stat] = (Number(state.stats[stat]) || 0) + decay[stat] * elapsedHours;
+    });
+
+    applyWeatherStatEffects(state, elapsedHours);
+    updateHealthAndGrowth(state, elapsedHours);
+    state.stats = clampAllStats(state.stats);
+    state.stage = getStageForGrowth(state.stats.growth || 0);
+    updateArenaUnlock(state);
+    updatePatch(state, elapsedHours, now);
+    evaluateAttention(state, now);
+    state.lastUpdatedAt = new Date(now).toISOString();
+    cleanupActivity(now);
+    return state;
+  }
+
+  function applyWeatherStatEffects(state, elapsedHours) {
+    const core = window.PieczargotchiCore;
+    if (!core || !core.calculateWeatherStatDeltas) {
+      return;
+    }
+
+    const scene = getCurrentWeatherScene();
+    const deltas = core.calculateWeatherStatDeltas(scene, elapsedHours, rules.weatherBalance || {});
+    applyStatDeltas(state, deltas);
+  }
+
+  function updateHealthAndGrowth(state, elapsedHours) {
+    const stats = state.stats;
+    const poorConditions = stats.hydration < 20 || stats.nutrients < 20 || stats.cleanliness < 20 || stats.energy < 12;
+    const goodConditions = stats.hydration >= 55 && stats.nutrients >= 55 && stats.cleanliness >= 55 && stats.health >= 55;
+    const healthRules = rules.healthPerHour || {};
+    const growthRules = rules.growthPerHour || {};
+
+    if (poorConditions) {
+      stats.health += (healthRules.poorConditions || -10) * elapsedHours;
+    } else if (goodConditions) {
+      stats.health += (healthRules.goodConditions || 4) * elapsedHours;
+    }
+
+    if (goodConditions && state.mode === 'awake') {
+      stats.growth += (growthRules.awakeHealthy || 3) * elapsedHours;
+    } else if (goodConditions && state.mode === 'sleeping') {
+      stats.growth += (growthRules.sleepingHealthy || 1.25) * elapsedHours;
+    }
+  }
+
+  function updatePatch(state, elapsedHours, now) {
+    const patchRules = rules.patchPerHour || {};
+    const stats = state.stats;
+    const cleanHealthy = stats.hydration >= 45 && stats.nutrients >= 45 && stats.cleanliness >= 55 && stats.health >= 45;
+    const neglected = stats.hydration < 25 || stats.nutrients < 25 || stats.cleanliness < 25 || stats.health < 35;
+
+    if (cleanHealthy) {
+      state.patch.quality += (patchRules.cleanHealthy || 2) * elapsedHours;
+      state.patch.mycelium += 1.8 * elapsedHours;
+    }
+
+    if (neglected) {
+      state.patch.quality += (patchRules.neglected || -6) * elapsedHours;
+      state.patch.careStreak = 0;
+    }
+
+    state.patch = normalizePatch(state.patch);
+    checkPatchHarvest(state, now);
+  }
+
+  function checkPatchHarvest(state, now) {
+    if ((state.patch.mycelium || 0) < 100) {
+      return;
+    }
+
+    const bonus = state.patch.quality >= 80 ? 2 : state.patch.quality >= 60 ? 1 : 0;
+    const spores = 3 + bonus;
+    state.patch.harvests += 1;
+    state.patch.mycelium = 18 + bonus * 4;
+    state.inventory.spores = (Number(state.inventory.spores) || 0) + spores;
+    state.coins = (Number(state.coins) || 0) + spores;
+    state.currentActivity = {
+      type: 'harvest',
+      label: 'Plon grzybni',
+      startedAt: now,
+      until: now + (rules.activityMs || 2400)
+    };
+    addLog(state, 'Dojrzała grzybnia wypuściła plon: +' + spores + ' zarodników.', now);
+    triggerEffect('spores');
+  }
+
+  function evaluateAttention(state, now) {
+    const strongestNeed = getStrongestNeed(state);
+    const attentionRules = rules.attention || {};
+
+    if (!strongestNeed) {
+      if (state.attention.activeNeed) {
+        addLog(state, 'Pieczarka uspokoiła się. Potrzeba została zaopiekowana.', now);
+      }
+
+      state.attention = normalizeAttention({});
+      return;
+    }
+
+    const activeNeed = state.attention.activeNeed;
+    const deadline = Date.parse(state.attention.deadlineAt || '');
+    const lastMistake = Date.parse(state.attention.lastMistakeAt || '');
+    const repeatedCooldown = attentionRules.repeatedMistakeCooldownMs || 900000;
+
+    if (activeNeed !== strongestNeed.id) {
+      state.attention = {
+        activeNeed: strongestNeed.id,
+        severity: strongestNeed.severity,
+        startedAt: new Date(now).toISOString(),
+        deadlineAt: new Date(now + strongestNeed.deadlineMs).toISOString(),
+        lastMistakeAt: state.attention.lastMistakeAt || null
+      };
+      addLog(state, strongestNeed.definition.title + ': ' + strongestNeed.message, now);
+      return;
+    }
+
+    state.attention.severity = strongestNeed.severity;
+
+    if (Number.isFinite(deadline) && now >= deadline) {
+      const canRecordMistake = !Number.isFinite(lastMistake) || now - lastMistake >= repeatedCooldown;
+      if (canRecordMistake) {
+        recordCareMistake(state, strongestNeed, now);
+      }
+
+      state.attention.deadlineAt = new Date(now + strongestNeed.deadlineMs).toISOString();
+    }
+  }
+
+  function getStrongestNeed(state) {
+    const definitions = rules.needDefinitions || {};
+    const attentionRules = rules.attention || {};
+    const mildThreshold = attentionRules.mildThreshold || 45;
+    const criticalThreshold = attentionRules.criticalThreshold || 25;
+    const needs = Object.keys(definitions).map(function(stat) {
+      if (stat === 'energy' && state.mode === 'sleeping') {
+        return null;
+      }
+
+      const value = Number(state.stats[stat]);
+      if (!Number.isFinite(value) || value >= mildThreshold) {
+        return null;
+      }
+
+      const severity = value < criticalThreshold ? 'critical' : 'mild';
+      const definition = definitions[stat];
+      return {
+        id: stat,
+        value: value,
+        severity: severity,
+        definition: definition,
+        message: severity === 'critical' ? definition.criticalMessage : definition.mildMessage,
+        deadlineMs: severity === 'critical'
+          ? attentionRules.criticalDeadlineMs || 90000
+          : attentionRules.deadlineMs || 180000
+      };
+    }).filter(Boolean);
+
+    needs.sort(function(a, b) {
+      if (a.severity !== b.severity) {
+        return a.severity === 'critical' ? -1 : 1;
+      }
+
+      return a.value - b.value;
+    });
+
+    return needs[0] || null;
+  }
+
+  function recordCareMistake(state, need, now) {
+    const category = need.definition.category || 'physical';
+    state.careMistakes[category] = (Number(state.careMistakes[category]) || 0) + 1;
+    state.attention.lastMistakeAt = new Date(now).toISOString();
+    state.patch.careStreak = 0;
+    state.stats.health -= need.severity === 'critical' ? 8 : 4;
+    state.stats.happiness -= need.severity === 'critical' ? 6 : 3;
+    addLog(state, 'Przegapiona potrzeba: ' + need.definition.title + '. To zapisuje się w historii opieki.', now);
+    triggerEffect('attention');
+  }
+
+  function clampAllStats(stats) {
+    const min = rules.statBounds ? rules.statBounds.min : 0;
+    const max = rules.statBounds ? rules.statBounds.max : 100;
+    const output = {};
+    const statOrder = stateConfig.statOrder || Object.keys(stats);
+
+    statOrder.forEach(function(stat) {
+      const fallback = stat === 'health' ? 100 : 0;
+      output[stat] = clamp(Number(stats[stat]), min, max, fallback);
+    });
+
+    return output;
+  }
+
+  function clamp(value, min, max, fallback) {
+    const next = Number.isFinite(value) ? value : fallback;
+    return Math.max(min, Math.min(max, next));
+  }
+
+  function getStageForGrowth(growth) {
+    const thresholds = rules.stageThresholds || [];
+    let current = thresholds[0] || { id: 'spore', label: 'Zarodnik', growth: 0 };
+
+    thresholds.forEach(function(stage) {
+      if (growth >= stage.growth) {
+        current = stage;
+      }
+    });
+
+    return current.id;
+  }
+
+  function getStageLabel(stageId) {
+    const stage = (rules.stageThresholds || []).find(function(candidate) {
+      return candidate.id === stageId;
+    });
+
+    return stage ? stage.label : stageId;
+  }

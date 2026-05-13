@@ -1,0 +1,656 @@
+  function drawCelestial(ctx, scene, palette, now) {
+    const date = getRuntimeDate();
+    ctx.save();
+    const sun = getSunPosition(scene, date);
+    if (sun) {
+      const sunVisibility = getCelestialCloudVisibility(scene, now, 'sun');
+      const weatherAlpha = scene.condition === 'rain' || scene.condition === 'storm' ? 0.22 : 0.72;
+      const twilightAlpha = scene.isDay ? 1 : 0.48;
+      ctx.globalAlpha = weatherAlpha * twilightAlpha * sun.alpha * sunVisibility;
+      if (ctx.globalAlpha > 0.015) {
+        ctx.fillStyle = palette.sun || '#ffe596';
+        ctx.fillRect(sun.x, sun.y, sun.size, sun.size);
+        ctx.fillStyle = palette.sunCore || '#fff3b8';
+        ctx.fillRect(sun.x + sun.coreInset, sun.y + sun.coreInset, sun.coreSize, sun.coreSize);
+      }
+    }
+
+    const moon = getMoonPosition(scene, date);
+    if (moon) {
+      const moonVisibility = getCelestialCloudVisibility(scene, now, 'moon');
+      const weatherAlpha = scene.condition === 'rain' || scene.condition === 'storm' ? 0.34 : 0.78;
+      const daylightAlpha = scene.isDay ? 0.34 : 1;
+      ctx.globalAlpha = weatherAlpha * daylightAlpha * moon.alpha * moonVisibility;
+      if (ctx.globalAlpha > 0.015) {
+        drawPixelMoon(ctx, moon);
+      }
+    }
+
+    const starVisibility = getCelestialCloudVisibility(scene, now, 'stars');
+    if (!scene.isDay && starVisibility > 0.02) {
+      drawVisibleConstellation(ctx, scene, date, now, starVisibility);
+      ctx.globalAlpha = 0.72 * starVisibility;
+      for (let index = 0; index < 11; index += 1) {
+        const x = 42 + index * 38 + ((index * 17) % 19);
+        const y = 34 + ((index * 29 + Math.round(seededUnit(8200 + index) * 110)) % 110);
+        const twinkle = 0.74 + Math.sin(now / (620 + index * 31) + index * 1.7) * 0.18;
+        ctx.globalAlpha = 0.72 * starVisibility * twinkle;
+        ctx.fillStyle = index % 3 === 0 ? '#f7efb1' : '#d8e9d2';
+        ctx.fillRect(x, y, 3, 3);
+      }
+    }
+    ctx.restore();
+  }
+
+  function getCelestialCloudVisibility(scene, now, type) {
+    const cover = getSkyCloudOcclusion(scene);
+    if (type === 'stars') {
+      return clamp(1 - (cover - 0.32) / 0.38, 0, 1, 1);
+    }
+
+    if (type === 'moon') {
+      return clamp(1 - (cover - 0.44) / 0.36, 0, 1, 1);
+    }
+
+    if (type === 'sun') {
+      const directVisibility = clamp(1 - (cover - 0.58) / 0.26, 0, 1, 1);
+      if (cover < 0.72) {
+        return directVisibility;
+      }
+
+      const breakthrough = getSunBreakthroughFactor(scene, now);
+      const weatherLimit = scene.condition === 'rain' || scene.condition === 'storm' ? 0.18 : 0.34;
+      const cloudLimit = clamp(1 - (cover - 0.78) / 0.28, 0.08, 1, 1);
+      return Math.max(directVisibility, breakthrough * weatherLimit * cloudLimit);
+    }
+
+    return 1;
+  }
+
+  function getSkyCloudOcclusion(scene) {
+    const cloudDensity = clamp(Number(scene.cloudDensity), 0, 1, 0);
+    const cloudCover = clamp(Number(scene.cloudCover), 0, 100, cloudDensity * 100);
+    const low = clamp(Number(scene.cloudCoverLow), 0, 100, cloudCover);
+    const mid = clamp(Number(scene.cloudCoverMid), 0, 100, cloudCover);
+    const high = clamp(Number(scene.cloudCoverHigh), 0, 100, cloudCover);
+    const weightedCover = (cloudCover * 0.42 + low * 0.23 + mid * 0.21 + high * 0.14) / 100;
+    return clamp(Math.max(cloudDensity, weightedCover), 0, 1, 0);
+  }
+
+  function getSunBreakthroughFactor(scene, now) {
+    const direction = Math.round(Number(scene.windDirection) || 0);
+    const seed = Math.round((Number(scene.cloudCover) || 0) * 11 + direction * 3 + 1709);
+    const phase = seededUnit(seed) * Math.PI * 2;
+    const slowOpening = (Math.sin(now / 5800 + phase) + 1) / 2;
+    const quickOpening = (Math.sin(now / 2100 + phase * 1.7) + 1) / 2;
+    return clamp((slowOpening * 0.72 + quickOpening * 0.28 - 0.68) / 0.32, 0, 1, 0);
+  }
+
+  function drawVisibleConstellation(ctx, scene, date, now, visibility) {
+    const constellation = selectVisibleConstellation(scene, date);
+    if (!constellation) {
+      return;
+    }
+
+    ctx.save();
+    ctx.globalAlpha = 0.34 * visibility;
+    ctx.fillStyle = '#d8e9d2';
+    constellation.lines.forEach(function(line) {
+      drawPixelConstellationLine(ctx, line[0], line[1], '#d8e9d2');
+    });
+
+    constellation.stars.forEach(function(star, index) {
+      const pulse = 0.80 + Math.sin(now / 420 + index * 1.7) * 0.14;
+      const starSize = star.mag < 1 ? 5 : star.mag < 2.2 ? 4 : 3;
+      ctx.globalAlpha = pulse * visibility;
+      ctx.fillStyle = star.mag < 1.5 ? '#fff6d4' : '#d8e9d2';
+      ctx.fillRect(Math.round(star.x - starSize / 2), Math.round(star.y - starSize / 2), starSize, starSize);
+      if (star.mag < 1.5) {
+        ctx.globalAlpha = pulse * 0.45 * visibility;
+        ctx.fillRect(Math.round(star.x - 1), Math.round(star.y - 4), 2, 8);
+        ctx.fillRect(Math.round(star.x - 4), Math.round(star.y - 1), 8, 2);
+      }
+    });
+    ctx.restore();
+  }
+
+  function selectVisibleConstellation(scene, date) {
+    const forcedConstellation = getForcedConstellation();
+    if (forcedConstellation) {
+      return forcedConstellation;
+    }
+
+    const observer = getSceneObserver(scene);
+    let best = null;
+
+    constellationCatalog.forEach(function(constellation) {
+      const visibleStars = [];
+      const byId = new Map();
+
+      constellation.stars.forEach(function(star) {
+        const horizontal = getHorizontalCoordinates(date, observer.latitude, observer.longitude, {
+          rightAscension: star.ra,
+          declination: star.dec
+        });
+        const screen = projectConstellationStarToSky(horizontal);
+        if (!screen) {
+          return;
+        }
+
+        const projected = Object.assign({}, star, screen, { altitude: horizontal.altitude });
+        visibleStars.push(projected);
+        byId.set(star.id, projected);
+      });
+
+      if (visibleStars.length < (constellation.minStars || 4)) {
+        return;
+      }
+
+      const visibleLines = constellation.lines.map(function(line) {
+        const start = byId.get(line[0]);
+        const end = byId.get(line[1]);
+        return start && end ? [start, end] : null;
+      }).filter(Boolean);
+      if (visibleLines.length < 3) {
+        return;
+      }
+
+      const bounds = getPointBounds(visibleStars);
+      const widthPenalty = Math.max(0, bounds.width - 250) * 0.18;
+      const heightPenalty = Math.max(0, bounds.height - 170) * 0.25;
+      const compactPenalty = Math.max(0, 70 - Math.max(bounds.width, bounds.height)) * 0.22;
+      const readableSpread = Math.min(170, Math.max(bounds.width, bounds.height)) * 0.08;
+      const averageAltitude = visibleStars.reduce(function(total, star) {
+        return total + star.altitude;
+      }, 0) / visibleStars.length;
+      const score = visibleStars.length * 8 + visibleLines.length * 4 + averageAltitude + readableSpread
+        - widthPenalty - heightPenalty - compactPenalty;
+      if (!best || score > best.score) {
+        const fittedStars = fitConstellationForDisplay(visibleStars, bounds);
+        const fittedById = new Map(fittedStars.map(function(star) {
+          return [star.id, star];
+        }));
+        best = {
+          id: constellation.id,
+          stars: fittedStars,
+          lines: visibleLines.map(function(line) {
+            return [fittedById.get(line[0].id), fittedById.get(line[1].id)];
+          }),
+          score: score
+        };
+      }
+    });
+
+    return best;
+  }
+
+  function getForcedConstellation() {
+    const forcedId = runtime.debug && runtime.debug.enabled
+      ? runtime.debug.forcedConstellation
+      : 'auto';
+    if (!forcedId || forcedId === 'auto') {
+      return null;
+    }
+
+    const constellation = constellationCatalog.find(function(candidate) {
+      return candidate.id === forcedId;
+    });
+    if (!constellation) {
+      return null;
+    }
+
+    const raValues = constellation.stars.map(function(star) {
+      return star.ra;
+    });
+    const decValues = constellation.stars.map(function(star) {
+      return star.dec;
+    });
+    const minRa = Math.min.apply(null, raValues);
+    const maxRa = Math.max.apply(null, raValues);
+    const minDec = Math.min.apply(null, decValues);
+    const maxDec = Math.max.apply(null, decValues);
+    const width = Math.max(1, maxRa - minRa);
+    const height = Math.max(1, maxDec - minDec);
+    const stars = constellation.stars.map(function(star) {
+      const x = 164 + ((star.ra - minRa) / width) * 184;
+      const y = 84 + (1 - (star.dec - minDec) / height) * 112;
+      return Object.assign({}, star, {
+        x: x,
+        y: y,
+        altitude: 45
+      });
+    });
+    const byId = new Map(stars.map(function(star) {
+      return [star.id, star];
+    }));
+    return {
+      id: constellation.id,
+      stars: stars,
+      lines: constellation.lines.map(function(line) {
+        return [byId.get(line[0]), byId.get(line[1])];
+      }).filter(function(line) {
+        return line[0] && line[1];
+      }),
+      score: 999
+    };
+  }
+
+  function fitConstellationForDisplay(stars, bounds) {
+    const longestSide = Math.max(bounds.width, bounds.height);
+    if (longestSide >= 72) {
+      return stars;
+    }
+
+    const scale = Math.min(1.65, 72 / Math.max(1, longestSide));
+    const centerX = (bounds.left + bounds.right) / 2;
+    const centerY = (bounds.top + bounds.bottom) / 2;
+    return stars.map(function(star) {
+      return Object.assign({}, star, {
+        x: clamp(centerX + (star.x - centerX) * scale, 34, 478, star.x),
+        y: clamp(centerY + (star.y - centerY) * scale, 30, 286, star.y)
+      });
+    });
+  }
+
+  function projectConstellationStarToSky(horizontal) {
+    if (!horizontal || horizontal.altitude < 7) {
+      return null;
+    }
+
+    const altitude = clamp(horizontal.altitude, 7, 82, 7);
+    const altitudeProgress = clamp((altitude - 7) / 75, 0, 1, 0);
+    const altitudeEase = Math.sin(altitudeProgress * Math.PI / 2);
+    const azimuthSpread = 222 * Math.cos(toRadians(clamp(altitude, 0, 82, 0)));
+    const x = 256 + Math.sin(toRadians(horizontal.azimuth - 180)) * azimuthSpread;
+    const y = 292 - altitudeEase * 238;
+    if (x < 28 || x > 484 || y < 26 || y > 292) {
+      return null;
+    }
+
+    return { x: x, y: y };
+  }
+
+  function drawPixelConstellationLine(ctx, start, end, color) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 5));
+    ctx.fillStyle = color;
+
+    for (let index = 0; index <= steps; index += 1) {
+      const progress = index / steps;
+      const x = Math.round(start.x + dx * progress);
+      const y = Math.round(start.y + dy * progress);
+      ctx.fillRect(x, y, 2, 2);
+    }
+  }
+
+  function getPointBounds(points) {
+    return points.reduce(function(bounds, point) {
+      return {
+        left: Math.min(bounds.left, point.x),
+        right: Math.max(bounds.right, point.x),
+        top: Math.min(bounds.top, point.y),
+        bottom: Math.max(bounds.bottom, point.y),
+        width: Math.max(bounds.right, point.x) - Math.min(bounds.left, point.x),
+        height: Math.max(bounds.bottom, point.y) - Math.min(bounds.top, point.y)
+      };
+    }, {
+      left: Infinity,
+      right: -Infinity,
+      top: Infinity,
+      bottom: -Infinity,
+      width: 0,
+      height: 0
+    });
+  }
+
+  function getSunPosition(scene, date) {
+    const observer = getSceneObserver(scene);
+    const coordinates = getSolarCoordinates(date);
+    const horizontal = getHorizontalCoordinates(date, observer.latitude, observer.longitude, coordinates);
+    const altitudeFactor = clamp((horizontal.altitude + 2) / 74, 0, 1, 0);
+    const size = 40 + Math.round(altitudeFactor * 6);
+    const screen = projectCelestialToSky(horizontal, size, -3);
+    if (!screen) {
+      return null;
+    }
+
+    const coreInset = Math.max(8, Math.round(size * 0.23));
+    return {
+      x: screen.x,
+      y: screen.y,
+      size: size,
+      coreInset: coreInset,
+      coreSize: size - coreInset * 2,
+      altitude: horizontal.altitude,
+      azimuth: horizontal.azimuth,
+      alpha: screen.alpha
+    };
+  }
+
+  function getSunTimesForScene(scene, date) {
+    const sunrise = parseWeatherLocalTime(scene.sunriseAt);
+    const sunset = parseWeatherLocalTime(scene.sunsetAt);
+    if (sunrise && sunset && isSameLocalDate(date, sunrise)) {
+      return { sunrise: sunrise, sunset: sunset };
+    }
+
+    return calculateSunTimes(date, scene.latitude, scene.longitude);
+  }
+
+  function getMoonPosition(scene, date) {
+    const observer = getSceneObserver(scene);
+    const coordinates = getLunarCoordinates(date);
+    const horizontal = getHorizontalCoordinates(date, observer.latitude, observer.longitude, coordinates);
+    const phase = getDebugMoonPhaseOverride() || getMoonPhase(date, coordinates);
+    if (phase.illumination < 0.025) {
+      return null;
+    }
+
+    const altitudeFactor = clamp((horizontal.altitude + 2) / 74, 0, 1, 0);
+    const size = Math.round(28 + phase.illumination * 9 + altitudeFactor * 4);
+    const screen = projectCelestialToSky(horizontal, size, -2.5);
+    if (!screen) {
+      return null;
+    }
+
+    return {
+      x: screen.x,
+      y: screen.y,
+      size: size,
+      phase: phase,
+      altitude: horizontal.altitude,
+      azimuth: horizontal.azimuth,
+      alpha: screen.alpha * (0.35 + phase.illumination * 0.65)
+    };
+  }
+
+  function getSceneObserver(scene) {
+    const debugLocation = getDebugLocationOverride();
+    if (debugLocation) {
+      return debugLocation;
+    }
+
+    const latitude = Number(scene.latitude);
+    const longitude = Number(scene.longitude);
+    return {
+      latitude: Number.isFinite(latitude) ? latitude : defaultWeatherLocation.latitude,
+      longitude: Number.isFinite(longitude) ? longitude : defaultWeatherLocation.longitude
+    };
+  }
+
+  function getDebugLocationOverride() {
+    const location = runtime.debug && runtime.debug.enabled
+      ? runtime.debug.locationOverride
+      : 'auto';
+    const locations = {
+      katowice: {
+        latitude: 50.2649,
+        longitude: 19.0238
+      },
+      tromso: {
+        latitude: 69.6492,
+        longitude: 18.9553
+      },
+      equator: {
+        latitude: 0,
+        longitude: 0
+      },
+      sydney: {
+        latitude: -33.8688,
+        longitude: 151.2093
+      }
+    };
+
+    return locations[location] || null;
+  }
+
+  function getDebugMoonPhaseOverride() {
+    const phase = runtime.debug && runtime.debug.enabled
+      ? runtime.debug.moonPhaseOverride
+      : 'auto';
+    if (phase === 'full') {
+      return {
+        fraction: 0.5,
+        illumination: 1,
+        waxing: false
+      };
+    }
+
+    if (phase === 'crescent') {
+      return {
+        fraction: 0.16,
+        illumination: 0.22,
+        waxing: true
+      };
+    }
+
+    if (phase === 'new') {
+      return {
+        fraction: 0,
+        illumination: 0,
+        waxing: true
+      };
+    }
+
+    return null;
+  }
+
+  function projectCelestialToSky(horizontal, size, minimumAltitude) {
+    if (!horizontal || horizontal.altitude < minimumAltitude) {
+      return null;
+    }
+
+    const visibleAltitude = clamp(horizontal.altitude, minimumAltitude, 82, 0);
+    const altitudeProgress = clamp((visibleAltitude - minimumAltitude) / (82 - minimumAltitude), 0, 1, 0);
+    const altitudeEase = Math.sin(altitudeProgress * Math.PI / 2);
+    const azimuthSpread = 226 * Math.cos(toRadians(clamp(visibleAltitude, 0, 80, 0)));
+    const azimuthOffset = Math.sin(toRadians(horizontal.azimuth - 180));
+    const x = clamp(256 + azimuthOffset * azimuthSpread - size / 2, 26, 486 - size, 256 - size / 2);
+    const y = clamp(292 - altitudeEase * 246 - size / 2, 30, 292 - size / 2, 292 - size / 2);
+    const alpha = clamp((horizontal.altitude - minimumAltitude) / 8, 0, 1, 0);
+
+    return {
+      x: Math.round(x),
+      y: Math.round(y),
+      alpha: alpha
+    };
+  }
+
+  function getSolarCoordinates(date) {
+    const days = getJulianDate(date) - 2451545.0;
+    const meanAnomaly = normalizeDegrees(357.5291 + 0.98560028 * days);
+    const equationOfCenter = 1.9148 * sinDeg(meanAnomaly)
+      + 0.0200 * sinDeg(2 * meanAnomaly)
+      + 0.0003 * sinDeg(3 * meanAnomaly);
+    const eclipticLongitude = normalizeDegrees(meanAnomaly + equationOfCenter + 102.9372 + 180);
+    const obliquity = getObliquity(days);
+    return Object.assign(eclipticToEquatorial(eclipticLongitude, 0, obliquity), {
+      eclipticLongitude: eclipticLongitude,
+      eclipticLatitude: 0
+    });
+  }
+
+  function getLunarCoordinates(date) {
+    const days = getJulianDate(date) - 2451543.5;
+    const ascendingNode = normalizeDegrees(125.1228 - 0.0529538083 * days);
+    const inclination = 5.1454;
+    const argumentOfPerigee = normalizeDegrees(318.0634 + 0.1643573223 * days);
+    const meanAnomaly = normalizeDegrees(115.3654 + 13.0649929509 * days);
+    const eccentricity = 0.054900;
+    const semiMajorAxis = 60.2666;
+    const eccentricAnomaly = toRadians(meanAnomaly
+      + eccentricity * toDegrees(Math.sin(toRadians(meanAnomaly))) * (1 + eccentricity * cosDeg(meanAnomaly)));
+    const xv = semiMajorAxis * (Math.cos(eccentricAnomaly) - eccentricity);
+    const yv = semiMajorAxis * Math.sqrt(1 - eccentricity * eccentricity) * Math.sin(eccentricAnomaly);
+    const trueAnomaly = toDegrees(Math.atan2(yv, xv));
+    const distance = Math.sqrt(xv * xv + yv * yv);
+    const argument = trueAnomaly + argumentOfPerigee;
+    const xh = distance * (cosDeg(ascendingNode) * cosDeg(argument)
+      - sinDeg(ascendingNode) * sinDeg(argument) * cosDeg(inclination));
+    const yh = distance * (sinDeg(ascendingNode) * cosDeg(argument)
+      + cosDeg(ascendingNode) * sinDeg(argument) * cosDeg(inclination));
+    const zh = distance * sinDeg(argument) * sinDeg(inclination);
+    let eclipticLongitude = normalizeDegrees(toDegrees(Math.atan2(yh, xh)));
+    let eclipticLatitude = toDegrees(Math.atan2(zh, Math.sqrt(xh * xh + yh * yh)));
+
+    const sunMeanAnomaly = normalizeDegrees(356.0470 + 0.9856002585 * days);
+    const sunMeanLongitude = normalizeDegrees(280.460 + 0.9856474 * days);
+    const moonMeanLongitude = normalizeDegrees(ascendingNode + argumentOfPerigee + meanAnomaly);
+    const elongation = normalizeDegrees(moonMeanLongitude - sunMeanLongitude);
+    const argumentOfLatitude = normalizeDegrees(moonMeanLongitude - ascendingNode);
+
+    eclipticLongitude = normalizeDegrees(eclipticLongitude
+      - 1.274 * sinDeg(meanAnomaly - 2 * elongation)
+      + 0.658 * sinDeg(2 * elongation)
+      - 0.186 * sinDeg(sunMeanAnomaly)
+      - 0.059 * sinDeg(2 * meanAnomaly - 2 * elongation)
+      - 0.057 * sinDeg(meanAnomaly - 2 * elongation + sunMeanAnomaly)
+      + 0.053 * sinDeg(meanAnomaly + 2 * elongation)
+      + 0.046 * sinDeg(2 * elongation - sunMeanAnomaly)
+      + 0.041 * sinDeg(meanAnomaly - sunMeanAnomaly)
+      - 0.035 * sinDeg(elongation)
+      - 0.031 * sinDeg(meanAnomaly + sunMeanAnomaly));
+
+    eclipticLatitude += -0.173 * sinDeg(argumentOfLatitude - 2 * elongation)
+      - 0.055 * sinDeg(meanAnomaly - argumentOfLatitude - 2 * elongation)
+      - 0.046 * sinDeg(meanAnomaly + argumentOfLatitude - 2 * elongation)
+      + 0.033 * sinDeg(argumentOfLatitude + 2 * elongation)
+      + 0.017 * sinDeg(2 * meanAnomaly + argumentOfLatitude);
+
+    const obliquity = getObliquity(days);
+    return Object.assign(eclipticToEquatorial(eclipticLongitude, eclipticLatitude, obliquity), {
+      eclipticLongitude: eclipticLongitude,
+      eclipticLatitude: eclipticLatitude,
+      distance: distance
+    });
+  }
+
+  function getMoonPhase(date, lunarCoordinates) {
+    const moon = lunarCoordinates || getLunarCoordinates(date);
+    const sun = getSolarCoordinates(date);
+    const fraction = normalizeDegrees(moon.eclipticLongitude - sun.eclipticLongitude) / 360;
+    const illumination = (1 - Math.cos(fraction * Math.PI * 2)) / 2;
+
+    return {
+      fraction: fraction,
+      illumination: illumination,
+      waxing: fraction < 0.5
+    };
+  }
+
+  function drawPixelMoon(ctx, moon) {
+    const block = Math.max(3, Math.round(moon.size / 9));
+    const radius = moon.size / 2;
+    const center = moon.size / 2;
+
+    for (let y = 0; y < moon.size; y += block) {
+      for (let x = 0; x < moon.size; x += block) {
+        const centerX = x + block / 2;
+        const centerY = y + block / 2;
+        const dx = centerX - center;
+        const dy = centerY - center;
+        if (dx * dx + dy * dy > radius * radius) {
+          continue;
+        }
+
+        const normalizedX = dx / radius;
+        const normalizedY = dy / radius;
+        const lit = isMoonBlockLit(normalizedX, normalizedY, moon.phase);
+        if (!lit) {
+          continue;
+        }
+
+        ctx.fillStyle = getMoonLightColor(moon.phase.illumination);
+        ctx.fillRect(moon.x + x, moon.y + y, block, block);
+      }
+    }
+  }
+
+  function isMoonBlockLit(normalizedX, normalizedY, phase) {
+    const illumination = phase.illumination;
+    if (illumination >= 0.97) {
+      return true;
+    }
+    if (illumination <= 0.03) {
+      return false;
+    }
+
+    const surfaceDepth = Math.sqrt(Math.max(0, 1 - normalizedX * normalizedX - normalizedY * normalizedY));
+    const phaseAngle = phase.fraction * Math.PI * 2;
+    return normalizedX * Math.sin(phaseAngle) - surfaceDepth * Math.cos(phaseAngle) > 0;
+  }
+
+  function getMoonLightColor(illumination) {
+    if (illumination > 0.82) {
+      return '#fff6d4';
+    }
+    if (illumination > 0.45) {
+      return '#f5f0c8';
+    }
+    return '#d9dfbc';
+  }
+
+  function getHorizontalCoordinates(date, latitude, longitude, coordinates) {
+    const localSiderealTime = normalizeDegrees(getGreenwichSiderealTime(date) + longitude);
+    const hourAngle = normalizeDegrees(localSiderealTime - coordinates.rightAscension);
+    const hourAngleRad = toRadians(hourAngle);
+    const latitudeRad = toRadians(latitude);
+    const declinationRad = toRadians(coordinates.declination);
+    const altitude = toDegrees(Math.asin(
+      Math.sin(latitudeRad) * Math.sin(declinationRad)
+      + Math.cos(latitudeRad) * Math.cos(declinationRad) * Math.cos(hourAngleRad)
+    ));
+    const azimuth = normalizeDegrees(toDegrees(Math.atan2(
+      Math.sin(hourAngleRad),
+      Math.cos(hourAngleRad) * Math.sin(latitudeRad) - Math.tan(declinationRad) * Math.cos(latitudeRad)
+    )) + 180);
+
+    return {
+      altitude: altitude,
+      azimuth: azimuth
+    };
+  }
+
+  function eclipticToEquatorial(longitude, latitude, obliquity) {
+    const longitudeRad = toRadians(longitude);
+    const latitudeRad = toRadians(latitude);
+    const obliquityRad = toRadians(obliquity);
+    const x = Math.cos(longitudeRad) * Math.cos(latitudeRad);
+    const y = Math.sin(longitudeRad) * Math.cos(latitudeRad);
+    const z = Math.sin(latitudeRad);
+    const equatorialY = y * Math.cos(obliquityRad) - z * Math.sin(obliquityRad);
+    const equatorialZ = y * Math.sin(obliquityRad) + z * Math.cos(obliquityRad);
+
+    return {
+      rightAscension: normalizeDegrees(toDegrees(Math.atan2(equatorialY, x))),
+      declination: toDegrees(Math.atan2(equatorialZ, Math.sqrt(x * x + equatorialY * equatorialY)))
+    };
+  }
+
+  function getGreenwichSiderealTime(date) {
+    const julianDate = getJulianDate(date);
+    const centuries = (julianDate - 2451545.0) / 36525;
+    return normalizeDegrees(
+      280.46061837
+      + 360.98564736629 * (julianDate - 2451545.0)
+      + 0.000387933 * centuries * centuries
+      - centuries * centuries * centuries / 38710000
+    );
+  }
+
+  function getJulianDate(date) {
+    return date.getTime() / 86400000 + 2440587.5;
+  }
+
+  function getObliquity(days) {
+    return 23.439291 - 0.00000036 * days;
+  }
+
+  function sinDeg(value) {
+    return Math.sin(toRadians(value));
+  }
+
+  function cosDeg(value) {
+    return Math.cos(toRadians(value));
+  }

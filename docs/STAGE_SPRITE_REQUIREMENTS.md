@@ -45,7 +45,7 @@ Aktywnosci maja osobne sheety dla kazdego etapu w `assets/activities/<etap>/`:
 - `spores_sheet.png`
 - `harvest_sheet.png`
 
-Aktualny stan repo: `5 etapow x 8 aktywnosci = 40` sheetow stage-specific oraz `8` fallbackow kompatybilnosci w `assets/activities/`.
+Aktualny stan repo: `5 etapow x 8 aktywnosci = 40` sheetow stage-specific oraz `8` fallbackow kompatybilnosci w `assets/activities/`. Manifest runtime uzywa wariantow stage-specific; fallbacki sa nadal walidowane jako powierzchnia kompatybilnosci, ale nie sa ladowane przez manifest.
 
 `hydrate_sheet.png` jest skladany specjalnie: postac zachowuje rozmiar etapu jak w stanie bazowym, a lekka mgielka kropli wody jest osobna warstwa nad kapeluszem/zawiazkiem. Nie wolno skalowac calej sceny podlewania razem z woda, bo zmniejsza to Pieczarke.
 
@@ -59,7 +59,7 @@ Efekty sa w `assets/effects/` i nie zastepuja animacji postaci:
 - `notes_sheet.png`
 - `spore_cloud_sheet.png`
 
-Aktualny stan repo: `5` sheetow efektow z imagegenowego atlasu.
+Aktualny stan repo: `5` sheetow efektow z imagegenowego atlasu. Sa walidowane razem z runtime PNG, ale pozostaja opcjonalnymi assetami pomocniczymi poza aktualnym manifestem.
 
 ## Kontrola Jakosci
 

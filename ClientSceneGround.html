@@ -1,0 +1,258 @@
+  function drawLowGround(ctx, palette, now, scene) {
+    const groundTop = 428;
+    const patchTop = 390;
+
+    ctx.fillStyle = palette.ground;
+    ctx.fillRect(0, patchTop + 20, 512, 512 - patchTop - 20);
+    ctx.fillStyle = palette.groundLight;
+    ctx.fillRect(0, groundTop, 512, 10);
+    drawGeneratedGrassPatch(ctx, palette, scene, patchTop);
+    drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
+      count: 104,
+      seedBase: 8111,
+      baseYMin: 412,
+      baseYMax: 448,
+      heightMin: 22,
+      heightMax: 52,
+      alpha: 0.82,
+      width: 3,
+      front: false
+    });
+    drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
+      count: 42,
+      seedBase: 11807,
+      baseYMin: 430,
+      baseYMax: 466,
+      heightMin: 16,
+      heightMax: 36,
+      alpha: 0.58,
+      width: 2,
+      front: false
+    });
+
+    if (scene && scene.condition === 'snow' && scene.snowIntensity > 0.01) {
+      drawSnowGroundCover(ctx, scene, now, groundTop);
+    }
+  }
+
+  function drawGeneratedGrassPatch(ctx, palette, scene, patchTop) {
+    const image = runtime.assets['environment.grassPatch'];
+    if (!image) {
+      ensureAssetLoaded('environment.grassPatch');
+      drawFallbackGroundTexture(ctx, palette, patchTop);
+      return;
+    }
+
+    const condition = scene && scene.condition;
+    const height = image.naturalHeight || image.height || 158;
+    const y = Math.min(512 - height, patchTop);
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(image, 0, y, 512, height);
+
+    if (condition === 'rain' || condition === 'storm') {
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.globalAlpha = condition === 'storm' ? 0.18 : 0.11;
+      ctx.fillStyle = '#6f8790';
+      ctx.fillRect(0, y, 512, height);
+    } else if (condition === 'fog') {
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.globalAlpha = 0.12;
+      ctx.fillStyle = '#dce9d1';
+      ctx.fillRect(0, y, 512, height);
+    } else if (condition === 'snow') {
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.globalAlpha = 0.56;
+      ctx.fillStyle = '#eef7e8';
+      ctx.fillRect(0, y, 512, height);
+    }
+
+    ctx.restore();
+  }
+
+  function drawFallbackGroundTexture(ctx, palette, patchTop) {
+    ctx.save();
+    ctx.fillStyle = palette.ground;
+    ctx.fillRect(0, patchTop + 22, 512, 512 - patchTop - 22);
+    ctx.fillStyle = palette.groundLight;
+    for (let x = -8; x < 532; x += 24) {
+      const height = 12 + Math.round(seededUnit(9011 + x) * 18);
+      ctx.fillRect(x, patchTop + 40 - height, 16, height);
+    }
+    ctx.restore();
+  }
+
+  function drawGroundForeground(ctx, now) {
+    const scene = getCurrentWeatherScene();
+    const palette = getScenePalette(scene);
+    const condition = scene && scene.condition;
+    drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
+      count: 84,
+      seedBase: 9331,
+      baseYMin: 422,
+      baseYMax: 458,
+      heightMin: 16,
+      heightMax: 39,
+      alpha: condition === 'snow' ? 0.34 : 0.72,
+      width: 2,
+      front: true
+    });
+    drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
+      count: 38,
+      seedBase: 12883,
+      baseYMin: 438,
+      baseYMax: 474,
+      heightMin: 24,
+      heightMax: 58,
+      alpha: condition === 'snow' ? 0.26 : 0.64,
+      width: 2,
+      front: true,
+      xBands: [[-4, 148], [356, 516], [18, 236], [286, 498]]
+    });
+  }
+
+  function drawWindResponsiveGrassBlades(ctx, palette, now, scene, options) {
+    const wind = getDynamicWindState(scene, now);
+    const condition = scene && scene.condition;
+    const count = options.count || 32;
+    const baseRange = Math.max(1, options.baseYMax - options.baseYMin);
+    const heightRange = Math.max(1, options.heightMax - options.heightMin);
+    const swayScale = options.front ? 1.0 : 0.72;
+
+    ctx.save();
+    ctx.globalAlpha = options.alpha;
+    for (let index = 0; index < count; index += 1) {
+      const seed = options.seedBase + index * 47;
+      const x = getGrassBladeX(options, seed);
+      const baseY = Math.round(options.baseYMin + seededUnit(seed + 1) * baseRange);
+      const height = Math.round(options.heightMin + seededUnit(seed + 2) * heightRange);
+      const localSpeed = 880 + seededUnit(seed + 3) * 620;
+      const localPhase = now / localSpeed + seed * 0.013;
+      const swayMultiplier = getGrassSwayMultiplier(condition);
+      const calmSway = Math.sin(localPhase) * (1.0 + wind.averageLevel * 3.0) * swayMultiplier;
+      const gustSway = Math.sin(now / 520 + seed) * wind.gustPulse * (2.0 + wind.level * 4.0);
+      const windBend = wind.directionX * (wind.level * (5.5 + height * 0.32) + wind.gustPulse * 4.0);
+      const weatherBend = getGrassWeatherBend(condition, wind, height, options.front);
+      const visibleHeight = getGrassWeatherHeight(condition, height);
+      const bend = (calmSway + gustSway + windBend + weatherBend) * swayScale;
+      const colorSet = getGrassBladeColors(palette, condition, seededUnit(seed + 4), options.front);
+
+      drawPixelGrassBlade(ctx, x, baseY, visibleHeight, bend, options.width || 2, colorSet);
+    }
+    ctx.restore();
+  }
+
+  function getGrassBladeX(options, seed) {
+    const bands = Array.isArray(options.xBands) && options.xBands.length ? options.xBands : null;
+    if (!bands) {
+      return Math.round(-6 + seededUnit(seed) * 524);
+    }
+
+    const band = bands[Math.floor(seededUnit(seed + 11) * bands.length) % bands.length];
+    const min = Number(band[0]);
+    const max = Number(band[1]);
+    return Math.round(min + seededUnit(seed) * Math.max(1, max - min));
+  }
+
+  function getGrassSwayMultiplier(condition) {
+    if (condition === 'snow') {
+      return 0.72;
+    }
+
+    if (condition === 'storm') {
+      return 0.76;
+    }
+
+    if (condition === 'rain') {
+      return 0.86;
+    }
+
+    return 1;
+  }
+
+  function getGrassWeatherBend(condition, wind, height, front) {
+    const direction = wind.directionX || wind.direction || 0;
+    const frontScale = front ? 1 : 0.72;
+    if (condition === 'storm') {
+      return direction * height * 0.12 * frontScale;
+    }
+
+    if (condition === 'rain') {
+      return direction * height * 0.075 * frontScale;
+    }
+
+    if (condition === 'snow') {
+      return direction * height * 0.045 * frontScale;
+    }
+
+    return 0;
+  }
+
+  function getGrassWeatherHeight(condition, height) {
+    if (condition === 'snow') {
+      return Math.round(height * 0.9);
+    }
+
+    if (condition === 'storm') {
+      return Math.round(height * 0.94);
+    }
+
+    if (condition === 'rain') {
+      return Math.round(height * 0.96);
+    }
+
+    return height;
+  }
+
+  function getGrassBladeColors(palette, condition, unit, front) {
+    if (condition === 'snow') {
+      return {
+        dark: '#9eb890',
+        mid: '#d8e8cc',
+        light: '#f4fbef'
+      };
+    }
+
+    if (condition === 'rain' || condition === 'storm') {
+      return {
+        dark: '#2f6f36',
+        mid: front ? '#5fa342' : '#4d913b',
+        light: '#8bc95e'
+      };
+    }
+
+    if (unit > 0.72) {
+      return {
+        dark: '#3f7f32',
+        mid: palette.blade,
+        light: '#b0d86a'
+      };
+    }
+
+    return {
+      dark: '#2e6f31',
+      mid: palette.blade,
+      light: palette.groundLight
+    };
+  }
+
+  function drawPixelGrassBlade(ctx, x, baseY, height, bend, width, colors) {
+    const segments = Math.max(4, Math.ceil(height / 4));
+    const direction = bend >= 0 ? 1 : -1;
+
+    for (let step = 0; step < segments; step += 1) {
+      const progress = (step + 1) / segments;
+      const segmentHeight = step === segments - 1 ? 3 : 4;
+      const segmentWidth = Math.max(1, Math.round(width - progress * 1.1));
+      const segmentX = Math.round(x + bend * progress * progress);
+      const segmentY = Math.round(baseY - progress * height);
+      const color = progress > 0.72 ? colors.light : progress > 0.34 ? colors.mid : colors.dark;
+
+      ctx.fillStyle = color;
+      ctx.fillRect(segmentX, segmentY, segmentWidth, segmentHeight);
+      if (segmentWidth > 1 && step < segments - 1) {
+        ctx.fillStyle = colors.dark;
+        ctx.fillRect(segmentX - direction, segmentY + 1, 1, Math.max(1, segmentHeight - 1));
+      }
+    }
+  }

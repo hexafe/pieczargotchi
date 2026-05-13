@@ -62,6 +62,24 @@ function createDefaultStateTemplate() {
       environment: 0,
       rest: 0
     },
+    battle: {
+      version: 1,
+      mode: 'idle',
+      unlockedAt: null,
+      training: {
+        strength: 0,
+        defense: 0,
+        speed: 0,
+        focus: 0
+      },
+      activeBattle: null,
+      rewards: {
+        wins: 0,
+        losses: 0,
+        trophies: 0
+      },
+      log: []
+    },
     coins: 0,
     cooldowns: {
       hydrate: 0,

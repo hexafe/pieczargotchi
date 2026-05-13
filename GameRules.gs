@@ -98,6 +98,70 @@ function getGameRulesConfig() {
       cleanHealthy: 2,
       neglected: -6
     },
+    weatherBalance: {
+      maxElapsedHours: 2,
+      rainHydrationPerHour: 8,
+      stormHydrationPerHour: 5,
+      snowHydrationPerHour: 1.5,
+      highHumidityHydrationPerHour: 1.2,
+      windDryingPerHour: -3,
+      heatDryingPerHour: -2,
+      stormHappinessPerHour: -2,
+      stormCleanlinessPerHour: -1.5
+    },
+    battle: {
+      unlockStage: 'legendary',
+      trainingCost: 1,
+      trainingCaps: {
+        strength: 20,
+        defense: 20,
+        speed: 20,
+        focus: 20
+      },
+      victoryRewards: {
+        spores: 2,
+        wins: 1,
+        trophies: 1
+      },
+      defeatRewards: {
+        losses: 1
+      },
+      moveCatalog: [
+        {
+          id: 'sporeJab',
+          label: 'Zarodnikowy cios',
+          staminaCost: 8,
+          power: 14,
+          accuracy: 0.94,
+          stat: 'strength'
+        },
+        {
+          id: 'capGuard',
+          label: 'Osłona kapelusza',
+          staminaCost: 6,
+          power: 4,
+          accuracy: 1,
+          stat: 'defense',
+          guard: 0.35
+        },
+        {
+          id: 'myceliumFeint',
+          label: 'Myk grzybni',
+          staminaCost: 10,
+          power: 10,
+          accuracy: 0.9,
+          stat: 'speed'
+        },
+        {
+          id: 'focusBloom',
+          label: 'Skupiony rozkwit',
+          staminaCost: 12,
+          power: 18,
+          accuracy: 0.82,
+          stat: 'focus'
+        }
+      ]
+    },
     instruments: [
       'mała kalimba',
       'kieszonkowy syntezator',
