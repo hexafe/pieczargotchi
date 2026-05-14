@@ -108,6 +108,137 @@ test('zero precipitation rain scene has no hydration boost', () => {
   assert(!('hydration' in deltas), `expected no hydration delta, got ${deltas.hydration}`);
 });
 
+test('weather immersion classifies cloud forms, rain, wind, fog, and wet ground', () => {
+  const immersion = core.deriveWeatherImmersionFields({
+    condition: 'storm',
+    code: 95,
+    dayPhase: 'evening',
+    cloudCover: 98,
+    cloudCoverLow: 94,
+    cloudCoverMid: 90,
+    cloudCoverHigh: 76,
+    precipitation: 8,
+    rain: 7.8,
+    showers: 3.2,
+    snowfall: 0,
+    windSpeed: 62,
+    windGusts: 96,
+    humidity: 94,
+    temperature: 18,
+    dewPoint: 17,
+    visibility: 2400,
+    pressure: 1003
+  }, [], null, Date.parse('2026-05-14T18:00:00.000Z'));
+
+  assert(immersion.skyCoverClass === 'overcast', `expected overcast sky, got ${immersion.skyCoverClass}`);
+  assert(immersion.rainClass === 'heavy', `expected heavy rain, got ${immersion.rainClass}`);
+  assert(immersion.precipitationStyle === 'storm', `expected storm precipitation style, got ${immersion.precipitationStyle}`);
+  assert(immersion.windBeaufort.force >= 8, `expected gale-class wind, got ${immersion.windBeaufort.force}`);
+  assert(immersion.cloudForms.low === 'cumulonimbus', `expected storm low cloud, got ${immersion.cloudForms.low}`);
+  assert(immersion.surfaceWetnessTarget > 0.9, `expected saturated surface, got ${immersion.surfaceWetnessTarget}`);
+});
+
+test('weather immersion detects likely fog from live humidity, dew point, visibility, and low wind', () => {
+  const immersion = core.deriveWeatherImmersionFields({
+    condition: 'cloudy',
+    dayPhase: 'sunrise',
+    cloudCover: 92,
+    cloudCoverLow: 94,
+    cloudCoverMid: 56,
+    cloudCoverHigh: 24,
+    precipitation: 0,
+    rain: 0,
+    snowfall: 0,
+    windSpeed: 4,
+    windGusts: 6,
+    humidity: 97,
+    temperature: 7,
+    dewPoint: 6.4,
+    visibility: 800
+  }, [], null, Date.parse('2026-10-08T05:00:00.000Z'));
+
+  assert(immersion.fogPotential > 0.8, `expected strong fog potential, got ${immersion.fogPotential}`);
+  assert(immersion.cloudForms.low === 'stratus', `expected stratus low cloud, got ${immersion.cloudForms.low}`);
+  assert(immersion.surfaceWetnessTarget > 0.5, `expected damp surface, got ${immersion.surfaceWetnessTarget}`);
+});
+
+test('weather immersion pressure trend and forecast hint use nearby hourly data', () => {
+  const now = Date.parse('2026-05-14T12:00:00.000Z');
+  const immersion = core.deriveWeatherImmersionFields({
+    condition: 'cloudy',
+    cloudCover: 40,
+    cloudCoverLow: 35,
+    cloudCoverMid: 42,
+    cloudCoverHigh: 38,
+    precipitation: 0,
+    rain: 0,
+    snowfall: 0,
+    humidity: 70,
+    windSpeed: 9,
+    pressure: 1008
+  }, [
+    { time: '2026-05-14T09:00:00.000Z', pressure: 1012, precipitation: 0, cloudCover: 30 },
+    { time: '2026-05-14T12:00:00.000Z', pressure: 1008, precipitation: 0, cloudCover: 40 },
+    { time: '2026-05-14T15:00:00.000Z', pressure: 1004, precipitation: 2, cloudCover: 90 }
+  ], null, now);
+
+  assert(immersion.pressureTrend.direction === 'falling', `expected falling pressure, got ${immersion.pressureTrend.direction}`);
+  assert(immersion.pressureTrend.deltaHpa === -8, `expected -8 hPa trend, got ${immersion.pressureTrend.deltaHpa}`);
+  assert(immersion.weatherIncomingHint === 'precipitationApproaching', `expected incoming rain hint, got ${immersion.weatherIncomingHint}`);
+});
+
+test('weather immersion snow cover responds to snowfall, depth, wind, and melt', () => {
+  const coldSnow = core.deriveWeatherImmersionFields({
+    condition: 'snow',
+    cloudCover: 80,
+    cloudCoverLow: 72,
+    precipitation: 2,
+    snowfall: 2,
+    snowDepth: 0.03,
+    temperature: -2,
+    windSpeed: 12,
+    humidity: 86
+  }, [], null, Date.parse('2026-01-14T12:00:00.000Z'));
+  const warmOldSnow = core.deriveWeatherImmersionFields({
+    condition: 'clear',
+    cloudCover: 12,
+    precipitation: 0,
+    snowfall: 0,
+    snowDepth: 0.03,
+    temperature: 5,
+    windSpeed: 8,
+    humidity: 58
+  }, [], null, Date.parse('2026-02-14T12:00:00.000Z'));
+
+  assert(coldSnow.snowCoverTarget > 0.75, `expected accumulated snow, got ${coldSnow.snowCoverTarget}`);
+  assert(coldSnow.snowStyle === 'powder', `expected powder snow, got ${coldSnow.snowStyle}`);
+  assert(warmOldSnow.snowCoverTarget < coldSnow.snowCoverTarget, 'warm old snow should melt compared with active snowfall');
+});
+
+test('weather immersion fields do not change care weather balance', () => {
+  const scene = {
+    condition: 'rain',
+    precipitation: 3,
+    rain: 3,
+    showers: 0.6,
+    snowfall: 0,
+    rainIntensity: 0.6,
+    windLevel: 0.1,
+    humidity: 90,
+    temperature: 15,
+    cloudCover: 90,
+    cloudCoverLow: 82,
+    cloudCoverMid: 74,
+    cloudCoverHigh: 60,
+    windSpeed: 18
+  };
+  const baseline = core.calculateWeatherStatDeltas(scene, 1, {});
+  const enhanced = Object.assign({}, scene, core.deriveWeatherImmersionFields(scene, [], null, Date.now()));
+  const afterImmersion = core.calculateWeatherStatDeltas(enhanced, 1, {});
+
+  assert(JSON.stringify(afterImmersion) === JSON.stringify(baseline), 'visual immersion fields should not alter care deltas');
+});
+
 test('v2 saves migrate to v3 battle subtree', () => {
   const migrated = core.migrateStateVersion({
     version: 2,

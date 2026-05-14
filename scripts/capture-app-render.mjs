@@ -81,13 +81,40 @@ function readOptionalEnvNumber(name) {
 function createCaptureSceneOverrides() {
   const temperature = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_TEMPERATURE');
   const humidity = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_HUMIDITY');
-  if (temperature === null && humidity === null) {
+  const dewPoint = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_DEW_POINT');
+  const pressure = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_PRESSURE');
+  const visibility = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_VISIBILITY');
+  const vaporPressureDeficit = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_VPD');
+  const evapotranspiration = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_ET0');
+  const snowDepth = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_SNOW_DEPTH');
+  const surfaceWetnessTarget = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_SURFACE_WETNESS');
+  const snowCoverTarget = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_SNOW_COVER');
+  if (
+    temperature === null
+    && humidity === null
+    && dewPoint === null
+    && pressure === null
+    && visibility === null
+    && vaporPressureDeficit === null
+    && evapotranspiration === null
+    && snowDepth === null
+    && surfaceWetnessTarget === null
+    && snowCoverTarget === null
+  ) {
     return null;
   }
 
   return {
     temperature,
-    humidity
+    humidity,
+    dewPoint,
+    pressure,
+    visibility,
+    vaporPressureDeficit,
+    evapotranspiration,
+    snowDepth,
+    surfaceWetnessTarget,
+    snowCoverTarget
   };
 }
 
@@ -494,6 +521,16 @@ async function captureCanvas(cdp, label, options) {
           dayPhase: scene.dayPhase,
           temperature: scene.temperature,
           apparentTemperature: scene.apparentTemperature,
+          dewPoint: scene.dewPoint,
+          pressure: scene.pressure,
+          pressureTrend: scene.pressureTrend,
+          visibility: scene.visibility,
+          fogPotential: scene.fogPotential,
+          skyCoverClass: scene.skyCoverClass,
+          rainClass: scene.rainClass,
+          snowStyle: scene.snowStyle,
+          surfaceWetnessTarget: scene.surfaceWetnessTarget,
+          snowCoverTarget: scene.snowCoverTarget,
           windSpeed: scene.windSpeed,
           windLevel: scene.windLevel,
           gustLevel: scene.gustLevel,
@@ -525,6 +562,38 @@ async function applyCaptureSceneOverrides(cdp) {
       if (overrides.humidity !== null) {
         runtime.weatherScene.humidity = overrides.humidity;
       }
+      const optionalFields = [
+        ['dewPoint', 'dewPoint'],
+        ['pressure', 'pressure'],
+        ['visibility', 'visibility'],
+        ['vaporPressureDeficit', 'vaporPressureDeficit'],
+        ['evapotranspiration', 'evapotranspiration'],
+        ['snowDepth', 'snowDepth']
+      ];
+      optionalFields.forEach(([field, overrideKey]) => {
+        if (overrides[overrideKey] !== null) {
+          runtime.weatherScene[field] = overrides[overrideKey];
+        }
+      });
+      const core = window.PieczargotchiCore;
+      if (core && typeof core.deriveWeatherImmersionFields === 'function') {
+        Object.assign(
+          runtime.weatherScene,
+          core.deriveWeatherImmersionFields(
+            runtime.weatherScene,
+            runtime.weatherScene.weatherHours,
+            null,
+            runtime.debug && runtime.debug.fixedAt || runtime.weatherScene.updatedAt || Date.now()
+          )
+        );
+      }
+      if (overrides.surfaceWetnessTarget !== null) {
+        runtime.weatherScene.surfaceWetnessTarget = overrides.surfaceWetnessTarget;
+      }
+      if (overrides.snowCoverTarget !== null) {
+        runtime.weatherScene.snowCoverTarget = overrides.snowCoverTarget;
+      }
+      runtime.weatherSurface = null;
     })()`,
     awaitPromise: true
   });

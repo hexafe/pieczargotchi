@@ -37,6 +37,47 @@ const scenarios = [
     }
   },
   {
+    id: 'drizzle-morning-dew',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'rain',
+      PIECZARGOTCHI_DEBUG_PRECIPITATION: '0.18',
+      PIECZARGOTCHI_DEBUG_CLOUD: '72',
+      PIECZARGOTCHI_DEBUG_WIND: '8',
+      PIECZARGOTCHI_DEBUG_HUMIDITY: '94',
+      PIECZARGOTCHI_DEBUG_TEMPERATURE: '10',
+      PIECZARGOTCHI_DEBUG_DEW_POINT: '9.4',
+      PIECZARGOTCHI_DEBUG_VISIBILITY: '5200',
+      PIECZARGOTCHI_DEBUG_SURFACE_WETNESS: '0.46',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-09-12T07:20:00')
+    }
+  },
+  {
+    id: 'heavy-rain-sheets-low-visibility',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'rain',
+      PIECZARGOTCHI_DEBUG_PRECIPITATION: '9.4',
+      PIECZARGOTCHI_DEBUG_CLOUD: '96',
+      PIECZARGOTCHI_DEBUG_WIND: '42',
+      PIECZARGOTCHI_DEBUG_WIND_DIRECTION: '250',
+      PIECZARGOTCHI_DEBUG_HUMIDITY: '96',
+      PIECZARGOTCHI_DEBUG_VISIBILITY: '1800',
+      PIECZARGOTCHI_DEBUG_SURFACE_WETNESS: '1',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-09-12T16:30:00')
+    }
+  },
+  {
+    id: 'post-rain-wet-ground-clearing',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
+      PIECZARGOTCHI_DEBUG_CLOUD: '34',
+      PIECZARGOTCHI_DEBUG_WIND: '12',
+      PIECZARGOTCHI_DEBUG_HUMIDITY: '88',
+      PIECZARGOTCHI_DEBUG_TEMPERATURE: '17',
+      PIECZARGOTCHI_DEBUG_SURFACE_WETNESS: '0.74',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-09-12T18:10:00')
+    }
+  },
+  {
     id: 'storm-night-wind100',
     env: {
       PIECZARGOTCHI_DEBUG_WEATHER: 'storm',
@@ -60,12 +101,65 @@ const scenarios = [
     }
   },
   {
+    id: 'blowing-snow-gale',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'snow',
+      PIECZARGOTCHI_DEBUG_PRECIPITATION: '2.8',
+      PIECZARGOTCHI_DEBUG_CLOUD: '92',
+      PIECZARGOTCHI_DEBUG_WIND: '62',
+      PIECZARGOTCHI_DEBUG_WIND_DIRECTION: '315',
+      PIECZARGOTCHI_DEBUG_TEMPERATURE: '-4',
+      PIECZARGOTCHI_DEBUG_SNOW_DEPTH: '0.08',
+      PIECZARGOTCHI_DEBUG_SNOW_COVER: '0.88',
+      PIECZARGOTCHI_DEBUG_LOCATION: 'tromso',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-01-19T15:40:00')
+    }
+  },
+  {
+    id: 'warm-old-snow-melting',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
+      PIECZARGOTCHI_DEBUG_CLOUD: '28',
+      PIECZARGOTCHI_DEBUG_WIND: '9',
+      PIECZARGOTCHI_DEBUG_TEMPERATURE: '4',
+      PIECZARGOTCHI_DEBUG_SNOW_DEPTH: '0.03',
+      PIECZARGOTCHI_DEBUG_SNOW_COVER: '0.28',
+      PIECZARGOTCHI_DEBUG_SURFACE_WETNESS: '0.52',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-02-08T11:30:00')
+    }
+  },
+  {
     id: 'fog-sunrise',
     env: {
       PIECZARGOTCHI_DEBUG_WEATHER: 'fog',
       PIECZARGOTCHI_DEBUG_CLOUD: '90',
       PIECZARGOTCHI_DEBUG_WIND: '4',
       PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-10-08T06:30:00')
+    }
+  },
+  {
+    id: 'fog-low-visibility-dawn',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'cloudy',
+      PIECZARGOTCHI_DEBUG_CLOUD: '92',
+      PIECZARGOTCHI_DEBUG_WIND: '4',
+      PIECZARGOTCHI_DEBUG_HUMIDITY: '97',
+      PIECZARGOTCHI_DEBUG_TEMPERATURE: '7',
+      PIECZARGOTCHI_DEBUG_DEW_POINT: '6.4',
+      PIECZARGOTCHI_DEBUG_VISIBILITY: '700',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-10-08T06:05:00')
+    }
+  },
+  {
+    id: 'clear-high-pressure-crisp',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
+      PIECZARGOTCHI_DEBUG_CLOUD: '6',
+      PIECZARGOTCHI_DEBUG_WIND: '5',
+      PIECZARGOTCHI_DEBUG_PRESSURE: '1032',
+      PIECZARGOTCHI_DEBUG_HUMIDITY: '46',
+      PIECZARGOTCHI_DEBUG_TEMPERATURE: '19',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T13:30:00')
     }
   },
   {
@@ -95,10 +189,29 @@ const scenarios = [
 ];
 
 for (const scenario of scenarios) {
-  await runScenario(scenario);
+  await runScenarioWithRetry(scenario);
 }
 
 console.log(`Weather matrix complete: ${scenarios.length} scenarios, prefix ${outputPrefix}`);
+
+async function runScenarioWithRetry(scenario) {
+  const attempts = 2;
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await runScenario(scenario, attempt);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt >= attempts) {
+        break;
+      }
+      console.warn(`${scenario.id} failed on attempt ${attempt}, retrying: ${error.message}`);
+      await delay(700);
+    }
+  }
+  throw lastError;
+}
 
 function runScenario(scenario) {
   const env = Object.assign({}, process.env, scenario.env, {
@@ -124,4 +237,8 @@ function runScenario(scenario) {
       }
     });
   });
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

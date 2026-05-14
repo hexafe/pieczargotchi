@@ -1,12 +1,16 @@
   function drawLowGround(ctx, palette, now, scene) {
     const groundTop = 428;
     const patchTop = 390;
+    const surface = typeof getWeatherSurfaceState === 'function'
+      ? getWeatherSurfaceState(scene, now)
+      : { wetness: 0, snowCover: scene && scene.condition === 'snow' ? scene.snowIntensity || 0.25 : 0 };
 
     ctx.fillStyle = palette.ground;
     ctx.fillRect(0, patchTop + 20, 512, 512 - patchTop - 20);
     ctx.fillStyle = palette.groundLight;
     ctx.fillRect(0, groundTop, 512, 10);
-    drawGeneratedGrassPatch(ctx, palette, scene, patchTop);
+    drawGeneratedGrassPatch(ctx, palette, scene, patchTop, surface);
+    drawGroundWetness(ctx, palette, now, scene, surface, groundTop);
     drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
       count: 104,
       seedBase: 8111,
@@ -30,12 +34,12 @@
       front: false
     });
 
-    if (scene && scene.condition === 'snow' && scene.snowIntensity > 0.01) {
-      drawSnowGroundCover(ctx, scene, now, groundTop);
+    if (surface.snowCover > 0.04) {
+      drawSnowGroundCover(ctx, scene, now, groundTop, surface.snowCover);
     }
   }
 
-  function drawGeneratedGrassPatch(ctx, palette, scene, patchTop) {
+  function drawGeneratedGrassPatch(ctx, palette, scene, patchTop, surface) {
     const image = runtime.assets['environment.grassPatch'];
     if (!image) {
       ensureAssetLoaded('environment.grassPatch');
@@ -44,30 +48,75 @@
     }
 
     const condition = scene && scene.condition;
+    const wetness = surface ? clamp(Number(surface.wetness), 0, 1, 0) : 0;
+    const snowCover = surface ? clamp(Number(surface.snowCover), 0, 1, 0) : 0;
+    const fogDensity = scene && typeof getFogVisualDensity === 'function' ? getFogVisualDensity(scene) : 0;
     const height = image.naturalHeight || image.height || 158;
     const y = Math.min(512 - height, patchTop);
     ctx.save();
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(image, 0, y, 512, height);
 
-    if (condition === 'rain' || condition === 'storm') {
+    if (wetness > 0.04 || condition === 'rain' || condition === 'storm') {
       ctx.globalCompositeOperation = 'source-atop';
-      ctx.globalAlpha = condition === 'storm' ? 0.18 : 0.11;
+      ctx.globalAlpha = 0.07 + wetness * 0.13 + (condition === 'storm' ? 0.04 : 0);
       ctx.fillStyle = '#6f8790';
       ctx.fillRect(0, y, 512, height);
-    } else if (condition === 'fog') {
+    }
+
+    if (fogDensity > 0.08 || condition === 'fog') {
       ctx.globalCompositeOperation = 'source-atop';
-      ctx.globalAlpha = 0.12;
+      ctx.globalAlpha = 0.05 + fogDensity * 0.10;
       ctx.fillStyle = '#dce9d1';
       ctx.fillRect(0, y, 512, height);
-    } else if (condition === 'snow') {
+    }
+
+    if (snowCover > 0.05 || condition === 'snow') {
       ctx.globalCompositeOperation = 'source-atop';
-      ctx.globalAlpha = 0.56;
+      ctx.globalAlpha = 0.20 + snowCover * 0.42;
       ctx.fillStyle = '#eef7e8';
       ctx.fillRect(0, y, 512, height);
     }
 
     ctx.restore();
+  }
+
+  function drawGroundWetness(ctx, palette, now, scene, surface, groundTop) {
+    const wetness = surface ? clamp(Number(surface.wetness), 0, 1, 0) : 0;
+    const snowCover = surface ? clamp(Number(surface.snowCover), 0, 1, 0) : 0;
+    const visibleWetness = wetness * (1 - snowCover * 0.72);
+    if (visibleWetness <= 0.04) {
+      return;
+    }
+
+    ctx.save();
+    ctx.globalAlpha = 0.05 + visibleWetness * 0.16;
+    ctx.fillStyle = '#5d7f79';
+    ctx.fillRect(0, groundTop + 5, 512, 6);
+    ctx.globalAlpha = 0.06 + visibleWetness * 0.18;
+    drawGroundPuddle(ctx, 76, groundTop + 17, 62, 9, 8201, visibleWetness, now);
+    drawGroundPuddle(ctx, 236, groundTop + 25, 84, 11, 8243, visibleWetness, now);
+    drawGroundPuddle(ctx, 382, groundTop + 14, 70, 8, 8279, visibleWetness, now);
+    if (visibleWetness > 0.48) {
+      ctx.globalAlpha = visibleWetness * 0.16;
+      drawGroundPuddle(ctx, 152, groundTop + 38, 48, 7, 8311, visibleWetness, now);
+      drawGroundPuddle(ctx, 456, groundTop + 34, 42, 6, 8351, visibleWetness, now);
+    }
+    ctx.restore();
+  }
+
+  function drawGroundPuddle(ctx, x, y, width, height, seed, wetness, now) {
+    const shimmer = Math.sin(now / (1600 + seededUnit(seed) * 600) + seed) * 0.5 + 0.5;
+    const baseAlpha = ctx.globalAlpha;
+    ctx.fillStyle = '#50736f';
+    ctx.fillRect(Math.round(x), Math.round(y), Math.round(width), Math.max(2, Math.round(height * wetness)));
+    ctx.fillStyle = '#9bc8bc';
+    ctx.globalAlpha = baseAlpha * (0.62 + shimmer * 0.24);
+    ctx.fillRect(Math.round(x + width * 0.18), Math.round(y + 1), Math.round(width * 0.36), 2);
+    if (wetness > 0.62) {
+      ctx.fillRect(Math.round(x + width * 0.64), Math.round(y + Math.max(2, height - 2)), Math.round(width * 0.22), 1);
+    }
+    ctx.globalAlpha = baseAlpha;
   }
 
   function drawFallbackGroundTexture(ctx, palette, patchTop) {
@@ -86,6 +135,10 @@
     const scene = getCurrentWeatherScene();
     const palette = getScenePalette(scene);
     const condition = scene && scene.condition;
+    const surface = typeof getWeatherSurfaceState === 'function'
+      ? getWeatherSurfaceState(scene, now)
+      : { wetness: 0, snowCover: condition === 'snow' ? scene.snowIntensity || 0.25 : 0 };
+    const snowCover = clamp(Number(surface.snowCover), 0, 1, 0);
     drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
       count: 84,
       seedBase: 9331,
@@ -93,7 +146,7 @@
       baseYMax: 458,
       heightMin: 16,
       heightMax: 39,
-      alpha: condition === 'snow' ? 0.34 : 0.72,
+      alpha: condition === 'snow' || snowCover > 0.12 ? 0.34 : 0.72,
       width: 2,
       front: true
     });
@@ -104,7 +157,7 @@
       baseYMax: 474,
       heightMin: 24,
       heightMax: 58,
-      alpha: condition === 'snow' ? 0.26 : 0.64,
+      alpha: condition === 'snow' || snowCover > 0.12 ? 0.26 : 0.64,
       width: 2,
       front: true,
       xBands: [[-4, 148], [356, 516], [18, 236], [286, 498]]

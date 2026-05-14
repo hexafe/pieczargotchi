@@ -18,7 +18,7 @@
         runtime.weatherScene = scene;
       })
       .catch(function() {
-        runtime.weatherScene = createLocalWeatherScene(defaultWeatherLocation, getRuntimeDate());
+        runtime.weatherScene = createLocalWeatherScene(defaultWeatherLocation, getRuntimeDate(), runtime.weatherScene);
         return runtime.weatherScene;
       });
   }
@@ -58,6 +58,7 @@
       current: [
         'temperature_2m',
         'relative_humidity_2m',
+        'dew_point_2m',
         'apparent_temperature',
         'weather_code',
         'is_day',
@@ -65,18 +66,50 @@
         'rain',
         'showers',
         'snowfall',
+        'snow_depth',
         'cloud_cover',
         'cloud_cover_low',
         'cloud_cover_mid',
         'cloud_cover_high',
         'pressure_msl',
+        'visibility',
+        'vapour_pressure_deficit',
+        'et0_fao_evapotranspiration',
+        'soil_temperature_0cm',
+        'soil_moisture_0_to_1cm',
+        'wind_speed_10m',
+        'wind_direction_10m',
+        'wind_gusts_10m'
+      ].join(','),
+      hourly: [
+        'temperature_2m',
+        'relative_humidity_2m',
+        'dew_point_2m',
+        'apparent_temperature',
+        'weather_code',
+        'precipitation',
+        'rain',
+        'showers',
+        'snowfall',
+        'snow_depth',
+        'cloud_cover',
+        'cloud_cover_low',
+        'cloud_cover_mid',
+        'cloud_cover_high',
+        'pressure_msl',
+        'visibility',
+        'vapour_pressure_deficit',
+        'et0_fao_evapotranspiration',
+        'soil_temperature_0cm',
+        'soil_moisture_0_to_1cm',
         'wind_speed_10m',
         'wind_direction_10m',
         'wind_gusts_10m'
       ].join(','),
       daily: 'sunrise,sunset',
       timezone: 'auto',
-      forecast_hours: '1'
+      past_hours: '3',
+      forecast_hours: '4'
     });
 
     return window.fetch('https://api.open-meteo.com/v1/forecast?' + params.toString(), {
@@ -88,14 +121,15 @@
 
       return response.json();
     }).then(function(data) {
-      return createWeatherScene(data, location);
+      return createWeatherScene(data, location, runtime.weatherScene);
     });
   }
 
-  function createWeatherScene(data, location) {
+  function createWeatherScene(data, location, previousScene) {
     const current = data && data.current ? data.current : {};
     const weatherDate = parseWeatherLocalTime(current.time) || getRuntimeDate();
     const sunTimes = getSunTimesForWeather(data, location, weatherDate);
+    const weatherHours = extractWeatherHours(data);
     const code = Number(current.weather_code);
     const cloudCover = clamp(Number(current.cloud_cover), 0, 100, 35);
     const rain = Math.max(0, Number(current.rain) || 0);
@@ -123,8 +157,14 @@
       code: Number.isFinite(code) ? code : 0,
       temperature: readOptionalNumber(current.temperature_2m),
       apparentTemperature: readOptionalNumber(current.apparent_temperature),
+      dewPoint: readOptionalNumber(current.dew_point_2m),
       humidity: clamp(Number(current.relative_humidity_2m), 0, 100, 60),
       pressure: readOptionalNumber(current.pressure_msl),
+      visibility: readOptionalNumber(current.visibility),
+      vaporPressureDeficit: readOptionalNumber(current.vapour_pressure_deficit),
+      evapotranspiration: readOptionalNumber(current.et0_fao_evapotranspiration),
+      soilSurfaceTemperature: readOptionalNumber(current.soil_temperature_0cm),
+      soilSurfaceMoisture: readOptionalNumber(current.soil_moisture_0_to_1cm),
       isDay: isDayPhase(dayPhase),
       dayPhase: dayPhase,
       dayTone: dayTone,
@@ -137,16 +177,18 @@
       rain: rain,
       showers: showers,
       snowfall: snowfall,
+      snowDepth: readOptionalNumber(current.snow_depth),
       windSpeed: clamp(Number(current.wind_speed_10m), 0, 180, 0),
       windDirection: normalizeDegrees(Number(current.wind_direction_10m) || 0),
       windGusts: clamp(Number(current.wind_gusts_10m), 0, 220, 0),
+      weatherHours: weatherHours,
       sunriseAt: sunTimes ? sunTimes.sunrise.toISOString() : null,
       sunsetAt: sunTimes ? sunTimes.sunset.toISOString() : null,
       updatedAt: getRuntimeNow()
-    });
+    }, previousScene);
   }
 
-  function createLocalWeatherScene(location, date) {
+  function createLocalWeatherScene(location, date, previousScene) {
     const now = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
     const sunTimes = calculateSunTimes(now, location.latitude, location.longitude);
     const dayPhase = sunTimes
@@ -164,8 +206,14 @@
       code: 0,
       temperature: null,
       apparentTemperature: null,
+      dewPoint: null,
       humidity: 62,
       pressure: null,
+      visibility: null,
+      vaporPressureDeficit: null,
+      evapotranspiration: null,
+      soilSurfaceTemperature: null,
+      soilSurfaceMoisture: null,
       isDay: isDayPhase(dayPhase),
       dayPhase: dayPhase,
       dayTone: dayTone,
@@ -178,13 +226,15 @@
       rain: 0,
       showers: 0,
       snowfall: 0,
+      snowDepth: 0,
       windSpeed: 6,
       windDirection: 250,
       windGusts: 12,
+      weatherHours: [],
       sunriseAt: sunTimes ? sunTimes.sunrise.toISOString() : null,
       sunsetAt: sunTimes ? sunTimes.sunset.toISOString() : null,
       updatedAt: now.getTime()
-    });
+    }, previousScene);
   }
 
   function getCurrentWeatherScene() {
@@ -237,20 +287,31 @@
 
   function getBaseWeatherFields(scene) {
     return {
-      code: Number.isFinite(Number(scene.baseCode)) ? Number(scene.baseCode) : scene.code,
+      code: hasWeatherNumber(scene.baseCode) ? Number(scene.baseCode) : scene.code,
       condition: scene.baseCondition || scene.condition || 'clear',
-      humidity: Number.isFinite(Number(scene.baseHumidity)) ? Number(scene.baseHumidity) : scene.humidity,
-      cloudCover: Number.isFinite(Number(scene.baseCloudCover)) ? Number(scene.baseCloudCover) : scene.cloudCover,
-      cloudCoverLow: Number.isFinite(Number(scene.baseCloudCoverLow)) ? Number(scene.baseCloudCoverLow) : scene.cloudCoverLow,
-      cloudCoverMid: Number.isFinite(Number(scene.baseCloudCoverMid)) ? Number(scene.baseCloudCoverMid) : scene.cloudCoverMid,
-      cloudCoverHigh: Number.isFinite(Number(scene.baseCloudCoverHigh)) ? Number(scene.baseCloudCoverHigh) : scene.cloudCoverHigh,
-      precipitation: Number.isFinite(Number(scene.basePrecipitation)) ? Number(scene.basePrecipitation) : scene.precipitation,
-      rain: Number.isFinite(Number(scene.baseRain)) ? Number(scene.baseRain) : scene.rain,
-      showers: Number.isFinite(Number(scene.baseShowers)) ? Number(scene.baseShowers) : scene.showers,
-      snowfall: Number.isFinite(Number(scene.baseSnowfall)) ? Number(scene.baseSnowfall) : scene.snowfall,
-      windSpeed: Number.isFinite(Number(scene.baseWindSpeed)) ? Number(scene.baseWindSpeed) : scene.windSpeed,
-      windDirection: Number.isFinite(Number(scene.baseWindDirection)) ? Number(scene.baseWindDirection) : scene.windDirection,
-      windGusts: Number.isFinite(Number(scene.baseWindGusts)) ? Number(scene.baseWindGusts) : scene.windGusts
+      temperature: hasWeatherNumber(scene.baseTemperature) ? Number(scene.baseTemperature) : scene.temperature,
+      apparentTemperature: hasWeatherNumber(scene.baseApparentTemperature) ? Number(scene.baseApparentTemperature) : scene.apparentTemperature,
+      dewPoint: hasWeatherNumber(scene.baseDewPoint) ? Number(scene.baseDewPoint) : scene.dewPoint,
+      humidity: hasWeatherNumber(scene.baseHumidity) ? Number(scene.baseHumidity) : scene.humidity,
+      pressure: hasWeatherNumber(scene.basePressure) ? Number(scene.basePressure) : scene.pressure,
+      visibility: hasWeatherNumber(scene.baseVisibility) ? Number(scene.baseVisibility) : scene.visibility,
+      vaporPressureDeficit: hasWeatherNumber(scene.baseVaporPressureDeficit) ? Number(scene.baseVaporPressureDeficit) : scene.vaporPressureDeficit,
+      evapotranspiration: hasWeatherNumber(scene.baseEvapotranspiration) ? Number(scene.baseEvapotranspiration) : scene.evapotranspiration,
+      soilSurfaceTemperature: hasWeatherNumber(scene.baseSoilSurfaceTemperature) ? Number(scene.baseSoilSurfaceTemperature) : scene.soilSurfaceTemperature,
+      soilSurfaceMoisture: hasWeatherNumber(scene.baseSoilSurfaceMoisture) ? Number(scene.baseSoilSurfaceMoisture) : scene.soilSurfaceMoisture,
+      cloudCover: hasWeatherNumber(scene.baseCloudCover) ? Number(scene.baseCloudCover) : scene.cloudCover,
+      cloudCoverLow: hasWeatherNumber(scene.baseCloudCoverLow) ? Number(scene.baseCloudCoverLow) : scene.cloudCoverLow,
+      cloudCoverMid: hasWeatherNumber(scene.baseCloudCoverMid) ? Number(scene.baseCloudCoverMid) : scene.cloudCoverMid,
+      cloudCoverHigh: hasWeatherNumber(scene.baseCloudCoverHigh) ? Number(scene.baseCloudCoverHigh) : scene.cloudCoverHigh,
+      precipitation: hasWeatherNumber(scene.basePrecipitation) ? Number(scene.basePrecipitation) : scene.precipitation,
+      rain: hasWeatherNumber(scene.baseRain) ? Number(scene.baseRain) : scene.rain,
+      showers: hasWeatherNumber(scene.baseShowers) ? Number(scene.baseShowers) : scene.showers,
+      snowfall: hasWeatherNumber(scene.baseSnowfall) ? Number(scene.baseSnowfall) : scene.snowfall,
+      snowDepth: hasWeatherNumber(scene.baseSnowDepth) ? Number(scene.baseSnowDepth) : scene.snowDepth,
+      windSpeed: hasWeatherNumber(scene.baseWindSpeed) ? Number(scene.baseWindSpeed) : scene.windSpeed,
+      windDirection: hasWeatherNumber(scene.baseWindDirection) ? Number(scene.baseWindDirection) : scene.windDirection,
+      windGusts: hasWeatherNumber(scene.baseWindGusts) ? Number(scene.baseWindGusts) : scene.windGusts,
+      weatherHours: Array.isArray(scene.baseWeatherHours) ? scene.baseWeatherHours : scene.weatherHours
     };
   }
 
@@ -258,7 +319,16 @@
     return {
       baseCode: baseFields.code,
       baseCondition: baseFields.condition,
+      baseTemperature: baseFields.temperature,
+      baseApparentTemperature: baseFields.apparentTemperature,
+      baseDewPoint: baseFields.dewPoint,
       baseHumidity: baseFields.humidity,
+      basePressure: baseFields.pressure,
+      baseVisibility: baseFields.visibility,
+      baseVaporPressureDeficit: baseFields.vaporPressureDeficit,
+      baseEvapotranspiration: baseFields.evapotranspiration,
+      baseSoilSurfaceTemperature: baseFields.soilSurfaceTemperature,
+      baseSoilSurfaceMoisture: baseFields.soilSurfaceMoisture,
       baseCloudCover: baseFields.cloudCover,
       baseCloudCoverLow: baseFields.cloudCoverLow,
       baseCloudCoverMid: baseFields.cloudCoverMid,
@@ -267,13 +337,15 @@
       baseRain: baseFields.rain,
       baseShowers: baseFields.showers,
       baseSnowfall: baseFields.snowfall,
+      baseSnowDepth: baseFields.snowDepth,
       baseWindSpeed: baseFields.windSpeed,
       baseWindDirection: baseFields.windDirection,
-      baseWindGusts: baseFields.windGusts
+      baseWindGusts: baseFields.windGusts,
+      baseWeatherHours: Array.isArray(baseFields.weatherHours) ? baseFields.weatherHours.slice() : []
     };
   }
 
-  function finalizeWeatherScene(scene) {
+  function finalizeWeatherScene(scene, previousScene) {
     const cloudCover = clamp(Number(scene.cloudCover), 0, 100, 25);
     const low = clamp(Number(scene.cloudCoverLow), 0, 100, cloudCover);
     const mid = clamp(Number(scene.cloudCoverMid), 0, 100, cloudCover);
@@ -299,8 +371,7 @@
       ? clamp((rainIntensity * 0.45) + (windLevel * 0.28) + (gustLevel * 0.18) + (thunderCode ? 0.25 : 0.08), thunderCode ? 0.18 : 0, 1, 0)
       : 0;
     const windVector = getWindVector(windDirection);
-
-    return Object.assign({}, scene, {
+    const normalizedScene = Object.assign({}, scene, {
       cloudCover: cloudCover,
       cloudCoverLow: low,
       cloudCoverMid: mid,
@@ -318,14 +389,77 @@
       windGusts: windGusts,
       windLevel: windLevel,
       gustLevel: gustLevel,
-      windVector: windVector,
-      weatherSeverity: Math.max(rainIntensity, snowIntensity, stormIntensity, windLevel * 0.58, cloudDensity * 0.45)
+      windVector: windVector
     });
+    const core = window.PieczargotchiCore;
+    const immersion = core && typeof core.deriveWeatherImmersionFields === 'function'
+      ? core.deriveWeatherImmersionFields(normalizedScene, normalizedScene.weatherHours, previousScene, normalizedScene.updatedAt)
+      : {};
+
+    return Object.assign({}, normalizedScene, immersion, {
+      weatherSeverity: Math.max(
+        rainIntensity,
+        snowIntensity,
+        stormIntensity,
+        windLevel * 0.58,
+        cloudDensity * 0.45,
+        (immersion.fogPotential || 0) * 0.48,
+        (immersion.surfaceWetnessTarget || 0) * 0.24
+      )
+    });
+  }
+
+  function extractWeatherHours(data) {
+    const hourly = data && data.hourly ? data.hourly : null;
+    const times = hourly && Array.isArray(hourly.time) ? hourly.time : [];
+    return times.map(function(time, index) {
+      return {
+        time: time,
+        code: readHourlyNumber(hourly, 'weather_code', index),
+        temperature: readHourlyNumber(hourly, 'temperature_2m', index),
+        apparentTemperature: readHourlyNumber(hourly, 'apparent_temperature', index),
+        dewPoint: readHourlyNumber(hourly, 'dew_point_2m', index),
+        humidity: readHourlyNumber(hourly, 'relative_humidity_2m', index),
+        pressure: readHourlyNumber(hourly, 'pressure_msl', index),
+        visibility: readHourlyNumber(hourly, 'visibility', index),
+        vaporPressureDeficit: readHourlyNumber(hourly, 'vapour_pressure_deficit', index),
+        evapotranspiration: readHourlyNumber(hourly, 'et0_fao_evapotranspiration', index),
+        soilSurfaceTemperature: readHourlyNumber(hourly, 'soil_temperature_0cm', index),
+        soilSurfaceMoisture: readHourlyNumber(hourly, 'soil_moisture_0_to_1cm', index),
+        cloudCover: readHourlyNumber(hourly, 'cloud_cover', index),
+        cloudCoverLow: readHourlyNumber(hourly, 'cloud_cover_low', index),
+        cloudCoverMid: readHourlyNumber(hourly, 'cloud_cover_mid', index),
+        cloudCoverHigh: readHourlyNumber(hourly, 'cloud_cover_high', index),
+        precipitation: readHourlyNumber(hourly, 'precipitation', index),
+        rain: readHourlyNumber(hourly, 'rain', index),
+        showers: readHourlyNumber(hourly, 'showers', index),
+        snowfall: readHourlyNumber(hourly, 'snowfall', index),
+        snowDepth: readHourlyNumber(hourly, 'snow_depth', index),
+        windSpeed: readHourlyNumber(hourly, 'wind_speed_10m', index),
+        windDirection: readHourlyNumber(hourly, 'wind_direction_10m', index),
+        windGusts: readHourlyNumber(hourly, 'wind_gusts_10m', index)
+      };
+    });
+  }
+
+  function readHourlyNumber(hourly, key, index) {
+    const values = hourly && Array.isArray(hourly[key]) ? hourly[key] : null;
+    if (!values) {
+      return null;
+    }
+    return readOptionalNumber(values[index]);
   }
 
   function readOptionalNumber(value) {
     const number = Number(value);
-    return Number.isFinite(number) ? number : null;
+    return hasWeatherNumber(value) ? number : null;
+  }
+
+  function hasWeatherNumber(value) {
+    if (value === null || value === undefined || value === '') {
+      return false;
+    }
+    return Number.isFinite(Number(value));
   }
 
   function getWindVector(direction) {
