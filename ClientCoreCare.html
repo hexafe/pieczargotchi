@@ -1,0 +1,281 @@
+  function migrateStateVersion(rawState, targetVersion) {
+    const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    const version = Math.max(1, Math.floor(Number(state.version) || 1));
+    const nextVersion = Math.max(version, Number(targetVersion) || version);
+
+    if (version < 3 || !isPlainObject(state.battle)) {
+      state.battle = normalizeBattleState(state.battle);
+    }
+
+    state.version = nextVersion;
+    return state;
+  }
+
+  function getActionAvailability(state, action, now, rules) {
+    const currentState = isPlainObject(state) ? state : {};
+    const currentAction = isPlainObject(action) ? action : {};
+    const timestamp = Number(now) || 0;
+    const cooldowns = isPlainObject(currentState.cooldowns) ? currentState.cooldowns : {};
+    const cooldownUntil = Number(cooldowns[currentAction.id]) || 0;
+    const remainingMs = cooldownUntil - timestamp;
+
+    if (remainingMs > 0) {
+      return {
+        ok: false,
+        reason: 'Gotowe za ' + Math.ceil(remainingMs / 1000) + ' s.'
+      };
+    }
+
+    if (currentAction.awakeOnly && currentState.mode !== 'awake') {
+      return {
+        ok: false,
+        reason: 'Najpierw obudź Pieczarkę.'
+      };
+    }
+
+    if (currentAction.requiresStage && !isStageAtLeastCore(currentState.stage, currentAction.requiresStage, rules)) {
+      return {
+        ok: false,
+        reason: 'Potrzebny etap dorosłej pieczarki.'
+      };
+    }
+
+    const stats = isPlainObject(currentState.stats) ? currentState.stats : {};
+    if ((Number(stats.energy) || 0) <= 0 && currentAction.id !== 'sleepWake') {
+      return {
+        ok: false,
+        reason: 'Brakuje energii.'
+      };
+    }
+
+    return { ok: true, reason: '' };
+  }
+
+  function isStageAtLeastCore(currentStage, requiredStage, rules) {
+    if (!requiredStage || currentStage === requiredStage) {
+      return true;
+    }
+
+    const thresholds = Array.isArray(rules && rules.stageThresholds) ? rules.stageThresholds : [];
+    const order = thresholds.map(function(stage) {
+      return stage.id;
+    });
+    const currentIndex = order.indexOf(currentStage);
+    const requiredIndex = order.indexOf(requiredStage);
+    return currentIndex >= 0 && requiredIndex >= 0 && currentIndex >= requiredIndex;
+  }
+
+  function evaluateAttentionState(rawState, rules, now) {
+    const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    const timestamp = Number(now) || 0;
+    state.attention = normalizeAttentionCore(state.attention);
+    state.careMistakes = normalizeCareMistakesCore(state.careMistakes);
+    state.patch = normalizePatchCore(state.patch);
+    state.stats = isPlainObject(state.stats) ? Object.assign({}, state.stats) : {};
+
+    const strongestNeed = getStrongestNeedCore(state, rules);
+    const events = [];
+    if (!strongestNeed) {
+      if (state.attention.activeNeed) {
+        events.push({ type: 'resolved', need: state.attention.activeNeed });
+      }
+      state.attention = normalizeAttentionCore({});
+      return { state: state, events: events };
+    }
+
+    const attentionRules = rules && rules.attention ? rules.attention : {};
+    const activeNeed = state.attention.activeNeed;
+    const deadline = Date.parse(state.attention.deadlineAt || '');
+    const lastMistake = Date.parse(state.attention.lastMistakeAt || '');
+    const repeatedCooldown = attentionRules.repeatedMistakeCooldownMs || 900000;
+
+    if (activeNeed !== strongestNeed.id) {
+      state.attention = {
+        activeNeed: strongestNeed.id,
+        severity: strongestNeed.severity,
+        startedAt: new Date(timestamp).toISOString(),
+        deadlineAt: new Date(timestamp + strongestNeed.deadlineMs).toISOString(),
+        lastMistakeAt: state.attention.lastMistakeAt || null
+      };
+      events.push({ type: 'start', need: strongestNeed.id, severity: strongestNeed.severity });
+      return { state: state, events: events };
+    }
+
+    state.attention.severity = strongestNeed.severity;
+    if (Number.isFinite(deadline) && timestamp >= deadline) {
+      const canRecordMistake = !Number.isFinite(lastMistake) || timestamp - lastMistake >= repeatedCooldown;
+      if (canRecordMistake) {
+        recordCareMistakeCore(state, strongestNeed, timestamp);
+        events.push({ type: 'mistake', need: strongestNeed.id, severity: strongestNeed.severity });
+      }
+      state.attention.deadlineAt = new Date(timestamp + strongestNeed.deadlineMs).toISOString();
+    }
+
+    return { state: state, events: events };
+  }
+
+  function resolveAttentionAction(rawState, actionId, rules, now) {
+    const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    const activeNeed = state.attention && state.attention.activeNeed;
+    const definitions = rules && rules.needDefinitions ? rules.needDefinitions : {};
+    const definition = activeNeed ? definitions[activeNeed] : null;
+    const handledNeed = definition && definition.actionId === actionId;
+
+    state.patch = normalizePatchCore(state.patch);
+    if (!handledNeed) {
+      return { state: state, handled: false };
+    }
+
+    state.patch.careStreak += 1;
+    state.patch.quality = clampNumber(Number(state.patch.quality) + 4, 0, 100, 72);
+    state.patch.mycelium = clampNumber(Number(state.patch.mycelium) + 2.5, 0, 100, 0);
+    state.attention = normalizeAttentionCore({});
+    return {
+      state: state,
+      handled: true,
+      event: { type: 'goodReaction', need: activeNeed, at: new Date(Number(now) || 0).toISOString() }
+    };
+  }
+
+  function getAnimationIntent(state, rules, now) {
+    if (!isPlainObject(state)) {
+      return { type: 'none', state: null };
+    }
+
+    const timestamp = Number(now) || 0;
+    const activity = getActiveActivityCore(state, timestamp);
+    if (activity) {
+      return {
+        type: activity.type === 'wake' ? 'wake' : 'activity',
+        state: activity.type === 'wake' ? 'wake' : activity.type
+      };
+    }
+
+    if (state.mode === 'sleeping') {
+      return { type: 'state', state: 'sleep' };
+    }
+
+    const need = getStrongestNeedCore(state, rules);
+    if (need) {
+      return {
+        type: 'need',
+        state: need.severity === 'critical' ? 'critical' : getNeedAnimationStateCore(need.id),
+        need: need.id,
+        severity: need.severity
+      };
+    }
+
+    const stats = isPlainObject(state.stats) ? state.stats : {};
+    const patch = isPlainObject(state.patch) ? state.patch : {};
+    if (Number(stats.happiness) > 82 && Number(stats.health) > 78 && Number(patch.quality) > 82) {
+      return { type: 'state', state: 'excellent' };
+    }
+
+    if (Number(stats.happiness) > 78 && Number(stats.health) > 72 && Number(patch.quality) > 70) {
+      return { type: 'state', state: 'happy' };
+    }
+
+    return { type: 'state', state: 'idle' };
+  }
+
+  function normalizeAttentionCore(attention) {
+    const source = isPlainObject(attention) ? attention : {};
+    return {
+      activeNeed: source.activeNeed || null,
+      severity: source.severity || null,
+      startedAt: source.startedAt || null,
+      deadlineAt: source.deadlineAt || null,
+      lastMistakeAt: source.lastMistakeAt || null
+    };
+  }
+
+  function normalizeCareMistakesCore(careMistakes) {
+    const source = isPlainObject(careMistakes) ? careMistakes : {};
+    return {
+      physical: Math.max(0, Math.floor(Number(source.physical) || 0)),
+      mental: Math.max(0, Math.floor(Number(source.mental) || 0)),
+      environment: Math.max(0, Math.floor(Number(source.environment) || 0)),
+      rest: Math.max(0, Math.floor(Number(source.rest) || 0))
+    };
+  }
+
+  function normalizePatchCore(patch) {
+    const source = isPlainObject(patch) ? patch : {};
+    return {
+      quality: clampNumber(Number(source.quality), 0, 100, 72),
+      mycelium: clampNumber(Number(source.mycelium), 0, 100, 0),
+      harvests: Math.max(0, Math.floor(Number(source.harvests) || 0)),
+      careStreak: Math.max(0, Math.floor(Number(source.careStreak) || 0))
+    };
+  }
+
+  function getActiveActivityCore(state, now) {
+    const activity = state.currentActivity;
+    if (!activity || Number(activity.until) <= now || activity.type === 'notice') {
+      return null;
+    }
+
+    return activity;
+  }
+
+  function getStrongestNeedCore(state, rules) {
+    const definitions = rules && rules.needDefinitions ? rules.needDefinitions : {};
+    const attentionRules = rules && rules.attention ? rules.attention : {};
+    const mildThreshold = attentionRules.mildThreshold || 45;
+    const criticalThreshold = attentionRules.criticalThreshold || 25;
+    const stats = isPlainObject(state.stats) ? state.stats : {};
+    const needs = Object.keys(definitions).map(function(stat) {
+      if (stat === 'energy' && state.mode === 'sleeping') {
+        return null;
+      }
+
+      const value = Number(stats[stat]);
+      if (!Number.isFinite(value) || value >= mildThreshold) {
+        return null;
+      }
+
+      const severity = value < criticalThreshold ? 'critical' : 'mild';
+      const definition = definitions[stat];
+      return {
+        id: stat,
+        value: value,
+        severity: severity,
+        definition: definition,
+        message: severity === 'critical' ? definition.criticalMessage : definition.mildMessage,
+        deadlineMs: severity === 'critical'
+          ? attentionRules.criticalDeadlineMs || 90000
+          : attentionRules.deadlineMs || 180000
+      };
+    }).filter(Boolean);
+
+    needs.sort(function(a, b) {
+      if (a.severity !== b.severity) {
+        return a.severity === 'critical' ? -1 : 1;
+      }
+
+      return a.value - b.value;
+    });
+
+    return needs[0] || null;
+  }
+
+  function recordCareMistakeCore(state, need, now) {
+    const category = need.definition.category || 'physical';
+    state.careMistakes[category] = (Number(state.careMistakes[category]) || 0) + 1;
+    state.attention.lastMistakeAt = new Date(now).toISOString();
+    state.patch.careStreak = 0;
+    state.stats.health = (Number(state.stats.health) || 0) - (need.severity === 'critical' ? 8 : 4);
+    state.stats.happiness = (Number(state.stats.happiness) || 0) - (need.severity === 'critical' ? 6 : 3);
+  }
+
+  function getNeedAnimationStateCore(needId) {
+    const stateByNeed = {
+      hydration: 'dry',
+      nutrients: 'hungry',
+      happiness: 'happy',
+      cleanliness: 'dirty',
+      energy: 'tired',
+      health: 'sick'
+    };
+    return stateByNeed[needId] || 'idle';
+  }

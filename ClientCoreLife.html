@@ -1,0 +1,273 @@
+  function calculateAmbientLife(scene, dateInput) {
+    const source = isPlainObject(scene) ? scene : {};
+    const date = normalizeDate(dateInput);
+    const ecologicalMonth = getEcologicalMonth(date, source.latitude);
+    const condition = source.condition || 'clear';
+    const seasonFactor = getInsectSeasonFactor(ecologicalMonth, date.getDate());
+    const weatherFactor = getInsectWeatherFactor(condition, source);
+    const temperatureFactor = getInsectTemperatureFactor(source);
+    const windFactor = getInsectWindFactor(source);
+    const dayFactor = getInsectDayFactor(source.dayPhase, date);
+    const fireflySeasonFactor = getFireflySeasonFactor(ecologicalMonth, date.getDate());
+    const fireflyTimeFactor = getFireflyTimeFactor(source.dayPhase, date);
+    const fireflyWeatherFactor = getFireflyWeatherFactor(condition, source);
+    const fireflyTemperatureFactor = getFireflyTemperatureFactor(source);
+    const fireflyHumidityFactor = getFireflyHumidityFactor(source);
+    const baseIntensity = clampNumber(
+      seasonFactor * weatherFactor * temperatureFactor * windFactor,
+      0,
+      1,
+      0
+    );
+
+    return {
+      seasonFactor: roundAmbientLife(seasonFactor),
+      weatherFactor: roundAmbientLife(weatherFactor),
+      dayFactor: roundAmbientLife(dayFactor),
+      generalIntensity: roundAmbientLife(baseIntensity * dayFactor),
+      butterflyIntensity: roundAmbientLife(baseIntensity * getButterflyDayFactor(source.dayPhase, date)),
+      flyingInsectIntensity: roundAmbientLife(baseIntensity * Math.max(dayFactor * 0.72, fireflyTimeFactor * 0.38)),
+      crawlerIntensity: roundAmbientLife(baseIntensity * Math.max(0.28, dayFactor * 0.82)),
+      fireflyIntensity: roundAmbientLife(
+        fireflySeasonFactor
+          * fireflyTimeFactor
+          * fireflyWeatherFactor
+          * fireflyTemperatureFactor
+          * fireflyHumidityFactor
+          * windFactor
+      )
+    };
+  }
+
+  function getEcologicalMonth(date, latitude) {
+    const month = date.getMonth();
+    const numericLatitude = Number(latitude);
+    if (Number.isFinite(numericLatitude) && numericLatitude < -5) {
+      return (month + 6) % 12;
+    }
+
+    return month;
+  }
+
+  function getInsectSeasonFactor(month, day) {
+    const factors = [0.02, 0.03, 0.16, 0.42, 0.78, 1, 0.96, 0.86, 0.48, 0.18, 0.06, 0.03];
+    let factor = factors[month] || 0;
+    if (month === 2 && day < 15) {
+      factor *= 0.55;
+    } else if (month === 4 && day > 20) {
+      factor = Math.max(factor, 0.88);
+    } else if (month === 8 && day > 20) {
+      factor *= 0.72;
+    }
+
+    return clampNumber(factor, 0, 1, 0);
+  }
+
+  function getFireflySeasonFactor(month, day) {
+    if (month === 4) {
+      return day >= 20 ? 0.34 : 0;
+    }
+    if (month === 5) {
+      return 1;
+    }
+    if (month === 6) {
+      return 0.96;
+    }
+    if (month === 7) {
+      return day <= 20 ? 0.56 : 0.28;
+    }
+    if (month === 8) {
+      return day <= 10 ? 0.12 : 0;
+    }
+
+    return 0;
+  }
+
+  function getInsectWeatherFactor(condition, scene) {
+    const precipitation = Math.max(0, Number(scene.precipitation) || 0, Number(scene.rain) || 0, Number(scene.snowfall) || 0);
+    const precipitationPenalty = clampNumber(1 - precipitation / 3.2, 0, 1, 1);
+    if (condition === 'snow') {
+      return 0;
+    }
+    if (condition === 'storm') {
+      return 0.03 * precipitationPenalty;
+    }
+    if (condition === 'rain') {
+      return 0.14 * precipitationPenalty;
+    }
+    if (condition === 'fog') {
+      return 0.28;
+    }
+    if (condition === 'cloudy') {
+      return 0.74;
+    }
+
+    return 1;
+  }
+
+  function getFireflyWeatherFactor(condition, scene) {
+    const precipitation = Math.max(0, Number(scene.precipitation) || 0, Number(scene.rain) || 0, Number(scene.snowfall) || 0);
+    if (precipitation > 0.04 || condition === 'rain' || condition === 'storm' || condition === 'snow') {
+      return 0;
+    }
+    if (condition === 'fog') {
+      return 0.42;
+    }
+    if (condition === 'cloudy') {
+      return 0.84;
+    }
+
+    return 1;
+  }
+
+  function getInsectTemperatureFactor(scene) {
+    const temperature = readAmbientTemperature(scene);
+    if (temperature === null) {
+      return 0.84;
+    }
+    if (temperature <= 4) {
+      return 0.02;
+    }
+    if (temperature < 10) {
+      return 0.08 + (temperature - 4) / 6 * 0.28;
+    }
+    if (temperature < 17) {
+      return 0.36 + (temperature - 10) / 7 * 0.45;
+    }
+    if (temperature <= 29) {
+      return 1;
+    }
+    if (temperature <= 35) {
+      return 1 - (temperature - 29) / 6 * 0.34;
+    }
+
+    return 0.48;
+  }
+
+  function getFireflyTemperatureFactor(scene) {
+    const temperature = readAmbientTemperature(scene);
+    if (temperature === null) {
+      return 0.86;
+    }
+    if (temperature < 12) {
+      return 0;
+    }
+    if (temperature < 17) {
+      return (temperature - 12) / 5;
+    }
+    if (temperature <= 29) {
+      return 1;
+    }
+    if (temperature <= 34) {
+      return 1 - (temperature - 29) / 5 * 0.34;
+    }
+
+    return 0.46;
+  }
+
+  function getInsectWindFactor(scene) {
+    const windLevel = clampNumber(Number(scene.windLevel), 0, 1, clampNumber(Number(scene.windSpeed) / 82, 0, 1, 0));
+    const gustLevel = clampNumber(Number(scene.gustLevel), 0, 1, 0);
+    return clampNumber(1 - windLevel * 0.58 - gustLevel * 0.18, 0.12, 1, 1);
+  }
+
+  function getFireflyHumidityFactor(scene) {
+    const humidity = clampNumber(Number(scene.humidity), 0, 100, 68);
+    return clampNumber(0.44 + humidity / 100 * 0.62, 0.44, 1, 0.86);
+  }
+
+  function getInsectDayFactor(dayPhase, date) {
+    const phaseFactors = {
+      sunrise: 0.34,
+      morning: 0.84,
+      noon: 1,
+      afternoon: 0.92,
+      evening: 0.58,
+      sunset: 0.32,
+      night: 0.06
+    };
+
+    if (dayPhase && Object.prototype.hasOwnProperty.call(phaseFactors, dayPhase)) {
+      return phaseFactors[dayPhase];
+    }
+
+    const hour = date.getHours() + date.getMinutes() / 60;
+    if (hour >= 10 && hour < 17) {
+      return 1;
+    }
+    if (hour >= 7 && hour < 10) {
+      return 0.78;
+    }
+    if (hour >= 17 && hour < 20.5) {
+      return 0.48;
+    }
+    if (hour >= 5 && hour < 7) {
+      return 0.32;
+    }
+
+    return 0.06;
+  }
+
+  function getButterflyDayFactor(dayPhase, date) {
+    const phaseFactors = {
+      sunrise: 0.1,
+      morning: 0.78,
+      noon: 1,
+      afternoon: 0.86,
+      evening: 0.22,
+      sunset: 0.06,
+      night: 0
+    };
+
+    if (dayPhase && Object.prototype.hasOwnProperty.call(phaseFactors, dayPhase)) {
+      return phaseFactors[dayPhase];
+    }
+
+    const hour = date.getHours() + date.getMinutes() / 60;
+    if (hour >= 10 && hour < 17) {
+      return 1;
+    }
+    if (hour >= 8 && hour < 10) {
+      return 0.62;
+    }
+    if (hour >= 17 && hour < 19) {
+      return 0.3;
+    }
+
+    return 0;
+  }
+
+  function getFireflyTimeFactor(dayPhase, date) {
+    const hour = date.getHours() + date.getMinutes() / 60;
+    if (dayPhase === 'sunset') {
+      return 0.92;
+    }
+    if (dayPhase === 'evening') {
+      return hour >= 18.3 ? 0.62 : 0.28;
+    }
+    if (dayPhase === 'night') {
+      if (hour >= 20.5 && hour < 24) {
+        return 1;
+      }
+      if (hour >= 0 && hour < 1.5) {
+        return 0.58;
+      }
+      return 0.12;
+    }
+
+    if (hour >= 20.5 && hour < 24) {
+      return 1;
+    }
+    if (hour >= 19 && hour < 20.5) {
+      return 0.72;
+    }
+    if (hour >= 18 && hour < 19) {
+      return 0.34;
+    }
+
+    return 0;
+  }
+
+  function roundAmbientLife(value) {
+    return Math.round(clampNumber(value, 0, 1, 0) * 1000) / 1000;
+  }

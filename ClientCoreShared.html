@@ -1,0 +1,65 @@
+  function normalizeDate(value) {
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return new Date();
+    }
+
+    return date;
+  }
+
+  function readAmbientTemperature(scene) {
+    const apparent = scene ? scene.apparentTemperature : null;
+    if (apparent !== null && apparent !== '' && typeof apparent !== 'undefined') {
+      const apparentNumber = Number(apparent);
+      if (Number.isFinite(apparentNumber)) {
+        return apparentNumber;
+      }
+    }
+
+    const temperature = scene ? scene.temperature : null;
+    if (temperature !== null && temperature !== '' && typeof temperature !== 'undefined') {
+      const temperatureNumber = Number(temperature);
+      if (Number.isFinite(temperatureNumber)) {
+        return temperatureNumber;
+      }
+    }
+
+    return null;
+  }
+
+  function isPlainObject(value) {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  function deepClone(value) {
+    if (typeof value === 'undefined') {
+      return undefined;
+    }
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function positiveModulo(value, size) {
+    return ((value % size) + size) % size;
+  }
+
+  function clampInteger(value, min, max, fallback) {
+    return Math.round(clampNumber(Number(value), min, max, fallback));
+  }
+
+  function clampNumber(value, min, max, fallback) {
+    const next = Number.isFinite(value) ? value : fallback;
+    return Math.min(max, Math.max(min, next));
+  }
+
+  function roundStatDelta(value) {
+    return Math.round(value * 100) / 100;
+  }
+
+  function removeZeroDeltas(deltas) {
+    return Object.keys(deltas).reduce(function(result, key) {
+      if (Math.abs(deltas[key]) >= 0.01) {
+        result[key] = deltas[key];
+      }
+      return result;
+    }, {});
+  }

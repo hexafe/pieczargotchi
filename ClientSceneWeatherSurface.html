@@ -1,0 +1,135 @@
+  function drawWeatherForeground(ctx, now) {
+    const scene = getCurrentWeatherScene();
+    const surface = getWeatherSurfaceState(scene, now);
+    if (surface.snowCover > 0.04) {
+      drawSnowBaseOverlay(ctx, scene, now, surface.snowCover);
+    }
+
+    const fogDensity = getFogVisualDensity(scene);
+    if (fogDensity > 0.08) {
+      drawFogForeground(ctx, scene, now, fogDensity);
+    }
+  }
+
+  function getWeatherSurfaceState(scene, now) {
+    const source = scene || {};
+    const fallbackWetness = ['rain', 'storm'].includes(source.condition)
+      ? clamp(Number(source.rainIntensity), 0, 1, 0)
+      : source.condition === 'fog'
+        ? 0.42
+        : 0;
+    const fallbackSnow = source.condition === 'snow'
+      ? clamp(Number(source.snowIntensity), 0, 1, 0)
+      : 0;
+    const targetWetness = clamp(Number(source.surfaceWetnessTarget), 0, 1, fallbackWetness);
+    const targetSnow = clamp(Number(source.snowCoverTarget), 0, 1, fallbackSnow);
+    const temperature = source.temperature === null || source.temperature === undefined ? null : Number(source.temperature);
+    const windDrying = clamp(Number(source.windLevel), 0, 1, 0) * 0.012;
+    const heatDrying = Number.isFinite(temperature) ? clamp((temperature - 12) / 28, 0, 1, 0) * 0.010 : 0.003;
+    const snowMelt = Number.isFinite(temperature) ? clamp((temperature - 0.5) / 8, 0, 1, 0) * 0.014 : 0.002;
+
+    if (!runtime.weatherSurface) {
+      runtime.weatherSurface = {
+        wetness: targetWetness,
+        snowCover: targetSnow,
+        updatedAt: now
+      };
+    }
+
+    const state = runtime.weatherSurface;
+    const elapsed = clamp((now - (state.updatedAt || now)) / 1000, 0, 2.5, 0);
+    state.updatedAt = now;
+    state.wetness = approachWeatherValue(state.wetness, targetWetness, elapsed, 0.18, 0.018 + windDrying + heatDrying);
+    state.snowCover = approachWeatherValue(state.snowCover, targetSnow, elapsed, 0.12, 0.010 + snowMelt + windDrying * 0.45);
+
+    return {
+      wetness: clamp(state.wetness, 0, 1, 0),
+      snowCover: clamp(state.snowCover, 0, 1, 0)
+    };
+  }
+
+  function approachWeatherValue(current, target, elapsed, riseRate, fallRate) {
+    const value = clamp(Number(current), 0, 1, 0);
+    const goal = clamp(Number(target), 0, 1, 0);
+    const rate = goal >= value ? riseRate : fallRate;
+    const step = Math.max(0, Number(elapsed) || 0) * rate;
+    if (Math.abs(goal - value) <= step) {
+      return goal;
+    }
+    return value + (goal > value ? step : -step);
+  }
+
+  function drawSnowGroundCover(ctx, scene, now, groundTop, cover) {
+    const intensity = Math.max(0.18, cover || scene.snowIntensity || 0.25);
+    ctx.save();
+    ctx.globalAlpha = 0.30 + intensity * 0.30;
+    drawSnowCap(ctx, -8, groundTop - 10, 64, 8, 7011);
+    drawSnowCap(ctx, 78, groundTop - 14, 80, 10, 7043);
+    drawSnowCap(ctx, 190, groundTop - 9, 74, 8, 7079);
+    drawSnowCap(ctx, 306, groundTop - 13, 94, 10, 7109);
+    drawSnowCap(ctx, 436, groundTop - 8, 56, 8, 7151);
+    ctx.globalAlpha = 0.18 + intensity * 0.22;
+    drawSnowFlecks(ctx, 7403, groundTop + 2, groundTop + 24, Math.round(28 + intensity * 48));
+    ctx.restore();
+  }
+
+  function drawSnowBaseOverlay(ctx, scene, now, cover) {
+    const intensity = Math.max(0.18, cover || scene.snowIntensity || 0.25);
+    const wind = getDynamicWindState(scene, now);
+    ctx.save();
+    const sway = Math.round(wind.directionX * wind.level * 4 + Math.sin(now / 1500) * 1.5);
+    ctx.globalAlpha = 0.24 + intensity * 0.30;
+    drawSnowCap(ctx, 34 + sway, 410, 70, 9, 7211);
+    drawSnowCap(ctx, 128 + sway, 424, 64, 10, 7247);
+    drawSnowCap(ctx, 220 + sway, 435, 76, 10, 7283);
+    drawSnowCap(ctx, 324 + sway, 424, 74, 10, 7319);
+    drawSnowCap(ctx, 420 + sway, 410, 58, 9, 7351);
+
+    ctx.globalAlpha = 0.12 + intensity * 0.18;
+    drawSnowCap(ctx, 72 + sway * 0.5, 448, 58, 7, 7381);
+    drawSnowCap(ctx, 184 + sway * 0.4, 456, 74, 7, 7417);
+    drawSnowCap(ctx, 324 + sway * 0.5, 452, 88, 8, 7451);
+    ctx.globalAlpha = 0.12 + intensity * 0.20;
+    drawSnowFlecks(ctx, 7487, 440, 466, Math.round(24 + intensity * 58));
+    ctx.restore();
+  }
+
+  function drawSnowCap(ctx, x, y, width, height, seed) {
+    ctx.fillStyle = '#f8fff4';
+    ctx.fillRect(Math.round(x), Math.round(y + height * 0.35), Math.round(width), Math.max(3, Math.round(height * 0.65)));
+    for (let offset = 0; offset < width; offset += 10) {
+      const capHeight = 3 + Math.round(seededUnit(seed + offset) * height * 0.65);
+      const capWidth = 10 + Math.round(seededUnit(seed + offset + 3) * 8);
+      ctx.fillRect(Math.round(x + offset), Math.round(y + height - capHeight), capWidth, capHeight);
+    }
+
+    ctx.fillStyle = '#e2edd8';
+    ctx.fillRect(Math.round(x + width * 0.12), Math.round(y + height - 2), Math.round(width * 0.72), 2);
+  }
+
+  function drawSnowFlecks(ctx, seedBase, minY, maxY, count) {
+    ctx.fillStyle = '#f8fff4';
+    for (let index = 0; index < count; index += 1) {
+      const seed = seedBase + index * 23;
+      const x = Math.round(-8 + seededUnit(seed) * 528);
+      const y = Math.round(minY + seededUnit(seed + 1) * Math.max(1, maxY - minY));
+      const width = 2 + Math.round(seededUnit(seed + 2) * 6);
+      const height = seededUnit(seed + 3) > 0.72 ? 2 : 1;
+      ctx.fillRect(x, y, width, height);
+    }
+  }
+
+  function drawFogForeground(ctx, scene, now, density) {
+    drawFogBandLayer(ctx, scene, now, 'foreground', [
+      { y: 156, height: 24, alpha: 0.09, densityAlpha: 0.18, width: 430, speed: 0.55, windResponse: 0.26, float: 3, color: '#eef7e7' },
+      { y: 214, height: 34, alpha: 0.12, densityAlpha: 0.20, width: 520, speed: 0.82, windResponse: 0.30, float: 4, color: '#f7fbef' },
+      { y: 286, height: 42, alpha: 0.13, densityAlpha: 0.22, width: 560, speed: 1.00, windResponse: 0.34, float: 5, color: '#eef7e7' },
+      { y: 366, height: 38, alpha: 0.10, densityAlpha: 0.18, width: 470, speed: 0.68, windResponse: 0.28, float: 3, color: '#f7fbef' }
+    ], density);
+
+    ctx.save();
+    ctx.globalAlpha = 0.08 + density * 0.08;
+    ctx.fillStyle = '#f7fbef';
+    ctx.fillRect(0, 118, 512, 318);
+    ctx.restore();
+  }

@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const script = readFileSync(path.join(rootDir, 'ClientCore.html'), 'utf8')
+const script = renderTemplate('ClientCore.html')
   .replace(/^<script>\s*/, '')
   .replace(/\s*<\/script>\s*$/, '');
 const context = { globalThis: {} };
@@ -15,6 +15,13 @@ vm.runInContext(script, context, { filename: 'ClientCore.html' });
 const core = context.PieczargotchiCore;
 if (!core || typeof core.calculateWeatherStatDeltas !== 'function') {
   throw new Error('PieczargotchiCore was not exported');
+}
+
+function renderTemplate(fileName) {
+  const content = readFileSync(path.join(rootDir, fileName), 'utf8');
+  return content.replace(/<\?!=\s*include\('([^']+)'\);\s*\?>/g, (_match, partialName) => {
+    return renderTemplate(partialName + '.html');
+  });
 }
 
 test('rain actively increases hydration', () => {
@@ -213,6 +220,99 @@ test('weather immersion snow cover responds to snowfall, depth, wind, and melt',
   assert(coldSnow.snowCoverTarget > 0.75, `expected accumulated snow, got ${coldSnow.snowCoverTarget}`);
   assert(coldSnow.snowStyle === 'powder', `expected powder snow, got ${coldSnow.snowStyle}`);
   assert(warmOldSnow.snowCoverTarget < coldSnow.snowCoverTarget, 'warm old snow should melt compared with active snowfall');
+});
+
+test('weather immersion exposes rainbow potential for low-cloud light rain with sun window', () => {
+  const immersion = core.deriveWeatherImmersionFields({
+    condition: 'rain',
+    dayPhase: 'evening',
+    isDay: true,
+    cloudCover: 46,
+    cloudCoverLow: 32,
+    cloudCoverMid: 44,
+    cloudCoverHigh: 28,
+    precipitation: 1.2,
+    rain: 0.9,
+    showers: 0.7,
+    snowfall: 0,
+    humidity: 82,
+    visibility: 7800,
+    windSpeed: 9
+  }, [], null, Date.parse('2026-09-12T17:30:00.000Z'));
+
+  assert(immersion.rainbowDropletScore > 0.6, `expected airborne droplets, got ${immersion.rainbowDropletScore}`);
+  assert(immersion.rainbowSunWindowScore > 0.5, `expected sun window, got ${immersion.rainbowSunWindowScore}`);
+  assert(immersion.rainbowPotential > 0.35, `expected visible rainbow potential, got ${immersion.rainbowPotential}`);
+  assert(immersion.rainbowVariant === 'primary' || immersion.rainbowVariant === 'double', `expected rainbow variant, got ${immersion.rainbowVariant}`);
+});
+
+test('weather immersion carries weak rainbow potential after recent rain and clearing', () => {
+  const now = Date.parse('2026-09-12T18:10:00.000Z');
+  const immersion = core.deriveWeatherImmersionFields({
+    condition: 'clear',
+    dayPhase: 'evening',
+    isDay: true,
+    cloudCover: 34,
+    cloudCoverLow: 20,
+    cloudCoverMid: 30,
+    cloudCoverHigh: 24,
+    precipitation: 0,
+    rain: 0,
+    showers: 0,
+    snowfall: 0,
+    humidity: 86,
+    visibility: 9000,
+    windSpeed: 7
+  }, [
+    { time: '2026-09-12T16:20:00.000Z', precipitation: 1.1, rain: 0.8, showers: 0.4, snowfall: 0 },
+    { time: '2026-09-12T18:10:00.000Z', precipitation: 0, rain: 0, showers: 0, snowfall: 0 }
+  ], null, now);
+
+  assert(immersion.rainbowDropletScore === 0, `expected no current droplets, got ${immersion.rainbowDropletScore}`);
+  assert(immersion.rainbowRecentRainScore > 0.15, `expected recent rain memory, got ${immersion.rainbowRecentRainScore}`);
+  assert(immersion.rainbowPotential > 0.05, `expected weak post-rain rainbow potential, got ${immersion.rainbowPotential}`);
+});
+
+test('weather immersion suppresses rainbow for dry clear, snow, and night scenes', () => {
+  const dry = core.deriveWeatherImmersionFields({
+    condition: 'clear',
+    dayPhase: 'afternoon',
+    isDay: true,
+    cloudCover: 8,
+    precipitation: 0,
+    rain: 0,
+    showers: 0,
+    snowfall: 0,
+    humidity: 45,
+    windSpeed: 4
+  }, [], null, Date.now());
+  const snow = core.deriveWeatherImmersionFields({
+    condition: 'snow',
+    dayPhase: 'afternoon',
+    isDay: true,
+    cloudCover: 70,
+    precipitation: 1,
+    snowfall: 1,
+    humidity: 90,
+    windSpeed: 8
+  }, [], null, Date.now());
+  const nightRain = core.deriveWeatherImmersionFields({
+    condition: 'rain',
+    dayPhase: 'night',
+    isDay: false,
+    cloudCover: 38,
+    cloudCoverLow: 24,
+    precipitation: 1.4,
+    rain: 1,
+    showers: 0.7,
+    snowfall: 0,
+    humidity: 86,
+    windSpeed: 7
+  }, [], null, Date.now());
+
+  assert(dry.rainbowPotential === 0, `expected dry rainbow suppression, got ${dry.rainbowPotential}`);
+  assert(snow.rainbowPotential === 0, `expected snow rainbow suppression, got ${snow.rainbowPotential}`);
+  assert(nightRain.rainbowPotential === 0, `expected night rainbow suppression, got ${nightRain.rainbowPotential}`);
 });
 
 test('weather immersion fields do not change care weather balance', () => {

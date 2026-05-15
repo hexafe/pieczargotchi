@@ -1,0 +1,592 @@
+  const defaultWeatherBalance = {
+    maxElapsedHours: 2,
+    rainHydrationPerHour: 8,
+    stormHydrationPerHour: 5,
+    snowHydrationPerHour: 1.5,
+    highHumidityHydrationPerHour: 1.2,
+    windDryingPerHour: -3,
+    heatDryingPerHour: -2,
+    stormHappinessPerHour: -2,
+    stormCleanlinessPerHour: -1.5
+  };
+
+  function calculateWeatherStatDeltas(scene, elapsedHours, config) {
+    const balance = Object.assign({}, defaultWeatherBalance, config || {});
+    const hours = clampNumber(Number(elapsedHours), 0, balance.maxElapsedHours, 0);
+    if (!hours || !scene) {
+      return {};
+    }
+
+    const rainAmount = Math.max(0, Number(scene.rain) || 0, Number(scene.showers) || 0);
+    const precipitation = Math.max(0, Number(scene.precipitation) || 0, rainAmount, Number(scene.snowfall) || 0);
+    const rainIntensity = clampNumber(Number(scene.rainIntensity), 0, 1, clampNumber(rainAmount / 7, 0, 1, 0));
+    const snowIntensity = clampNumber(Number(scene.snowIntensity), 0, 1, clampNumber(Number(scene.snowfall) / 4, 0, 1, 0));
+    const stormIntensity = clampNumber(Number(scene.stormIntensity), 0, 1, scene.condition === 'storm' ? 0.45 : 0);
+    const windLevel = clampNumber(Number(scene.windLevel), 0, 1, clampNumber(Number(scene.windSpeed) / 82, 0, 1, 0));
+    const humidity = clampNumber(Number(scene.humidity), 0, 100, 60);
+    const temperature = Number(scene.apparentTemperature ?? scene.temperature);
+    const heatLevel = Number.isFinite(temperature) ? clampNumber((temperature - 24) / 12, 0, 1, 0) : 0;
+
+    const deltas = {};
+    const rainHydration = rainIntensity * balance.rainHydrationPerHour;
+    const stormHydration = stormIntensity * balance.stormHydrationPerHour;
+    const snowHydration = snowIntensity * balance.snowHydrationPerHour;
+    const humidityHydration = clampNumber((humidity - 78) / 22, 0, 1, 0) * balance.highHumidityHydrationPerHour;
+    const windDrying = windLevel * balance.windDryingPerHour;
+    const heatDrying = heatLevel * balance.heatDryingPerHour;
+    const precipitationBoost = precipitation > 0 && scene.condition === 'rain'
+      ? Math.min(1.5, precipitation * 0.12)
+      : 0;
+
+    deltas.hydration = roundStatDelta((
+      rainHydration
+      + stormHydration
+      + snowHydration
+      + humidityHydration
+      + windDrying
+      + heatDrying
+      + precipitationBoost
+    ) * hours);
+
+    if (stormIntensity > 0) {
+      deltas.happiness = roundStatDelta(stormIntensity * balance.stormHappinessPerHour * hours);
+      deltas.cleanliness = roundStatDelta(stormIntensity * balance.stormCleanlinessPerHour * hours);
+    }
+
+    return removeZeroDeltas(deltas);
+  }
+
+  function deriveWeatherImmersionFields(scene, hourlyInput, previousScene, nowInput) {
+    const source = isPlainObject(scene) ? scene : {};
+    const weatherHours = normalizeWeatherHours(hourlyInput || source.weatherHours);
+    const now = normalizeDate(nowInput || source.updatedAt || Date.now());
+    const temperature = readAmbientTemperature(source);
+    const humidity = clampNumber(Number(source.humidity), 0, 100, 60);
+    const dewPoint = readOptionalCoreNumber(source.dewPoint);
+    const visibility = readOptionalCoreNumber(source.visibility);
+    const pressure = readOptionalCoreNumber(source.pressure);
+    const precipitation = Math.max(0, Number(source.precipitation) || 0, Number(source.rain) || 0, Number(source.showers) || 0, Number(source.snowfall) || 0);
+    const rainAmount = Math.max(0, Number(source.rain) || 0, Number(source.showers) || 0);
+    const snowfall = Math.max(0, Number(source.snowfall) || 0);
+    const windSpeed = clampNumber(Number(source.windSpeed), 0, 180, 0);
+    const windGusts = clampNumber(Number(source.windGusts), 0, 220, windSpeed);
+    const cloudCover = clampNumber(Number(source.cloudCover), 0, 100, 0);
+    const cloudCoverLow = clampNumber(Number(source.cloudCoverLow), 0, 100, cloudCover);
+    const cloudCoverMid = clampNumber(Number(source.cloudCoverMid), 0, 100, cloudCover);
+    const cloudCoverHigh = clampNumber(Number(source.cloudCoverHigh), 0, 100, cloudCover);
+    const pressureTrend = getPressureTrend(source, weatherHours, previousScene, now);
+    const rainClass = getRainClass(source.condition, rainAmount, precipitation);
+    const windBeaufort = getBeaufortWind(windSpeed, windGusts);
+    const fogPotential = getFogPotential(source, {
+      humidity: humidity,
+      dewPoint: dewPoint,
+      temperature: temperature,
+      visibility: visibility,
+      windSpeed: windSpeed,
+      cloudCoverLow: cloudCoverLow
+    });
+    const wetnessTarget = getSurfaceWetnessTarget(source, {
+      precipitation: precipitation,
+      rainAmount: rainAmount,
+      rainClass: rainClass,
+      fogPotential: fogPotential,
+      humidity: humidity,
+      temperature: temperature
+    });
+    const snowCoverTarget = getSnowCoverTarget(source, {
+      snowfall: snowfall,
+      precipitation: precipitation,
+      temperature: temperature
+    });
+    const cloudForms = getCloudForms(source, {
+      cloudCoverLow: cloudCoverLow,
+      cloudCoverMid: cloudCoverMid,
+      cloudCoverHigh: cloudCoverHigh,
+      rainClass: rainClass,
+      fogPotential: fogPotential
+    });
+    const incoming = getIncomingWeatherHint(source, weatherHours, now, pressureTrend);
+    const rainbow = getRainbowProfile(source, weatherHours, now, {
+      rainAmount: rainAmount,
+      precipitation: precipitation,
+      rainClass: rainClass,
+      cloudCover: cloudCover,
+      cloudCoverLow: cloudCoverLow,
+      cloudCoverMid: cloudCoverMid,
+      cloudCoverHigh: cloudCoverHigh,
+      fogPotential: fogPotential,
+      humidity: humidity,
+      visibility: visibility,
+      incoming: incoming
+    });
+
+    return {
+      skyCoverClass: getSkyCoverClass(cloudCover),
+      cloudForms: cloudForms,
+      rainClass: rainClass,
+      precipitationStyle: getPrecipitationStyle(source, rainClass),
+      windBeaufort: windBeaufort,
+      fogPotential: fogPotential,
+      pressureTrend: pressureTrend,
+      surfaceWetnessTarget: wetnessTarget,
+      snowCoverTarget: snowCoverTarget,
+      snowStyle: getSnowStyle(source, temperature, windBeaufort),
+      weatherIncomingHint: incoming,
+      rainbowDropletScore: rainbow.dropletScore,
+      rainbowRecentRainScore: rainbow.recentRainScore,
+      rainbowSunWindowScore: rainbow.sunWindowScore,
+      rainbowPotential: rainbow.potential,
+      rainbowVariant: rainbow.variant
+    };
+  }
+
+  function classifyWeatherCondition(code, precipitation, cloudCover, snowfall) {
+    const numericCode = Number(code);
+    const precipitationAmount = Math.max(0, Number(precipitation) || 0);
+    const snowAmount = Math.max(0, Number(snowfall) || 0);
+    const cloudAmount = clampNumber(Number(cloudCover), 0, 100, 0);
+
+    if ([95, 96, 99].includes(numericCode)) {
+      return 'storm';
+    }
+
+    if ((numericCode >= 71 && numericCode <= 77) || numericCode === 85 || numericCode === 86 || snowAmount > 0.05) {
+      return 'snow';
+    }
+
+    if ((numericCode >= 51 && numericCode <= 67) || (numericCode >= 80 && numericCode <= 82) || precipitationAmount > 0.05) {
+      return 'rain';
+    }
+
+    if (numericCode === 45 || numericCode === 48) {
+      return 'fog';
+    }
+
+    if ((numericCode >= 1 && numericCode <= 3) || cloudAmount > 62) {
+      return 'cloudy';
+    }
+
+    return 'clear';
+  }
+
+  function getSkyCoverClass(cloudCover) {
+    const cover = clampNumber(Number(cloudCover), 0, 100, 0);
+    if (cover <= 12.5) {
+      return 'clear';
+    }
+    if (cover <= 37.5) {
+      return 'mostlyClear';
+    }
+    if (cover <= 62.5) {
+      return 'partlyCloudy';
+    }
+    if (cover <= 87.5) {
+      return 'mostlyCloudy';
+    }
+    return 'overcast';
+  }
+
+  function getRainClass(condition, rainAmount, precipitation) {
+    const amount = Math.max(0, Number(rainAmount) || 0, condition === 'storm' ? Number(precipitation) || 0 : 0);
+    if (amount <= 0.02) {
+      return 'none';
+    }
+    if (amount < 0.25) {
+      return 'drizzle';
+    }
+    if (amount < 2.5) {
+      return 'light';
+    }
+    if (amount < 7.6) {
+      return condition === 'storm' ? 'heavy' : 'moderate';
+    }
+    if (amount < 50) {
+      return 'heavy';
+    }
+    return 'violent';
+  }
+
+  function getPrecipitationStyle(scene, rainClass) {
+    if (rainClass === 'none') {
+      return 'none';
+    }
+    const showers = Math.max(0, Number(scene.showers) || 0);
+    const rain = Math.max(0, Number(scene.rain) || 0);
+    const code = Number(scene.code);
+    if ((code >= 80 && code <= 82) || showers > Math.max(0.12, rain * 0.55)) {
+      return 'showers';
+    }
+    if (scene.condition === 'storm') {
+      return 'storm';
+    }
+    return 'steady';
+  }
+
+  function getBeaufortWind(windSpeed, windGusts) {
+    const effective = Math.max(0, Number(windSpeed) || 0, (Number(windGusts) || 0) * 0.72);
+    const thresholds = [1, 6, 12, 20, 29, 39, 50, 62, 75, 89, 103, 118];
+    const labels = [
+      'calm',
+      'lightAir',
+      'lightBreeze',
+      'gentleBreeze',
+      'moderateBreeze',
+      'freshBreeze',
+      'strongBreeze',
+      'nearGale',
+      'gale',
+      'strongGale',
+      'storm',
+      'violentStorm',
+      'hurricane'
+    ];
+    let force = 0;
+    while (force < thresholds.length && effective >= thresholds[force]) {
+      force += 1;
+    }
+
+    return {
+      force: force,
+      label: labels[force],
+      effectiveKmh: Math.round(effective * 10) / 10
+    };
+  }
+
+  function getFogPotential(scene, factors) {
+    if (scene.condition === 'fog') {
+      return 1;
+    }
+
+    const spread = factors.dewPoint === null || factors.temperature === null
+      ? null
+      : Math.max(0, factors.temperature - factors.dewPoint);
+    const humidityScore = clampNumber((factors.humidity - 82) / 16, 0, 1, 0);
+    const dewPointScore = spread === null ? 0 : clampNumber((4 - spread) / 4, 0, 1, 0);
+    const visibilityScore = factors.visibility === null ? 0 : clampNumber((6000 - factors.visibility) / 5200, 0, 1, 0);
+    const windScore = factors.windSpeed <= 1
+      ? 0.42
+      : factors.windSpeed <= 12
+        ? 1
+        : clampNumber(1 - (factors.windSpeed - 12) / 18, 0, 1, 0);
+    const lowCloudScore = clampNumber((factors.cloudCoverLow - 55) / 45, 0, 1, 0);
+    const timeScore = ['night', 'sunrise', 'evening', 'sunset'].includes(scene.dayPhase) ? 1 : 0.46;
+    const raw = humidityScore * 0.28
+      + dewPointScore * 0.24
+      + visibilityScore * 0.28
+      + windScore * 0.10
+      + lowCloudScore * 0.06
+      + timeScore * 0.04;
+    return roundWeatherUnit(raw);
+  }
+
+  function getSurfaceWetnessTarget(scene, factors) {
+    const vpd = readOptionalCoreNumber(scene.vaporPressureDeficit);
+    const evapotranspiration = readOptionalCoreNumber(scene.evapotranspiration);
+    const rainScore = factors.rainClass === 'none'
+      ? 0
+      : factors.rainClass === 'drizzle'
+        ? 0.18
+        : factors.rainClass === 'light'
+          ? 0.36
+          : factors.rainClass === 'moderate'
+            ? 0.68
+            : 1;
+    const precipitationScore = clampNumber(factors.precipitation / 8, 0, 1, 0);
+    const humidityScore = clampNumber((factors.humidity - 78) / 22, 0, 0.34, 0);
+    const fogScore = factors.fogPotential * 0.32;
+    const heatDrying = factors.temperature === null ? 0 : clampNumber((factors.temperature - 24) / 15, 0, 0.42, 0);
+    const vpdDrying = vpd === null ? 0 : clampNumber((vpd - 1.1) / 1.5, 0, 0.32, 0);
+    const etDrying = evapotranspiration === null ? 0 : clampNumber(evapotranspiration / 1.8, 0, 0.24, 0);
+    return roundWeatherUnit(clampNumber(Math.max(rainScore, precipitationScore, humidityScore + fogScore) - heatDrying - vpdDrying - etDrying, 0, 1, 0));
+  }
+
+  function getSnowCoverTarget(scene, factors) {
+    const snowDepth = readOptionalCoreNumber(scene.snowDepth);
+    const depthScore = snowDepth === null ? 0 : clampNumber(snowDepth * 18, 0, 1, 0);
+    const snowfallScore = clampNumber(Math.max(factors.snowfall, scene.condition === 'snow' ? factors.precipitation : 0) / 4, 0, 1, 0);
+    const coldBonus = factors.temperature === null ? 0.16 : clampNumber((3 - factors.temperature) / 7, 0, 0.38, 0);
+    const warmMelt = factors.temperature === null ? 0 : clampNumber((factors.temperature - 1.5) / 6, 0, 0.74, 0);
+    return roundWeatherUnit(clampNumber(Math.max(depthScore, snowfallScore + coldBonus) - warmMelt, 0, 1, 0));
+  }
+
+  function getSnowStyle(scene, temperature, windBeaufort) {
+    if (scene.condition !== 'snow' && Math.max(0, Number(scene.snowfall) || 0, Number(scene.snowDepth) || 0) <= 0) {
+      return 'none';
+    }
+    if (windBeaufort.force >= 6) {
+      return 'blowing';
+    }
+    if (temperature !== null && temperature > 0.5) {
+      return 'wet';
+    }
+    return 'powder';
+  }
+
+  function getCloudForms(scene, layers) {
+    if (scene.condition === 'storm') {
+      return {
+        high: layers.cloudCoverHigh > 24 ? 'cirrostratus' : 'cirrus',
+        mid: 'nimbostratus',
+        low: 'cumulonimbus',
+        dominant: 'cumulonimbus'
+      };
+    }
+
+    if (scene.condition === 'rain') {
+      return {
+        high: layers.cloudCoverHigh > 48 ? 'cirrostratus' : 'cirrus',
+        mid: layers.rainClass === 'light' ? 'altostratus' : 'nimbostratus',
+        low: layers.cloudCoverLow > 70 ? 'stratus' : 'stratocumulus',
+        dominant: layers.rainClass === 'light' ? 'altostratus' : 'nimbostratus'
+      };
+    }
+
+    if (scene.condition === 'fog' || layers.fogPotential > 0.62) {
+      return {
+        high: layers.cloudCoverHigh > 45 ? 'cirrostratus' : 'cirrus',
+        mid: layers.cloudCoverMid > 60 ? 'altostratus' : 'altocumulus',
+        low: 'stratus',
+        dominant: 'stratus'
+      };
+    }
+
+    if (scene.condition === 'snow') {
+      return {
+        high: layers.cloudCoverHigh > 42 ? 'cirrostratus' : 'cirrus',
+        mid: 'altostratus',
+        low: layers.cloudCoverLow > 68 ? 'stratus' : 'stratocumulus',
+        dominant: 'altostratus'
+      };
+    }
+
+    if (layers.cloudCoverLow > 72) {
+      return { high: 'cirrostratus', mid: 'altostratus', low: 'stratus', dominant: 'stratus' };
+    }
+    if (layers.cloudCoverLow > 34) {
+      return { high: 'cirrus', mid: 'altocumulus', low: 'stratocumulus', dominant: 'stratocumulus' };
+    }
+    return {
+      high: layers.cloudCoverHigh > 42 ? 'cirrostratus' : 'cirrus',
+      mid: layers.cloudCoverMid > 48 ? 'altocumulus' : 'none',
+      low: layers.cloudCoverLow > 16 ? 'cumulus' : 'none',
+      dominant: layers.cloudCoverHigh > Math.max(layers.cloudCoverMid, layers.cloudCoverLow) ? 'cirrus' : 'cumulus'
+    };
+  }
+
+  function getIncomingWeatherHint(scene, weatherHours, now, pressureTrend) {
+    if (!weatherHours.length) {
+      if (pressureTrend.direction === 'falling') {
+        return 'pressureFalling';
+      }
+      if (pressureTrend.direction === 'rising') {
+        return 'clearing';
+      }
+      return 'stable';
+    }
+
+    const future = weatherHours.filter(function(hour) {
+      return hour.time && hour.time.getTime() > now.getTime();
+    }).slice(0, 4);
+    const futurePrecipitation = future.reduce(function(max, hour) {
+      return Math.max(max, Number(hour.precipitation) || 0, Number(hour.rain) || 0, Number(hour.showers) || 0, Number(hour.snowfall) || 0);
+    }, 0);
+    const futureCloud = future.reduce(function(max, hour) {
+      return Math.max(max, Number(hour.cloudCover) || 0);
+    }, 0);
+    const currentPrecipitation = Math.max(0, Number(scene.precipitation) || 0, Number(scene.rain) || 0, Number(scene.snowfall) || 0);
+    const currentCloud = clampNumber(Number(scene.cloudCover), 0, 100, 0);
+
+    if (futurePrecipitation > Math.max(0.2, currentPrecipitation + 0.35)) {
+      return 'precipitationApproaching';
+    }
+    if (futureCloud > currentCloud + 24 || pressureTrend.direction === 'falling') {
+      return 'cloudingOver';
+    }
+    if (futureCloud + 20 < currentCloud || pressureTrend.direction === 'rising') {
+      return 'clearing';
+    }
+    return 'stable';
+  }
+
+  function getRainbowProfile(scene, weatherHours, now, factors) {
+    const daylightScore = getRainbowDaylightScore(scene);
+    const dropletScore = getRainbowDropletScore(scene, factors);
+    const recentRainScore = getRainbowRecentRainScore(weatherHours, now);
+    const sunWindowScore = getRainbowSunWindowScore(scene, factors);
+    const weatherGate = getRainbowWeatherGate(scene, factors);
+    const waterScore = Math.max(dropletScore, recentRainScore * 0.78);
+    const potential = roundWeatherUnit(waterScore * sunWindowScore * daylightScore * weatherGate);
+    const variant = potential > 0.72 && dropletScore > 0.54 && sunWindowScore > 0.46
+      ? 'double'
+      : potential > 0.10
+        ? 'primary'
+        : 'none';
+
+    return {
+      dropletScore: roundWeatherUnit(dropletScore),
+      recentRainScore: roundWeatherUnit(recentRainScore),
+      sunWindowScore: roundWeatherUnit(sunWindowScore),
+      potential: potential,
+      variant: variant
+    };
+  }
+
+  function getRainbowDaylightScore(scene) {
+    if (scene.isDay === false || scene.dayPhase === 'night') {
+      return 0;
+    }
+
+    const phaseScore = {
+      sunrise: 1,
+      morning: 0.82,
+      noon: 0.62,
+      afternoon: 0.76,
+      evening: 1,
+      sunset: 1
+    };
+    return phaseScore[scene.dayPhase] || 0.72;
+  }
+
+  function getRainbowDropletScore(scene, factors) {
+    if (scene.condition === 'snow' || Number(scene.snowfall) > 0.02) {
+      return 0;
+    }
+    if (factors.rainClass === 'none' && factors.rainAmount <= 0.03 && factors.precipitation <= 0.03) {
+      return 0;
+    }
+
+    const classScore = {
+      none: 0,
+      drizzle: 0.44,
+      light: 0.74,
+      moderate: 0.92,
+      heavy: 0.68,
+      violent: 0.36
+    }[factors.rainClass] || 0;
+    const amountScore = clampNumber(Math.max(factors.rainAmount, factors.precipitation) / 3.8, 0, 1, 0);
+    const showerBoost = getPrecipitationStyle(scene, factors.rainClass) === 'showers' ? 0.16 : 0;
+    const humiditySupport = clampNumber((factors.humidity - 60) / 32, 0, 0.18, 0);
+    const visibilityLimit = factors.visibility === null
+      ? 1
+      : clampNumber((factors.visibility - 900) / 4600, 0.18, 1, 1);
+
+    return clampNumber((Math.max(classScore, amountScore * 0.88) + showerBoost + humiditySupport) * visibilityLimit, 0, 1, 0);
+  }
+
+  function getRainbowRecentRainScore(weatherHours, now) {
+    if (!weatherHours.length) {
+      return 0;
+    }
+
+    const currentTime = now.getTime();
+    return weatherHours.reduce(function(maxScore, hour) {
+      if (!hour.time) {
+        return maxScore;
+      }
+      const timestamp = hour.time.getTime();
+      if (timestamp > currentTime || timestamp < currentTime - 3 * 60 * 60 * 1000) {
+        return maxScore;
+      }
+
+      const rainAmount = Math.max(0, Number(hour.precipitation) || 0, Number(hour.rain) || 0, Number(hour.showers) || 0);
+      if (rainAmount <= 0.03 || Number(hour.snowfall) > 0.02) {
+        return maxScore;
+      }
+
+      const ageHours = (currentTime - timestamp) / (60 * 60 * 1000);
+      const decay = clampNumber(1 - ageHours / 3, 0, 1, 0);
+      const amountScore = clampNumber(rainAmount / 2.4, 0, 1, 0);
+      return Math.max(maxScore, amountScore * decay);
+    }, 0);
+  }
+
+  function getRainbowSunWindowScore(scene, factors) {
+    const lowCloudWindow = clampNumber((92 - factors.cloudCoverLow) / 54, 0, 1, 0);
+    const midCloudWindow = clampNumber((94 - factors.cloudCoverMid) / 62, 0, 1, 0);
+    const totalWindow = clampNumber((98 - factors.cloudCover) / 76, 0, 1, 0);
+    const highCloudSoftener = clampNumber((100 - factors.cloudCoverHigh) / 110, 0.26, 1, 1);
+    const breakthroughHint = ['clearing', 'stable'].includes(factors.incoming) ? 0.08 : 0;
+    return clampNumber((lowCloudWindow * 0.42 + midCloudWindow * 0.26 + totalWindow * 0.32 + breakthroughHint) * highCloudSoftener, 0, 1, 0);
+  }
+
+  function getRainbowWeatherGate(scene, factors) {
+    if (scene.condition === 'snow') {
+      return 0;
+    }
+    if (scene.condition === 'fog' || factors.fogPotential > 0.72) {
+      return 0;
+    }
+    if (scene.condition === 'storm') {
+      return 0.42;
+    }
+    return 1;
+  }
+
+  function getPressureTrend(scene, weatherHours, previousScene, now) {
+    const pressure = readOptionalCoreNumber(scene.pressure);
+    const currentTime = now.getTime();
+    let start = null;
+    let end = null;
+
+    weatherHours.forEach(function(hour) {
+      const value = readOptionalCoreNumber(hour.pressure);
+      if (value === null || !hour.time) {
+        return;
+      }
+      const timestamp = hour.time.getTime();
+      if (timestamp <= currentTime && timestamp >= currentTime - 4 * 60 * 60 * 1000 && (!start || timestamp < start.time.getTime())) {
+        start = { time: hour.time, pressure: value };
+      }
+      if (timestamp >= currentTime && timestamp <= currentTime + 4 * 60 * 60 * 1000 && (!end || timestamp > end.time.getTime())) {
+        end = { time: hour.time, pressure: value };
+      }
+    });
+
+    if (start && end && start.time.getTime() !== end.time.getTime()) {
+      return classifyPressureDelta(end.pressure - start.pressure);
+    }
+
+    const previousPressure = previousScene ? readOptionalCoreNumber(previousScene.pressure) : null;
+    if (pressure !== null && previousPressure !== null) {
+      return classifyPressureDelta(pressure - previousPressure);
+    }
+
+    return { direction: 'unknown', deltaHpa: 0 };
+  }
+
+  function classifyPressureDelta(delta) {
+    const rounded = Math.round((Number(delta) || 0) * 10) / 10;
+    if (rounded <= -1.2) {
+      return { direction: 'falling', deltaHpa: rounded };
+    }
+    if (rounded >= 1.2) {
+      return { direction: 'rising', deltaHpa: rounded };
+    }
+    return { direction: 'steady', deltaHpa: rounded };
+  }
+
+  function normalizeWeatherHours(input) {
+    if (!Array.isArray(input)) {
+      return [];
+    }
+
+    return input.map(function(hour) {
+      if (!isPlainObject(hour)) {
+        return null;
+      }
+      const time = hour.time instanceof Date ? hour.time : new Date(hour.time);
+      if (Number.isNaN(time.getTime())) {
+        return null;
+      }
+      return Object.assign({}, hour, { time: time });
+    }).filter(Boolean);
+  }
+
+  function readOptionalCoreNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function roundWeatherUnit(value) {
+    return Math.round(clampNumber(Number(value), 0, 1, 0) * 1000) / 1000;
+  }

@@ -78,6 +78,54 @@ const scenarios = [
     }
   },
   {
+    id: 'rainbow-light-rain-sunset',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'rain',
+      PIECZARGOTCHI_DEBUG_PRECIPITATION: '1.1',
+      PIECZARGOTCHI_DEBUG_CLOUD: '46',
+      PIECZARGOTCHI_DEBUG_WIND: '10',
+      PIECZARGOTCHI_DEBUG_HUMIDITY: '84',
+      PIECZARGOTCHI_DEBUG_VISIBILITY: '8200',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-09-12T17:40:00')
+    }
+  },
+  {
+    id: 'rainbow-after-shower-low-sun',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
+      PIECZARGOTCHI_DEBUG_CLOUD: '30',
+      PIECZARGOTCHI_DEBUG_WIND: '8',
+      PIECZARGOTCHI_DEBUG_HUMIDITY: '88',
+      PIECZARGOTCHI_DEBUG_SURFACE_WETNESS: '0.72',
+      PIECZARGOTCHI_DEBUG_RAINBOW: 'force',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-09-12T18:05:00')
+    }
+  },
+  {
+    id: 'double-rainbow-clearing',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'rain',
+      PIECZARGOTCHI_DEBUG_PRECIPITATION: '2.8',
+      PIECZARGOTCHI_DEBUG_CLOUD: '42',
+      PIECZARGOTCHI_DEBUG_WIND: '14',
+      PIECZARGOTCHI_DEBUG_HUMIDITY: '90',
+      PIECZARGOTCHI_DEBUG_VISIBILITY: '9000',
+      PIECZARGOTCHI_DEBUG_RAINBOW: 'force',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-09-12T17:55:00')
+    }
+  },
+  {
+    id: 'rainbow-hidden-high-sun',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'rain',
+      PIECZARGOTCHI_DEBUG_PRECIPITATION: '1.4',
+      PIECZARGOTCHI_DEBUG_CLOUD: '30',
+      PIECZARGOTCHI_DEBUG_WIND: '8',
+      PIECZARGOTCHI_DEBUG_HUMIDITY: '84',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T12:30:00')
+    }
+  },
+  {
     id: 'storm-night-wind100',
     env: {
       PIECZARGOTCHI_DEBUG_WEATHER: 'storm',
@@ -86,6 +134,17 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_WIND: '100',
       PIECZARGOTCHI_DEBUG_WIND_DIRECTION: '180',
       PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-07-20T23:00:00')
+    }
+  },
+  {
+    id: 'rainbow-hidden-overcast-storm',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'storm',
+      PIECZARGOTCHI_DEBUG_PRECIPITATION: '5.6',
+      PIECZARGOTCHI_DEBUG_CLOUD: '100',
+      PIECZARGOTCHI_DEBUG_WIND: '62',
+      PIECZARGOTCHI_DEBUG_HUMIDITY: '94',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-09-12T17:50:00')
     }
   },
   {

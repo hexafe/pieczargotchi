@@ -1,0 +1,445 @@
+  function drawWeatherLayer(ctx, scene, now) {
+    drawWindLayer(ctx, scene, now);
+
+    if ((scene.condition === 'rain' || scene.condition === 'storm') && scene.rainIntensity > 0.01) {
+      drawRainLayer(ctx, scene, now);
+    }
+
+    if (scene.condition === 'storm') {
+      drawStormLayer(ctx, scene, now);
+    } else if (scene.condition === 'snow' && scene.snowIntensity > 0.01) {
+      drawSnowLayer(ctx, scene, now);
+    }
+  }
+
+  function drawWindLayer(ctx, scene, now) {
+    const wind = getDynamicWindState(scene, now);
+    const windLevel = wind.level;
+    if (wind.averageLevel < 0.08 && windLevel < 0.12) {
+      return;
+    }
+
+    const count = Math.round(2 + wind.averageLevel * 9 + windLevel * 7 + wind.gustPulse * 4);
+    const speed = 78 - windLevel * 36 - wind.gustPulse * 10;
+    const drift = Math.floor(now / Math.max(24, speed)) * wind.direction * wind.screenDriftFactor;
+    const yDrift = Math.floor(now / 150);
+    const lengthBase = 10 + Math.round(windLevel * 22 + wind.gustPulse * 8);
+    const windScale = Math.max(0.22, wind.lateralFactor);
+    ctx.save();
+    ctx.globalAlpha = 0.045 + windLevel * 0.13 + wind.gustPulse * 0.04;
+    ctx.fillStyle = scene.isDay ? '#f7f4ce' : '#d4e5ce';
+    for (let index = 0; index < count; index += 1) {
+      const x = positiveModulo(index * 83 + drift * (3 + windLevel * 8), 590) - 38;
+      const y = 58 + ((index * 43 + yDrift) % 284);
+      const length = lengthBase + (index % 3) * 6;
+      ctx.fillRect(Math.round(x), Math.round(y), Math.max(3, Math.round(length * windScale)), 2);
+      if (wind.gustPulse > 0.48 && index % 2 === 0) {
+        ctx.fillRect(Math.round(x - wind.direction * 12), Math.round(y + 5), Math.max(4, Math.round(length * 0.42)), 2);
+      }
+      if (Math.abs(wind.vectorY) > 0.25) {
+        ctx.fillRect(Math.round(x + length * 0.4), Math.round(y + wind.vectorY * 5), 6, 2);
+      }
+    }
+    drawWindGustBands(ctx, scene, now, wind);
+    drawDepthWindPuffs(ctx, scene, now, wind);
+    ctx.restore();
+  }
+
+  function drawWindGustBands(ctx, scene, now, wind) {
+    if (wind.gustPulse < 0.56 || wind.averageLevel < 0.24) {
+      return;
+    }
+
+    ctx.globalAlpha = wind.gustPulse * (0.025 + wind.averageLevel * 0.07) * (0.22 + wind.lateralFactor * 0.58);
+    ctx.fillStyle = scene.isDay ? '#fff8cf' : '#d8ead6';
+    for (let index = 0; index < 3; index += 1) {
+      const speed = 34 - Math.min(8, wind.level * 8);
+      const drift = Math.floor(now / speed) * wind.direction * wind.screenDriftFactor;
+      const x = positiveModulo(index * 177 + drift * (8 + wind.level * 14), 760) - 150;
+      const y = 92 + index * 68 + Math.round(Math.sin(now / 940 + index) * 4);
+      const length = 30 + Math.round((wind.level * 44 + wind.gustPulse * 22) * wind.lateralFactor) + index * 7;
+      ctx.fillRect(Math.round(x), y, length, 3);
+      ctx.fillRect(Math.round(x + wind.direction * 20), y + 8, Math.round(length * 0.42), 2);
+    }
+  }
+
+  function drawDepthWindPuffs(ctx, scene, now, wind) {
+    if (wind.depthFactor < 0.34 || wind.gustPulse < 0.34 || wind.averageLevel < 0.18) {
+      return;
+    }
+
+    const count = Math.round(2 + wind.depthFactor * 3 + wind.gustPulse * 2);
+    ctx.globalAlpha = (0.025 + wind.gustPulse * 0.06) * wind.depthFactor;
+    ctx.fillStyle = scene.isDay ? '#fff8cf' : '#d8ead6';
+    for (let index = 0; index < count; index += 1) {
+      const seed = 6100 + index * 31;
+      const pulse = (now / (980 + seededUnit(seed) * 520) + seededUnit(seed + 1)) % 1;
+      const size = 5 + Math.round(pulse * 10 + wind.level * 5);
+      const x = Math.round(seededUnit(seed + 2) * 430 + 40 + Math.sin(now / 1800 + index) * 5);
+      const y = Math.round(66 + seededUnit(seed + 3) * 270 + wind.vectorY * pulse * 10);
+      ctx.fillRect(x - Math.round(size / 2), y, size, 2);
+      ctx.fillRect(x - Math.round(size * 0.32), y - Math.round(size * 0.24), Math.max(4, Math.round(size * 0.64)), 2);
+      if (pulse > 0.52) {
+        ctx.fillRect(x - 2, y - Math.round(size * 0.42), 4, 2);
+      }
+    }
+  }
+
+  function drawRainLayer(ctx, scene, now) {
+    const profile = getRainClassProfile(scene);
+    const intensity = profile.intensity;
+    if (intensity <= 0) {
+      return;
+    }
+
+    const wind = getDynamicWindState(scene, now);
+    const baseCount = Math.round((32 + intensity * 96 + wind.averageLevel * 18) * profile.countMultiplier);
+    const slant = getRainSlant(wind);
+    const cycleBase = Math.max(profile.minimumCycle, profile.cycleBase - intensity * 270 - wind.level * 150);
+    const layers = [
+      {
+        seedOffset: 0,
+        count: Math.round(baseCount * 0.56),
+        alpha: 0.30 + intensity * 0.18,
+        color: profile.frontColor,
+        width: profile.dropWidth,
+        length: profile.dropLength + intensity * 12,
+        speed: 1
+      },
+      {
+        seedOffset: 2000,
+        count: Math.round(baseCount * 0.34),
+        alpha: 0.22 + intensity * 0.12,
+        color: '#9fc7f1',
+        width: Math.max(1, profile.dropWidth - 1),
+        length: Math.max(4, profile.dropLength - 3) + intensity * 8,
+        speed: 0.72
+      },
+      {
+        seedOffset: 4000,
+        count: Math.round(baseCount * 0.18),
+        alpha: 0.44 + intensity * 0.18,
+        color: '#c7e2ff',
+        width: profile.dropWidth + (profile.rainClass === 'heavy' || profile.rainClass === 'violent' ? 1 : 0),
+        length: profile.dropLength + 3 + intensity * 16,
+        speed: 1.22
+      }
+    ];
+
+    ctx.save();
+    drawRainSheetLayer(ctx, scene, now, profile, wind, slant);
+    layers.forEach(function(layer) {
+      drawRainDropLayer(ctx, now, scene, layer, cycleBase, slant, wind);
+    });
+    ctx.restore();
+  }
+
+  function getRainClassProfile(scene) {
+    const rainClass = scene.rainClass || getFallbackRainClass(scene);
+    const baseIntensity = clamp(Number(scene.rainIntensity), 0, 1, 0);
+    const stormBoost = scene.condition === 'storm' ? 0.08 : 0;
+    const profiles = {
+      drizzle: {
+        intensity: clamp(baseIntensity * 0.52 + 0.05, 0, 0.42, 0),
+        countMultiplier: 0.42,
+        cycleBase: 1080,
+        minimumCycle: 520,
+        dropWidth: 1,
+        dropLength: 5,
+        sheetAlpha: 0,
+        frontColor: '#9cc8e8'
+      },
+      light: {
+        intensity: clamp(baseIntensity * 0.78 + 0.04, 0, 0.62, 0),
+        countMultiplier: 0.72,
+        cycleBase: 930,
+        minimumCycle: 430,
+        dropWidth: 2,
+        dropLength: 7,
+        sheetAlpha: 0,
+        frontColor: '#82b9ed'
+      },
+      moderate: {
+        intensity: clamp(baseIntensity * 0.96 + 0.02, 0, 0.82, 0),
+        countMultiplier: 1,
+        cycleBase: 800,
+        minimumCycle: 340,
+        dropWidth: 3,
+        dropLength: 10,
+        sheetAlpha: 0.03,
+        frontColor: '#6aa8e8'
+      },
+      heavy: {
+        intensity: clamp(baseIntensity + 0.10 + stormBoost, 0, 1, 0),
+        countMultiplier: 1.28,
+        cycleBase: 690,
+        minimumCycle: 290,
+        dropWidth: 3,
+        dropLength: 14,
+        sheetAlpha: scene.condition === 'storm' ? 0.13 : 0.08,
+        frontColor: scene.condition === 'storm' ? '#5f98d8' : '#66a4e5'
+      },
+      violent: {
+        intensity: 1,
+        countMultiplier: 1.56,
+        cycleBase: 610,
+        minimumCycle: 260,
+        dropWidth: 4,
+        dropLength: 17,
+        sheetAlpha: 0.18,
+        frontColor: '#5d94d2'
+      }
+    };
+    const profile = profiles[rainClass] || {
+      intensity: 0,
+      countMultiplier: 0,
+      cycleBase: 900,
+      minimumCycle: 400,
+      dropWidth: 2,
+      dropLength: 7,
+      sheetAlpha: 0,
+      frontColor: '#82b9ed'
+    };
+    return Object.assign({ rainClass: rainClass }, profile);
+  }
+
+  function getFallbackRainClass(scene) {
+    const rainAmount = Math.max(0, Number(scene.rain) || 0, Number(scene.showers) || 0);
+    if (rainAmount <= 0.02) {
+      return 'none';
+    }
+    if (rainAmount < 0.25) {
+      return 'drizzle';
+    }
+    if (rainAmount < 2.5) {
+      return 'light';
+    }
+    if (rainAmount < 7.6) {
+      return scene.condition === 'storm' ? 'heavy' : 'moderate';
+    }
+    if (rainAmount < 50) {
+      return 'heavy';
+    }
+    return 'violent';
+  }
+
+  function drawRainSheetLayer(ctx, scene, now, profile, wind, slant) {
+    if (profile.sheetAlpha <= 0.01) {
+      return;
+    }
+
+    const sheetCount = profile.rainClass === 'violent' ? 7 : profile.rainClass === 'heavy' ? 5 : 3;
+    const drift = Math.floor(now / Math.max(30, 76 - wind.level * 26)) * wind.direction * wind.screenDriftFactor;
+    ctx.fillStyle = scene.condition === 'storm' ? '#8dbce8' : '#a8cfef';
+    for (let index = 0; index < sheetCount; index += 1) {
+      const width = 44 + Math.round(profile.intensity * 44 + seededUnit(5100 + index) * 36);
+      const height = 430 + Math.round(profile.intensity * 80);
+      const x = positiveModulo(index * 126 + drift * (10 + wind.level * 16), 760) - 132;
+      const y = -36 + Math.round(seededUnit(5110 + index) * 42);
+      ctx.globalAlpha = profile.sheetAlpha * (0.52 + seededUnit(5120 + index) * 0.46);
+      ctx.fillRect(Math.round(x + slant * 0.28), y, width, height);
+      ctx.globalAlpha = profile.sheetAlpha * 0.45;
+      ctx.fillRect(Math.round(x + width * 0.66 + slant * 0.18), y + 18, Math.max(8, Math.round(width * 0.30)), height - 40);
+    }
+  }
+
+  function getRainSlant(wind) {
+    const sign = wind.directionX >= 0 ? 1 : -1;
+    const lateral = Math.abs(wind.directionX);
+    const level = clamp(wind.level, 0, 1, 0);
+    const gust = clamp(wind.gustPulse, 0, 1, 0);
+    const target = 3 + Math.pow(level, 0.9) * 28 + gust * 4;
+    return sign * lateral * Math.min(38, target);
+  }
+
+  function drawRainDropLayer(ctx, now, scene, layer, cycleBase, slant, wind) {
+    const windLevel = wind.level;
+    const travelHeight = 620 - windLevel * 118;
+    const groundY = 442;
+
+    ctx.globalAlpha = layer.alpha;
+    ctx.fillStyle = layer.color;
+
+    for (let index = 0; index < layer.count; index += 1) {
+      const seed = layer.seedOffset + index * 37;
+      const cycleMs = cycleBase / layer.speed + seededUnit(seed + 1) * 210;
+      const phaseOffset = seededUnit(seed + 2) * cycleMs;
+      const progress = positiveModulo(now + phaseOffset, cycleMs) / cycleMs;
+      const spawnX = seededUnit(seed + 3) * 584 - 36;
+      const spawnY = -112 - seededUnit(seed + 4) * 80;
+      const windDrift = slant * progress * (1.16 + seededUnit(seed + 5) * 0.54);
+      const jitter = Math.round((seededUnit(seed + Math.floor(now / 180)) - 0.5) * 2);
+      const x = positiveModulo(spawnX + windDrift, 676) - 82 + jitter;
+      const y = spawnY + progress * travelHeight;
+      const length = Math.round(layer.length + seededUnit(seed + 6) * (7 + windLevel * 9) + wind.gustPulse * 3);
+      const width = layer.width + (seededUnit(seed + 7) > 0.86 ? 1 : 0);
+      const localSlant = Math.round(slant * (0.42 + seededUnit(seed + 8) * 0.22));
+
+      if (y < -40 || y > 476) {
+        continue;
+      }
+
+      drawRainDrop(ctx, x, y, localSlant, length, width);
+
+      if (y > groundY && seededUnit(seed + Math.floor(now / 90)) > 0.62) {
+        drawRainSplash(ctx, x + localSlant * 0.45, groundY + 3, layer.width);
+      }
+    }
+  }
+
+  function drawRainDrop(ctx, x, y, slant, height, width) {
+    const left = Math.round(x);
+    const top = Math.round(y);
+    const dropHeight = Math.max(5, Math.round(height));
+    const dropWidth = Math.max(2, Math.round(width));
+
+    if (Math.abs(slant) <= 2) {
+      ctx.fillRect(left, top, dropWidth, dropHeight);
+      ctx.fillRect(left + dropWidth, top + Math.round(dropHeight * 0.58), 1, Math.max(2, Math.round(dropHeight * 0.24)));
+      return;
+    }
+
+    const firstHeight = Math.max(4, Math.round(dropHeight * 0.52));
+    const secondHeight = Math.max(4, dropHeight - Math.round(dropHeight * 0.32));
+    const midOffset = Math.round(slant * 0.24);
+    const endOffset = Math.round(slant * 0.42);
+    ctx.fillRect(left, top, dropWidth, firstHeight);
+    ctx.fillRect(left + midOffset, top + Math.round(dropHeight * 0.34), dropWidth, secondHeight);
+    ctx.fillRect(left + endOffset, top + Math.round(dropHeight * 0.72), dropWidth, Math.max(3, Math.round(secondHeight * 0.55)));
+  }
+
+  function drawRainSplash(ctx, x, y, size) {
+    const left = Math.round(x);
+    const top = Math.round(y);
+    ctx.fillRect(left - 5, top, 4 + size, 2);
+    ctx.fillRect(left + 3, top - 1, 3 + size, 2);
+    if (size > 2) {
+      ctx.fillRect(left - 1, top - 4, 2, 2);
+    }
+  }
+
+  function drawStormLayer(ctx, scene, now) {
+    const intensity = scene.stormIntensity || 0;
+    if (intensity <= 0) {
+      return;
+    }
+
+    const cadence = Math.max(2, Math.round(8 - intensity * 5));
+    if (Math.floor(now / 1150) % cadence !== 0) {
+      return;
+    }
+
+    const flashPhase = (now % 1150) / 1150;
+    if (flashPhase > 0.26) {
+      return;
+    }
+
+    ctx.save();
+    ctx.globalAlpha = 0.14 + intensity * 0.20;
+    ctx.fillStyle = '#fff6b8';
+    ctx.fillRect(0, 0, 512, 512);
+    ctx.globalAlpha = 0.72;
+    ctx.fillStyle = '#fff0a4';
+    const startX = 96 + (Math.floor(now / 1150) * 97) % 320;
+    ctx.fillRect(startX, 44, 10, 66);
+    ctx.fillRect(startX - 18, 104, 42, 10);
+    ctx.fillRect(startX + 18, 104, 10, 54);
+    ctx.fillRect(startX - 4, 154, 34, 10);
+    ctx.fillRect(startX - 4, 154, 10, 46);
+    ctx.restore();
+  }
+
+  function drawSnowLayer(ctx, scene, now) {
+    const intensity = clamp(Number(scene.snowIntensity), 0, 1, 0);
+    if (intensity <= 0) {
+      return;
+    }
+
+    const wind = getDynamicWindState(scene, now);
+    const snowStyle = scene.snowStyle || 'powder';
+    const styleCount = snowStyle === 'blowing' ? 1.22 : snowStyle === 'wet' ? 0.72 : 1;
+    const styleSpeed = snowStyle === 'blowing' ? 1.28 : snowStyle === 'wet' ? 1.18 : 1;
+    const styleSway = snowStyle === 'wet' ? 0.46 : snowStyle === 'blowing' ? 1.28 : 1;
+    const baseCount = Math.round((24 + intensity * 58 + wind.averageLevel * 10) * styleCount);
+    const slant = wind.directionX * (2 + wind.level * 26 + wind.gustPulse * 8) * (snowStyle === 'blowing' ? 1.48 : 1);
+    const cycleBase = Math.max(1100, (3150 - intensity * 820 - wind.level * 520) / styleSpeed);
+    const layers = [
+      {
+        seedOffset: 9000,
+        count: Math.round(baseCount * 0.52),
+        alpha: 0.52 + intensity * 0.16,
+        color: '#fffdf7',
+        size: snowStyle === 'wet' ? 5 : 4,
+        speed: snowStyle === 'wet' ? 1.02 : 0.82,
+        sway: 7 * styleSway
+      },
+      {
+        seedOffset: 11000,
+        count: Math.round(baseCount * 0.34),
+        alpha: 0.36 + intensity * 0.12,
+        color: '#edf6e6',
+        size: 3,
+        speed: snowStyle === 'wet' ? 0.82 : 0.56,
+        sway: 10 * styleSway
+      },
+      {
+        seedOffset: 13000,
+        count: Math.round(baseCount * 0.22),
+        alpha: 0.64 + intensity * 0.14,
+        color: '#ffffff',
+        size: snowStyle === 'wet' ? 6 : 5,
+        speed: snowStyle === 'wet' ? 1.24 : 1.05,
+        sway: 5 * styleSway
+      }
+    ];
+
+    ctx.save();
+    layers.forEach(function(layer) {
+      drawSnowFlakeLayer(ctx, now, layer, cycleBase, slant, wind);
+    });
+    ctx.restore();
+  }
+
+  function drawSnowFlakeLayer(ctx, now, layer, cycleBase, slant, wind) {
+    const travelHeight = 462 - wind.level * 82;
+    ctx.globalAlpha = layer.alpha;
+    ctx.fillStyle = layer.color;
+
+    for (let index = 0; index < layer.count; index += 1) {
+      const seed = layer.seedOffset + index * 41;
+      const cycleMs = cycleBase / layer.speed + seededUnit(seed + 1) * 780;
+      const phaseOffset = seededUnit(seed + 2) * cycleMs;
+      const progress = positiveModulo(now + phaseOffset, cycleMs) / cycleMs;
+      const spawnX = seededUnit(seed + 3) * 560 - 24;
+      const spawnY = -74 - seededUnit(seed + 4) * 58;
+      const calmSway = Math.sin(now / (720 + seededUnit(seed + 5) * 420) + seed) * layer.sway * (1 - wind.level * 0.62);
+      const gustSway = Math.sin(now / 620 + seed) * wind.gustPulse * (3 + wind.level * 5);
+      const windDrift = slant * progress * (1.12 + seededUnit(seed + 6) * 0.82);
+      const x = positiveModulo(spawnX + windDrift + calmSway + gustSway, 620) - 54;
+      const y = spawnY + progress * travelHeight;
+      const size = layer.size + (seededUnit(seed + 7) > 0.72 ? 1 : 0);
+
+      if (y < -30 || y > 454) {
+        continue;
+      }
+
+      drawSnowFlake(ctx, x, y, size, slant, wind);
+    }
+  }
+
+  function drawSnowFlake(ctx, x, y, size, slant, wind) {
+    const left = Math.round(x);
+    const top = Math.round(y);
+    const flakeSize = Math.max(2, Math.round(size));
+    const streak = Math.round(Math.abs(slant) * 0.16 + wind.level * 4);
+
+    ctx.fillRect(left, top, flakeSize, flakeSize);
+    if (flakeSize >= 4) {
+      ctx.fillRect(left - 1, top + 1, flakeSize + 2, 2);
+      ctx.fillRect(left + 1, top - 1, 2, flakeSize + 2);
+    }
+
+    if (streak > 2) {
+      ctx.fillRect(left + Math.round(slant * 0.22), top + Math.round(flakeSize * 0.65), Math.min(5, streak), 2);
+    }
+  }

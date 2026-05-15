@@ -16,8 +16,10 @@ The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake l
 - `Index.html` - web app shell.
 - `Styles.html` - responsive pixel-game CSS.
 - `Client.html` - thin Apps Script include aggregator for client partials.
-- `ClientCore.html` - small browser-global core helpers that are testable from Node, including weather balance, state migrations, and battle reducer primitives.
-- `ClientBoot.html`, `ClientDebug.html`, `ClientRuntime.html`, `ClientWeather.html`, `ClientState.html`, `ClientActions.html`, `ClientUi.html`, `ClientBattleScene.html`, `ClientAnimation.html`, `ClientScene*.html`, and `ClientSprites.html` - client runtime split by responsibility. `ClientBattleScene.html` renders the local arena; `ClientScene.html` is the care-scene orchestrator; palette, celestial, weather, seasonal ambient life, and ground rendering live in focused scene partials.
+- `ClientCore.html` - Apps Script include shell for the testable browser-global core.
+- `ClientCoreWeather.html`, `ClientCoreLife.html`, `ClientCoreCare.html`, `ClientCoreBattle.html`, `ClientCoreShared.html`, and `ClientCoreExports.html` - pure core helpers exported as `window.PieczargotchiCore`, including weather balance, ambient life, state migrations, attention, animation intent, and battle reducer primitives.
+- `ClientBoot.html`, `ClientDebug.html`, `ClientRuntime.html`, `ClientWeather.html`, `ClientState.html`, `ClientActions.html`, `ClientUi.html`, `ClientBattleScene.html`, `ClientAnimation.html`, `ClientScene*.html`, and `ClientSprites.html` - client runtime split by responsibility. `ClientBattleScene.html` renders the local arena; `ClientScene.html` is the care-scene orchestrator; palette, celestial, rainbow, weather, seasonal ambient life, and ground rendering live in focused scene partials.
+- `ClientSceneWeather.html` - weather-renderer include shell; cloud flow, precipitation, surface overlays, and shared wind/noise helpers live in `ClientSceneWeather*.html` partials.
 - `assets/awake.png` - prepared awake mushroom sprite.
 - `assets/sleeping_sheet.png` - prepared four-frame sleeping sprite sheet.
 - `assets/stages/` - growth-stage sprite sheets.
@@ -36,6 +38,7 @@ The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake l
 - `docs/APPS_SCRIPT_DEPLOYMENT_DRY_RUN.md` - test deployment checklist that keeps `.clasp.json`, script IDs, and private Drive IDs local.
 - `docs/PROJECT_STATE_2026-05-13.md` - current architecture and maintenance checkpoint.
 - `docs/PRODUCT_RULES.md` - gameplay and balance rules for future development.
+- `docs/WEATHER_SYSTEM.md` - current weather simulation rules, gameplay/environment interactions, and realism notes.
 - `.github/workflows/ci.yml` - GitHub Actions checks for client syntax, core rules, assets, sprite consistency, and local preview scripts.
 - `scripts/build-imagegen-sprites.py` - builds runtime sheets from imagegen atlases.
 - `scripts/generate-pixel-assets.py` - compatibility entrypoint; delegates to the imagegen builder when imagegen sources exist.

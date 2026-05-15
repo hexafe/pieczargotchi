@@ -1,0 +1,61 @@
+  function getWindDrift(scene, now, speed, multiplier) {
+    const wind = getDynamicWindState(scene, now);
+    const windLevel = wind.level;
+    const baseSpeed = Math.max(44, speed - windLevel * 32);
+    return Math.floor(now / baseSpeed) * wind.direction * wind.screenDriftFactor * (multiplier || 1) * (1 + windLevel * 0.72);
+  }
+
+  function getDynamicWindState(scene, now) {
+    const source = scene || {};
+    const vector = source.windVector || { x: 1, y: 0 };
+    const measuredBaseLevel = clamp(Number(source.windLevel), 0, 1, 0);
+    const measuredGustLevel = clamp(Number(source.gustLevel), 0, 1, 0);
+    const baseLevel = clamp(Math.pow(measuredBaseLevel, 1.18) * 0.82, 0, 1, 0);
+    const gustLevel = clamp(Math.pow(measuredGustLevel, 1.22) * 0.70, 0, 1, 0);
+    const lateral = clamp(Number(vector.x), -1, 1, 0);
+    const depth = clamp(Number(vector.y), -1, 1, 0);
+    const lateralFactor = Math.abs(lateral);
+    const depthFactor = Math.abs(depth);
+    const direction = lateralFactor > 0.05 ? (lateral >= 0 ? 1 : -1) : (depth >= 0 ? 1 : -1);
+    const directionX = lateral;
+    const screenDriftFactor = 0.12 + lateralFactor * 0.52;
+    const phaseSeed = Math.round((Number(source.windDirection) || 0) * 19 + 911);
+    const phase = seededUnit(phaseSeed) * Math.PI * 2;
+    const slowWave = Math.sin(now / 5200 + phase) * 0.35 + Math.sin(now / 1900 + phase * 1.37) * 0.12;
+    const gustPrimary = (Math.sin(now / Math.max(2400, 3800 - gustLevel * 680) + phase * 2.1) + 1) / 2;
+    const gustSecondary = (Math.sin(now / 3400 + phase * 1.6) + 1) / 2;
+    const gustWave = smoothStep(0.42, 0.98, gustPrimary) * (0.68 + smoothStep(0.24, 0.94, gustSecondary) * 0.24);
+    const lullWave = smoothStep(0.14, 0.92, (-Math.sin(now / 5600 + phase * 0.7) + 1) / 2);
+    const swing = baseLevel * (0.08 + gustLevel * 0.12) + gustLevel * 0.04;
+    const gustLift = gustWave * (baseLevel * 0.08 + gustLevel * 0.16);
+    const lullDrop = lullWave * baseLevel * 0.08;
+    const level = clamp(baseLevel + slowWave * swing + gustLift - lullDrop, 0, 1, baseLevel);
+    const slowLift = smoothStep(0.0, 0.8, Math.max(0, slowWave));
+    const gustPulse = clamp(slowLift * 0.08 + gustWave * (baseLevel * 0.08 + gustLevel * 0.36), 0, 1, 0);
+
+    return {
+      averageLevel: baseLevel,
+      gustLevel: gustLevel,
+      gustPulse: gustPulse,
+      level: level,
+      direction: direction,
+      directionX: directionX,
+      lateralFactor: lateralFactor,
+      depthFactor: depthFactor,
+      screenDriftFactor: screenDriftFactor,
+      vectorY: depth
+    };
+  }
+
+  function smoothStep(edge0, edge1, value) {
+    const t = clamp((value - edge0) / Math.max(0.0001, edge1 - edge0), 0, 1, 0);
+    return t * t * (3 - 2 * t);
+  }
+
+  function seededUnit(seed) {
+    let value = Math.imul(seed ^ 0x9e3779b9, 0x85ebca6b);
+    value ^= value >>> 13;
+    value = Math.imul(value, 0xc2b2ae35);
+    value ^= value >>> 16;
+    return (value >>> 0) / 4294967295;
+  }

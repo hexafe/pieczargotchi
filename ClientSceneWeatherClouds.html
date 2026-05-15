@@ -1,0 +1,622 @@
+  function drawCloudLayer(ctx, scene, palette, now) {
+    const forms = scene.cloudForms || {};
+    const layers = [
+      {
+        cover: scene.cloudCoverHigh,
+        form: forms.high || 'cirrus',
+        y: 36,
+        spacing: 122,
+        scale: 0.74,
+        speed: 190,
+        windResponse: 0.78,
+        depthResponse: 0.50,
+        alpha: 0.34,
+        color: palette.cloudLight,
+        light: 'rgba(255, 255, 247, 0.34)'
+      },
+      {
+        cover: scene.cloudCoverMid,
+        form: forms.mid || 'altocumulus',
+        y: 74,
+        spacing: 116,
+        scale: 0.92,
+        speed: 235,
+        windResponse: 0.52,
+        depthResponse: 0.34,
+        alpha: 0.48,
+        color: palette.cloud,
+        light: palette.cloudLight
+      },
+      {
+        cover: scene.condition === 'clear' ? scene.cloudCoverLow : Math.max(scene.cloudCoverLow, 48),
+        form: forms.low || (scene.condition === 'storm' ? 'cumulonimbus' : 'cumulus'),
+        y: 118,
+        spacing: 104,
+        scale: 1.08,
+        speed: 280,
+        windResponse: 0.36,
+        depthResponse: 0.22,
+        alpha: 0.58,
+        color: palette.cloud,
+        light: palette.cloudLight
+      }
+    ];
+
+    layers.forEach(function(layer, layerIndex) {
+      const cover = clamp(Number(layer.cover), 0, 100, 0);
+      if (cover <= 0.5) {
+        return;
+      }
+
+      const flow = updateCloudLayerFlow(scene, now, layer, layerIndex, cover);
+      const layerWave = now / 1700;
+      const cloudAlpha = Math.min(0.82, layer.alpha + cover / 230);
+      flow.slots.forEach(function(slot, index) {
+        if (!slot.active) {
+          return;
+        }
+
+        const laneOffset = Math.sin(now / (9200 + index * 480) + index * 1.9 + layerIndex) * (2 + layer.windResponse * 4);
+        const scale = layer.scale + slot.scaleOffset;
+        const x = slot.x + laneOffset;
+        const y = layer.y
+          + flow.y
+          + slot.yLane
+          + slot.yOffset
+          + Math.round(Math.sin(layerWave + index + slot.phase) * 2);
+        drawWeatherCloud(
+          ctx,
+          x,
+          y,
+          layer.color,
+          layer.light,
+          scale,
+          cloudAlpha * slot.presence * slot.fade,
+          layer.form
+        );
+      });
+    });
+
+    drawSkyFogLayer(ctx, scene, now);
+  }
+
+  function getCloudPresence(index, cover) {
+    const slotStart = index * 11.8;
+    const slotFade = 18;
+    return clamp((cover - slotStart) / slotFade, 0, 1, 0);
+  }
+
+  function updateCloudLayerFlow(scene, now, layer, layerIndex, cover) {
+    const wind = getDynamicWindState(scene, now);
+    const state = getCloudFlowState('cloud:' + layerIndex, now);
+    const elapsed = state.lastNow === null ? 0 : clamp((now - state.lastNow) / 1000, 0, 0.16, 0);
+    state.lastNow = now;
+
+    const speed = getCloudFlowSpeed(scene, wind, layer);
+    const directionX = Math.abs(wind.directionX) > 0.04 ? wind.directionX : wind.direction * 0.18;
+    const depthResponse = layer.depthResponse || 0.2;
+    const vectorY = wind.vectorY * depthResponse * 0.54;
+    state.yPhase += vectorY * speed * elapsed;
+
+    const desiredSlots = getDesiredCloudSlots(cover);
+    const desiredActive = Math.round(1 + cover / 100 * 6);
+    ensureCloudSlots(state, layer, layerIndex, desiredSlots, desiredActive, directionX, now);
+    updateCloudSlots(state, layer, layerIndex, cover, desiredActive, directionX, speed, elapsed, now);
+
+    const verticalFlow = Math.sin(state.yPhase + layerIndex * 0.9) * (1.4 + depthResponse * 5.4);
+    const breathing = Math.sin(now / (7800 + layerIndex * 1000) + layerIndex) * (1 + depthResponse * 1.5);
+    return {
+      slots: state.slots,
+      y: Math.round(verticalFlow + breathing)
+    };
+  }
+
+  function getCloudFlowSpeed(scene, wind, layer) {
+    const response = layer.windResponse || 0.3;
+    const speedKmh = clamp(Number(scene.windSpeed), 0, 180, 0);
+    const gustKmh = clamp(Number(scene.windGusts), 0, 220, speedKmh);
+    const gustBoost = Math.max(0, gustKmh - speedKmh) / 90;
+    return (0.26 + speedKmh * 0.075 + gustBoost * 0.72 + wind.gustPulse * 0.32) * response;
+  }
+
+  function getDesiredCloudSlots(cover) {
+    return clamp(Math.round(2 + cover / 100 * 7), 2, 9, 4);
+  }
+
+  function ensureCloudSlots(state, layer, layerIndex, desiredSlots, desiredActive, directionX, now) {
+    if (!Array.isArray(state.slots)) {
+      state.slots = [];
+    }
+
+    while (state.slots.length < desiredSlots) {
+      const index = state.slots.length;
+      const slot = createCloudSlot(layer, layerIndex, index, now);
+      if (index < desiredActive) {
+        spawnInitialCloudSlot(slot, layer, layerIndex, index, desiredActive, directionX);
+      } else {
+        scheduleCloudSlot(slot, now, layerIndex, index, 2600);
+      }
+      state.slots.push(slot);
+    }
+
+    if (state.slots.length > desiredSlots) {
+      state.slots.length = desiredSlots;
+    }
+  }
+
+  function createCloudSlot(layer, layerIndex, index, now) {
+    const seed = 7301 + layerIndex * 1009 + index * 313;
+    return {
+      seed: seed,
+      active: false,
+      x: 0,
+      yLane: (index % 3) * 19,
+      yOffset: Math.round((seededUnit(seed + 1) - 0.5) * 10),
+      scaleOffset: (seededUnit(seed + 2) > 0.52 ? 0.12 : 0) + (seededUnit(seed + 3) - 0.5) * 0.08,
+      phase: seededUnit(seed + 4) * Math.PI * 2,
+      presence: 0,
+      fade: 1,
+      nextSpawnAt: now
+    };
+  }
+
+  function spawnInitialCloudSlot(slot, layer, layerIndex, index, desiredActive, directionX) {
+    const direction = directionX >= 0 ? 1 : -1;
+    const width = getCloudSlotWidth(layer, slot);
+    const startX = getCloudSpawnX(direction, width, layerIndex, index, slot.seed);
+    const endX = getCloudDespawnX(direction, width);
+    const spread = desiredActive <= 1 ? 0.5 : index / Math.max(1, desiredActive - 1);
+    const jitter = (seededUnit(slot.seed + 5) - 0.5) * 0.22;
+    const progress = clamp(spread + jitter, 0.08, 0.92, 0.5);
+
+    slot.active = true;
+    slot.x = startX + (endX - startX) * progress;
+    slot.presence = 1;
+    slot.fade = 1;
+  }
+
+  function updateCloudSlots(state, layer, layerIndex, cover, desiredActive, directionX, speed, elapsed, now) {
+    const direction = directionX >= 0 ? 1 : -1;
+    const activeSlots = state.slots.filter(function(slot) {
+      return slot.active;
+    }).length;
+    let activeCount = activeSlots;
+
+    state.slots.forEach(function(slot, index) {
+      const presence = getCloudPresence(index, cover);
+      slot.presence = presence;
+
+      if (slot.active) {
+        slot.x += directionX * speed * elapsed;
+        slot.fade = getCloudEdgeFade(slot, layer);
+
+        if (presence <= 0.01 || isCloudSlotPastScreen(slot, layer)) {
+          slot.active = false;
+          activeCount -= 1;
+          scheduleCloudSlot(slot, now, layerIndex, index);
+        }
+        return;
+      }
+
+      if (presence <= 0.02 || activeCount >= desiredActive || now < slot.nextSpawnAt) {
+        return;
+      }
+
+      spawnCloudSlot(slot, layer, layerIndex, index, direction);
+      activeCount += 1;
+    });
+  }
+
+  function spawnCloudSlot(slot, layer, layerIndex, index, direction) {
+    slot.yLane = (index % 3) * 19;
+    slot.yOffset = Math.round((seededUnit(slot.seed + index + 11) - 0.5) * 12);
+    slot.scaleOffset = (seededUnit(slot.seed + index + 12) > 0.52 ? 0.12 : 0) + (seededUnit(slot.seed + index + 13) - 0.5) * 0.08;
+    slot.phase = seededUnit(slot.seed + index + 14) * Math.PI * 2;
+    const width = getCloudSlotWidth(layer, slot);
+    slot.x = getCloudSpawnX(direction, width, layerIndex, index, slot.seed);
+    slot.fade = 0;
+    slot.active = true;
+  }
+
+  function scheduleCloudSlot(slot, now, layerIndex, index, extraDelay) {
+    const delay = (extraDelay || 0)
+      + 2200
+      + seededUnit(slot.seed + layerIndex * 37 + index * 19 + Math.floor(now / 17000)) * 8200;
+    slot.nextSpawnAt = now + delay;
+  }
+
+  function getCloudSlotWidth(layer, slot) {
+    return getCloudFormWidth(layer.form) * (layer.scale + slot.scaleOffset);
+  }
+
+  function getCloudSpawnX(direction, width, layerIndex, index, seed) {
+    const margin = 22 + seededUnit(seed + 20) * 68 + layerIndex * 8 + (index % 2) * 14;
+    return direction >= 0 ? -width - margin : 512 + margin;
+  }
+
+  function getCloudDespawnX(direction, width) {
+    return direction >= 0 ? 512 + width + 46 : -width - 46;
+  }
+
+  function isCloudSlotPastScreen(slot, layer) {
+    const width = getCloudSlotWidth(layer, slot);
+    return slot.x > 512 + width + 54 || slot.x < -width - 54;
+  }
+
+  function getCloudEdgeFade(slot, layer) {
+    const width = getCloudSlotWidth(layer, slot);
+    const leftVisibility = smoothStep(0, 1, (slot.x + width + 20) / (width + 40));
+    const rightVisibility = smoothStep(0, 1, (512 + 20 - slot.x) / (width + 40));
+    return clamp(Math.min(leftVisibility, rightVisibility), 0, 1, 0);
+  }
+
+  function getCloudFormWidth(form) {
+    if (form === 'cirrus' || form === 'cirrostratus') {
+      return 148;
+    }
+    if (form === 'stratus' || form === 'altostratus' || form === 'nimbostratus') {
+      return 168;
+    }
+    if (form === 'cumulonimbus') {
+      return 132;
+    }
+    if (form === 'altocumulus') {
+      return 128;
+    }
+    return 112;
+  }
+
+  function drawSkyFogLayer(ctx, scene, now) {
+    const density = getFogVisualDensity(scene);
+    if (density <= 0.06) {
+      return;
+    }
+
+    drawFogBandLayer(ctx, scene, now, 'sky', [
+      { y: 186, height: 13, width: 390, alpha: 0.08, densityAlpha: 0.16, speed: 0.54, windResponse: 0.16, float: 2, color: '#f3f8e6' },
+      { y: 222, height: 17, width: 444, alpha: 0.10, densityAlpha: 0.18, speed: 0.66, windResponse: 0.20, float: 3, color: '#eef7e7' },
+      { y: 258, height: 20, width: 484, alpha: 0.10, densityAlpha: 0.20, speed: 0.78, windResponse: 0.22, float: 3, color: '#f7fbef' },
+      { y: 300, height: 22, width: 430, alpha: 0.08, densityAlpha: 0.16, speed: 0.50, windResponse: 0.18, float: 2, color: '#eef7e7' }
+    ], density);
+  }
+
+  function getFogVisualDensity(scene) {
+    const base = scene && scene.condition === 'fog' ? 1 : 0;
+    const derived = clamp(Number(scene && scene.fogPotential), 0, 1, base);
+    const cloudSupport = clamp(Number(scene && scene.cloudDensity), 0, 1, 0.4) * 0.24;
+    return clamp(Math.max(base, derived) + (derived > 0.12 ? cloudSupport : 0), 0, 1, 0);
+  }
+
+  function drawFogBandLayer(ctx, scene, now, group, bands, density) {
+    ctx.save();
+    bands.forEach(function(band, index) {
+      const flow = updateFogBandFlow(scene, now, band, index, group, density);
+      flow.slots.forEach(function(slot) {
+        if (!slot.active) {
+          return;
+        }
+
+        const alpha = (band.alpha + density * band.densityAlpha) * slot.fade * slot.presence;
+        if (alpha <= 0.01) {
+          return;
+        }
+
+        const width = Math.round(band.width * slot.widthScale);
+        const y = Math.round(band.y
+          + slot.yOffset
+          + flow.y
+          + Math.sin(now / (4200 + index * 360) + slot.phase) * band.float);
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = band.color;
+        ctx.fillRect(Math.round(slot.x), y, width, band.height);
+        ctx.globalAlpha = alpha * 0.54;
+        ctx.fillRect(Math.round(slot.x - width * 0.36), y + Math.round(band.height * 0.38), Math.round(width * 0.70), Math.max(6, band.height - 9));
+        ctx.globalAlpha = alpha * 0.38;
+        ctx.fillRect(Math.round(slot.x + width * 0.24), y - 6, Math.round(width * 0.46), Math.max(4, Math.round(band.height * 0.44)));
+      });
+    });
+    ctx.restore();
+  }
+
+  function updateFogBandFlow(scene, now, band, bandIndex, group, density) {
+    const wind = getDynamicWindState(scene, now);
+    const state = getCloudFlowState('fog:' + group + ':' + bandIndex, now);
+    const elapsed = state.lastNow === null ? 0 : clamp((now - state.lastNow) / 1000, 0, 0.18, 0);
+    state.lastNow = now;
+
+    const directionX = Math.abs(wind.directionX) > 0.04 ? wind.directionX : wind.direction * 0.14;
+    const speed = (0.10 + wind.averageLevel * 0.58 + wind.gustPulse * 0.14) * (band.speed || 1) * (band.windResponse || 0.2);
+    state.yPhase += (wind.vectorY * 0.36 + Math.sin(now / 7400 + bandIndex) * 0.08) * speed * elapsed;
+
+    const desiredSlots = clamp(Math.round(1 + density * 3), 1, 4, 2);
+    ensureFogSlots(state, band, bandIndex, group, desiredSlots, directionX, now);
+    updateFogSlots(state, band, bandIndex, group, desiredSlots, directionX, speed, elapsed, now, density);
+
+    return {
+      slots: state.fogSlots,
+      y: Math.round(Math.sin(state.yPhase + bandIndex * 0.9) * (1 + density * 3))
+    };
+  }
+
+  function ensureFogSlots(state, band, bandIndex, group, desiredSlots, directionX, now) {
+    if (!Array.isArray(state.fogSlots)) {
+      state.fogSlots = [];
+    }
+
+    while (state.fogSlots.length < desiredSlots) {
+      const index = state.fogSlots.length;
+      const slot = createFogSlot(bandIndex, group, index, now);
+      spawnInitialFogSlot(slot, band, bandIndex, index, desiredSlots, directionX);
+      state.fogSlots.push(slot);
+    }
+
+    if (state.fogSlots.length > desiredSlots) {
+      state.fogSlots.length = desiredSlots;
+    }
+  }
+
+  function createFogSlot(bandIndex, group, index, now) {
+    const groupSeed = group === 'foreground' ? 1777 : 911;
+    const seed = groupSeed + bandIndex * 521 + index * 131;
+    return {
+      seed: seed,
+      active: false,
+      x: 0,
+      yOffset: Math.round((seededUnit(seed + 1) - 0.5) * 11),
+      widthScale: 0.84 + seededUnit(seed + 2) * 0.34,
+      phase: seededUnit(seed + 3) * Math.PI * 2,
+      presence: 1,
+      fade: 1,
+      nextSpawnAt: now
+    };
+  }
+
+  function spawnInitialFogSlot(slot, band, bandIndex, index, desiredSlots, directionX) {
+    const direction = directionX >= 0 ? 1 : -1;
+    const width = band.width * slot.widthScale;
+    const startX = getFogSpawnX(direction, width, slot.seed);
+    const endX = getFogDespawnX(direction, width);
+    const progress = desiredSlots <= 1 ? 0.5 : clamp(index / Math.max(1, desiredSlots - 1) + (seededUnit(slot.seed + 4) - 0.5) * 0.18, 0.08, 0.92, 0.5);
+    slot.active = true;
+    slot.x = startX + (endX - startX) * progress;
+    slot.fade = 1;
+    slot.presence = getFogPresence(index, desiredSlots);
+    slot.nextSpawnAt = 0;
+  }
+
+  function updateFogSlots(state, band, bandIndex, group, desiredSlots, directionX, speed, elapsed, now, density) {
+    const direction = directionX >= 0 ? 1 : -1;
+    state.fogSlots.forEach(function(slot, index) {
+      slot.presence = getFogPresence(index, desiredSlots) * clamp(density * 1.35, 0.2, 1, 1);
+
+      if (slot.active) {
+        slot.x += directionX * speed * elapsed * 48;
+        slot.fade = getFogEdgeFade(slot, band);
+        if (isFogSlotPastScreen(slot, band)) {
+          slot.active = false;
+          scheduleFogSlot(slot, now, bandIndex, index);
+        }
+        return;
+      }
+
+      if (now < slot.nextSpawnAt) {
+        return;
+      }
+
+      spawnFogSlot(slot, band, direction, now);
+    });
+  }
+
+  function spawnFogSlot(slot, band, direction, now) {
+    slot.yOffset = Math.round((seededUnit(slot.seed + Math.floor(now / 17000)) - 0.5) * 13);
+    slot.widthScale = 0.84 + seededUnit(slot.seed + 8 + Math.floor(now / 23000)) * 0.34;
+    slot.phase = seededUnit(slot.seed + 9 + Math.floor(now / 31000)) * Math.PI * 2;
+    const width = band.width * slot.widthScale;
+    slot.x = getFogSpawnX(direction, width, slot.seed);
+    slot.fade = 0;
+    slot.active = true;
+  }
+
+  function scheduleFogSlot(slot, now, bandIndex, index) {
+    slot.nextSpawnAt = now + 2800 + seededUnit(slot.seed + bandIndex * 23 + index * 17 + Math.floor(now / 21000)) * 9000;
+  }
+
+  function getFogPresence(index, desiredSlots) {
+    return desiredSlots <= 1 ? 1 : clamp(1 - index / Math.max(2, desiredSlots + 1) * 0.32, 0.55, 1, 1);
+  }
+
+  function getFogSpawnX(direction, width, seed) {
+    const margin = 42 + seededUnit(seed + 21) * 96;
+    return direction >= 0 ? -width - margin : 512 + margin;
+  }
+
+  function getFogDespawnX(direction, width) {
+    return direction >= 0 ? 512 + width + 90 : -width - 90;
+  }
+
+  function isFogSlotPastScreen(slot, band) {
+    const width = band.width * slot.widthScale;
+    return slot.x > 512 + width + 100 || slot.x < -width - 100;
+  }
+
+  function getFogEdgeFade(slot, band) {
+    const width = band.width * slot.widthScale;
+    const leftVisibility = smoothStep(0, 1, (slot.x + width + 34) / (width + 70));
+    const rightVisibility = smoothStep(0, 1, (512 + 34 - slot.x) / (width + 70));
+    return clamp(Math.min(leftVisibility, rightVisibility), 0, 1, 0);
+  }
+
+  function getCloudFlowOffset(scene, now, layer, layerIndex, group) {
+    const wind = getDynamicWindState(scene, now);
+    const key = (group || 'cloud') + ':' + layerIndex;
+    const state = getCloudFlowState(key, now);
+    const elapsed = state.lastNow === null ? 0 : clamp((now - state.lastNow) / 1000, 0, 0.12, 0);
+    state.lastNow = now;
+
+    const response = layer.windResponse || 0.3;
+    const depthResponse = layer.depthResponse || 0.2;
+    const speedKmh = clamp(Number(scene.windSpeed), 0, 180, 0);
+    const gustKmh = clamp(Number(scene.windGusts), 0, 220, speedKmh);
+    const gustBoost = Math.max(0, gustKmh - speedKmh) / 90;
+    const speedPx = (0.26 + speedKmh * 0.075 + gustBoost * 0.72 + wind.gustPulse * 0.32) * response;
+    const vectorX = Math.abs(wind.directionX) > 0.04 ? wind.directionX : wind.direction * 0.18;
+    const vectorY = wind.vectorY * depthResponse * 0.54;
+
+    state.x += vectorX * speedPx * elapsed;
+    state.yPhase += vectorY * speedPx * elapsed;
+
+    const verticalFlow = Math.sin(state.yPhase + layerIndex * 0.9) * (1.4 + depthResponse * 5.4);
+    const breathing = Math.sin(now / (7800 + layerIndex * 1000) + layerIndex) * (1 + depthResponse * 1.5);
+    return {
+      x: state.x,
+      y: Math.round(verticalFlow + breathing)
+    };
+  }
+
+  function getCloudFlowState(key, now) {
+    if (!runtime.cloudFlow) {
+      runtime.cloudFlow = { layers: {} };
+    }
+
+    if (!runtime.cloudFlow.layers) {
+      runtime.cloudFlow.layers = {};
+    }
+
+    if (!runtime.cloudFlow.layers[key]) {
+      runtime.cloudFlow.layers[key] = {
+        x: 0,
+        yPhase: 0,
+        lastNow: now
+      };
+    }
+
+    return runtime.cloudFlow.layers[key];
+  }
+
+  function drawWeatherCloud(ctx, x, y, color, lightColor, scale, alpha, form) {
+    if (form === 'cirrus' || form === 'cirrostratus') {
+      drawPixelCirrusCloud(ctx, x, y, color, lightColor, scale, alpha, form === 'cirrostratus');
+      return;
+    }
+    if (form === 'stratus' || form === 'altostratus' || form === 'nimbostratus') {
+      drawPixelStratusCloud(ctx, x, y, color, lightColor, scale, alpha, form);
+      return;
+    }
+    if (form === 'cumulonimbus') {
+      drawPixelCumulonimbusCloud(ctx, x, y, color, lightColor, scale, alpha);
+      return;
+    }
+    if (form === 'altocumulus' || form === 'stratocumulus') {
+      drawPixelAltocumulusCloud(ctx, x, y, color, lightColor, scale, alpha, form);
+      return;
+    }
+    drawPixelCloud(ctx, x, y, color, lightColor, scale, alpha);
+  }
+
+  function drawPixelCloud(ctx, x, y, color, lightColor, scale, alpha) {
+    const size = scale || 1;
+    const rect = function(left, top, width, height) {
+      ctx.fillRect(
+        Math.round(x + left * size),
+        Math.round(y + top * size),
+        Math.round(width * size),
+        Math.round(height * size)
+      );
+    };
+    ctx.save();
+    ctx.globalAlpha = alpha || 1;
+    ctx.fillStyle = color;
+    rect(0, 18, 92, 22);
+    rect(18, 4, 38, 24);
+    rect(52, 10, 54, 26);
+    ctx.fillStyle = lightColor;
+    rect(16, 20, 32, 8);
+    rect(58, 18, 34, 8);
+    ctx.restore();
+  }
+
+  function drawPixelCirrusCloud(ctx, x, y, color, lightColor, scale, alpha, broad) {
+    const size = scale || 1;
+    const rect = function(left, top, width, height) {
+      ctx.fillRect(Math.round(x + left * size), Math.round(y + top * size), Math.round(width * size), Math.max(1, Math.round(height * size)));
+    };
+    ctx.save();
+    ctx.globalAlpha = (alpha || 1) * (broad ? 0.82 : 0.68);
+    ctx.fillStyle = lightColor;
+    rect(2, 20, broad ? 132 : 104, 4);
+    rect(28, 14, broad ? 92 : 70, 3);
+    rect(76, 26, broad ? 62 : 48, 3);
+    ctx.globalAlpha = (alpha || 1) * (broad ? 0.48 : 0.34);
+    ctx.fillStyle = color;
+    rect(10, 24, broad ? 118 : 88, 3);
+    rect(52, 11, broad ? 50 : 34, 2);
+    ctx.restore();
+  }
+
+  function drawPixelStratusCloud(ctx, x, y, color, lightColor, scale, alpha, form) {
+    const size = scale || 1;
+    const rect = function(left, top, width, height) {
+      ctx.fillRect(Math.round(x + left * size), Math.round(y + top * size), Math.round(width * size), Math.round(height * size));
+    };
+    const darkAlpha = form === 'nimbostratus' ? 0.34 : 0.18;
+    ctx.save();
+    ctx.globalAlpha = alpha || 1;
+    ctx.fillStyle = color;
+    rect(0, 20, 142, form === 'nimbostratus' ? 28 : 20);
+    rect(26, 12, 106, form === 'altostratus' ? 16 : 12);
+    rect(78, 31, 82, 12);
+    ctx.globalAlpha = (alpha || 1) * 0.72;
+    ctx.fillStyle = lightColor;
+    rect(14, 18, 86, 6);
+    rect(104, 24, 44, 5);
+    ctx.globalAlpha = (alpha || 1) * darkAlpha;
+    ctx.fillStyle = '#5f7180';
+    rect(8, form === 'nimbostratus' ? 43 : 36, 132, 5);
+    rect(66, form === 'nimbostratus' ? 50 : 41, 54, 4);
+    ctx.restore();
+  }
+
+  function drawPixelAltocumulusCloud(ctx, x, y, color, lightColor, scale, alpha, form) {
+    const size = scale || 1;
+    const rect = function(left, top, width, height) {
+      ctx.fillRect(Math.round(x + left * size), Math.round(y + top * size), Math.round(width * size), Math.round(height * size));
+    };
+    ctx.save();
+    ctx.globalAlpha = alpha || 1;
+    ctx.fillStyle = color;
+    rect(0, 22, 28, 14);
+    rect(34, 16, 34, 18);
+    rect(76, 20, 32, 16);
+    if (form === 'stratocumulus') {
+      rect(112, 18, 42, 18);
+      rect(16, 12, 38, 16);
+    }
+    ctx.fillStyle = lightColor;
+    rect(7, 21, 14, 5);
+    rect(42, 18, 18, 5);
+    rect(84, 21, 16, 5);
+    ctx.restore();
+  }
+
+  function drawPixelCumulonimbusCloud(ctx, x, y, color, lightColor, scale, alpha) {
+    const size = scale || 1;
+    const rect = function(left, top, width, height) {
+      ctx.fillRect(Math.round(x + left * size), Math.round(y + top * size), Math.round(width * size), Math.round(height * size));
+    };
+    ctx.save();
+    ctx.globalAlpha = alpha || 1;
+    ctx.fillStyle = color;
+    rect(2, 38, 118, 34);
+    rect(22, 18, 54, 34);
+    rect(48, 0, 42, 30);
+    rect(78, 12, 46, 38);
+    ctx.fillStyle = lightColor;
+    rect(28, 22, 34, 8);
+    rect(58, 7, 22, 7);
+    rect(86, 20, 22, 7);
+    ctx.globalAlpha = (alpha || 1) * 0.36;
+    ctx.fillStyle = '#4e6578';
+    rect(10, 66, 100, 8);
+    rect(40, 74, 56, 5);
+    ctx.restore();
+  }

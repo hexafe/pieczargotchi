@@ -35,6 +35,7 @@ function createCaptureDebugSettings() {
   const location = process.env.PIECZARGOTCHI_DEBUG_LOCATION || 'auto';
   const moonPhase = process.env.PIECZARGOTCHI_DEBUG_MOON_PHASE || 'auto';
   const constellation = process.env.PIECZARGOTCHI_DEBUG_CONSTELLATION || 'auto';
+  const rainbow = process.env.PIECZARGOTCHI_DEBUG_RAINBOW || 'auto';
   const hasDebugWeather = weather !== 'auto'
     || cloud !== null
     || precipitation !== null
@@ -44,7 +45,8 @@ function createCaptureDebugSettings() {
     || easterEgg !== 'auto'
     || location !== 'auto'
     || moonPhase !== 'auto'
-    || constellation !== 'auto';
+    || constellation !== 'auto'
+    || rainbow !== 'auto';
 
   if (!hasDebugWeather) {
     return null;
@@ -60,6 +62,7 @@ function createCaptureDebugSettings() {
     windDirectionOverride: windDirection,
     locationOverride: location,
     moonPhaseOverride: moonPhase,
+    rainbowOverride: rainbow,
     forcedConstellation: constellation,
     forcedAnimation: 'auto',
     forcedAnimationStartedAt: 0,
@@ -528,6 +531,11 @@ async function captureCanvas(cdp, label, options) {
           fogPotential: scene.fogPotential,
           skyCoverClass: scene.skyCoverClass,
           rainClass: scene.rainClass,
+          rainbowDropletScore: scene.rainbowDropletScore,
+          rainbowRecentRainScore: scene.rainbowRecentRainScore,
+          rainbowSunWindowScore: scene.rainbowSunWindowScore,
+          rainbowPotential: scene.rainbowPotential,
+          rainbowVariant: scene.rainbowVariant,
           snowStyle: scene.snowStyle,
           surfaceWetnessTarget: scene.surfaceWetnessTarget,
           snowCoverTarget: scene.snowCoverTarget,
@@ -555,12 +563,20 @@ async function applyCaptureSceneOverrides(cdp) {
       if (!runtime || !runtime.weatherScene || !overrides) {
         return;
       }
+      const setSceneNumber = (field, value) => {
+        if (value === null) {
+          return;
+        }
+        runtime.weatherScene[field] = value;
+        const baseField = 'base' + field.charAt(0).toUpperCase() + field.slice(1);
+        runtime.weatherScene[baseField] = value;
+      };
       if (overrides.temperature !== null) {
-        runtime.weatherScene.temperature = overrides.temperature;
-        runtime.weatherScene.apparentTemperature = overrides.temperature;
+        setSceneNumber('temperature', overrides.temperature);
+        setSceneNumber('apparentTemperature', overrides.temperature);
       }
       if (overrides.humidity !== null) {
-        runtime.weatherScene.humidity = overrides.humidity;
+        setSceneNumber('humidity', overrides.humidity);
       }
       const optionalFields = [
         ['dewPoint', 'dewPoint'],
@@ -571,9 +587,7 @@ async function applyCaptureSceneOverrides(cdp) {
         ['snowDepth', 'snowDepth']
       ];
       optionalFields.forEach(([field, overrideKey]) => {
-        if (overrides[overrideKey] !== null) {
-          runtime.weatherScene[field] = overrides[overrideKey];
-        }
+        setSceneNumber(field, overrides[overrideKey]);
       });
       const core = window.PieczargotchiCore;
       if (core && typeof core.deriveWeatherImmersionFields === 'function') {

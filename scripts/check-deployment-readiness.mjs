@@ -20,6 +20,12 @@ const requiredSourceFiles = [
   'Styles.html',
   'Client.html',
   'ClientCore.html',
+  'ClientCoreWeather.html',
+  'ClientCoreLife.html',
+  'ClientCoreCare.html',
+  'ClientCoreBattle.html',
+  'ClientCoreShared.html',
+  'ClientCoreExports.html',
   'ClientBoot.html',
   'ClientDebug.html',
   'ClientRuntime.html',
@@ -32,11 +38,25 @@ const requiredSourceFiles = [
   'ClientScene.html',
   'ClientScenePalette.html',
   'ClientSceneCelestial.html',
+  'ClientSceneRainbow.html',
   'ClientSceneWeather.html',
+  'ClientSceneWeatherClouds.html',
+  'ClientSceneWeatherPrecip.html',
+  'ClientSceneWeatherSurface.html',
+  'ClientSceneWeatherShared.html',
   'ClientSceneLife.html',
   'ClientSceneGround.html',
   'ClientSprites.html',
   'appsscript.json'
+];
+
+const expectedCoreIncludes = [
+  'ClientCoreWeather',
+  'ClientCoreLife',
+  'ClientCoreCare',
+  'ClientCoreBattle',
+  'ClientCoreShared',
+  'ClientCoreExports'
 ];
 
 const expectedClientIncludes = [
@@ -52,10 +72,18 @@ const expectedClientIncludes = [
   'ClientScene',
   'ClientScenePalette',
   'ClientSceneCelestial',
+  'ClientSceneRainbow',
   'ClientSceneWeather',
   'ClientSceneLife',
   'ClientSceneGround',
   'ClientSprites'
+];
+
+const expectedWeatherIncludes = [
+  'ClientSceneWeatherClouds',
+  'ClientSceneWeatherPrecip',
+  'ClientSceneWeatherSurface',
+  'ClientSceneWeatherShared'
 ];
 
 main();
@@ -111,8 +139,18 @@ function checkHtmlIncludes() {
     fail('Index.html does not inject window.PIECZARGOTCHI_CONFIG.');
   }
 
-  const clientHtml = readText('Client.html');
-  const includes = [...clientHtml.matchAll(/include\('([^']+)'\)/g)].map((match) => match[1]);
+  const coreIncludes = readIncludes('ClientCore.html');
+  const duplicateCoreIncludes = coreIncludes.filter((item, index) => coreIncludes.indexOf(item) !== index);
+  for (const includeName of expectedCoreIncludes) {
+    if (!coreIncludes.includes(includeName)) {
+      fail(`ClientCore.html does not include ${includeName}.`);
+    }
+  }
+  if (duplicateCoreIncludes.length) {
+    fail(`ClientCore.html has duplicate includes: ${[...new Set(duplicateCoreIncludes)].join(', ')}`);
+  }
+
+  const includes = readIncludes('Client.html');
   const duplicates = includes.filter((item, index) => includes.indexOf(item) !== index);
   for (const includeName of expectedClientIncludes) {
     if (!includes.includes(includeName)) {
@@ -122,6 +160,21 @@ function checkHtmlIncludes() {
   if (duplicates.length) {
     fail(`Client.html has duplicate includes: ${[...new Set(duplicates)].join(', ')}`);
   }
+
+  const weatherIncludes = readIncludes('ClientSceneWeather.html');
+  const duplicateWeatherIncludes = weatherIncludes.filter((item, index) => weatherIncludes.indexOf(item) !== index);
+  for (const includeName of expectedWeatherIncludes) {
+    if (!weatherIncludes.includes(includeName)) {
+      fail(`ClientSceneWeather.html does not include ${includeName}.`);
+    }
+  }
+  if (duplicateWeatherIncludes.length) {
+    fail(`ClientSceneWeather.html has duplicate includes: ${[...new Set(duplicateWeatherIncludes)].join(', ')}`);
+  }
+}
+
+function readIncludes(fileName) {
+  return [...readText(fileName).matchAll(/include\('([^']+)'\)/g)].map((match) => match[1]);
 }
 
 function checkStaticConfig() {

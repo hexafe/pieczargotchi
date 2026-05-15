@@ -1,0 +1,136 @@
+  function drawRainbowLayer(ctx, scene, palette, now) {
+    const metrics = getRainbowMetrics(scene, now);
+    if (!metrics) {
+      return;
+    }
+
+    const colors = getRainbowColors(palette);
+    ctx.save();
+    if (metrics.showSecondary) {
+      drawRainbowAlexanderBand(ctx, metrics, metrics.secondaryRadius - 22, metrics.alpha * 0.11);
+      drawPixelRainbowArc(ctx, metrics, colors, metrics.secondaryRadius, metrics.alpha * 0.24, true, 2);
+    }
+    drawPixelRainbowArc(ctx, metrics, colors, metrics.primaryRadius, metrics.alpha, false, metrics.bandSize);
+    ctx.restore();
+  }
+
+  function getRainbowMetrics(scene, now) {
+    const override = getRainbowDebugOverride();
+    if (override === 'off') {
+      return null;
+    }
+
+    const date = getRuntimeDate();
+    const sun = getSunPosition(scene, date);
+    if (!sun) {
+      return null;
+    }
+
+    const altitude = Number(sun.altitude);
+    if (!Number.isFinite(altitude) || altitude <= 0.2 || altitude >= 42) {
+      return null;
+    }
+
+    const weatherPotential = override === 'force'
+      ? 0.94
+      : clamp(Number(scene.rainbowPotential), 0, 1, 0);
+    if (weatherPotential <= 0.04) {
+      return null;
+    }
+
+    const sunVisibility = getCelestialCloudVisibility(scene, now, 'sun');
+    const breakthrough = typeof getSunBreakthroughFactor === 'function'
+      ? getSunBreakthroughFactor(scene, now)
+      : 0;
+    const lightScore = override === 'force'
+      ? Math.max(0.68, sunVisibility)
+      : clamp(sunVisibility * 0.82 + breakthrough * 0.32, 0, 1, 0);
+    const horizonFade = clamp((altitude - 0.6) / 4.2, 0, 1, 0);
+    const highSunFade = clamp((42 - altitude) / 12, 0, 1, 0);
+    const dropletScore = clamp(Math.max(Number(scene.rainbowDropletScore) || 0, Number(scene.rainbowRecentRainScore) || 0), 0, 1, 0);
+    const alpha = clamp((weatherPotential * 0.52 + dropletScore * 0.22) * lightScore * horizonFade * highSunFade, 0, 0.56, 0);
+    if (alpha <= 0.025) {
+      return null;
+    }
+
+    const degToPx = 5.2;
+    const sunCenterX = sun.x + sun.size / 2;
+    const centerX = 512 - sunCenterX;
+    const horizonY = 432;
+    const centerY = horizonY + altitude * degToPx;
+    const primaryRadius = 42 * degToPx;
+    const showSecondary = (override === 'force' || scene.rainbowVariant === 'double' || weatherPotential > 0.78)
+      && alpha > 0.18
+      && altitude < 34;
+
+    return {
+      centerX: centerX,
+      centerY: centerY,
+      primaryRadius: primaryRadius,
+      secondaryRadius: primaryRadius + 42,
+      alpha: alpha,
+      bandSize: alpha > 0.34 ? 3 : 2,
+      showSecondary: showSecondary,
+      groundCutoff: 428,
+      angleStart: Math.PI + 0.03,
+      angleEnd: Math.PI * 2 - 0.03
+    };
+  }
+
+  function getRainbowDebugOverride() {
+    const value = runtime.debug && runtime.debug.enabled
+      ? runtime.debug.rainbowOverride
+      : 'auto';
+    return value || 'auto';
+  }
+
+  function getRainbowColors(palette) {
+    return [
+      palette && palette.rainbowRed || '#ff7a6b',
+      palette && palette.rainbowOrange || '#ffb45d',
+      palette && palette.rainbowYellow || '#ffe678',
+      palette && palette.rainbowGreen || '#92d66d',
+      palette && palette.rainbowCyan || '#5ec8d8',
+      palette && palette.rainbowBlue || '#6f8ff0',
+      palette && palette.rainbowViolet || '#b084f5'
+    ];
+  }
+
+  function drawPixelRainbowArc(ctx, metrics, colors, baseRadius, alpha, reverse, bandSize) {
+    const sequence = reverse ? colors.slice().reverse() : colors;
+    const step = 0.0105;
+    const pixelSize = Math.max(2, Math.round(bandSize || 2));
+    sequence.forEach(function(color, index) {
+      const radius = baseRadius - index * (pixelSize + 1);
+      ctx.fillStyle = color;
+      ctx.globalAlpha = alpha * (1 - index * 0.045);
+      for (let angle = metrics.angleStart; angle <= metrics.angleEnd; angle += step) {
+        const x = metrics.centerX + Math.cos(angle) * radius;
+        const y = metrics.centerY + Math.sin(angle) * radius;
+        if (!isRainbowPointVisible(x, y, metrics)) {
+          continue;
+        }
+
+        ctx.fillRect(Math.round(x), Math.round(y), pixelSize, pixelSize);
+      }
+    });
+  }
+
+  function drawRainbowAlexanderBand(ctx, metrics, radius, alpha) {
+    ctx.fillStyle = '#5c6577';
+    for (let offset = -12; offset <= 12; offset += 4) {
+      ctx.globalAlpha = alpha * (1 - Math.abs(offset) / 18);
+      for (let angle = metrics.angleStart; angle <= metrics.angleEnd; angle += 0.016) {
+        const x = metrics.centerX + Math.cos(angle) * (radius + offset);
+        const y = metrics.centerY + Math.sin(angle) * (radius + offset);
+        if (!isRainbowPointVisible(x, y, metrics)) {
+          continue;
+        }
+        ctx.fillRect(Math.round(x), Math.round(y), 4, 4);
+      }
+    }
+  }
+
+  function isRainbowPointVisible(x, y, metrics) {
+    return x >= -18 && x <= 530 && y >= 10 && y <= metrics.groundCutoff;
+  }
