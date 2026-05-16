@@ -358,6 +358,22 @@ test('corrupted save shape falls back to a normal migration target', () => {
   assert(migrated.battle && migrated.battle.rewards.wins === 0, 'expected normalized battle rewards');
 });
 
+test('v2 saves migrate to v4 progression history, evolution, minigames, and decorations', () => {
+  const migrated = core.migrateStateVersion({
+    version: 2,
+    stage: 'adult',
+    stats: { growth: 70 },
+    history: { actionsPerformed: { hydrate: 2 } }
+  }, 4);
+
+  assert(migrated.version === 4, `expected version 4, got ${migrated.version}`);
+  assert(migrated.history.actionsPerformed.hydrate === 2, 'expected action history to survive migration');
+  assert(migrated.history.attention.handled === 0, 'expected attention history defaults');
+  assert(migrated.evolution && migrated.evolution.variant === null, 'expected empty evolution state');
+  assert(migrated.minigames && migrated.minigames.active === null, 'expected empty minigame state');
+  assert(Array.isArray(migrated.decorations.owned), 'expected decoration ownership list');
+});
+
 test('arena unlocks only at legendary stage', () => {
   const rules = {
     battle: { unlockStage: 'legendary' },
@@ -463,6 +479,59 @@ test('attention call starts, records missed deadline, and clears after the right
   assert(handled.state.patch.careStreak === 1, 'expected care streak reward');
 });
 
+test('attention can use per-need thresholds and records history outcomes', () => {
+  const now = Date.parse('2026-05-16T12:00:00.000Z');
+  const rules = {
+    attention: {
+      mildThreshold: 45,
+      criticalThreshold: 25,
+      deadlineMs: 1000,
+      criticalDeadlineMs: 500,
+      repeatedMistakeCooldownMs: 10_000,
+      perNeed: {
+        cleanliness: {
+          mildThreshold: 30,
+          criticalThreshold: 15,
+          deadlineMs: 4000,
+          criticalDeadlineMs: 2000
+        }
+      }
+    },
+    needDefinitions: {
+      cleanliness: {
+        category: 'environment',
+        actionId: 'clean',
+        title: 'Bałagan',
+        mildMessage: 'Brudno.',
+        criticalMessage: 'Bardzo brudno.'
+      }
+    }
+  };
+  const state = {
+    mode: 'awake',
+    stats: { cleanliness: 34, health: 100, happiness: 70 },
+    attention: {},
+    careMistakes: {},
+    patch: { quality: 70, mycelium: 0, harvests: 0, careStreak: 0 },
+    history: {}
+  };
+
+  const quiet = core.evaluateAttentionState(state, rules, now);
+  assert(quiet.state.attention.activeNeed === null, 'cleanliness above per-need mild threshold should stay quiet');
+
+  const started = core.evaluateAttentionState({
+    ...state,
+    stats: { cleanliness: 24, health: 100, happiness: 70 }
+  }, rules, now);
+  assert(started.state.attention.activeNeed === 'cleanliness', 'expected cleanliness attention below per-need threshold');
+  assert(Date.parse(started.state.attention.deadlineAt) === now + 4000, 'expected per-need deadline');
+
+  const missed = core.evaluateAttentionState(started.state, rules, now + 4001);
+  assert(missed.state.history.attention.missed === 1, 'expected missed attention history');
+  const handled = core.resolveAttentionAction(started.state, 'clean', rules, now + 1000);
+  assert(handled.state.history.attention.handled === 1, 'expected handled attention history');
+});
+
 test('animation intent keeps activity and wake above sleep, need above happy, then idle', () => {
   const now = 1_000_000;
   const rules = {
@@ -552,6 +621,26 @@ test('battle round is deterministic and low stamina forces rest instead of an at
   assert(rested.player.stamina > 0, 'expected stamina recovery on forced rest');
 });
 
+test('battle status effects slow the next turn and self effects recover stamina', () => {
+  const rules = getBattleTestRules();
+  const battle = {
+    rngSeed: 999,
+    mode: 'choosingMove',
+    turn: 0,
+    player: { hp: 90, maxHp: 90, stamina: 50, maxStamina: 60, attack: 16, defense: 12, speed: 18, focus: 10, strength: 12 },
+    opponent: { hp: 90, maxHp: 90, stamina: 50, maxStamina: 60, attack: 12, defense: 10, speed: 16, focus: 9, strength: 10 }
+  };
+
+  const slowed = core.resolveBattleTurn(battle, 'myceliumFeint', 'capGuard', rules.battle.moveCatalog);
+  assert(slowed.opponent.statusEffects.slow, 'expected slow status after mycelium feint');
+  assert(slowed.events.some((event) => event.statusEffect === 'slow'), 'expected slow event metadata');
+
+  const staminaBefore = slowed.player.stamina;
+  const bloomed = core.resolveBattleTurn(slowed, 'focusBloom', 'capGuard', rules.battle.moveCatalog);
+  assert(bloomed.player.stamina >= staminaBefore - 12 + 4, 'expected focus bloom stamina recovery after cost');
+  assert(bloomed.events.some((event) => event.selfEffect === 'stamina'), 'expected stamina self-effect metadata');
+});
+
 test('battle victory and defeat rewards do not touch care stats', () => {
   const rules = getBattleTestRules();
   const base = getLegendaryBattleState({ inventory: { spores: 0 }, coins: 0 });
@@ -616,6 +705,100 @@ test('battle turn resolution is deterministic for a fixed seed', () => {
 
   assert(JSON.stringify(first) === JSON.stringify(second), 'expected deterministic battle result');
   assert(first.turn === 1, `expected turn 1, got ${first.turn}`);
+});
+
+test('minigame completion grants bounded rewards and records play history', () => {
+  const rules = {
+    minigames: {
+      dewCatch: {
+        id: 'dewCatch',
+        label: 'Łapanie rosy',
+        durationMs: 20000,
+        dropCount: 18,
+        rewards: {
+          hydrationBase: 4,
+          hydrationPerCatch: 2,
+          hydrationMax: 18,
+          happinessPerCatch: 1,
+          happinessMax: 6
+        }
+      }
+    }
+  };
+  const now = Date.parse('2026-05-16T12:00:00.000Z');
+  const session = core.createMinigameSession('dewCatch', rules, now, 123).session;
+  session.score = 20;
+  const result = core.finishMinigame({
+    stats: { hydration: 50, happiness: 50 },
+    inventory: { spores: 0 },
+    history: {},
+    minigames: {}
+  }, session, rules, now + 20000);
+
+  assert(result.ok, 'expected minigame finish success');
+  assert(result.state.stats.hydration === 68, `expected hydration capped reward, got ${result.state.stats.hydration}`);
+  assert(result.state.stats.happiness === 56, `expected happiness capped reward, got ${result.state.stats.happiness}`);
+  assert(result.state.inventory.spores === 1, 'expected score-based spore reward');
+  assert(result.state.history.minigames.dewCatch.plays === 1, 'expected minigame play history');
+  assert(result.state.history.minigames.dewCatch.bestScore === 20, 'expected best score history');
+});
+
+test('evolution variant reacts to care history and legendary threshold', () => {
+  const rules = {
+    evolution: { legendaryGrowth: 100, variants: { songcap: 'Śpiewopieczarka', dewcap: 'Rosopieczarka' } }
+  };
+  const song = core.getEvolutionVariant({
+    actionsPerformed: { instrument: 4, sing: 3, play: 1 },
+    statSamples: { count: 2, health: 150 },
+    attention: {},
+    minigames: {}
+  }, { careMistakes: {}, patch: { quality: 75 } }, rules);
+  assert(song.variant === 'songcap', `expected songcap, got ${song.variant}`);
+
+  const evolved = core.maybeApplyEvolution({
+    stage: 'adult',
+    stats: { growth: 100 },
+    history: { actionsPerformed: { hydrate: 5 }, statSamples: { count: 2, health: 180 } },
+    careMistakes: {},
+    patch: { quality: 75 }
+  }, rules, Date.parse('2026-05-16T12:00:00.000Z'));
+  assert(evolved.stage === 'legendary', `expected legendary stage, got ${evolved.stage}`);
+  assert(evolved.evolution.variant === 'dewcap', `expected dewcap evolution, got ${evolved.evolution.variant}`);
+});
+
+test('decoration purchase spends spores, records ownership, and boosts happiness', () => {
+  const result = core.buyDecoration({
+    stats: { happiness: 60 },
+    inventory: { spores: 5 },
+    coins: 5,
+    decorations: { owned: [], active: [] }
+  }, 'mossBell', {
+    decorations: [
+      { id: 'mossBell', label: 'Mchowy dzwonek', cost: 5, happinessBonus: 3 }
+    ]
+  }, Date.parse('2026-05-16T12:00:00.000Z'));
+
+  assert(result.ok, `expected decoration purchase: ${result.reason}`);
+  assert(result.state.inventory.spores === 0, 'expected spent spores');
+  assert(result.state.coins === 0, 'expected coin label to mirror spores');
+  assert(result.state.decorations.owned.includes('mossBell'), 'expected owned decoration');
+  assert(result.state.decorations.active.includes('mossBell'), 'expected active decoration');
+  assert(result.state.stats.happiness === 63, `expected happiness bonus, got ${result.state.stats.happiness}`);
+});
+
+test('state export and import preserve save shape while rejecting invalid files', () => {
+  const envelope = core.buildStateExportEnvelope({
+    version: 4,
+    stats: { hydration: 70 },
+    history: { actionsPerformed: { hydrate: 1 } }
+  }, Date.parse('2026-05-16T12:00:00.000Z'));
+  const imported = core.importStateEnvelope(JSON.stringify(envelope), 4);
+  const rejected = core.importStateEnvelope(JSON.stringify({ nope: true }), 4);
+
+  assert(imported.ok, `expected import success: ${imported.reason}`);
+  assert(imported.state.version === 4, 'expected imported v4 state');
+  assert(imported.state.history.actionsPerformed.hydrate === 1, 'expected imported history');
+  assert(!rejected.ok, 'expected invalid import rejection');
 });
 
 test('ambient life is strongest in warm clear summer daylight', () => {
@@ -717,8 +900,8 @@ function getBattleTestRules() {
       moveCatalog: [
         { id: 'sporeJab', staminaCost: 8, power: 14, accuracy: 0.94, stat: 'strength' },
         { id: 'capGuard', staminaCost: 6, power: 4, accuracy: 1, stat: 'defense', guard: 0.35 },
-        { id: 'myceliumFeint', staminaCost: 10, power: 10, accuracy: 0.9, stat: 'speed' },
-        { id: 'focusBloom', staminaCost: 12, power: 18, accuracy: 0.82, stat: 'focus' }
+        { id: 'myceliumFeint', staminaCost: 10, power: 10, accuracy: 1, stat: 'speed', statusEffect: { target: 'opponent', type: 'slow', turns: 2, value: 3 } },
+        { id: 'focusBloom', staminaCost: 12, power: 18, accuracy: 1, stat: 'focus', selfEffect: { type: 'stamina', value: 4 } }
       ]
     },
     maxLogEntries: 8,

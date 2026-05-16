@@ -8,6 +8,9 @@
     }
 
     state.version = nextVersion;
+    if (typeof normalizeProgressionState === 'function') {
+      return normalizeProgressionState(state);
+    }
     return state;
   }
 
@@ -130,6 +133,9 @@
     state.patch.quality = clampNumber(Number(state.patch.quality) + 4, 0, 100, 72);
     state.patch.mycelium = clampNumber(Number(state.patch.mycelium) + 2.5, 0, 100, 0);
     state.attention = normalizeAttentionCore({});
+    if (typeof recordAttentionHistoryCore === 'function') {
+      state.history = recordAttentionHistoryCore(state, 'handled').history;
+    }
     return {
       state: state,
       handled: true,
@@ -221,8 +227,6 @@
   function getStrongestNeedCore(state, rules) {
     const definitions = rules && rules.needDefinitions ? rules.needDefinitions : {};
     const attentionRules = rules && rules.attention ? rules.attention : {};
-    const mildThreshold = attentionRules.mildThreshold || 45;
-    const criticalThreshold = attentionRules.criticalThreshold || 25;
     const stats = isPlainObject(state.stats) ? state.stats : {};
     const needs = Object.keys(definitions).map(function(stat) {
       if (stat === 'energy' && state.mode === 'sleeping') {
@@ -230,6 +234,9 @@
       }
 
       const value = Number(stats[stat]);
+      const needRules = attentionRules.perNeed && attentionRules.perNeed[stat] ? attentionRules.perNeed[stat] : {};
+      const mildThreshold = Number(needRules.mildThreshold) || attentionRules.mildThreshold || 45;
+      const criticalThreshold = Number(needRules.criticalThreshold) || attentionRules.criticalThreshold || 25;
       if (!Number.isFinite(value) || value >= mildThreshold) {
         return null;
       }
@@ -243,8 +250,8 @@
         definition: definition,
         message: severity === 'critical' ? definition.criticalMessage : definition.mildMessage,
         deadlineMs: severity === 'critical'
-          ? attentionRules.criticalDeadlineMs || 90000
-          : attentionRules.deadlineMs || 180000
+          ? Number(needRules.criticalDeadlineMs) || attentionRules.criticalDeadlineMs || 90000
+          : Number(needRules.deadlineMs) || attentionRules.deadlineMs || 180000
       };
     }).filter(Boolean);
 
@@ -266,6 +273,9 @@
     state.patch.careStreak = 0;
     state.stats.health = (Number(state.stats.health) || 0) - (need.severity === 'critical' ? 8 : 4);
     state.stats.happiness = (Number(state.stats.happiness) || 0) - (need.severity === 'critical' ? 6 : 3);
+    if (typeof recordAttentionHistoryCore === 'function') {
+      state.history = recordAttentionHistoryCore(state, 'missed').history;
+    }
   }
 
   function getNeedAnimationStateCore(needId) {

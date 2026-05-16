@@ -15,6 +15,9 @@
     renderIdentity();
     renderStats();
     renderActionStates();
+    renderAttentionChip();
+    renderMinigames();
+    renderDecorations();
     renderInventory();
     renderLog();
     renderBattleUi();
@@ -64,6 +67,14 @@
     dom.modePill.dataset.mode = state.mode;
     dom.mushroomName.textContent = state.mushroomName;
     dom.stageLabel.textContent = getStageLabel(state.stage);
+    if (dom.evolutionLabel) {
+      const variant = state.evolution && state.evolution.variant;
+      const core = window.PieczargotchiCore;
+      dom.evolutionLabel.hidden = !variant;
+      dom.evolutionLabel.textContent = variant && core && core.getEvolutionLabel
+        ? core.getEvolutionLabel(variant, rules)
+        : '';
+    }
     dom.dayLabel.textContent = 'Dzień ' + day;
     dom.healthLabel.textContent = Math.round(state.stats.health) + '%';
     dom.coinsLabel.textContent = (Number(state.coins) || 0) + ' zarodników';
@@ -165,6 +176,100 @@
     });
 
     dom.cooldownLabel.textContent = soonestRemaining ? 'Za ' + soonestRemaining + ' s' : 'Gotowe';
+  }
+
+  function renderAttentionChip() {
+    if (!dom.attentionChip) {
+      return;
+    }
+
+    const attention = runtime.state.attention || {};
+    const definition = attention.activeNeed && rules.needDefinitions ? rules.needDefinitions[attention.activeNeed] : null;
+    if (!definition) {
+      dom.attentionChip.hidden = true;
+      dom.attentionChip.textContent = '';
+      dom.attentionChip.dataset.severity = '';
+      return;
+    }
+
+    dom.attentionChip.hidden = false;
+    dom.attentionChip.dataset.severity = attention.severity || 'mild';
+    dom.attentionChip.textContent = (attention.severity === 'critical' ? 'Pilne: ' : 'Potrzeba: ') + definition.title;
+  }
+
+  function renderMinigames() {
+    if (!dom.minigameStatus) {
+      return;
+    }
+
+    const active = runtime.state.minigames && runtime.state.minigames.active;
+    const now = getRuntimeNow();
+    const cooldownUntil = Number(runtime.state.cooldowns[getMinigameCooldownKey('dewCatch')]) || 0;
+    const remaining = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
+    const last = runtime.state.minigames && runtime.state.minigames.lastResult;
+    if (active) {
+      dom.minigameStatus.textContent = 'Trwa';
+    } else if (remaining) {
+      dom.minigameStatus.textContent = 'Za ' + remaining + ' s';
+    } else {
+      dom.minigameStatus.textContent = 'Gotowe';
+    }
+
+    if (dom.minigameLast) {
+      dom.minigameLast.textContent = last && last.id === 'dewCatch'
+        ? (Number(last.score) || 0) + ' kropli'
+        : '0 kropli';
+    }
+    if (dom.minigamePlayfield) {
+      dom.minigamePlayfield.hidden = !active;
+    }
+    dom.minigameStartButtons.forEach(function(button) {
+      button.disabled = Boolean(active) || remaining > 0 || runtime.state.mode !== 'awake';
+    });
+    updateMinigameHud(now);
+  }
+
+  function renderDecorations() {
+    if (!dom.decorationList) {
+      return;
+    }
+
+    const catalog = Array.isArray(rules.decorations) ? rules.decorations : [];
+    const owned = runtime.state.decorations && Array.isArray(runtime.state.decorations.owned)
+      ? runtime.state.decorations.owned
+      : [];
+    dom.decorationList.innerHTML = '';
+    if (dom.decorationCount) {
+      dom.decorationCount.textContent = owned.length + '/' + catalog.length;
+    }
+
+    catalog.forEach(function(item) {
+      const row = document.createElement('div');
+      const info = document.createElement('div');
+      const label = document.createElement('strong');
+      const meta = document.createElement('span');
+      const button = document.createElement('button');
+      const isOwned = owned.indexOf(item.id) !== -1;
+      const availableSpores = Number(runtime.state.inventory.spores) || 0;
+
+      row.className = 'decoration-item';
+      info.className = 'decoration-item__info';
+      label.textContent = item.label;
+      meta.textContent = isOwned ? 'W grzybni' : item.cost + ' zarodników';
+      button.className = 'ghost-button';
+      button.type = 'button';
+      button.textContent = isOwned ? 'Masz' : 'Kup';
+      button.disabled = isOwned || availableSpores < Number(item.cost);
+      button.addEventListener('click', function() {
+        handleDecorationBuy(item.id);
+      });
+
+      info.appendChild(label);
+      info.appendChild(meta);
+      row.appendChild(info);
+      row.appendChild(button);
+      dom.decorationList.appendChild(row);
+    });
   }
 
   function flashActionButton(actionId) {
@@ -275,6 +380,9 @@
 
     hpNode.textContent = 'HP ' + Math.max(0, Math.round(combatant.hp)) + '/' + Math.round(combatant.maxHp || combatant.hp || 0);
     staminaNode.textContent = 'ST ' + Math.max(0, Math.round(combatant.stamina)) + '/' + Math.round(combatant.maxStamina || combatant.stamina || 0);
+    if (combatant.statusEffects && combatant.statusEffects.slow) {
+      staminaNode.textContent += ' / spow.';
+    }
   }
 
   function getBattleResultLabel(active) {

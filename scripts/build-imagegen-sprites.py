@@ -51,7 +51,7 @@ STAGE_LAYOUT = {
     "adult": {"target_h": 430, "max_w": 456, "bottom": 454},
     "legendary": {"target_h": 430, "max_w": 470, "bottom": 454},
 }
-GRASS_VISIBLE_HEIGHT = 88
+GRASS_VISIBLE_HEIGHT = 104
 GRASS_EDGE_VARIATION = 24
 GRASS_BOTTOM_Y = 512
 ENVIRONMENT_GRASS_HEIGHT = 158
@@ -214,8 +214,8 @@ def policz_docelowe_doly_korpusu(grass: Image.Image) -> dict[str, int]:
         x, y = policz_pozycje_postaci(character, stage, (0, 0))
         grass_layer = dopasuj_trawe_do_etapu(grass, stage)
         frame = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
-        frame.alpha_composite(character, (x, y))
         frame.alpha_composite(grass_layer, (0, 0))
+        frame.alpha_composite(character, (x, y))
         final_bbox = znajdz_bbox_widocznego_korpusu_w_kadrze(frame)
         if final_bbox is not None:
             targets[stage] = podnies_do_minimum_posadzenia(final_bbox[3], planted_min_bottom)
@@ -529,8 +529,8 @@ def zloz_postac_i_trawe(
 
     def compose(y: int) -> Image.Image:
         result = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
-        result.alpha_composite(character, (character_x, y))
         result.alpha_composite(grass_layer, (0, 0))
+        result.alpha_composite(character, (character_x, y))
         return result
 
     frame = compose(character_y)
@@ -772,8 +772,8 @@ def zloz_klatke_z_parasolka(
     x = min(FRAME - character.width, max(0, x))
     y = min(FRAME - character.height, max(0, y))
 
-    frame.alpha_composite(character, (x, y))
     frame.alpha_composite(dopasuj_trawe_do_etapu(grass, stage), (0, 0))
+    frame.alpha_composite(character, (x, y))
     return frame
 
 

@@ -32,6 +32,7 @@
             </div>
             <div class="stage-meta">
               <span data-stage-label>Maluch</span>
+              <span data-evolution-label hidden>Rosopieczarka</span>
               <span data-day-label>Dzień 1</span>
             </div>
           </div>
@@ -46,6 +47,7 @@
           </div>
 
           <div class="message-panel" aria-live="polite">
+            <span class="attention-chip" data-attention-chip hidden>Potrzeba</span>
             <strong data-message-title>Odpoczywa</strong>
             <span data-message-body>Pieczarka drzemie w miękkim mchu.</span>
           </div>
@@ -68,12 +70,60 @@
             <div class="actions-grid" data-actions-grid></div>
           </section>
 
+          <section class="panel-block panel-block--minigames" data-care-panel>
+            <div class="block-heading">
+              <h2>Gry</h2>
+              <span data-minigame-status>Gotowe</span>
+            </div>
+            <div class="minigame-card">
+              <div>
+                <strong>Łapanie rosy</strong>
+                <span data-minigame-last>0 kropli</span>
+              </div>
+              <button class="ghost-button" type="button" data-minigame-start="dewCatch">Start</button>
+            </div>
+            <div class="minigame-playfield" data-minigame-playfield hidden>
+              <canvas
+                class="dew-catch-canvas"
+                data-dew-catch-canvas
+                width="240"
+                height="144"
+                aria-label="Minigra łapania rosy"
+              ></canvas>
+              <div class="minigame-hud">
+                <span data-minigame-score>0 kropli</span>
+                <span data-minigame-time>0 s</span>
+                <button class="ghost-button" type="button" data-minigame-end>Zakończ</button>
+              </div>
+            </div>
+          </section>
+
           <section class="panel-block panel-block--compact panel-block--resources" data-care-panel>
             <div class="block-heading">
               <h2>Zasoby</h2>
               <span data-coins-label>0 zarodników</span>
             </div>
             <div class="inventory-row" data-inventory-row></div>
+          </section>
+
+          <section class="panel-block panel-block--decorations" data-care-panel>
+            <div class="block-heading">
+              <h2>Dekoracje</h2>
+              <span data-decoration-count>0</span>
+            </div>
+            <div class="decoration-list" data-decoration-list></div>
+          </section>
+
+          <section class="panel-block panel-block--backup" data-care-panel>
+            <div class="block-heading">
+              <h2>Backup</h2>
+              <span data-backup-status>Gotowe</span>
+            </div>
+            <div class="backup-actions">
+              <button class="ghost-button" type="button" data-export-button>Eksportuj</button>
+              <button class="ghost-button" type="button" data-import-button>Importuj</button>
+              <input type="file" accept="application/json,.json" data-import-input hidden>
+            </div>
           </section>
 
           <section class="panel-block panel-block--arena" data-arena-panel hidden aria-label="Panel areny">

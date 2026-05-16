@@ -1,0 +1,83 @@
+  function createMinigameSessionCore(minigameId, rules, now, seedInput) {
+    const minigames = rules && rules.minigames ? rules.minigames : {};
+    const config = minigames[minigameId];
+    const timestamp = Number(now) || Date.now();
+    if (!config) {
+      return { ok: false, reason: 'Nieznana minigra.' };
+    }
+
+    const seed = clampInteger(seedInput || timestamp, 1, 2147483646, 1);
+    return {
+      ok: true,
+      session: {
+        id: minigameId,
+        label: config.label || 'Minigra',
+        seed: seed,
+        startedAt: timestamp,
+        until: timestamp + (Number(config.durationMs) || 20000),
+        score: 0,
+        caught: []
+      }
+    };
+  }
+
+  function finishMinigameCore(rawState, session, rules, now) {
+    const state = normalizeProgressionState(rawState, rules);
+    const minigames = rules && rules.minigames ? rules.minigames : {};
+    const config = session && minigames[session.id];
+    const timestamp = Number(now) || Date.now();
+    if (!config) {
+      return { ok: false, reason: 'Nieznana minigra.', state: state };
+    }
+
+    const score = clampInteger(session.score, 0, 999, 0);
+    const rewards = calculateMinigameRewardsCore(config, score);
+    state.stats = Object.assign({}, state.stats || {});
+    Object.keys(rewards.stats).forEach(function(stat) {
+      state.stats[stat] = clampNumber(Number(state.stats[stat]) + rewards.stats[stat], 0, 100, 0);
+    });
+    if (rewards.spores) {
+      state.inventory = Object.assign({ spores: 0 }, state.inventory || {});
+      state.inventory.spores = (Number(state.inventory.spores) || 0) + rewards.spores;
+      state.coins = (Number(state.coins) || 0) + rewards.spores;
+    }
+
+    state.history = normalizeHistoryCore(state.history);
+    const item = state.history.minigames[session.id] || { plays: 0, bestScore: 0, lastScore: 0, lastPlayedAt: null };
+    item.plays += 1;
+    item.lastScore = score;
+    item.bestScore = Math.max(item.bestScore, score);
+    item.lastPlayedAt = new Date(timestamp).toISOString();
+    state.history.minigames[session.id] = item;
+    state.minigames = {
+      active: null,
+      lastResult: {
+        id: session.id,
+        score: score,
+        rewards: rewards,
+        endedAt: new Date(timestamp).toISOString()
+      }
+    };
+
+    return { ok: true, state: state, rewards: rewards };
+  }
+
+  function calculateMinigameRewardsCore(config, score) {
+    const rewardRules = config.rewards || {};
+    const hydration = Math.min(
+      Number(rewardRules.hydrationMax) || 18,
+      (Number(rewardRules.hydrationBase) || 0) + score * (Number(rewardRules.hydrationPerCatch) || 0)
+    );
+    const happiness = Math.min(
+      Number(rewardRules.happinessMax) || 6,
+      score * (Number(rewardRules.happinessPerCatch) || 0)
+    );
+
+    return {
+      stats: removeZeroDeltas({
+        hydration: hydration,
+        happiness: happiness
+      }),
+      spores: Math.max(0, Math.floor(score / 12))
+    };
+  }

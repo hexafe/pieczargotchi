@@ -1,0 +1,259 @@
+  function normalizeProgressionState(rawState, rules, actions) {
+    const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    state.history = normalizeHistoryCore(state.history, actions);
+    state.evolution = normalizeEvolutionCore(state.evolution);
+    state.minigames = normalizeMinigamesCore(state.minigames);
+    state.decorations = normalizeDecorationsCore(state.decorations);
+    return state;
+  }
+
+  function normalizeHistoryCore(history, actions) {
+    const source = isPlainObject(history) ? history : {};
+    const performed = isPlainObject(source.actionsPerformed) ? source.actionsPerformed : {};
+    const modeMs = isPlainObject(source.modeMs) ? source.modeMs : {};
+    const samples = isPlainObject(source.statSamples) ? source.statSamples : {};
+    const attention = isPlainObject(source.attention) ? source.attention : {};
+    const minigames = isPlainObject(source.minigames) ? source.minigames : {};
+    const outputPerformed = {};
+
+    if (Array.isArray(actions)) {
+      actions.forEach(function(action) {
+        if (action && action.id) {
+          outputPerformed[action.id] = clampInteger(performed[action.id], 0, 999999, 0);
+        }
+      });
+    }
+
+    Object.keys(performed).forEach(function(actionId) {
+      outputPerformed[actionId] = clampInteger(performed[actionId], 0, 999999, 0);
+    });
+
+    return {
+      actionsPerformed: outputPerformed,
+      modeMs: {
+        awake: clampInteger(modeMs.awake, 0, 999999999999, 0),
+        sleeping: clampInteger(modeMs.sleeping, 0, 999999999999, 0)
+      },
+      statSamples: {
+        count: clampInteger(samples.count, 0, 999999, 0),
+        hydration: clampNumber(Number(samples.hydration), 0, 10000000, 0),
+        nutrients: clampNumber(Number(samples.nutrients), 0, 10000000, 0),
+        energy: clampNumber(Number(samples.energy), 0, 10000000, 0),
+        happiness: clampNumber(Number(samples.happiness), 0, 10000000, 0),
+        cleanliness: clampNumber(Number(samples.cleanliness), 0, 10000000, 0),
+        health: clampNumber(Number(samples.health), 0, 10000000, 0)
+      },
+      attention: {
+        handled: clampInteger(attention.handled, 0, 999999, 0),
+        missed: clampInteger(attention.missed, 0, 999999, 0)
+      },
+      minigames: normalizeMinigameHistoryCore(minigames)
+    };
+  }
+
+  function normalizeMinigameHistoryCore(source) {
+    return Object.keys(source || {}).reduce(function(result, minigameId) {
+      const item = isPlainObject(source[minigameId]) ? source[minigameId] : {};
+      result[minigameId] = {
+        plays: clampInteger(item.plays, 0, 999999, 0),
+        bestScore: clampInteger(item.bestScore, 0, 999999, 0),
+        lastScore: clampInteger(item.lastScore, 0, 999999, 0),
+        lastPlayedAt: item.lastPlayedAt || null
+      };
+      return result;
+    }, {});
+  }
+
+  function normalizeEvolutionCore(evolution) {
+    const source = isPlainObject(evolution) ? evolution : {};
+    return {
+      variant: source.variant || null,
+      decidedAt: source.decidedAt || null,
+      reason: source.reason || null
+    };
+  }
+
+  function normalizeMinigamesCore(minigames) {
+    const source = isPlainObject(minigames) ? minigames : {};
+    return {
+      active: isPlainObject(source.active) ? deepClone(source.active) : null,
+      lastResult: isPlainObject(source.lastResult) ? deepClone(source.lastResult) : null
+    };
+  }
+
+  function normalizeDecorationsCore(decorations) {
+    const source = isPlainObject(decorations) ? decorations : {};
+    return {
+      owned: uniqueStringList(source.owned),
+      active: uniqueStringList(source.active)
+    };
+  }
+
+  function uniqueStringList(value) {
+    const seen = {};
+    return (Array.isArray(value) ? value : []).filter(function(item) {
+      const key = String(item || '');
+      if (!key || seen[key]) {
+        return false;
+      }
+      seen[key] = true;
+      return true;
+    });
+  }
+
+  function recordActionHistoryCore(rawState, actionId) {
+    const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    state.history = normalizeHistoryCore(state.history);
+    if (actionId) {
+      state.history.actionsPerformed[actionId] = (Number(state.history.actionsPerformed[actionId]) || 0) + 1;
+    }
+    return state;
+  }
+
+  function recordElapsedHistoryCore(rawState, elapsedMs) {
+    const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    const mode = state.mode === 'awake' ? 'awake' : 'sleeping';
+    const delta = Math.max(0, Math.floor(Number(elapsedMs) || 0));
+    state.history = normalizeHistoryCore(state.history);
+    state.history.modeMs[mode] += delta;
+    return recordStatSampleCore(state);
+  }
+
+  function recordStatSampleCore(rawState) {
+    const state = isPlainObject(rawState) ? rawState : {};
+    const stats = isPlainObject(state.stats) ? state.stats : {};
+    state.history = normalizeHistoryCore(state.history);
+    state.history.statSamples.count += 1;
+    ['hydration', 'nutrients', 'energy', 'happiness', 'cleanliness', 'health'].forEach(function(stat) {
+      state.history.statSamples[stat] += clampNumber(Number(stats[stat]), 0, 100, 0);
+    });
+    return state;
+  }
+
+  function recordAttentionHistoryCore(rawState, outcome) {
+    const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    state.history = normalizeHistoryCore(state.history);
+    if (outcome === 'handled') {
+      state.history.attention.handled += 1;
+    } else if (outcome === 'missed') {
+      state.history.attention.missed += 1;
+    }
+    return state;
+  }
+
+  function maybeApplyEvolutionCore(rawState, rules, now) {
+    const state = normalizeProgressionState(rawState, rules);
+    const growth = state.stats && Number(state.stats.growth) || 0;
+    const evolutionRules = rules && rules.evolution ? rules.evolution : {};
+    const legendaryGrowth = Number(evolutionRules.legendaryGrowth) || 100;
+    if (state.evolution.variant || growth < legendaryGrowth) {
+      return state;
+    }
+
+    const result = getEvolutionVariantCore(state.history, state, rules);
+    state.evolution = {
+      variant: result.variant,
+      decidedAt: new Date(Number(now) || Date.now()).toISOString(),
+      reason: result.reason
+    };
+    state.stage = 'legendary';
+    return state;
+  }
+
+  function getEvolutionVariantCore(history, state, rules) {
+    const normalized = normalizeHistoryCore(history);
+    const mistakes = isPlainObject(state && state.careMistakes) ? state.careMistakes : {};
+    const actions = normalized.actionsPerformed;
+    const sampleCount = Math.max(1, normalized.statSamples.count);
+    const avgHealth = normalized.statSamples.health / sampleCount;
+    const patchQuality = state && state.patch ? Number(state.patch.quality) || 0 : 0;
+    const physicalMistakes = (Number(mistakes.physical) || 0) + (Number(mistakes.rest) || 0);
+    const totalMistakes = Object.keys(mistakes).reduce(function(total, key) {
+      return total + (Number(mistakes[key]) || 0);
+    }, 0);
+    const musicCare = (Number(actions.instrument) || 0) + (Number(actions.sing) || 0);
+    const balancedActions = countBalancedCareActions(actions);
+
+    if (physicalMistakes >= 4 || avgHealth < 52) {
+      return { variant: 'ghostcap', reason: 'zbyt wiele trudnych chwil zdrowia i odpoczynku' };
+    }
+    if (totalMistakes <= 1 && balancedActions >= 5 && patchQuality >= 82) {
+      return { variant: 'royalcap', reason: 'bardzo równa, spokojna opieka' };
+    }
+    if ((Number(actions.hydrate) || 0) >= Math.max(3, (Number(actions.feed) || 0) + 2)) {
+      return { variant: 'dewcap', reason: 'najsilniejszy rytm opieki wokół rosy i wilgoci' };
+    }
+    if ((Number(actions.feed) || 0) >= 4 && patchQuality >= 70 && (Number(mistakes.environment) || 0) <= 1) {
+      return { variant: 'compostcap', reason: 'dobre podłoże i regularny kompost' };
+    }
+    if (musicCare >= Math.max(4, (Number(actions.play) || 0) + 2)) {
+      return { variant: 'songcap', reason: 'Pieczarka najczęściej rosła przy muzyce' };
+    }
+    if ((Number(actions.play) || 0) >= 4) {
+      return { variant: 'wildcap', reason: 'dużo zabawy i nieregularna energia' };
+    }
+    return { variant: 'dewcap', reason: 'spokojna domyślna ścieżka wilgoci' };
+  }
+
+  function countBalancedCareActions(actions) {
+    return ['hydrate', 'feed', 'clean', 'play', 'instrument', 'sing'].filter(function(actionId) {
+      return (Number(actions[actionId]) || 0) >= 2;
+    }).length;
+  }
+
+  function getEvolutionLabelCore(variant, rules) {
+    const labels = rules && rules.evolution && rules.evolution.variants ? rules.evolution.variants : {};
+    return labels[variant] || 'Legendarna Pieczarka';
+  }
+
+  function buyDecorationCore(rawState, decorationId, rules, now) {
+    const state = normalizeProgressionState(rawState, rules);
+    const catalog = Array.isArray(rules && rules.decorations) ? rules.decorations : [];
+    const item = catalog.find(function(candidate) {
+      return candidate.id === decorationId;
+    });
+    state.inventory = Object.assign({ spores: 0 }, state.inventory || {});
+
+    if (!item) {
+      return { ok: false, reason: 'Nieznana dekoracja.', state: state };
+    }
+    if (state.decorations.owned.indexOf(item.id) !== -1) {
+      return { ok: false, reason: 'Ta dekoracja już stoi w grzybni.', state: state };
+    }
+    if ((Number(state.inventory.spores) || 0) < item.cost) {
+      return { ok: false, reason: 'Brakuje zarodników na dekorację.', state: state };
+    }
+
+    state.inventory.spores -= item.cost;
+    state.coins = Math.max(0, Number(state.inventory.spores) || 0);
+    state.decorations.owned.push(item.id);
+    state.decorations.active = state.decorations.owned.slice(-3);
+    state.stats = Object.assign({}, state.stats || {});
+    state.stats.happiness = clampNumber(Number(state.stats.happiness) + (Number(item.happinessBonus) || 0), 0, 100, 60);
+    state.minigames.lastResult = {
+      type: 'decoration',
+      id: item.id,
+      at: new Date(Number(now) || Date.now()).toISOString()
+    };
+    return { ok: true, state: state, decoration: item };
+  }
+
+  function buildStateExportEnvelopeCore(state, now) {
+    return {
+      kind: 'pieczargotchi-state',
+      exportedAt: new Date(Number(now) || Date.now()).toISOString(),
+      state: isPlainObject(state) ? deepClone(state) : {}
+    };
+  }
+
+  function importStateEnvelopeCore(rawValue, targetVersion) {
+    const value = typeof rawValue === 'string' ? JSON.parse(rawValue) : rawValue;
+    const state = value && value.kind === 'pieczargotchi-state' ? value.state : value;
+    if (!isPlainObject(state) || !isPlainObject(state.stats)) {
+      return { ok: false, reason: 'Plik nie wygląda jak zapis Pieczargotchi.' };
+    }
+
+    const nextState = normalizeProgressionState(state);
+    nextState.version = Number(targetVersion) || Number(nextState.version) || 4;
+    return { ok: true, state: nextState };
+  }

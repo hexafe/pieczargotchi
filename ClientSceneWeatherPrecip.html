@@ -2,13 +2,26 @@
     drawWindLayer(ctx, scene, now);
 
     if ((scene.condition === 'rain' || scene.condition === 'storm') && scene.rainIntensity > 0.01) {
-      drawRainLayer(ctx, scene, now);
+      drawRainLayer(ctx, scene, now, 'background');
     }
 
     if (scene.condition === 'storm') {
       drawStormLayer(ctx, scene, now);
     } else if (scene.condition === 'snow' && scene.snowIntensity > 0.01) {
-      drawSnowLayer(ctx, scene, now);
+      drawSnowLayer(ctx, scene, now, 'background');
+    }
+  }
+
+  function drawWeatherPrecipitationForeground(ctx, now) {
+    const scene = getCurrentWeatherScene();
+    if (!scene) {
+      return;
+    }
+
+    if ((scene.condition === 'rain' || scene.condition === 'storm') && scene.rainIntensity > 0.01) {
+      drawRainLayer(ctx, scene, now, 'foreground');
+    } else if (scene.condition === 'snow' && scene.snowIntensity > 0.01) {
+      drawSnowLayer(ctx, scene, now, 'foreground');
     }
   }
 
@@ -85,7 +98,7 @@
     }
   }
 
-  function drawRainLayer(ctx, scene, now) {
+  function drawRainLayer(ctx, scene, now, depth) {
     const profile = getRainClassProfile(scene);
     const intensity = profile.intensity;
     if (intensity <= 0) {
@@ -93,6 +106,7 @@
     }
 
     const wind = getDynamicWindState(scene, now);
+    const motionNow = getPrecipitationMotionNow(now);
     const baseCount = Math.round((32 + intensity * 96 + wind.averageLevel * 18) * profile.countMultiplier);
     const slant = getRainSlant(wind);
     const cycleBase = Math.max(profile.minimumCycle, profile.cycleBase - intensity * 270 - wind.level * 150);
@@ -104,7 +118,8 @@
         color: profile.frontColor,
         width: profile.dropWidth,
         length: profile.dropLength + intensity * 12,
-        speed: 1
+        speed: 1,
+        depth: 'background'
       },
       {
         seedOffset: 2000,
@@ -113,7 +128,8 @@
         color: '#9fc7f1',
         width: Math.max(1, profile.dropWidth - 1),
         length: Math.max(4, profile.dropLength - 3) + intensity * 8,
-        speed: 0.72
+        speed: 0.72,
+        depth: 'background'
       },
       {
         seedOffset: 4000,
@@ -122,14 +138,19 @@
         color: '#c7e2ff',
         width: profile.dropWidth + (profile.rainClass === 'heavy' || profile.rainClass === 'violent' ? 1 : 0),
         length: profile.dropLength + 3 + intensity * 16,
-        speed: 1.22
+        speed: 1.22,
+        depth: 'foreground'
       }
     ];
 
     ctx.save();
-    drawRainSheetLayer(ctx, scene, now, profile, wind, slant);
+    if (depth !== 'foreground') {
+      drawRainSheetLayer(ctx, scene, now, profile, wind, slant);
+    }
     layers.forEach(function(layer) {
-      drawRainDropLayer(ctx, now, scene, layer, cycleBase, slant, wind);
+      if (layer.depth === depth) {
+        drawRainDropLayer(ctx, motionNow, scene, layer, cycleBase, slant, wind);
+      }
     });
     ctx.restore();
   }
@@ -252,7 +273,7 @@
     return sign * lateral * Math.min(38, target);
   }
 
-  function drawRainDropLayer(ctx, now, scene, layer, cycleBase, slant, wind) {
+  function drawRainDropLayer(ctx, motionNow, scene, layer, cycleBase, slant, wind) {
     const windLevel = wind.level;
     const travelHeight = 620 - windLevel * 118;
     const groundY = 442;
@@ -264,11 +285,11 @@
       const seed = layer.seedOffset + index * 37;
       const cycleMs = cycleBase / layer.speed + seededUnit(seed + 1) * 210;
       const phaseOffset = seededUnit(seed + 2) * cycleMs;
-      const progress = positiveModulo(now + phaseOffset, cycleMs) / cycleMs;
+      const progress = getFallingLoopProgress(motionNow, phaseOffset, cycleMs);
       const spawnX = seededUnit(seed + 3) * 584 - 36;
       const spawnY = -112 - seededUnit(seed + 4) * 80;
       const windDrift = slant * progress * (1.16 + seededUnit(seed + 5) * 0.54);
-      const jitter = Math.round((seededUnit(seed + Math.floor(now / 180)) - 0.5) * 2);
+      const jitter = Math.round((seededUnit(seed + Math.floor(motionNow / 180)) - 0.5) * 2);
       const x = positiveModulo(spawnX + windDrift, 676) - 82 + jitter;
       const y = spawnY + progress * travelHeight;
       const length = Math.round(layer.length + seededUnit(seed + 6) * (7 + windLevel * 9) + wind.gustPulse * 3);
@@ -281,7 +302,7 @@
 
       drawRainDrop(ctx, x, y, localSlant, length, width);
 
-      if (y > groundY && seededUnit(seed + Math.floor(now / 90)) > 0.62) {
+      if (y > groundY && seededUnit(seed + Math.floor(motionNow / 90)) > 0.62) {
         drawRainSplash(ctx, x + localSlant * 0.45, groundY + 3, layer.width);
       }
     }
@@ -349,13 +370,14 @@
     ctx.restore();
   }
 
-  function drawSnowLayer(ctx, scene, now) {
+  function drawSnowLayer(ctx, scene, now, depth) {
     const intensity = clamp(Number(scene.snowIntensity), 0, 1, 0);
     if (intensity <= 0) {
       return;
     }
 
     const wind = getDynamicWindState(scene, now);
+    const motionNow = getPrecipitationMotionNow(now);
     const snowStyle = scene.snowStyle || 'powder';
     const styleCount = snowStyle === 'blowing' ? 1.22 : snowStyle === 'wet' ? 0.72 : 1;
     const styleSpeed = snowStyle === 'blowing' ? 1.28 : snowStyle === 'wet' ? 1.18 : 1;
@@ -371,7 +393,8 @@
         color: '#fffdf7',
         size: snowStyle === 'wet' ? 5 : 4,
         speed: snowStyle === 'wet' ? 1.02 : 0.82,
-        sway: 7 * styleSway
+        sway: 7 * styleSway,
+        depth: 'background'
       },
       {
         seedOffset: 11000,
@@ -380,7 +403,8 @@
         color: '#edf6e6',
         size: 3,
         speed: snowStyle === 'wet' ? 0.82 : 0.56,
-        sway: 10 * styleSway
+        sway: 10 * styleSway,
+        depth: 'background'
       },
       {
         seedOffset: 13000,
@@ -389,18 +413,21 @@
         color: '#ffffff',
         size: snowStyle === 'wet' ? 6 : 5,
         speed: snowStyle === 'wet' ? 1.24 : 1.05,
-        sway: 5 * styleSway
+        sway: 5 * styleSway,
+        depth: 'foreground'
       }
     ];
 
     ctx.save();
     layers.forEach(function(layer) {
-      drawSnowFlakeLayer(ctx, now, layer, cycleBase, slant, wind);
+      if (layer.depth === depth) {
+        drawSnowFlakeLayer(ctx, motionNow, layer, cycleBase, slant, wind);
+      }
     });
     ctx.restore();
   }
 
-  function drawSnowFlakeLayer(ctx, now, layer, cycleBase, slant, wind) {
+  function drawSnowFlakeLayer(ctx, motionNow, layer, cycleBase, slant, wind) {
     const travelHeight = 462 - wind.level * 82;
     ctx.globalAlpha = layer.alpha;
     ctx.fillStyle = layer.color;
@@ -409,11 +436,11 @@
       const seed = layer.seedOffset + index * 41;
       const cycleMs = cycleBase / layer.speed + seededUnit(seed + 1) * 780;
       const phaseOffset = seededUnit(seed + 2) * cycleMs;
-      const progress = positiveModulo(now + phaseOffset, cycleMs) / cycleMs;
+      const progress = getFallingLoopProgress(motionNow, phaseOffset, cycleMs);
       const spawnX = seededUnit(seed + 3) * 560 - 24;
       const spawnY = -74 - seededUnit(seed + 4) * 58;
-      const calmSway = Math.sin(now / (720 + seededUnit(seed + 5) * 420) + seed) * layer.sway * (1 - wind.level * 0.62);
-      const gustSway = Math.sin(now / 620 + seed) * wind.gustPulse * (3 + wind.level * 5);
+      const calmSway = Math.sin(motionNow / (720 + seededUnit(seed + 5) * 420) + seed) * layer.sway * (1 - wind.level * 0.62);
+      const gustSway = Math.sin(motionNow / 620 + seed) * wind.gustPulse * (3 + wind.level * 5);
       const windDrift = slant * progress * (1.12 + seededUnit(seed + 6) * 0.82);
       const x = positiveModulo(spawnX + windDrift + calmSway + gustSway, 620) - 54;
       const y = spawnY + progress * travelHeight;
@@ -425,6 +452,34 @@
 
       drawSnowFlake(ctx, x, y, size, slant, wind);
     }
+  }
+
+  function getPrecipitationMotionNow(now) {
+    const frameNow = Math.max(0, Number(now) || 0);
+    const motion = runtime.precipitationMotion || {
+      lastFrameNow: null,
+      frameNow: null,
+      elapsedMs: 0,
+      value: 0
+    };
+
+    if (motion.frameNow === frameNow) {
+      return motion.value;
+    }
+
+    const delta = motion.lastFrameNow === null
+      ? 16.67
+      : clamp(frameNow - motion.lastFrameNow, 0, 80, 16.67);
+    motion.elapsedMs = positiveModulo(motion.elapsedMs + delta, 3600000);
+    motion.lastFrameNow = frameNow;
+    motion.frameNow = frameNow;
+    motion.value = motion.elapsedMs;
+    runtime.precipitationMotion = motion;
+    return motion.value;
+  }
+
+  function getFallingLoopProgress(motionNow, phaseOffset, cycleMs) {
+    return positiveModulo(motionNow + phaseOffset, Math.max(1, cycleMs)) / Math.max(1, cycleMs);
   }
 
   function drawSnowFlake(ctx, x, y, size, slant, wind) {

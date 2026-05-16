@@ -173,7 +173,9 @@
     wakeSurpriseUntil: 0,
     weatherLocation: null,
     weatherScene: createLocalWeatherScene(defaultWeatherLocation),
+    precipitationMotion: null,
     actionButtons: new Map(),
+    minigame: null,
     debug: createDefaultDebugSettings(),
     viewMode: 'care',
     currentAnimationKey: null,
@@ -211,6 +213,7 @@
     bindControls();
     bindKeyboardShortcuts();
     renderUi();
+    resumeMinigameIfActive();
     startTimers();
     startRenderLoop();
   }
@@ -231,6 +234,8 @@
     dom.mushroomName = document.querySelector('[data-mushroom-name]');
     dom.stageLabel = document.querySelector('[data-stage-label]');
     dom.dayLabel = document.querySelector('[data-day-label]');
+    dom.evolutionLabel = document.querySelector('[data-evolution-label]');
+    dom.attentionChip = document.querySelector('[data-attention-chip]');
     dom.messageTitle = document.querySelector('[data-message-title]');
     dom.messageBody = document.querySelector('[data-message-body]');
     dom.healthLabel = document.querySelector('[data-health-label]');
@@ -281,6 +286,20 @@
     dom.battleMoves = document.querySelector('[data-battle-moves]');
     dom.battleTraining = document.querySelector('[data-battle-training]');
     dom.battleLog = document.querySelector('[data-battle-log]');
+    dom.minigameStatus = document.querySelector('[data-minigame-status]');
+    dom.minigameLast = document.querySelector('[data-minigame-last]');
+    dom.minigamePlayfield = document.querySelector('[data-minigame-playfield]');
+    dom.minigameStartButtons = Array.from(document.querySelectorAll('[data-minigame-start]'));
+    dom.minigameEnd = document.querySelector('[data-minigame-end]');
+    dom.minigameScore = document.querySelector('[data-minigame-score]');
+    dom.minigameTime = document.querySelector('[data-minigame-time]');
+    dom.dewCatchCanvas = document.querySelector('[data-dew-catch-canvas]');
+    dom.decorationList = document.querySelector('[data-decoration-list]');
+    dom.decorationCount = document.querySelector('[data-decoration-count]');
+    dom.exportButton = document.querySelector('[data-export-button]');
+    dom.importButton = document.querySelector('[data-import-button]');
+    dom.importInput = document.querySelector('[data-import-input]');
+    dom.backupStatus = document.querySelector('[data-backup-status]');
   }
 
   function setupCanvas() {
@@ -313,12 +332,37 @@
     });
 
     dom.battleStart.addEventListener('click', handleBattleStart);
+    dom.minigameStartButtons.forEach(function(button) {
+      button.addEventListener('click', function() {
+        handleMinigameStart(button.dataset.minigameStart);
+      });
+    });
+    if (dom.minigameEnd) {
+      dom.minigameEnd.addEventListener('click', function() {
+        handleMinigameEnd('manual');
+      });
+    }
+    if (dom.dewCatchCanvas) {
+      dom.dewCatchCanvas.addEventListener('pointerdown', handleDewCatchPointer);
+    }
+    if (dom.exportButton) {
+      dom.exportButton.addEventListener('click', handleExportState);
+    }
+    if (dom.importButton) {
+      dom.importButton.addEventListener('click', handleImportClick);
+    }
+    if (dom.importInput) {
+      dom.importInput.addEventListener('change', handleImportFile);
+    }
     bindDebugControls();
   }
 
   function bindKeyboardShortcuts() {
     document.addEventListener('keydown', function(event) {
       if (event.defaultPrevented || shouldIgnoreShortcut(event.target)) {
+        return;
+      }
+      if (isMinigameActive()) {
         return;
       }
 

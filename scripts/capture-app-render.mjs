@@ -686,6 +686,10 @@ async function captureViewport(cdp) {
     assertMobileLayout(info);
   }
 
+  if (viewportWidth > 640 && viewportHeight <= 700) {
+    assertShortViewportLayout(info);
+  }
+
   const screenshot = await cdp.send('Page.captureScreenshot', {
     format: 'png',
     fromSurface: true,
@@ -735,6 +739,32 @@ function assertMobileLayout(info) {
 
   if (info.innerWidth >= 390 && info.innerWidth <= 430 && info.innerHeight >= 844 && info.actions.bottom > info.innerHeight + 24) {
     throw new Error(`Pełny panel akcji nie mieści się wystarczająco wysoko na 390x844: bottom=${Math.round(info.actions.bottom)}px`);
+  }
+}
+
+function assertShortViewportLayout(info) {
+  if (!info.stage || !info.side || !info.canvas || !info.actions) {
+    throw new Error('Brakuje kluczowych elementów krótkiego layoutu.');
+  }
+
+  if (info.stage.bottom > info.innerHeight + 1) {
+    throw new Error(`Scena wychodzi poza niski viewport: bottom=${Math.round(info.stage.bottom)}px, height=${info.innerHeight}`);
+  }
+
+  if (info.side.bottom > info.innerHeight + 1) {
+    throw new Error(`Panel boczny wychodzi poza niski viewport: bottom=${Math.round(info.side.bottom)}px, height=${info.innerHeight}`);
+  }
+
+  if (info.canvas.width > 392 || info.canvas.height > 392) {
+    throw new Error(`Canvas jest za duży dla krótkiego viewportu: ${Math.round(info.canvas.width)}x${Math.round(info.canvas.height)}px`);
+  }
+
+  if (info.actionColumns !== 2) {
+    throw new Error(`Akcje w krótkim layoucie powinny mieć 2 kolumny, wykryto ${info.actionColumns}.`);
+  }
+
+  if (info.actions.top - info.side.top > 28) {
+    throw new Error(`Akcje są za nisko w panelu bocznym: gap=${Math.round(info.actions.top - info.side.top)}px`);
   }
 }
 

@@ -10,6 +10,12 @@
       return;
     }
 
+    if (isMinigameActive()) {
+      setTransientMessage('Minigra', 'Najpierw zakończ krótką rozgrywkę.');
+      renderUi();
+      return;
+    }
+
     const now = getRuntimeNow();
     runtime.state = applyElapsedTime(runtime.state, now);
 
@@ -29,6 +35,7 @@
 
     runtime.state.stats = clampAllStats(runtime.state.stats);
     runtime.state.stage = getStageForGrowth(runtime.state.stats.growth || 0);
+    runtime.state = applyEvolutionIfReady(runtime.state, now, true);
     updateArenaUnlock(runtime.state);
     runtime.state.lastUpdatedAt = new Date(now).toISOString();
     saveState(runtime.state);
@@ -119,6 +126,13 @@
 
   function canRunAction(action, now) {
     const core = window.PieczargotchiCore;
+    if (isMinigameActive()) {
+      return {
+        ok: false,
+        reason: 'Najpierw zakończ minigrę.'
+      };
+    }
+
     if (core && core.getActionAvailability) {
       return core.getActionAvailability(runtime.state, action, now, rules);
     }
@@ -162,6 +176,7 @@
 
     runtime.state.mode = waking ? 'awake' : 'sleeping';
     runtime.state.cooldowns[action.id] = now + action.cooldownSeconds * 1000;
+    recordActionHistory(runtime.state, action.id);
     runtime.state.currentActivity = waking
       ? { type: 'wake', label: 'O_O', startedAt: now, until: now + (rules.wakeSurpriseMs || 1800) }
       : null;
@@ -181,6 +196,7 @@
 
   function applyAction(action, now, source) {
     applyStatDeltas(runtime.state, action.stats || {});
+    recordActionHistory(runtime.state, action.id);
 
     if (action.coins) {
       runtime.state.coins = (Number(runtime.state.coins) || 0) + action.coins;
@@ -233,8 +249,124 @@
 
     if (handledNeed) {
       addLog(state, 'Dobra reakcja! Pieczarka zapamiętuje szybką opiekę.', now);
+      recordAttentionHistory(state, 'handled');
       state.attention = normalizeAttention({});
     }
+  }
+
+  function handleMinigameStart(minigameId) {
+    const core = window.PieczargotchiCore;
+    const minigameRules = rules.minigames && rules.minigames[minigameId];
+    const now = getRuntimeNow();
+    if (!core || !core.createMinigameSession || !minigameRules) {
+      setTransientMessage('Gry', 'Ta minigra nie jest jeszcze gotowa.');
+      renderUi();
+      return;
+    }
+    if (runtime.state.mode !== 'awake') {
+      setTransientMessage('Gry', 'Najpierw obudź Pieczarkę.');
+      renderUi();
+      return;
+    }
+
+    runtime.state = applyElapsedTime(runtime.state, now);
+    const cooldownKey = getMinigameCooldownKey(minigameId);
+    const cooldownUntil = Number(runtime.state.cooldowns[cooldownKey]) || 0;
+    if (cooldownUntil > now) {
+      setTransientMessage('Gry', 'Następna rozgrywka za ' + Math.ceil((cooldownUntil - now) / 1000) + ' s.');
+      renderUi();
+      return;
+    }
+
+    const result = core.createMinigameSession(minigameId, rules, now, buildMinigameSeed(minigameId, now));
+    if (!result.ok) {
+      setTransientMessage('Gry', result.reason);
+      renderUi();
+      return;
+    }
+
+    runtime.state.minigames.active = result.session;
+    runtime.state.lastUpdatedAt = new Date(now).toISOString();
+    saveState(runtime.state);
+    startDewCatchRuntime(result.session);
+    renderUi();
+  }
+
+  function handleMinigameEnd(reason) {
+    const core = window.PieczargotchiCore;
+    const now = getRuntimeNow();
+    const session = runtime.minigame && runtime.minigame.session
+      ? runtime.minigame.session
+      : runtime.state.minigames && runtime.state.minigames.active;
+    if (!core || !core.finishMinigame || !session) {
+      stopMinigameRuntime();
+      renderUi();
+      return;
+    }
+
+    stopMinigameRuntime();
+    const result = core.finishMinigame(runtime.state, session, rules, now);
+    if (!result.ok) {
+      runtime.state.minigames.active = null;
+      setTransientMessage('Gry', result.reason);
+    } else {
+      runtime.state = result.state;
+      runtime.state.stats = clampAllStats(runtime.state.stats);
+      runtime.state.cooldowns[getMinigameCooldownKey(session.id)] = now + getMinigameCooldownMs(session.id);
+      const hydration = result.rewards.stats && result.rewards.stats.hydration ? Math.round(result.rewards.stats.hydration) : 0;
+      const happiness = result.rewards.stats && result.rewards.stats.happiness ? Math.round(result.rewards.stats.happiness) : 0;
+      const suffix = reason === 'timeout' ? 'Koniec czasu. ' : '';
+      addLog(runtime.state, suffix + 'Łapanie rosy: ' + session.score + ' kropli, +' + hydration + ' wilgoci, +' + happiness + ' radości.', now);
+      triggerEffect('water');
+    }
+
+    runtime.state.lastUpdatedAt = new Date(now).toISOString();
+    saveState(runtime.state);
+    renderUi();
+  }
+
+  function handleDecorationBuy(decorationId) {
+    const core = window.PieczargotchiCore;
+    const now = getRuntimeNow();
+    if (!core || !core.buyDecoration) {
+      return;
+    }
+
+    runtime.state = applyElapsedTime(runtime.state, now);
+    const result = core.buyDecoration(runtime.state, decorationId, rules, now);
+    runtime.state = result.state || runtime.state;
+    if (!result.ok) {
+      setTransientMessage('Dekoracje', result.reason);
+    } else {
+      addLog(runtime.state, 'Dekoracja w grzybni: ' + result.decoration.label + '.', now);
+      triggerEffect('hearts');
+    }
+
+    runtime.state.stats = clampAllStats(runtime.state.stats);
+    runtime.state.lastUpdatedAt = new Date(now).toISOString();
+    saveState(runtime.state);
+    renderUi();
+  }
+
+  function isMinigameActive() {
+    return Boolean(
+      runtime.minigame && runtime.minigame.session
+      || runtime.state && runtime.state.minigames && runtime.state.minigames.active
+    );
+  }
+
+  function getMinigameCooldownKey(minigameId) {
+    return 'minigame.' + minigameId;
+  }
+
+  function getMinigameCooldownMs(minigameId) {
+    const config = rules.minigames && rules.minigames[minigameId];
+    return config ? Number(config.cooldownMs) || 0 : 0;
+  }
+
+  function buildMinigameSeed(minigameId, now) {
+    const source = (runtime.state.playerId || 'player') + ':' + minigameId + ':' + now;
+    return Math.floor(hashStringToUnit(source) * 2147483645) + 1;
   }
 
   function applyStatDeltas(state, deltas) {
@@ -298,8 +430,21 @@
       if (event.type === 'miss') {
         return actor + ' pudłuje: ' + label;
       }
-      return actor + ' trafia: ' + label + ' (-' + event.damage + ' HP)';
+      return actor + ' trafia: ' + label + ' (-' + event.damage + ' HP)' + formatBattleEventEffect(event);
     }).join(' | ');
+  }
+
+  function formatBattleEventEffect(event) {
+    if (event.statusEffect === 'slow') {
+      return ' i spowalnia';
+    }
+    if (event.selfEffect === 'stamina') {
+      return ' i odzyskuje staminę';
+    }
+    if (event.selfEffect === 'heal') {
+      return ' i leczy się';
+    }
+    return '';
   }
 
   function cleanupActivity(now) {

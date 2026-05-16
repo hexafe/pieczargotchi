@@ -242,6 +242,23 @@
     line-height: 1.35;
   }
 
+  .attention-chip {
+    justify-self: start;
+    padding: 4px 7px;
+    border: 2px solid var(--border);
+    border-radius: 999px;
+    background: #fff2bf;
+    color: var(--ink) !important;
+    font-size: 11px !important;
+    font-weight: 900;
+    line-height: 1;
+  }
+
+  .attention-chip[data-severity="critical"] {
+    background: #ffd1d1;
+    color: #7d2424 !important;
+  }
+
   .panel-block {
     display: grid;
     gap: 8px;
@@ -266,6 +283,15 @@
 
   .panel-block--arena {
     background: #eef2d8;
+  }
+
+  .panel-block--minigames {
+    background: #eef2d8;
+  }
+
+  .panel-block--decorations,
+  .panel-block--backup {
+    background: #fff4d7;
   }
 
   .panel-block--debug details {
@@ -644,6 +670,79 @@
     font-variant-numeric: tabular-nums;
   }
 
+  .minigame-card,
+  .decoration-item,
+  .backup-actions,
+  .minigame-hud {
+    display: grid;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .minigame-card,
+  .decoration-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+    min-height: 42px;
+    padding: 6px 7px;
+    border: 1px solid rgba(60, 43, 32, 0.26);
+    border-radius: 6px;
+    background: rgba(255, 253, 247, 0.78);
+  }
+
+  .minigame-card > div,
+  .decoration-item__info {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .minigame-card strong,
+  .decoration-item strong {
+    overflow: hidden;
+    font-size: 13px;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .minigame-card span,
+  .decoration-item span {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .minigame-playfield {
+    display: grid;
+    gap: 7px;
+  }
+
+  .dew-catch-canvas {
+    width: 100%;
+    aspect-ratio: 5 / 3;
+    border: 2px solid var(--border);
+    border-radius: 6px;
+    background: #dff2c8;
+    cursor: crosshair;
+  }
+
+  .minigame-hud {
+    grid-template-columns: auto auto minmax(82px, auto);
+    justify-content: space-between;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 900;
+  }
+
+  .decoration-list {
+    display: grid;
+    gap: 6px;
+  }
+
+  .backup-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .event-log {
     display: grid;
     gap: 5px;
@@ -716,16 +815,28 @@
       order: 2;
     }
 
-    .panel-block--resources {
+    .panel-block--minigames {
       order: 3;
     }
 
-    .panel-block--log {
+    .panel-block--resources {
       order: 4;
     }
 
-    .panel-block--debug {
+    .panel-block--decorations {
       order: 5;
+    }
+
+    .panel-block--backup {
+      order: 6;
+    }
+
+    .panel-block--log {
+      order: 7;
+    }
+
+    .panel-block--debug {
+      order: 8;
     }
 
     .action-button {
@@ -858,16 +969,28 @@
       order: 2;
     }
 
-    .panel-block--resources {
+    .panel-block--minigames {
       order: 3;
     }
 
-    .panel-block--log {
+    .panel-block--resources {
       order: 4;
     }
 
-    .panel-block--debug {
+    .panel-block--decorations {
       order: 5;
+    }
+
+    .panel-block--backup {
+      order: 6;
+    }
+
+    .panel-block--log {
+      order: 7;
+    }
+
+    .panel-block--debug {
+      order: 8;
     }
 
     .block-heading h2 {
@@ -1101,6 +1224,291 @@
       min-height: 38px;
       margin-top: 8px;
       padding: 7px 8px;
+    }
+  }
+
+  @media (min-width: 641px) and (max-height: 700px) {
+    html,
+    body {
+      height: 100%;
+      min-height: 100%;
+      overflow: hidden;
+    }
+
+    .app {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      width: min(100% - 16px, 1080px);
+      height: 100vh;
+      height: 100dvh;
+      min-height: 0;
+      padding: 8px 0;
+    }
+
+    .topbar {
+      align-items: center;
+      flex-direction: row;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .topbar h1 {
+      font-size: 24px;
+    }
+
+    .topbar__status {
+      width: auto;
+      margin-left: auto;
+      gap: 6px;
+      justify-content: end;
+    }
+
+    .status-pill,
+    .stage-meta span,
+    .block-heading > span {
+      padding: 5px 7px;
+      font-size: 11px;
+    }
+
+    .ghost-button {
+      min-height: 30px;
+      padding: 4px 8px;
+      font-size: 12px;
+    }
+
+    .view-switch__button {
+      min-height: 26px;
+      padding: 3px 7px;
+      font-size: 11px;
+    }
+
+    .game-grid {
+      grid-template-columns: minmax(300px, 0.95fr) minmax(300px, 1.05fr);
+      align-items: stretch;
+      gap: 8px;
+      height: 100%;
+      min-height: 0;
+    }
+
+    .stage-panel,
+    .side-panel {
+      min-height: 0;
+      max-height: 100%;
+      border: 2px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--paper);
+      box-shadow: 3px 3px 0 var(--shadow);
+    }
+
+    .stage-panel {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, auto);
+      align-content: start;
+      padding: 8px;
+      overflow: hidden;
+    }
+
+    .side-panel {
+      gap: 7px;
+      padding: 8px;
+      overflow: auto;
+    }
+
+    .panel-block--actions {
+      order: 1;
+    }
+
+    .panel-block--status {
+      order: 2;
+    }
+
+    .panel-block--minigames {
+      order: 3;
+    }
+
+    .panel-block--resources {
+      order: 4;
+    }
+
+    .panel-block--decorations {
+      order: 5;
+    }
+
+    .panel-block--backup {
+      order: 6;
+    }
+
+    .panel-block--log {
+      order: 7;
+    }
+
+    .panel-block--debug {
+      order: 8;
+    }
+
+    .stage-toolbar {
+      align-items: center;
+      flex-direction: row;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .stage-toolbar h2 {
+      font-size: 18px;
+    }
+
+    .eyebrow {
+      display: none;
+    }
+
+    .stage-meta {
+      gap: 5px;
+      justify-content: end;
+    }
+
+    .canvas-wrap {
+      width: 100%;
+      max-width: min(100%, calc(100dvh - 174px), 392px);
+      border-width: 2px;
+    }
+
+    .message-panel {
+      gap: 2px;
+      min-height: 0;
+      max-height: 56px;
+      margin-top: 7px;
+      padding: 6px 8px;
+      overflow: auto;
+    }
+
+    .message-panel strong {
+      font-size: 13px;
+    }
+
+    .message-panel span {
+      font-size: 12px;
+      line-height: 1.2;
+    }
+
+    .panel-block {
+      gap: 6px;
+      padding: 7px;
+      border-width: 2px;
+    }
+
+    .block-heading h2,
+    .panel-block--debug summary {
+      font-size: 14px;
+    }
+
+    .stats-list,
+    .battle-status,
+    .battle-training,
+    .battle-log {
+      gap: 5px;
+    }
+
+    .stat-row {
+      grid-template-columns: 78px minmax(0, 1fr) 30px;
+      gap: 5px;
+    }
+
+    .stat-name,
+    .stat-value {
+      font-size: 12px;
+    }
+
+    .stat-track {
+      height: 12px;
+    }
+
+    .actions-grid,
+    .battle-moves,
+    .battle-training {
+      gap: 6px;
+    }
+
+    .action-button {
+      grid-template-columns: 30px minmax(0, 1fr) 24px;
+      min-height: 38px;
+      gap: 5px;
+      padding: 5px;
+    }
+
+    .action-icon {
+      width: 30px;
+      height: 28px;
+      font-size: 10px;
+    }
+
+    .action-label {
+      font-size: 12px;
+    }
+
+    .shortcut-badge {
+      min-width: 22px;
+      min-height: 22px;
+      padding: 3px;
+      font-size: 11px;
+    }
+
+    .cooldown-chip {
+      right: 5px;
+      bottom: 4px;
+      min-width: 32px;
+      min-height: 17px;
+      font-size: 10px;
+    }
+
+    .inventory-row {
+      gap: 5px;
+    }
+
+    .inventory-item {
+      min-height: 26px;
+      padding: 4px 6px;
+    }
+
+    .inventory-label,
+    .battle-meter-row span,
+    .event-log li {
+      font-size: 12px;
+    }
+
+    .inventory-value,
+    .battle-meter-row strong,
+    .arena-command-row span {
+      font-size: 12px;
+    }
+
+    .event-log {
+      min-height: 48px;
+      max-height: 74px;
+    }
+
+    .event-log li {
+      padding: 4px 6px;
+      line-height: 1.18;
+    }
+
+    .debug-controls {
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .debug-controls input,
+    .debug-controls select {
+      min-height: 28px;
+    }
+
+    .debug-stat-row {
+      grid-template-columns: 66px minmax(0, 1fr) 32px;
+      gap: 5px;
+    }
+
+    .debug-actions .ghost-button {
+      min-height: 28px;
     }
   }
 </style>

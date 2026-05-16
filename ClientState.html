@@ -47,10 +47,14 @@
     const result = Object.assign({}, base, override);
     result.stats = Object.assign({}, base.stats, override.stats || {});
     result.inventory = Object.assign({}, base.inventory, override.inventory || {});
+    result.history = Object.assign({}, base.history, override.history || {});
     result.patch = Object.assign({}, base.patch, override.patch || {});
     result.attention = Object.assign({}, base.attention, override.attention || {});
     result.careMistakes = Object.assign({}, base.careMistakes, override.careMistakes || {});
     result.battle = Object.assign({}, base.battle, override.battle || {});
+    result.evolution = Object.assign({}, base.evolution, override.evolution || {});
+    result.minigames = Object.assign({}, base.minigames, override.minigames || {});
+    result.decorations = Object.assign({}, base.decorations, override.decorations || {});
     result.cooldowns = Object.assign({}, base.cooldowns, override.cooldowns || {});
     result.flags = Object.assign({}, base.flags, override.flags || {});
     result.log = Array.isArray(override.log) ? override.log.slice(0, rules.maxLogEntries || 8) : base.log;
@@ -68,11 +72,31 @@
     state.attention = normalizeAttention(state.attention || {});
     state.careMistakes = normalizeCareMistakes(state.careMistakes || {});
     state.battle = normalizeBattleForRuntime(state.battle || {});
+    state = normalizeProgressionForRuntime(state);
     state.cooldowns = state.cooldowns || {};
     state.flags = state.flags || {};
     state.log = Array.isArray(state.log) ? state.log.slice(0, rules.maxLogEntries || 8) : [];
     state.stage = getStageForGrowth(state.stats.growth || 0);
+    state = applyEvolutionIfReady(state, getRuntimeNow(), false);
     updateArenaUnlock(state);
+    return state;
+  }
+
+  function normalizeProgressionForRuntime(state) {
+    const core = window.PieczargotchiCore;
+    if (!core || !core.normalizeProgressionState) {
+      state.history = state.history || {};
+      state.evolution = state.evolution || { variant: null, decidedAt: null, reason: null };
+      state.minigames = state.minigames || { active: null, lastResult: null };
+      state.decorations = state.decorations || { owned: [], active: [] };
+      return state;
+    }
+
+    const normalized = core.normalizeProgressionState(state, rules, actions);
+    state.history = normalized.history;
+    state.evolution = normalized.evolution;
+    state.minigames = normalized.minigames;
+    state.decorations = normalized.decorations;
     return state;
   }
 
@@ -154,6 +178,8 @@
     updateHealthAndGrowth(state, elapsedHours);
     state.stats = clampAllStats(state.stats);
     state.stage = getStageForGrowth(state.stats.growth || 0);
+    recordElapsedHistory(state, elapsedMs);
+    state = applyEvolutionIfReady(state, now, true);
     updateArenaUnlock(state);
     updatePatch(state, elapsedHours, now);
     evaluateAttention(state, now);
@@ -279,14 +305,15 @@
   function getStrongestNeed(state) {
     const definitions = rules.needDefinitions || {};
     const attentionRules = rules.attention || {};
-    const mildThreshold = attentionRules.mildThreshold || 45;
-    const criticalThreshold = attentionRules.criticalThreshold || 25;
     const needs = Object.keys(definitions).map(function(stat) {
       if (stat === 'energy' && state.mode === 'sleeping') {
         return null;
       }
 
       const value = Number(state.stats[stat]);
+      const needRules = attentionRules.perNeed && attentionRules.perNeed[stat] ? attentionRules.perNeed[stat] : {};
+      const mildThreshold = Number(needRules.mildThreshold) || attentionRules.mildThreshold || 45;
+      const criticalThreshold = Number(needRules.criticalThreshold) || attentionRules.criticalThreshold || 25;
       if (!Number.isFinite(value) || value >= mildThreshold) {
         return null;
       }
@@ -300,8 +327,8 @@
         definition: definition,
         message: severity === 'critical' ? definition.criticalMessage : definition.mildMessage,
         deadlineMs: severity === 'critical'
-          ? attentionRules.criticalDeadlineMs || 90000
-          : attentionRules.deadlineMs || 180000
+          ? Number(needRules.criticalDeadlineMs) || attentionRules.criticalDeadlineMs || 90000
+          : Number(needRules.deadlineMs) || attentionRules.deadlineMs || 180000
       };
     }).filter(Boolean);
 
@@ -323,8 +350,63 @@
     state.patch.careStreak = 0;
     state.stats.health -= need.severity === 'critical' ? 8 : 4;
     state.stats.happiness -= need.severity === 'critical' ? 6 : 3;
+    recordAttentionHistory(state, 'missed');
     addLog(state, 'Przegapiona potrzeba: ' + need.definition.title + '. To zapisuje się w historii opieki.', now);
     triggerEffect('attention');
+  }
+
+  function recordActionHistory(state, actionId) {
+    const core = window.PieczargotchiCore;
+    if (!core || !core.recordActionHistory) {
+      return state;
+    }
+
+    const updated = core.recordActionHistory(state, actionId);
+    state.history = updated.history;
+    return state;
+  }
+
+  function recordAttentionHistory(state, outcome) {
+    const core = window.PieczargotchiCore;
+    if (!core || !core.recordAttentionHistory) {
+      return state;
+    }
+
+    const updated = core.recordAttentionHistory(state, outcome);
+    state.history = updated.history;
+    return state;
+  }
+
+  function recordElapsedHistory(state, elapsedMs) {
+    const core = window.PieczargotchiCore;
+    if (!core || !core.recordElapsedHistory) {
+      return state;
+    }
+
+    const updated = core.recordElapsedHistory(state, elapsedMs);
+    state.history = updated.history;
+    return state;
+  }
+
+  function applyEvolutionIfReady(state, now, shouldLog) {
+    const core = window.PieczargotchiCore;
+    const previousVariant = state.evolution && state.evolution.variant;
+    if (!core || !core.maybeApplyEvolution) {
+      return state;
+    }
+
+    const evolved = core.maybeApplyEvolution(state, rules, now);
+    if (evolved.evolution && evolved.evolution.variant) {
+      evolved.stage = 'legendary';
+    }
+    if (!previousVariant && evolved.evolution && evolved.evolution.variant && shouldLog) {
+      const label = core.getEvolutionLabel
+        ? core.getEvolutionLabel(evolved.evolution.variant, rules)
+        : 'Legendarna Pieczarka';
+      addLog(evolved, 'Ewolucja: ' + label + '. ' + evolved.evolution.reason + '.', now);
+      triggerEffect('spores');
+    }
+    return evolved;
   }
 
   function clampAllStats(stats) {

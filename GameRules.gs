@@ -13,7 +13,33 @@ function getGameRulesConfig() {
       criticalThreshold: 25,
       deadlineMs: 180000,
       criticalDeadlineMs: 90000,
-      repeatedMistakeCooldownMs: 900000
+      repeatedMistakeCooldownMs: 900000,
+      perNeed: {
+        hydration: {
+          mildThreshold: 48,
+          criticalThreshold: 28,
+          deadlineMs: 150000,
+          criticalDeadlineMs: 75000
+        },
+        cleanliness: {
+          mildThreshold: 38,
+          criticalThreshold: 18,
+          deadlineMs: 240000,
+          criticalDeadlineMs: 120000
+        },
+        energy: {
+          mildThreshold: 36,
+          criticalThreshold: 18,
+          deadlineMs: 240000,
+          criticalDeadlineMs: 120000
+        },
+        health: {
+          mildThreshold: 55,
+          criticalThreshold: 35,
+          deadlineMs: 120000,
+          criticalDeadlineMs: 60000
+        }
+      }
     },
     needDefinitions: {
       hydration: {
@@ -109,6 +135,9 @@ function getGameRulesConfig() {
       stormHappinessPerHour: -2,
       stormCleanlinessPerHour: -1.5
     },
+    minigames: getMinigamesConfig(),
+    evolution: getEvolutionRulesConfig(),
+    decorations: getDecorationCatalog(),
     battle: {
       unlockStage: 'legendary',
       trainingCost: 1,
@@ -150,7 +179,13 @@ function getGameRulesConfig() {
           staminaCost: 10,
           power: 10,
           accuracy: 0.9,
-          stat: 'speed'
+          stat: 'speed',
+          statusEffect: {
+            target: 'opponent',
+            type: 'slow',
+            turns: 2,
+            value: 3
+          }
         },
         {
           id: 'focusBloom',
@@ -158,7 +193,49 @@ function getGameRulesConfig() {
           staminaCost: 12,
           power: 18,
           accuracy: 0.82,
-          stat: 'focus'
+          stat: 'focus',
+          selfEffect: {
+            type: 'stamina',
+            value: 4
+          }
+        }
+      ],
+      opponentCatalog: [
+        {
+          id: 'sproutling',
+          name: 'Kiełek areny',
+          rank: 1,
+          strategy: 'balanced',
+          weights: {
+            sporeJab: 4,
+            capGuard: 2,
+            myceliumFeint: 2,
+            focusBloom: 1
+          }
+        },
+        {
+          id: 'windcap',
+          name: 'Wiatrokapelusz',
+          rank: 2,
+          strategy: 'speed',
+          weights: {
+            sporeJab: 2,
+            capGuard: 1,
+            myceliumFeint: 5,
+            focusBloom: 2
+          }
+        },
+        {
+          id: 'eldercap',
+          name: 'Starszy Kapelusz',
+          rank: 3,
+          strategy: 'defensive',
+          weights: {
+            sporeJab: 2,
+            capGuard: 4,
+            myceliumFeint: 1,
+            focusBloom: 3
+          }
         }
       ]
     },

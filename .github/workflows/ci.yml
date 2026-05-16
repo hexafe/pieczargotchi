@@ -37,6 +37,9 @@ jobs:
       - name: Run client core tests
         run: node scripts/test-client-core.mjs
 
+      - name: Run weather precipitation motion tests
+        run: node scripts/test-weather-precip-motion.mjs
+
       - name: Check capture scripts
         run: |
           node --check scripts/capture-app-render.mjs
@@ -46,7 +49,7 @@ jobs:
 
       - name: Check Apps Script syntax
         run: |
-          node -e "const fs=require('fs'); for (const f of ['Code.gs','Config.gs','AnimationConfig.gs','AssetService.gs','StateModel.gs','GameRules.gs','Actions.gs']) { new Function(fs.readFileSync(f,'utf8')); console.log(f + ' syntax ok'); }"
+          node -e "const fs=require('fs'); for (const f of ['Code.gs','Config.gs','AnimationConfig.gs','AssetService.gs','StateModel.gs','GameRules.gs','MinigamesConfig.gs','EvolutionRules.gs','DecorationStore.gs','SyncService.gs','Actions.gs']) { new Function(fs.readFileSync(f,'utf8')); console.log(f + ' syntax ok'); }"
 
       - name: Check Python helper syntax
         run: python -m py_compile scripts/build-imagegen-sprites.py scripts/generate-pixel-assets.py scripts/audit-spore-sprites.py scripts/audit-sprite-consistency.py

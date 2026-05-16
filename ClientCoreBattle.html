@@ -208,11 +208,43 @@
     });
     const roll = nextRandom(activeBattle && activeBattle.rngSeed);
     const candidates = viable.length ? viable : moves;
-    const selected = candidates[Math.floor(roll.value * candidates.length)] || firstMove(catalog);
+    const selected = chooseWeightedOpponentMove(candidates, opponent, roll.value) || firstMove(catalog);
     return {
       moveId: selected.id,
       rngSeed: roll.seed
     };
+  }
+
+  function chooseWeightedOpponentMove(candidates, opponent, value) {
+    const weights = isPlainObject(opponent.weights) ? opponent.weights : {};
+    const hpRatio = opponent.maxHp > 0 ? opponent.hp / opponent.maxHp : 1;
+    const weighted = candidates.map(function(move) {
+      let weight = Math.max(1, Number(weights[move.id]) || 1);
+      if (hpRatio < 0.34 && move.guard) {
+        weight += 3;
+      }
+      if (opponent.stamina < 16 && move.staminaCost <= 8) {
+        weight += 2;
+      }
+      if (opponent.strategy === 'speed' && move.stat === 'speed') {
+        weight += 2;
+      }
+      if (opponent.strategy === 'defensive' && move.guard) {
+        weight += 2;
+      }
+      return { move: move, weight: weight };
+    });
+    const total = weighted.reduce(function(sum, item) {
+      return sum + item.weight;
+    }, 0);
+    let cursor = value * total;
+    for (let index = 0; index < weighted.length; index += 1) {
+      cursor -= weighted[index].weight;
+      if (cursor <= 0) {
+        return weighted[index].move;
+      }
+    }
+    return weighted.length ? weighted[weighted.length - 1].move : null;
   }
 
   function applyBattleOutcomeRewards(rawState, rules, now) {
@@ -257,7 +289,9 @@
     let seed = clampInteger(battle.rngSeed, 1, 2147483646, 1);
     const events = [];
 
-    const order = player.speed >= opponent.speed
+    const playerSpeed = getEffectiveBattleSpeed(player);
+    const opponentSpeed = getEffectiveBattleSpeed(opponent);
+    const order = playerSpeed >= opponentSpeed
       ? [
           { actor: 'player', source: player, target: opponent, move: playerMove },
           { actor: 'opponent', source: opponent, target: player, move: opponentMove }
@@ -278,6 +312,8 @@
     });
 
     const mode = opponent.hp <= 0 ? 'victory' : player.hp <= 0 ? 'defeat' : 'choosingMove';
+    tickCombatantStatusEffects(player);
+    tickCombatantStatusEffects(opponent);
     return Object.assign({}, battle, {
       mode: mode,
       rngSeed: seed,
@@ -319,8 +355,43 @@
       defense: clampInteger(combatant.defense, 0, 999, 10),
       speed: clampInteger(combatant.speed, 0, 999, 10),
       focus: clampInteger(combatant.focus, 0, 999, 10),
-      guard: clampNumber(Number(combatant.guard), 0, 0.9, 0)
+      guard: clampNumber(Number(combatant.guard), 0, 0.9, 0),
+      statusEffects: normalizeBattleStatusEffects(combatant.statusEffects),
+      strategy: combatant.strategy || 'balanced',
+      weights: isPlainObject(combatant.weights) ? deepClone(combatant.weights) : {}
     };
+  }
+
+  function normalizeBattleStatusEffects(statusEffects) {
+    const source = isPlainObject(statusEffects) ? statusEffects : {};
+    const result = {};
+    Object.keys(source).forEach(function(key) {
+      const item = isPlainObject(source[key]) ? source[key] : {};
+      const turns = clampInteger(item.turns, 0, 99, 0);
+      if (turns > 0) {
+        result[key] = {
+          turns: turns,
+          value: clampInteger(item.value, 0, 999, 0)
+        };
+      }
+    });
+    return result;
+  }
+
+  function getEffectiveBattleSpeed(combatant) {
+    const slow = combatant.statusEffects && combatant.statusEffects.slow;
+    return Math.max(0, combatant.speed - (slow ? Number(slow.value) || 0 : 0));
+  }
+
+  function tickCombatantStatusEffects(combatant) {
+    const statusEffects = normalizeBattleStatusEffects(combatant.statusEffects);
+    Object.keys(statusEffects).forEach(function(key) {
+      statusEffects[key].turns -= 1;
+      if (statusEffects[key].turns <= 0) {
+        delete statusEffects[key];
+      }
+    });
+    combatant.statusEffects = statusEffects;
   }
 
   function applyBattleMove(source, target, move, seed) {
@@ -349,9 +420,40 @@
     const damage = Math.max(1, Math.round(rawDamage));
     target.hp = Math.max(0, target.hp - damage);
     source.guard = clampNumber(Number(move.guard), 0, 0.9, 0);
+    applyBattleSelfEffect(source, move.selfEffect);
+    applyBattleStatusEffect(source, target, move.statusEffect);
     return {
       rngSeed: roll.seed,
-      event: { type: 'hit', damage: damage }
+      event: {
+        type: 'hit',
+        damage: damage,
+        selfEffect: isPlainObject(move.selfEffect) ? move.selfEffect.type : null,
+        statusEffect: isPlainObject(move.statusEffect) ? move.statusEffect.type : null
+      }
+    };
+  }
+
+  function applyBattleSelfEffect(source, effect) {
+    if (!isPlainObject(effect)) {
+      return;
+    }
+    if (effect.type === 'stamina') {
+      source.stamina = Math.min(source.maxStamina, source.stamina + clampInteger(effect.value, 0, 999, 0));
+    }
+    if (effect.type === 'heal') {
+      source.hp = Math.min(source.maxHp, source.hp + clampInteger(effect.value, 0, 999, 0));
+    }
+  }
+
+  function applyBattleStatusEffect(source, target, effect) {
+    if (!isPlainObject(effect) || !effect.type) {
+      return;
+    }
+    const receiver = effect.target === 'self' ? source : target;
+    receiver.statusEffects = normalizeBattleStatusEffects(receiver.statusEffects);
+    receiver.statusEffects[effect.type] = {
+      turns: clampInteger(effect.turns, 1, 99, 1),
+      value: clampInteger(effect.value, 0, 999, 0)
     };
   }
 
@@ -367,21 +469,27 @@
   function createBattleOpponent(state, battleRules, seed) {
     const rewards = state && state.battle && state.battle.rewards ? state.battle.rewards : {};
     const trophies = Math.max(0, Number(rewards.trophies) || 0);
-    const rank = 1 + Math.floor(trophies / 2);
+    const opponentCatalog = Array.isArray(battleRules && battleRules.opponentCatalog) ? battleRules.opponentCatalog : [];
+    const opponentTemplate = opponentCatalog.length
+      ? opponentCatalog[trophies % opponentCatalog.length]
+      : null;
+    const rank = opponentTemplate ? Math.max(1, Number(opponentTemplate.rank) || 1) + Math.floor(trophies / Math.max(1, opponentCatalog.length)) : 1 + Math.floor(trophies / 2);
     const firstRoll = nextRandom(seed);
     const secondRoll = nextRandom(firstRoll.seed);
     const speedLean = Math.round(firstRoll.value * 4);
     const focusLean = Math.round(secondRoll.value * 4);
 
     return {
-      name: rank > 3 ? 'Mistrz grzybni' : 'Rywal grzybni',
+      name: opponentTemplate && opponentTemplate.name ? opponentTemplate.name : rank > 3 ? 'Mistrz grzybni' : 'Rywal grzybni',
       hp: 68 + rank * 8,
       stamina: 46 + rank * 5,
       strength: 9 + rank * 2,
       attack: 11 + rank * 2,
       defense: 9 + rank * 2,
       speed: 8 + rank * 2 + speedLean,
-      focus: 8 + rank * 2 + focusLean
+      focus: 8 + rank * 2 + focusLean,
+      strategy: opponentTemplate && opponentTemplate.strategy ? opponentTemplate.strategy : 'balanced',
+      weights: opponentTemplate && opponentTemplate.weights ? deepClone(opponentTemplate.weights) : {}
     };
   }
 

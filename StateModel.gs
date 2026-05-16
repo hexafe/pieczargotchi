@@ -43,6 +43,27 @@ function createDefaultStateTemplate() {
       substrate: 1,
       spores: 0
     },
+    history: {
+      actionsPerformed: {},
+      modeMs: {
+        awake: 0,
+        sleeping: 0
+      },
+      statSamples: {
+        count: 0,
+        hydration: 0,
+        nutrients: 0,
+        energy: 0,
+        happiness: 0,
+        cleanliness: 0,
+        health: 0
+      },
+      attention: {
+        handled: 0,
+        missed: 0
+      },
+      minigames: {}
+    },
     patch: {
       quality: 72,
       mycelium: 0,
@@ -79,6 +100,19 @@ function createDefaultStateTemplate() {
         trophies: 0
       },
       log: []
+    },
+    evolution: {
+      variant: null,
+      decidedAt: null,
+      reason: null
+    },
+    minigames: {
+      active: null,
+      lastResult: null
+    },
+    decorations: {
+      owned: [],
+      active: []
     },
     coins: 0,
     cooldowns: {

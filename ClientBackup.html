@@ -1,0 +1,80 @@
+  function handleExportState() {
+    const core = window.PieczargotchiCore;
+    if (!core || !core.buildStateExportEnvelope || !runtime.state) {
+      setBackupMessage('Eksport niedostępny.');
+      return;
+    }
+
+    const now = getRuntimeNow();
+    const envelope = core.buildStateExportEnvelope(runtime.state, now);
+    const blob = new Blob([JSON.stringify(envelope, null, 2)], { type: 'application/json' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const stamp = new Date(now).toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    link.href = url;
+    link.download = 'pieczargotchi-' + stamp + '.json';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(function() {
+      window.URL.revokeObjectURL(url);
+    }, 0);
+    setBackupMessage('Eksport gotowy.');
+  }
+
+  function handleImportClick() {
+    if (dom.importInput) {
+      dom.importInput.click();
+    }
+  }
+
+  function handleImportFile(event) {
+    const file = event.target && event.target.files ? event.target.files[0] : null;
+    if (!file) {
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function() {
+      importStateText(String(reader.result || ''));
+      event.target.value = '';
+    };
+    reader.onerror = function() {
+      setBackupMessage('Nie udało się odczytać pliku.');
+      event.target.value = '';
+    };
+    reader.readAsText(file);
+  }
+
+  function importStateText(text) {
+    const core = window.PieczargotchiCore;
+    if (!core || !core.importStateEnvelope) {
+      setBackupMessage('Import niedostępny.');
+      return;
+    }
+
+    try {
+      const result = core.importStateEnvelope(text, config.stateVersion || 4);
+      if (!result.ok) {
+        setBackupMessage(result.reason);
+        return;
+      }
+
+      runtime.state = normalizeState(mergeState(createDefaultState(), result.state));
+      runtime.state.lastUpdatedAt = new Date(getRuntimeNow()).toISOString();
+      addLog(runtime.state, 'Zapis został zaimportowany.', getRuntimeNow());
+      saveState(runtime.state);
+      stopMinigameRuntime();
+      resumeMinigameIfActive();
+      setBackupMessage('Import zakończony.');
+      renderUi();
+    } catch (error) {
+      setBackupMessage(error && error.message ? error.message : 'Import nie powiódł się.');
+    }
+  }
+
+  function setBackupMessage(message) {
+    if (dom.backupStatus) {
+      dom.backupStatus.textContent = message;
+    }
+  }

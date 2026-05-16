@@ -15,6 +15,10 @@ const requiredSourceFiles = [
   'AssetService.gs',
   'StateModel.gs',
   'GameRules.gs',
+  'MinigamesConfig.gs',
+  'EvolutionRules.gs',
+  'DecorationStore.gs',
+  'SyncService.gs',
   'Actions.gs',
   'Index.html',
   'Styles.html',
@@ -25,6 +29,8 @@ const requiredSourceFiles = [
   'ClientCoreCare.html',
   'ClientCoreBattle.html',
   'ClientCoreShared.html',
+  'ClientCoreProgression.html',
+  'ClientCoreMinigames.html',
   'ClientCoreExports.html',
   'ClientBoot.html',
   'ClientDebug.html',
@@ -32,6 +38,8 @@ const requiredSourceFiles = [
   'ClientWeather.html',
   'ClientState.html',
   'ClientActions.html',
+  'ClientMinigameDewCatch.html',
+  'ClientBackup.html',
   'ClientUi.html',
   'ClientBattleScene.html',
   'ClientAnimation.html',
@@ -56,6 +64,8 @@ const expectedCoreIncludes = [
   'ClientCoreCare',
   'ClientCoreBattle',
   'ClientCoreShared',
+  'ClientCoreProgression',
+  'ClientCoreMinigames',
   'ClientCoreExports'
 ];
 
@@ -66,6 +76,8 @@ const expectedClientIncludes = [
   'ClientWeather',
   'ClientState',
   'ClientActions',
+  'ClientMinigameDewCatch',
+  'ClientBackup',
   'ClientUi',
   'ClientBattleScene',
   'ClientAnimation',
@@ -93,6 +105,7 @@ function main() {
   checkAppsScriptManifest();
   checkHtmlIncludes();
   checkStaticConfig();
+  checkLocalPreviewConfig();
   checkAssetFallbackContract();
   checkClaspLocalOnlyContract();
   checkTrackedSecretLeaks();
@@ -186,7 +199,7 @@ function checkStaticConfig() {
   if (config.storageKey !== 'pieczargotchi_state_v2') {
     fail(`Unexpected storage key: ${config.storageKey}`);
   }
-  if (config.stateVersion !== 3) {
+  if (config.stateVersion !== 4) {
     fail(`Unexpected state version: ${config.stateVersion}`);
   }
   if (!config.runtime || config.runtime.debugEnabled !== false) {
@@ -214,6 +227,61 @@ function checkStaticConfig() {
     warn(`Config.gs contains ${configuredIds.length} committed Drive asset ID(s): ${configuredIds.slice(0, 6).join(', ')}`);
   } else {
     warn('No Drive asset IDs are configured; deployed Apps Script smoke should verify canvas fallback rendering.');
+  }
+}
+
+function checkLocalPreviewConfig() {
+  const context = {
+    console,
+    Object,
+    Utilities: {
+      base64Encode() {
+        return '';
+      }
+    },
+    DriveApp: {
+      getFileById(fileId) {
+        throw new Error(`DriveApp unavailable during local preview config check for ${fileId}.`);
+      }
+    }
+  };
+  vm.createContext(context);
+
+  const files = [
+    'Config.gs',
+    'AnimationConfig.gs',
+    'StateModel.gs',
+    'MinigamesConfig.gs',
+    'EvolutionRules.gs',
+    'DecorationStore.gs',
+    'SyncService.gs',
+    'GameRules.gs',
+    'Actions.gs',
+    'AssetService.gs'
+  ];
+
+  for (const fileName of files) {
+    try {
+      vm.runInContext(readText(fileName), context, { filename: fileName });
+    } catch (error) {
+      fail(`${fileName} could not be evaluated for local preview config: ${error.message}`);
+      return;
+    }
+  }
+
+  try {
+    const config = context.getClientConfig();
+    if (!config.rules || !config.rules.minigames || !config.rules.minigames.dewCatch) {
+      fail('Local preview config is missing minigames.dewCatch.');
+    }
+    if (!config.rules || !config.rules.evolution || !config.rules.evolution.variants) {
+      fail('Local preview config is missing evolution variants.');
+    }
+    if (!Array.isArray(config.rules && config.rules.decorations) || !config.rules.decorations.length) {
+      fail('Local preview config is missing decorations.');
+    }
+  } catch (error) {
+    fail(`getClientConfig() failed for local preview config: ${error.message}`);
   }
 }
 

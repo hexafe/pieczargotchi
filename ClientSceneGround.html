@@ -12,7 +12,7 @@
     drawGeneratedGrassPatch(ctx, palette, scene, patchTop, surface);
     drawGroundWetness(ctx, palette, now, scene, surface, groundTop);
     drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
-      count: 104,
+      count: 132,
       seedBase: 8111,
       baseYMin: 412,
       baseYMax: 448,
@@ -23,7 +23,7 @@
       front: false
     });
     drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
-      count: 42,
+      count: 58,
       seedBase: 11807,
       baseYMin: 430,
       baseYMax: 466,
@@ -135,33 +135,285 @@
     const scene = getCurrentWeatherScene();
     const palette = getScenePalette(scene);
     const condition = scene && scene.condition;
+    const stage = getCurrentGroundStage();
+    const profile = getGroundForegroundProfile(stage);
     const surface = typeof getWeatherSurfaceState === 'function'
       ? getWeatherSurfaceState(scene, now)
       : { wetness: 0, snowCover: condition === 'snow' ? scene.snowIntensity || 0.25 : 0 };
     const snowCover = clamp(Number(surface.snowCover), 0, 1, 0);
     drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
-      count: 84,
+      count: profile.primary.count,
       seedBase: 9331,
-      baseYMin: 422,
-      baseYMax: 458,
-      heightMin: 16,
-      heightMax: 39,
-      alpha: condition === 'snow' || snowCover > 0.12 ? 0.34 : 0.72,
-      width: 2,
-      front: true
-    });
-    drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
-      count: 38,
-      seedBase: 12883,
-      baseYMin: 438,
-      baseYMax: 474,
-      heightMin: 24,
-      heightMax: 58,
-      alpha: condition === 'snow' || snowCover > 0.12 ? 0.26 : 0.64,
+      baseYMin: profile.primary.baseYMin,
+      baseYMax: profile.primary.baseYMax,
+      heightMin: profile.primary.heightMin,
+      heightMax: profile.primary.heightMax,
+      alpha: (condition === 'snow' || snowCover > 0.12 ? 0.34 : 0.72) * profile.primary.alphaScale,
       width: 2,
       front: true,
-      xBands: [[-4, 148], [356, 516], [18, 236], [286, 498]]
+      xBands: profile.primary.xBands
     });
+    drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
+      count: profile.secondary.count,
+      seedBase: 12883,
+      baseYMin: profile.secondary.baseYMin,
+      baseYMax: profile.secondary.baseYMax,
+      heightMin: profile.secondary.heightMin,
+      heightMax: profile.secondary.heightMax,
+      alpha: (condition === 'snow' || snowCover > 0.12 ? 0.26 : 0.64) * profile.secondary.alphaScale,
+      width: 2,
+      front: true,
+      xBands: profile.secondary.xBands
+    });
+    drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
+      count: profile.groundline.count,
+      seedBase: 17351,
+      baseYMin: profile.groundline.baseYMin,
+      baseYMax: profile.groundline.baseYMax,
+      heightMin: profile.groundline.heightMin,
+      heightMax: profile.groundline.heightMax,
+      alpha: (condition === 'snow' || snowCover > 0.12 ? 0.22 : 0.56) * profile.groundline.alphaScale,
+      width: 2,
+      front: true,
+      xBands: profile.groundline.xBands
+    });
+  }
+
+  function drawPatchDecorations(ctx, palette, now, scene) {
+    const active = runtime.state && runtime.state.decorations && Array.isArray(runtime.state.decorations.active)
+      ? runtime.state.decorations.active
+      : [];
+    if (!active.length) {
+      return;
+    }
+
+    const positions = {
+      dewStone: { x: 102, y: 436 },
+      mossBell: { x: 406, y: 424 },
+      sporeLantern: { x: 256, y: 448 }
+    };
+    active.forEach(function(decorationId) {
+      const position = positions[decorationId] || { x: 72, y: 446 };
+      if (decorationId === 'dewStone') {
+        drawDewStoneDecoration(ctx, position.x, position.y, now);
+      } else if (decorationId === 'mossBell') {
+        drawMossBellDecoration(ctx, position.x, position.y, now, scene);
+      } else if (decorationId === 'sporeLantern') {
+        drawSporeLanternDecoration(ctx, position.x, position.y, now);
+      }
+    });
+  }
+
+  function drawDewStoneDecoration(ctx, x, y, now) {
+    const shine = Math.sin(now / 900) * 0.5 + 0.5;
+    ctx.save();
+    ctx.fillStyle = '#47606a';
+    ctx.fillRect(x - 12, y + 16, 28, 8);
+    ctx.fillStyle = '#6f96a5';
+    ctx.fillRect(x - 9, y + 8, 22, 12);
+    ctx.fillStyle = '#9fd2dc';
+    ctx.fillRect(x - 4, y + 4, 13, 8);
+    if (shine > 0.58) {
+      ctx.fillStyle = '#fffdf7';
+      ctx.fillRect(x + 7, y + 3, 3, 3);
+    }
+    ctx.restore();
+  }
+
+  function drawMossBellDecoration(ctx, x, y, now, scene) {
+    const wind = getDynamicWindState(scene, now);
+    const sway = Math.round(Math.sin(now / 740) * 2 + (wind.directionX || 0) * wind.level * 4);
+    ctx.save();
+    ctx.fillStyle = '#24582c';
+    ctx.fillRect(x - 2, y - 12, 4, 42);
+    ctx.fillStyle = '#6ca64a';
+    ctx.fillRect(x - 16 + sway, y + 8, 32, 12);
+    ctx.fillStyle = '#b6d66f';
+    ctx.fillRect(x - 10 + sway, y + 4, 20, 14);
+    ctx.fillStyle = '#3c2b20';
+    ctx.fillRect(x - 2 + sway, y + 18, 4, 5);
+    ctx.restore();
+  }
+
+  function drawSporeLanternDecoration(ctx, x, y, now) {
+    const pulse = Math.sin(now / 620) * 0.5 + 0.5;
+    ctx.save();
+    ctx.globalAlpha = 0.18 + pulse * 0.12;
+    ctx.fillStyle = '#f2c45f';
+    ctx.fillRect(x - 18, y - 12, 36, 28);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#3c2b20';
+    ctx.fillRect(x - 12, y - 3, 24, 4);
+    ctx.fillRect(x - 9, y + 19, 18, 4);
+    ctx.fillRect(x - 13, y - 1, 4, 22);
+    ctx.fillRect(x + 9, y - 1, 4, 22);
+    ctx.fillStyle = '#f2c45f';
+    ctx.fillRect(x - 8, y + 3, 16, 14);
+    ctx.fillStyle = '#fff2a5';
+    ctx.fillRect(x - 3, y + 6, 6, 7);
+    ctx.restore();
+  }
+
+  function getCurrentGroundStage() {
+    const state = runtime.state || {};
+    if (state.stage) {
+      return state.stage;
+    }
+
+    return getStageForGrowth(state.stats && state.stats.growth ? state.stats.growth : 0);
+  }
+
+  function getGroundForegroundProfile(stage) {
+    const full = [[-4, 516]];
+    const profiles = {
+      spore: {
+        primary: {
+          count: 84,
+          baseYMin: 424,
+          baseYMax: 462,
+          heightMin: 18,
+          heightMax: 44,
+          alphaScale: 1,
+          xBands: full
+        },
+        secondary: {
+          count: 44,
+          baseYMin: 440,
+          baseYMax: 480,
+          heightMin: 24,
+          heightMax: 58,
+          alphaScale: 1,
+          xBands: [[-4, 148], [356, 516], [18, 236], [286, 498]]
+        },
+        groundline: {
+          count: 28,
+          baseYMin: 484,
+          baseYMax: 510,
+          heightMin: 10,
+          heightMax: 24,
+          alphaScale: 0.92,
+          xBands: full
+        }
+      },
+      baby: {
+        primary: {
+          count: 88,
+          baseYMin: 438,
+          baseYMax: 484,
+          heightMin: 26,
+          heightMax: 60,
+          alphaScale: 0.95,
+          xBands: [[-4, 170], [342, 516], [8, 220], [292, 506]]
+        },
+        secondary: {
+          count: 46,
+          baseYMin: 456,
+          baseYMax: 500,
+          heightMin: 30,
+          heightMax: 70,
+          alphaScale: 0.92,
+          xBands: [[-4, 154], [358, 516], [18, 198], [314, 498]]
+        },
+        groundline: {
+          count: 50,
+          baseYMin: 492,
+          baseYMax: 512,
+          heightMin: 10,
+          heightMax: 28,
+          alphaScale: 0.88,
+          xBands: [[-4, 204], [308, 516], [54, 172], [340, 458], [206, 306]]
+        }
+      },
+      young: {
+        primary: {
+          count: 86,
+          baseYMin: 444,
+          baseYMax: 492,
+          heightMin: 30,
+          heightMax: 68,
+          alphaScale: 0.92,
+          xBands: [[-4, 138], [374, 516], [8, 184], [328, 506]]
+        },
+        secondary: {
+          count: 48,
+          baseYMin: 464,
+          baseYMax: 506,
+          heightMin: 34,
+          heightMax: 78,
+          alphaScale: 0.9,
+          xBands: [[-4, 126], [386, 516], [20, 172], [340, 492]]
+        },
+        groundline: {
+          count: 56,
+          baseYMin: 494,
+          baseYMax: 512,
+          heightMin: 10,
+          heightMax: 30,
+          alphaScale: 0.86,
+          xBands: [[-4, 154], [358, 516], [26, 130], [386, 488], [198, 314]]
+        }
+      },
+      adult: {
+        primary: {
+          count: 82,
+          baseYMin: 452,
+          baseYMax: 500,
+          heightMin: 34,
+          heightMax: 76,
+          alphaScale: 0.9,
+          xBands: [[-4, 116], [396, 516], [8, 164], [348, 506]]
+        },
+        secondary: {
+          count: 46,
+          baseYMin: 470,
+          baseYMax: 510,
+          heightMin: 38,
+          heightMax: 86,
+          alphaScale: 0.88,
+          xBands: [[-4, 106], [406, 516], [18, 148], [364, 496]]
+        },
+        groundline: {
+          count: 60,
+          baseYMin: 496,
+          baseYMax: 512,
+          heightMin: 8,
+          heightMax: 28,
+          alphaScale: 0.84,
+          xBands: [[-4, 136], [376, 516], [34, 118], [396, 484], [206, 306]]
+        }
+      },
+      legendary: {
+        primary: {
+          count: 80,
+          baseYMin: 454,
+          baseYMax: 502,
+          heightMin: 34,
+          heightMax: 78,
+          alphaScale: 0.9,
+          xBands: [[-4, 104], [408, 516], [8, 150], [362, 506]]
+        },
+        secondary: {
+          count: 44,
+          baseYMin: 472,
+          baseYMax: 510,
+          heightMin: 40,
+          heightMax: 88,
+          alphaScale: 0.86,
+          xBands: [[-4, 96], [416, 516], [18, 136], [376, 496]]
+        },
+        groundline: {
+          count: 60,
+          baseYMin: 496,
+          baseYMax: 512,
+          heightMin: 8,
+          heightMax: 28,
+          alphaScale: 0.84,
+          xBands: [[-4, 126], [388, 516], [34, 110], [408, 484], [202, 310]]
+        }
+      }
+    };
+
+    return profiles[stage] || profiles.spore;
   }
 
   function drawWindResponsiveGrassBlades(ctx, palette, now, scene, options) {

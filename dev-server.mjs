@@ -78,6 +78,10 @@ function buildClientConfig() {
     'Config.gs',
     'AnimationConfig.gs',
     'StateModel.gs',
+    'MinigamesConfig.gs',
+    'EvolutionRules.gs',
+    'DecorationStore.gs',
+    'SyncService.gs',
     'GameRules.gs',
     'Actions.gs',
     'AssetService.gs'

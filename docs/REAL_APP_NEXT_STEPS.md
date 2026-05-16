@@ -1,7 +1,7 @@
 # Pieczargotchi Real App Next Steps
 
 Last researched: 2026-05-09
-Last repo checkpoint: 2026-05-13
+Last repo checkpoint: 2026-05-16
 
 This plan is for turning the MVP into a real, fun virtual-pet app. It is not a narrow MVP checklist.
 
@@ -75,6 +75,21 @@ Implemented local v1 systems:
 
 Immediate next product slices should start from `docs/PROJECT_STATE_2026-05-13.md`, not from the older MVP checklist below.
 
+## Current Repo Checkpoint - 2026-05-16
+
+Implemented progression slice:
+
+- Save version `4` with care history, action counts, attention outcomes, minigame records, evolution metadata and decoration ownership.
+- Per-need attention thresholds with visible current-need chip and care history updates.
+- First minigame: `Łapanie rosy`, including deterministic session data, short canvas playfield, bounded rewards and cooldown.
+- Evolution branch selection based on care history, mistakes, patch quality and growth threshold.
+- Local JSON export/import for backup without online sync.
+- Decoration store and patch decorations rendered under the mushroom.
+- Arena 2.0 foundations: weighted opponent choices, status effects and battle log metadata.
+- Weather precipitation fix: rain/snow now use a monotonic motion clock and separate background/foreground passes, so visible drops/flakes do not reverse direction.
+
+Immediate next product slices should start from `docs/PROJECT_STATE_2026-05-16.md`.
+
 ## Real App Systems Plan
 
 ### 1. Sprite And Animation Bible
@@ -141,6 +156,8 @@ Acceptance:
 
 ### 3. Care Mistakes And Attention Calls
 
+Checkpoint: the first version exists. Keep future work focused on the care history UI and better evolution consequences rather than rebuilding the core attention reducer.
+
 Add a real attention system inspired by Tamagotchi care misses.
 
 State additions:
@@ -190,6 +207,8 @@ Possible systems:
 
 ### 5. Interaction And Minigames
 
+Checkpoint: `Łapanie rosy` exists as the first minigame. New games should reuse the same session/reward contract from `ClientCoreMinigames.html`.
+
 The app needs small moments of play beyond clicking care buttons.
 
 Initial minigames:
@@ -207,6 +226,8 @@ Design rules:
 - Failure should be cute, not punishing.
 
 ### 6. Evolution And Long-Term Progression
+
+Checkpoint: the first deterministic branch selector exists. The next step is visual and behavioral identity per variant.
 
 Growth should branch based on care style, not only time.
 
@@ -253,9 +274,9 @@ Keep `localStorage` for fast local play, then add export/sync options.
 
 Path:
 
-1. Keep `localStorage` as default.
-2. Add manual backup/export JSON.
-3. Add import/restore.
+1. Keep `localStorage` as default. Done.
+2. Add manual backup/export JSON. Done.
+3. Add import/restore. Done.
 4. Optional Google Drive or Sheet backup only after the local model is stable.
 
 Acceptance:
