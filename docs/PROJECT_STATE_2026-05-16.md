@@ -23,9 +23,9 @@ Aktualna kolejność sceny opieki:
 
 1. Niebo, ciała niebieskie, tęcza, chmury.
 2. Wiatr oraz tylna warstwa deszczu/śniegu.
-3. Grunt, patch, dekoracje, życie tła.
+3. Grunt, patch, życie tła.
 4. Pieczarka.
-5. Trawa pierwszego planu, życie pierwszego planu.
+5. Trawa pierwszego planu częściowo przykrywająca dół Pieczarki, komódka z dekoracjami, życie pierwszego planu.
 6. Przednia warstwa deszczu/śniegu.
 7. Efekty opieki, senne `Zz`, nuty, serca, krople i zarodniki.
 8. Mgła, śnieg powierzchniowy i inne pogodowe nakładki pierwszego planu.

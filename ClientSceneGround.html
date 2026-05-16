@@ -191,6 +191,24 @@
       front: true,
       xBands: profile.groundline.xBands
     });
+    drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
+      count: profile.cover.count,
+      seedBase: 24571,
+      baseYMin: profile.cover.baseYMin,
+      baseYMax: profile.cover.baseYMax,
+      heightMin: profile.cover.heightMin,
+      heightMax: profile.cover.heightMax,
+      alpha: (condition === 'snow' || snowCover > 0.12 ? 0.26 : 0.78) * profile.cover.alphaScale,
+      width: 2,
+      front: true,
+      xBands: profile.cover.xBands
+    });
+  }
+
+  function drawPatchDecorationsForeground(ctx, now) {
+    const scene = getCurrentWeatherScene();
+    const palette = getScenePalette(scene);
+    drawPatchDecorations(ctx, palette, now, scene);
   }
 
   function drawPatchDecorations(ctx, palette, now, scene) {
@@ -201,13 +219,15 @@
       return;
     }
 
+    const furniture = getDecorationFurnitureLayout();
     const positions = {
-      dewStone: { x: 102, y: 436 },
-      mossBell: { x: 406, y: 424 },
-      sporeLantern: { x: 256, y: 448 }
+      dewStone: { x: furniture.x - 22, y: furniture.y - 28 },
+      mossBell: { x: furniture.x + 5, y: furniture.y - 48 },
+      sporeLantern: { x: furniture.x + 31, y: furniture.y - 36 }
     };
+    drawMushroomDresser(ctx, furniture, now);
     active.forEach(function(decorationId) {
-      const position = positions[decorationId] || { x: 72, y: 446 };
+      const position = positions[decorationId] || { x: furniture.x, y: furniture.y - 24 };
       if (decorationId === 'dewStone') {
         drawDewStoneDecoration(ctx, position.x, position.y, now);
       } else if (decorationId === 'mossBell') {
@@ -216,6 +236,47 @@
         drawSporeLanternDecoration(ctx, position.x, position.y, now);
       }
     });
+  }
+
+  function getDecorationFurnitureLayout() {
+    const stage = getCurrentGroundStage();
+    if (stage === 'spore' || stage === 'baby') {
+      return { x: 420, y: 414, width: 78, height: 58 };
+    }
+
+    return { x: 420, y: 404, width: 78, height: 62 };
+  }
+
+  function drawMushroomDresser(ctx, furniture, now) {
+    const x = furniture.x;
+    const y = furniture.y;
+    const width = furniture.width;
+    const height = furniture.height;
+    const wobble = Math.round(Math.sin(now / 1400) * 1);
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(60, 43, 32, 0.20)';
+    ctx.fillRect(x - 44, y + height - 2, width + 10, 7);
+    ctx.fillStyle = '#5e4028';
+    ctx.fillRect(x - 40, y + 12, width, height - 10);
+    ctx.fillStyle = '#8a5b34';
+    ctx.fillRect(x - 36, y + 16, width - 8, height - 18);
+    ctx.fillStyle = '#3c2b20';
+    ctx.fillRect(x - 44, y + 7 + wobble, width + 8, 9);
+    ctx.fillStyle = '#d8a356';
+    ctx.fillRect(x - 38, y + 4 + wobble, width - 4, 6);
+    ctx.fillStyle = '#3c2b20';
+    ctx.fillRect(x - 35, y + 34, width - 10, 3);
+    ctx.fillRect(x - 18, y + 20, 3, height - 23);
+    ctx.fillRect(x + 16, y + 20, 3, height - 23);
+    ctx.fillStyle = '#f2c45f';
+    ctx.fillRect(x - 26, y + 25, 5, 5);
+    ctx.fillRect(x + 7, y + 25, 5, 5);
+    ctx.fillRect(x + 40, y + 25, 5, 5);
+    ctx.fillStyle = '#3c2b20';
+    ctx.fillRect(x - 36, y + height - 2, 7, 12);
+    ctx.fillRect(x + 22, y + height - 2, 7, 12);
+    ctx.restore();
   }
 
   function drawDewStoneDecoration(ctx, x, y, now) {
@@ -435,7 +496,8 @@
       primary: amplifyGrassLayer(profile.primary, 1.22, 4, 10),
       secondary: amplifyGrassLayer(profile.secondary, 1.36, 6, 18),
       groundline: amplifyGrassLayer(profile.groundline, 1.34, 0, 8),
-      tall: buildTallGrassProfile(profile, stage)
+      tall: buildTallGrassProfile(profile, stage),
+      cover: buildCoverGrassProfile(stage)
     };
   }
 
@@ -474,6 +536,27 @@
     };
 
     return bands[stage] || bands.spore;
+  }
+
+  function buildCoverGrassProfile(stage) {
+    const profiles = {
+      spore: { count: 74, baseYMin: 462, baseYMax: 508, heightMin: 28, heightMax: 74, xBands: [[126, 386], [174, 338], [218, 296]] },
+      baby: { count: 82, baseYMin: 474, baseYMax: 512, heightMin: 34, heightMax: 86, xBands: [[126, 386], [168, 342], [214, 302]] },
+      young: { count: 88, baseYMin: 486, baseYMax: 512, heightMin: 38, heightMax: 92, xBands: [[126, 386], [166, 344], [210, 306]] },
+      adult: { count: 94, baseYMin: 494, baseYMax: 512, heightMin: 34, heightMax: 84, xBands: [[118, 394], [154, 358], [208, 306]] },
+      legendary: { count: 94, baseYMin: 494, baseYMax: 512, heightMin: 34, heightMax: 84, xBands: [[118, 394], [154, 358], [208, 306]] }
+    };
+    const profile = profiles[stage] || profiles.spore;
+
+    return {
+      count: profile.count,
+      baseYMin: profile.baseYMin,
+      baseYMax: profile.baseYMax,
+      heightMin: profile.heightMin,
+      heightMax: profile.heightMax,
+      alphaScale: 0.92,
+      xBands: profile.xBands
+    };
   }
 
   function drawWindResponsiveGrassBlades(ctx, palette, now, scene, options) {

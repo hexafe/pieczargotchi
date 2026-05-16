@@ -15,6 +15,7 @@ const port = 9237 + Math.floor(Math.random() * 400);
 const userDataDir = path.join(tmpdir(), `pieczargotchi-cdp-${Date.now()}`);
 const captureDebugSettings = createCaptureDebugSettings();
 const captureSceneOverrides = createCaptureSceneOverrides();
+const captureDecorations = readListEnv('PIECZARGOTCHI_CAPTURE_DECORATIONS');
 const stageSamples = [
   ['spore', 0],
   ['baby', 12],
@@ -79,6 +80,13 @@ function readOptionalEnvNumber(name) {
 
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function readListEnv(name) {
+  return String(process.env[name] || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function createCaptureSceneOverrides() {
@@ -467,6 +475,8 @@ async function captureCanvas(cdp, label, options) {
     state.stats.health = 100;
     state.patch.quality = 72;
     state.patch.mycelium = 0;
+    state.decorations.owned = ${JSON.stringify(captureDecorations)};
+    state.decorations.active = ${JSON.stringify(captureDecorations.slice(0, 3))};
     state.attention.activeNeed = null;
     state.attention.severity = null;
     state.currentActivity = ${options.activity};
