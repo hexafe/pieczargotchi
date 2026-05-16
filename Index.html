@@ -78,9 +78,16 @@
             <div class="minigame-card">
               <div>
                 <strong>Łapanie rosy</strong>
-                <span data-minigame-last>0 kropli</span>
+                <span data-minigame-last="dewCatch">0 kropli</span>
               </div>
               <button class="ghost-button" type="button" data-minigame-start="dewCatch">Start</button>
+            </div>
+            <div class="minigame-card">
+              <div>
+                <strong>Pękanie zarodników</strong>
+                <span data-minigame-last="sporePop">0 zarodników</span>
+              </div>
+              <button class="ghost-button" type="button" data-minigame-start="sporePop">Start</button>
             </div>
             <div class="minigame-playfield" data-minigame-playfield hidden>
               <canvas
@@ -89,6 +96,14 @@
                 width="240"
                 height="144"
                 aria-label="Minigra łapania rosy"
+              ></canvas>
+              <canvas
+                class="spore-pop-canvas"
+                data-spore-pop-canvas
+                width="240"
+                height="144"
+                aria-label="Minigra pękania zarodników"
+                hidden
               ></canvas>
               <div class="minigame-hud">
                 <span data-minigame-score>0 kropli</span>
@@ -112,6 +127,14 @@
               <span data-decoration-count>0</span>
             </div>
             <div class="decoration-list" data-decoration-list></div>
+          </section>
+
+          <section class="panel-block panel-block--history" data-care-panel>
+            <div class="block-heading">
+              <h2>Historia</h2>
+              <span data-history-score>0 opieki</span>
+            </div>
+            <div class="history-grid" data-care-history></div>
           </section>
 
           <section class="panel-block panel-block--backup" data-care-panel>

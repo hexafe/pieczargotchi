@@ -18,6 +18,7 @@
     renderAttentionChip();
     renderMinigames();
     renderDecorations();
+    renderCareHistory();
     renderInventory();
     renderLog();
     renderBattleUi();
@@ -70,10 +71,12 @@
     if (dom.evolutionLabel) {
       const variant = state.evolution && state.evolution.variant;
       const core = window.PieczargotchiCore;
+      const trait = variant && core && core.getEvolutionTrait ? core.getEvolutionTrait(variant, rules) : null;
       dom.evolutionLabel.hidden = !variant;
       dom.evolutionLabel.textContent = variant && core && core.getEvolutionLabel
         ? core.getEvolutionLabel(variant, rules)
         : '';
+      dom.evolutionLabel.title = trait && trait.message ? trait.message : '';
     }
     dom.dayLabel.textContent = 'Dzień ' + day;
     dom.healthLabel.textContent = Math.round(state.stats.health) + '%';
@@ -204,29 +207,52 @@
 
     const active = runtime.state.minigames && runtime.state.minigames.active;
     const now = getRuntimeNow();
-    const cooldownUntil = Number(runtime.state.cooldowns[getMinigameCooldownKey('dewCatch')]) || 0;
-    const remaining = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
-    const last = runtime.state.minigames && runtime.state.minigames.lastResult;
+    const minigameRules = rules.minigames || {};
+    const cooldowns = Object.keys(minigameRules).map(function(minigameId) {
+      const cooldownUntil = Number(runtime.state.cooldowns[getMinigameCooldownKey(minigameId)]) || 0;
+      return Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
+    }).filter(Boolean);
+    const remaining = cooldowns.length ? Math.min.apply(null, cooldowns) : 0;
     if (active) {
-      dom.minigameStatus.textContent = 'Trwa';
+      dom.minigameStatus.textContent = active.label || (minigameRules[active.id] && minigameRules[active.id].label) || 'Trwa';
     } else if (remaining) {
       dom.minigameStatus.textContent = 'Za ' + remaining + ' s';
     } else {
       dom.minigameStatus.textContent = 'Gotowe';
     }
 
-    if (dom.minigameLast) {
-      dom.minigameLast.textContent = last && last.id === 'dewCatch'
-        ? (Number(last.score) || 0) + ' kropli'
-        : '0 kropli';
-    }
+    renderMinigameLastScores();
     if (dom.minigamePlayfield) {
       dom.minigamePlayfield.hidden = !active;
     }
+    if (typeof setActiveMinigameCanvas === 'function') {
+      setActiveMinigameCanvas(active && active.id);
+    }
     dom.minigameStartButtons.forEach(function(button) {
-      button.disabled = Boolean(active) || remaining > 0 || runtime.state.mode !== 'awake';
+      const minigameId = button.dataset.minigameStart;
+      const cooldownUntil = Number(runtime.state.cooldowns[getMinigameCooldownKey(minigameId)]) || 0;
+      const ownRemaining = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
+      button.disabled = Boolean(active) || ownRemaining > 0 || runtime.state.mode !== 'awake';
+      button.textContent = ownRemaining ? ownRemaining + 's' : 'Start';
     });
     updateMinigameHud(now);
+  }
+
+  function renderMinigameLastScores() {
+    const items = dom.minigameLastItems && dom.minigameLastItems.length
+      ? dom.minigameLastItems
+      : (dom.minigameLast ? [dom.minigameLast] : []);
+    const history = runtime.state.history && runtime.state.history.minigames ? runtime.state.history.minigames : {};
+    const last = runtime.state.minigames && runtime.state.minigames.lastResult;
+
+    items.forEach(function(item) {
+      const minigameId = item.dataset.minigameLast || 'dewCatch';
+      const historyItem = history[minigameId] || {};
+      const score = last && last.id === minigameId
+        ? Number(last.score) || 0
+        : Number(historyItem.lastScore) || 0;
+      item.textContent = getMinigameScoreLabel(minigameId, score);
+    });
   }
 
   function renderDecorations() {
@@ -270,6 +296,122 @@
       row.appendChild(button);
       dom.decorationList.appendChild(row);
     });
+  }
+
+  function renderCareHistory() {
+    if (!dom.careHistory) {
+      return;
+    }
+
+    const state = runtime.state;
+    const history = state.history || {};
+    const attention = history.attention || {};
+    const actionTotal = sumObjectValues(history.actionsPerformed || {});
+    const handled = Number(attention.handled) || 0;
+    const missed = Number(attention.missed) || 0;
+    const mistakes = getCareMistakeTotal(state);
+    const topAction = getTopActionLabel(history.actionsPerformed || {});
+    const topMinigame = getTopMinigameLabel(history.minigames || {});
+    const modeMs = history.modeMs || {};
+    const awakeLabel = formatDurationShort(modeMs.awake);
+    const sleepLabel = formatDurationShort(modeMs.sleeping);
+    const evolutionLabel = getEvolutionHistoryLabel(state);
+
+    if (dom.historyScore) {
+      dom.historyScore.textContent = (actionTotal + handled) + ' opieki';
+    }
+
+    dom.careHistory.innerHTML = '';
+    appendHistoryItem('Akcje', actionTotal);
+    appendHistoryItem('Potrzeby', handled + '/' + (handled + missed));
+    appendHistoryItem('Pomyłki', mistakes);
+    appendHistoryItem('Najczęściej', topAction);
+    appendHistoryItem('Gry', topMinigame);
+    appendHistoryItem('Czuwa', awakeLabel);
+    appendHistoryItem('Sen', sleepLabel);
+    appendHistoryItem('Ewolucja', evolutionLabel);
+  }
+
+  function appendHistoryItem(label, value) {
+    const item = document.createElement('div');
+    const labelNode = document.createElement('span');
+    const valueNode = document.createElement('strong');
+
+    item.className = 'history-item';
+    labelNode.textContent = label;
+    valueNode.textContent = String(value);
+    item.appendChild(labelNode);
+    item.appendChild(valueNode);
+    dom.careHistory.appendChild(item);
+  }
+
+  function sumObjectValues(values) {
+    return Object.keys(values || {}).reduce(function(total, key) {
+      return total + (Number(values[key]) || 0);
+    }, 0);
+  }
+
+  function getTopActionLabel(actionsPerformed) {
+    let bestId = null;
+    let bestValue = 0;
+    Object.keys(actionsPerformed || {}).forEach(function(actionId) {
+      const value = Number(actionsPerformed[actionId]) || 0;
+      if (value > bestValue) {
+        bestId = actionId;
+        bestValue = value;
+      }
+    });
+
+    return bestId ? getActionLabelById(bestId) + ' ' + bestValue : 'Brak';
+  }
+
+  function getActionLabelById(actionId) {
+    const action = actionsById.get(actionId);
+    if (action) {
+      return action.label;
+    }
+    if (actionId === 'sleepWake') {
+      return 'Sen';
+    }
+    return actionId;
+  }
+
+  function getTopMinigameLabel(minigames) {
+    let bestId = null;
+    let bestScore = 0;
+    Object.keys(minigames || {}).forEach(function(minigameId) {
+      const score = Number(minigames[minigameId] && minigames[minigameId].bestScore) || 0;
+      if (score > bestScore) {
+        bestId = minigameId;
+        bestScore = score;
+      }
+    });
+
+    if (!bestId) {
+      return 'Brak';
+    }
+
+    const config = rules.minigames && rules.minigames[bestId] ? rules.minigames[bestId] : {};
+    return (config.label || bestId) + ' ' + bestScore;
+  }
+
+  function formatDurationShort(milliseconds) {
+    const minutes = Math.floor((Number(milliseconds) || 0) / 60000);
+    if (minutes < 60) {
+      return minutes + ' min';
+    }
+
+    return Math.floor(minutes / 60) + ' h';
+  }
+
+  function getEvolutionHistoryLabel(state) {
+    const variant = state.evolution && state.evolution.variant;
+    const core = window.PieczargotchiCore;
+    if (!variant || !core || !core.getEvolutionLabel) {
+      return 'W toku';
+    }
+
+    return core.getEvolutionLabel(variant, rules);
   }
 
   function flashActionButton(actionId) {
@@ -565,6 +707,11 @@
       return neutralEgg;
     }
 
+    const evolutionMessage = getEvolutionMoodMessage(state);
+    if (evolutionMessage) {
+      return evolutionMessage;
+    }
+
     const mood = getMood(state);
     return moodMessages[mood] || moodMessages.content;
   }
@@ -654,6 +801,21 @@
       body: 'Na razie wszystko jest w dobrej równowadze.'
     }
   };
+
+  function getEvolutionMoodMessage(state) {
+    const variant = state.evolution && state.evolution.variant;
+    const core = window.PieczargotchiCore;
+    const mood = getMood(state);
+    const trait = variant && core && core.getEvolutionTrait ? core.getEvolutionTrait(variant, rules) : null;
+    if (!trait || (mood !== 'happy' && mood !== 'content')) {
+      return null;
+    }
+
+    return {
+      title: trait.title,
+      body: trait.message
+    };
+  }
 
   function getMood(state) {
     const stats = state.stats;

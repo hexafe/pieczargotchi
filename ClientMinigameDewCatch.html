@@ -1,7 +1,19 @@
   function resumeMinigameIfActive() {
     const active = runtime.state && runtime.state.minigames ? runtime.state.minigames.active : null;
-    if (active && active.id === 'dewCatch') {
-      startDewCatchRuntime(active);
+    if (active) {
+      startMinigameRuntime(active);
+    }
+  }
+
+  function startMinigameRuntime(session) {
+    if (!session) {
+      return;
+    }
+
+    if (session.id === 'dewCatch') {
+      startDewCatchRuntime(session);
+    } else if (session.id === 'sporePop' && typeof startSporePopRuntime === 'function') {
+      startSporePopRuntime(session);
     }
   }
 
@@ -13,6 +25,7 @@
     stopMinigameRuntime();
     const canvas = dom.dewCatchCanvas;
     const ctx = canvas.getContext('2d');
+    setActiveMinigameCanvas('dewCatch');
     runtime.minigame = {
       session: Object.assign({}, session, {
         score: Number(session.score) || 0,
@@ -31,6 +44,7 @@
       window.cancelAnimationFrame(runtime.minigame.animationFrame);
     }
     runtime.minigame = null;
+    setActiveMinigameCanvas(null);
   }
 
   function renderDewCatchFrame() {
@@ -67,7 +81,7 @@
   }
 
   function handleDewCatchPointer(event) {
-    if (!runtime.minigame || !dom.dewCatchCanvas) {
+    if (!runtime.minigame || runtime.minigame.session.id !== 'dewCatch' || !dom.dewCatchCanvas) {
       return;
     }
 
@@ -163,11 +177,29 @@
     const session = runtime.minigame.session;
     const secondsLeft = Math.max(0, Math.ceil((Number(session.until) - now) / 1000));
     if (dom.minigameScore) {
-      dom.minigameScore.textContent = session.score + ' kropli';
+      dom.minigameScore.textContent = getMinigameScoreLabel(session.id, session.score);
     }
     if (dom.minigameTime) {
       dom.minigameTime.textContent = secondsLeft + ' s';
     }
+  }
+
+  function setActiveMinigameCanvas(minigameId) {
+    if (dom.dewCatchCanvas) {
+      dom.dewCatchCanvas.hidden = minigameId !== 'dewCatch';
+    }
+    if (dom.sporePopCanvas) {
+      dom.sporePopCanvas.hidden = minigameId !== 'sporePop';
+    }
+  }
+
+  function getMinigameScoreLabel(minigameId, score) {
+    const amount = Number(score) || 0;
+    if (minigameId === 'sporePop') {
+      return amount + ' zarodników';
+    }
+
+    return amount + ' kropli';
   }
 
   function seededDewUnit(seed, index, salt) {

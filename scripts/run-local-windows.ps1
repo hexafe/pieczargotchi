@@ -109,6 +109,7 @@ function Test-RequiredFiles {
     'ClientState.html',
     'ClientActions.html',
     'ClientMinigameDewCatch.html',
+    'ClientMinigameSporePop.html',
     'ClientBackup.html',
     'ClientUi.html',
     'ClientBattleScene.html',

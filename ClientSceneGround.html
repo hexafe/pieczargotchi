@@ -12,23 +12,23 @@
     drawGeneratedGrassPatch(ctx, palette, scene, patchTop, surface);
     drawGroundWetness(ctx, palette, now, scene, surface, groundTop);
     drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
-      count: 132,
+      count: 170,
       seedBase: 8111,
       baseYMin: 412,
       baseYMax: 448,
       heightMin: 22,
-      heightMax: 52,
+      heightMax: 64,
       alpha: 0.82,
       width: 3,
       front: false
     });
     drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
-      count: 58,
+      count: 86,
       seedBase: 11807,
       baseYMin: 430,
       baseYMax: 466,
       heightMin: 16,
-      heightMax: 36,
+      heightMax: 46,
       alpha: 0.58,
       width: 2,
       front: false
@@ -141,6 +141,20 @@
       ? getWeatherSurfaceState(scene, now)
       : { wetness: 0, snowCover: condition === 'snow' ? scene.snowIntensity || 0.25 : 0 };
     const snowCover = clamp(Number(surface.snowCover), 0, 1, 0);
+    if (profile.tall) {
+      drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
+        count: profile.tall.count,
+        seedBase: 21203,
+        baseYMin: profile.tall.baseYMin,
+        baseYMax: profile.tall.baseYMax,
+        heightMin: profile.tall.heightMin,
+        heightMax: profile.tall.heightMax,
+        alpha: (condition === 'snow' || snowCover > 0.12 ? 0.22 : 0.52) * profile.tall.alphaScale,
+        width: 2,
+        front: true,
+        xBands: profile.tall.xBands
+      });
+    }
     drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
       count: profile.primary.count,
       seedBase: 9331,
@@ -413,7 +427,53 @@
       }
     };
 
-    return profiles[stage] || profiles.spore;
+    return expandGroundForegroundProfile(profiles[stage] || profiles.spore, stage);
+  }
+
+  function expandGroundForegroundProfile(profile, stage) {
+    return {
+      primary: amplifyGrassLayer(profile.primary, 1.22, 4, 10),
+      secondary: amplifyGrassLayer(profile.secondary, 1.36, 6, 18),
+      groundline: amplifyGrassLayer(profile.groundline, 1.34, 0, 8),
+      tall: buildTallGrassProfile(profile, stage)
+    };
+  }
+
+  function amplifyGrassLayer(layer, countMultiplier, heightMinBonus, heightMaxBonus) {
+    return {
+      count: Math.round(layer.count * countMultiplier),
+      baseYMin: layer.baseYMin,
+      baseYMax: layer.baseYMax,
+      heightMin: layer.heightMin + heightMinBonus,
+      heightMax: layer.heightMax + heightMaxBonus,
+      alphaScale: layer.alphaScale,
+      xBands: layer.xBands
+    };
+  }
+
+  function buildTallGrassProfile(profile, stage) {
+    const secondary = profile.secondary;
+    return {
+      count: Math.round(secondary.count * 0.72),
+      baseYMin: secondary.baseYMin + 4,
+      baseYMax: Math.min(512, secondary.baseYMax + 6),
+      heightMin: secondary.heightMin + 12,
+      heightMax: secondary.heightMax + 24,
+      alphaScale: secondary.alphaScale * 0.88,
+      xBands: getTallGrassBands(stage)
+    };
+  }
+
+  function getTallGrassBands(stage) {
+    const bands = {
+      spore: [[-4, 132], [380, 516], [24, 98], [414, 498]],
+      baby: [[-4, 150], [362, 516], [20, 118], [394, 500]],
+      young: [[-4, 122], [390, 516], [18, 98], [414, 500]],
+      adult: [[-4, 96], [416, 516], [18, 82], [432, 496]],
+      legendary: [[-4, 88], [424, 516], [18, 76], [438, 496]]
+    };
+
+    return bands[stage] || bands.spore;
   }
 
   function drawWindResponsiveGrassBlades(ctx, palette, now, scene, options) {

@@ -197,6 +197,7 @@ check_required_files() {
     "ClientState.html"
     "ClientActions.html"
     "ClientMinigameDewCatch.html"
+    "ClientMinigameSporePop.html"
     "ClientBackup.html"
     "ClientUi.html"
     "ClientBattleScene.html"

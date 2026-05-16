@@ -192,6 +192,7 @@
       rewardCareIfNeeded(runtime.state, action, now);
       addLog(runtime.state, 'Pieczarka wtuliła się pod mech.', now);
     }
+    applyEvolutionActionBonus(runtime.state, action, now);
   }
 
   function applyAction(action, now, source) {
@@ -229,6 +230,7 @@
 
     triggerEffect(action.effectType || action.id);
     rewardCareIfNeeded(runtime.state, action, now);
+    applyEvolutionActionBonus(runtime.state, action, now);
     flashActionButton(action.id);
   }
 
@@ -288,7 +290,7 @@
     runtime.state.minigames.active = result.session;
     runtime.state.lastUpdatedAt = new Date(now).toISOString();
     saveState(runtime.state);
-    startDewCatchRuntime(result.session);
+    startMinigameRuntime(result.session);
     renderUi();
   }
 
@@ -313,11 +315,8 @@
       runtime.state = result.state;
       runtime.state.stats = clampAllStats(runtime.state.stats);
       runtime.state.cooldowns[getMinigameCooldownKey(session.id)] = now + getMinigameCooldownMs(session.id);
-      const hydration = result.rewards.stats && result.rewards.stats.hydration ? Math.round(result.rewards.stats.hydration) : 0;
-      const happiness = result.rewards.stats && result.rewards.stats.happiness ? Math.round(result.rewards.stats.happiness) : 0;
-      const suffix = reason === 'timeout' ? 'Koniec czasu. ' : '';
-      addLog(runtime.state, suffix + 'Łapanie rosy: ' + session.score + ' kropli, +' + hydration + ' wilgoci, +' + happiness + ' radości.', now);
-      triggerEffect('water');
+      addLog(runtime.state, formatMinigameRewardLog(session, result.rewards, reason), now);
+      triggerEffect(session.id === 'sporePop' ? 'spores' : 'water');
     }
 
     runtime.state.lastUpdatedAt = new Date(now).toISOString();
@@ -364,9 +363,53 @@
     return config ? Number(config.cooldownMs) || 0 : 0;
   }
 
+  function formatMinigameRewardLog(session, rewards, reason) {
+    const config = rules.minigames && rules.minigames[session.id] ? rules.minigames[session.id] : {};
+    const stats = rewards && rewards.stats ? rewards.stats : {};
+    const rewardParts = [];
+    const label = config.label || 'Minigra';
+    const prefix = reason === 'timeout' ? 'Koniec czasu. ' : '';
+    const statRewardLabels = {
+      hydration: 'wilgoci',
+      happiness: 'radości',
+      nutrients: 'odżywek',
+      cleanliness: 'czystości',
+      energy: 'energii',
+      health: 'zdrowia'
+    };
+
+    Object.keys(stats).forEach(function(stat) {
+      const value = Math.round(Number(stats[stat]) || 0);
+      if (value) {
+        rewardParts.push('+' + value + ' ' + (statRewardLabels[stat] || stat));
+      }
+    });
+    if (rewards && rewards.spores) {
+      rewardParts.push('+' + rewards.spores + ' zarodników');
+    }
+
+    return prefix + label + ': ' + getMinigameScoreLabel(session.id, session.score)
+      + (rewardParts.length ? ', ' + rewardParts.join(', ') : ', bez nagrody') + '.';
+  }
+
   function buildMinigameSeed(minigameId, now) {
     const source = (runtime.state.playerId || 'player') + ':' + minigameId + ':' + now;
     return Math.floor(hashStringToUnit(source) * 2147483645) + 1;
+  }
+
+  function applyEvolutionActionBonus(state, action, now) {
+    const core = window.PieczargotchiCore;
+    const variant = state.evolution && state.evolution.variant;
+    const trait = core && core.getEvolutionTrait ? core.getEvolutionTrait(variant, rules) : null;
+    if (!trait || trait.favoriteAction !== action.id) {
+      return;
+    }
+
+    state.stats.happiness = (Number(state.stats.happiness) || 0) + 1;
+    state.patch.quality += 0.5;
+    state.patch.mycelium += 0.5;
+    state.patch = normalizePatch(state.patch);
+    addLog(state, trait.title + ': ulubiona akcja wzmacnia grzybnię.', now);
   }
 
   function applyStatDeltas(state, deltas) {

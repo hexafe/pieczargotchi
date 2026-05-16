@@ -207,14 +207,14 @@ Possible systems:
 
 ### 5. Interaction And Minigames
 
-Checkpoint: `Łapanie rosy` exists as the first minigame. New games should reuse the same session/reward contract from `ClientCoreMinigames.html`.
+Checkpoint: `Łapanie rosy` and `Pękanie zarodników` exist on the shared session/reward contract from `ClientCoreMinigames.html`. New games should keep using that contract.
 
 The app needs small moments of play beyond clicking care buttons.
 
 Initial minigames:
 
 - Dew catch: catch falling drops to hydrate.
-- Spore pop: click drifting spores in time.
+- Spore pop: click drifting spores in time. Implemented as `Pękanie zarodników`.
 - Compost sort: choose good substrate pieces, avoid contaminants.
 - Rhythm hum: simple 3-5 beat music pattern for happiness.
 
@@ -227,7 +227,7 @@ Design rules:
 
 ### 6. Evolution And Long-Term Progression
 
-Checkpoint: the first deterministic branch selector exists. The next step is visual and behavioral identity per variant.
+Checkpoint: the first deterministic branch selector exists and variants now expose short trait messages plus a favorite-action bonus. The next step is visual identity per variant.
 
 Growth should branch based on care style, not only time.
 

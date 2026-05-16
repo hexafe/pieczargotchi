@@ -39,6 +39,7 @@ const requiredSourceFiles = [
   'ClientState.html',
   'ClientActions.html',
   'ClientMinigameDewCatch.html',
+  'ClientMinigameSporePop.html',
   'ClientBackup.html',
   'ClientUi.html',
   'ClientBattleScene.html',
@@ -77,6 +78,7 @@ const expectedClientIncludes = [
   'ClientState',
   'ClientActions',
   'ClientMinigameDewCatch',
+  'ClientMinigameSporePop',
   'ClientBackup',
   'ClientUi',
   'ClientBattleScene',
@@ -271,8 +273,8 @@ function checkLocalPreviewConfig() {
 
   try {
     const config = context.getClientConfig();
-    if (!config.rules || !config.rules.minigames || !config.rules.minigames.dewCatch) {
-      fail('Local preview config is missing minigames.dewCatch.');
+    if (!config.rules || !config.rules.minigames || !config.rules.minigames.dewCatch || !config.rules.minigames.sporePop) {
+      fail('Local preview config is missing configured minigames.');
     }
     if (!config.rules || !config.rules.evolution || !config.rules.evolution.variants) {
       fail('Local preview config is missing evolution variants.');

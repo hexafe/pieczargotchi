@@ -8,6 +8,38 @@ function getEvolutionRulesConfig() {
       wildcap: 'Dzika Pieczarka',
       ghostcap: 'Mglista Pieczarka',
       royalcap: 'Królewska Pieczarka'
+    },
+    traits: {
+      dewcap: {
+        title: 'Rytm rosy',
+        favoriteAction: 'hydrate',
+        message: 'Rosopieczarka łapie spokojny rytm wilgoci.'
+      },
+      compostcap: {
+        title: 'Siła podłoża',
+        favoriteAction: 'feed',
+        message: 'Kompostopieczarka rośnie najpewniej w żyznym mchu.'
+      },
+      songcap: {
+        title: 'Słuch grzybni',
+        favoriteAction: 'sing',
+        message: 'Śpiewopieczarka niesie ciche nuty między źdźbłami.'
+      },
+      wildcap: {
+        title: 'Dziki podmuch',
+        favoriteAction: 'play',
+        message: 'Dzika Pieczarka lubi ruch, wiatr i żywą grzybnię.'
+      },
+      ghostcap: {
+        title: 'Mglista cisza',
+        favoriteAction: 'sleepWake',
+        message: 'Mglista Pieczarka odzyskuje spokój w długim odpoczynku.'
+      },
+      royalcap: {
+        title: 'Królewska równowaga',
+        favoriteAction: 'clean',
+        message: 'Królewska Pieczarka dobrze znosi równą, cierpliwą opiekę.'
+      }
     }
   };
 }

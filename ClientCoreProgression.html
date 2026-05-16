@@ -206,6 +206,11 @@
     return labels[variant] || 'Legendarna Pieczarka';
   }
 
+  function getEvolutionTraitCore(variant, rules) {
+    const traits = rules && rules.evolution && rules.evolution.traits ? rules.evolution.traits : {};
+    return traits[variant] || null;
+  }
+
   function buyDecorationCore(rawState, decorationId, rules, now) {
     const state = normalizeProgressionState(rawState, rules);
     const catalog = Array.isArray(rules && rules.decorations) ? rules.decorations : [];

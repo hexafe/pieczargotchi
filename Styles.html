@@ -290,6 +290,7 @@
   }
 
   .panel-block--decorations,
+  .panel-block--history,
   .panel-block--backup {
     background: #fff4d7;
   }
@@ -717,13 +718,18 @@
     gap: 7px;
   }
 
-  .dew-catch-canvas {
+  .dew-catch-canvas,
+  .spore-pop-canvas {
     width: 100%;
     aspect-ratio: 5 / 3;
     border: 2px solid var(--border);
     border-radius: 6px;
     background: #dff2c8;
     cursor: crosshair;
+  }
+
+  .spore-pop-canvas {
+    background: #efe2bc;
   }
 
   .minigame-hud {
@@ -737,6 +743,43 @@
   .decoration-list {
     display: grid;
     gap: 6px;
+  }
+
+  .history-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .history-item {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+    min-height: 38px;
+    padding: 6px 7px;
+    border: 1px solid rgba(60, 43, 32, 0.24);
+    border-radius: 6px;
+    background: rgba(255, 253, 247, 0.72);
+  }
+
+  .history-item span,
+  .history-item strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .history-item span {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 900;
+  }
+
+  .history-item strong {
+    color: var(--ink);
+    font-size: 12px;
+    font-weight: 900;
   }
 
   .backup-actions {
@@ -827,16 +870,20 @@
       order: 5;
     }
 
-    .panel-block--backup {
+    .panel-block--history {
       order: 6;
     }
 
-    .panel-block--log {
+    .panel-block--backup {
       order: 7;
     }
 
-    .panel-block--debug {
+    .panel-block--log {
       order: 8;
+    }
+
+    .panel-block--debug {
+      order: 9;
     }
 
     .action-button {
@@ -981,16 +1028,20 @@
       order: 5;
     }
 
-    .panel-block--backup {
+    .panel-block--history {
       order: 6;
     }
 
-    .panel-block--log {
+    .panel-block--backup {
       order: 7;
     }
 
-    .panel-block--debug {
+    .panel-block--log {
       order: 8;
+    }
+
+    .panel-block--debug {
+      order: 9;
     }
 
     .block-heading h2 {
@@ -1095,7 +1146,8 @@
     }
 
     .debug-row--split,
-    .debug-actions {
+    .debug-actions,
+    .history-grid {
       grid-template-columns: 1fr;
     }
 

@@ -288,14 +288,18 @@
     dom.battleLog = document.querySelector('[data-battle-log]');
     dom.minigameStatus = document.querySelector('[data-minigame-status]');
     dom.minigameLast = document.querySelector('[data-minigame-last]');
+    dom.minigameLastItems = Array.from(document.querySelectorAll('[data-minigame-last]'));
     dom.minigamePlayfield = document.querySelector('[data-minigame-playfield]');
     dom.minigameStartButtons = Array.from(document.querySelectorAll('[data-minigame-start]'));
     dom.minigameEnd = document.querySelector('[data-minigame-end]');
     dom.minigameScore = document.querySelector('[data-minigame-score]');
     dom.minigameTime = document.querySelector('[data-minigame-time]');
     dom.dewCatchCanvas = document.querySelector('[data-dew-catch-canvas]');
+    dom.sporePopCanvas = document.querySelector('[data-spore-pop-canvas]');
     dom.decorationList = document.querySelector('[data-decoration-list]');
     dom.decorationCount = document.querySelector('[data-decoration-count]');
+    dom.historyScore = document.querySelector('[data-history-score]');
+    dom.careHistory = document.querySelector('[data-care-history]');
     dom.exportButton = document.querySelector('[data-export-button]');
     dom.importButton = document.querySelector('[data-import-button]');
     dom.importInput = document.querySelector('[data-import-input]');
@@ -344,6 +348,9 @@
     }
     if (dom.dewCatchCanvas) {
       dom.dewCatchCanvas.addEventListener('pointerdown', handleDewCatchPointer);
+    }
+    if (dom.sporePopCanvas) {
+      dom.sporePopCanvas.addEventListener('pointerdown', handleSporePopPointer);
     }
     if (dom.exportButton) {
       dom.exportButton.addEventListener('click', handleExportState);

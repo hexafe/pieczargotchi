@@ -64,20 +64,36 @@
 
   function calculateMinigameRewardsCore(config, score) {
     const rewardRules = config.rewards || {};
-    const hydration = Math.min(
-      Number(rewardRules.hydrationMax) || 18,
-      (Number(rewardRules.hydrationBase) || 0) + score * (Number(rewardRules.hydrationPerCatch) || 0)
-    );
-    const happiness = Math.min(
-      Number(rewardRules.happinessMax) || 6,
-      score * (Number(rewardRules.happinessPerCatch) || 0)
-    );
+    const stats = {};
+    const hydrationPerPoint = Number(rewardRules.hydrationPerCatch) || Number(rewardRules.hydrationPerPoint) || 0;
+    const happinessPerPoint = Number(rewardRules.happinessPerCatch) || Number(rewardRules.happinessPerPop) || Number(rewardRules.happinessPerPoint) || 0;
+
+    if (hydrationPerPoint || rewardRules.hydrationBase || rewardRules.hydrationMax) {
+      stats.hydration = Math.min(
+        Number(rewardRules.hydrationMax) || 18,
+        (Number(rewardRules.hydrationBase) || 0) + score * hydrationPerPoint
+      );
+    }
+
+    if (happinessPerPoint || rewardRules.happinessBase || rewardRules.happinessMax) {
+      stats.happiness = Math.min(
+        Number(rewardRules.happinessMax) || 6,
+        (Number(rewardRules.happinessBase) || 0) + score * happinessPerPoint
+      );
+    }
 
     return {
-      stats: removeZeroDeltas({
-        hydration: hydration,
-        happiness: happiness
-      }),
-      spores: Math.max(0, Math.floor(score / 12))
+      stats: removeZeroDeltas(stats),
+      spores: calculateMinigameSporeRewardCore(rewardRules, score)
     };
+  }
+
+  function calculateMinigameSporeRewardCore(rewardRules, score) {
+    if (rewardRules.sporesPerPop || rewardRules.sporesPerPoint || rewardRules.sporesMax) {
+      const perPoint = Number(rewardRules.sporesPerPop) || Number(rewardRules.sporesPerPoint) || 0;
+      const max = Number(rewardRules.sporesMax) || 999;
+      return Math.max(0, Math.min(max, Math.floor(score * perPoint)));
+    }
+
+    return Math.max(0, Math.floor(score / 12));
   }

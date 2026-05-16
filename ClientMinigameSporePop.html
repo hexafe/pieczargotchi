@@ -1,0 +1,151 @@
+  function startSporePopRuntime(session) {
+    if (!session || session.id !== 'sporePop' || !dom.sporePopCanvas) {
+      return;
+    }
+
+    stopMinigameRuntime();
+    const canvas = dom.sporePopCanvas;
+    const ctx = canvas.getContext('2d');
+    setActiveMinigameCanvas('sporePop');
+    runtime.minigame = {
+      session: Object.assign({}, session, {
+        score: Number(session.score) || 0,
+        caught: Array.isArray(session.caught) ? session.caught.slice() : []
+      }),
+      ctx: ctx,
+      spores: buildSporePopSpores(session),
+      animationFrame: 0
+    };
+    ctx.imageSmoothingEnabled = false;
+    renderSporePopFrame();
+  }
+
+  function renderSporePopFrame() {
+    if (!runtime.minigame || runtime.minigame.session.id !== 'sporePop' || !dom.sporePopCanvas) {
+      return;
+    }
+
+    const now = getRuntimeNow();
+    const session = runtime.minigame.session;
+    if (now >= Number(session.until)) {
+      handleMinigameEnd('timeout');
+      return;
+    }
+
+    const ctx = runtime.minigame.ctx;
+    const canvas = dom.sporePopCanvas;
+    const progress = (now - Number(session.startedAt)) / Math.max(1, Number(session.until) - Number(session.startedAt));
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawSporePopBackground(ctx, canvas.width, canvas.height, progress);
+    runtime.minigame.spores.forEach(function(spore) {
+      if (session.caught.indexOf(spore.id) !== -1) {
+        return;
+      }
+
+      const position = getSporePopPosition(spore, progress, canvas.width, canvas.height);
+      drawSporePopTarget(ctx, position.x, position.y, spore.size, spore.phase + now / 310);
+    });
+
+    updateMinigameHud(now);
+    runtime.minigame.animationFrame = window.requestAnimationFrame(renderSporePopFrame);
+  }
+
+  function handleSporePopPointer(event) {
+    if (!runtime.minigame || runtime.minigame.session.id !== 'sporePop' || !dom.sporePopCanvas) {
+      return;
+    }
+
+    const canvas = dom.sporePopCanvas;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / Math.max(1, rect.width);
+    const scaleY = canvas.height / Math.max(1, rect.height);
+    const x = (event.clientX - rect.left) * scaleX;
+    const y = (event.clientY - rect.top) * scaleY;
+    const now = getRuntimeNow();
+    const session = runtime.minigame.session;
+    const progress = (now - Number(session.startedAt)) / Math.max(1, Number(session.until) - Number(session.startedAt));
+    const popped = runtime.minigame.spores.find(function(spore) {
+      if (session.caught.indexOf(spore.id) !== -1) {
+        return false;
+      }
+
+      const position = getSporePopPosition(spore, progress, canvas.width, canvas.height);
+      const radius = spore.size + 10;
+      return Math.abs(position.x - x) <= radius && Math.abs(position.y - y) <= radius;
+    });
+
+    if (!popped) {
+      return;
+    }
+
+    event.preventDefault();
+    session.caught.push(popped.id);
+    session.score += 1;
+    runtime.state.minigames.active = Object.assign({}, session, {
+      caught: session.caught.slice()
+    });
+    saveState(runtime.state);
+    triggerEffect('spores');
+    updateMinigameHud(now);
+  }
+
+  function buildSporePopSpores(session) {
+    const config = rules.minigames && rules.minigames.sporePop ? rules.minigames.sporePop : {};
+    const count = Math.max(10, Number(config.targetCount) || 20);
+    const seed = Number(session.seed) || 1;
+    const spores = [];
+
+    for (let index = 0; index < count; index += 1) {
+      spores.push({
+        id: 'spore_' + index,
+        x: Math.round(20 + seededSporeUnit(seed, index, 1) * 200),
+        y: Math.round(18 + seededSporeUnit(seed, index, 2) * 96),
+        driftX: -12 + seededSporeUnit(seed, index, 3) * 24,
+        driftY: -8 + seededSporeUnit(seed, index, 4) * 18,
+        start: seededSporeUnit(seed, index, 5) * 0.46,
+        speed: 0.46 + seededSporeUnit(seed, index, 6) * 0.34,
+        size: 5 + Math.round(seededSporeUnit(seed, index, 7) * 5),
+        phase: seededSporeUnit(seed, index, 8) * Math.PI * 2
+      });
+    }
+
+    return spores;
+  }
+
+  function getSporePopPosition(spore, progress, width, height) {
+    const local = Math.max(0, Math.min(1, (progress - spore.start) / Math.max(0.1, spore.speed)));
+    const pulse = Math.sin(local * Math.PI * 2 + spore.phase);
+    return {
+      x: Math.round(Math.max(10, Math.min(width - 10, spore.x + spore.driftX * local + pulse * 4))),
+      y: Math.round(Math.max(10, Math.min(height - 18, spore.y + spore.driftY * local + Math.cos(local * 5 + spore.phase) * 5)))
+    };
+  }
+
+  function drawSporePopBackground(ctx, width, height, progress) {
+    ctx.fillStyle = '#efe2bc';
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = '#cda766';
+    ctx.fillRect(0, height - 24, width, 24);
+    ctx.fillStyle = 'rgba(60, 43, 32, 0.12)';
+    for (let x = -12; x < width + 16; x += 20) {
+      const sway = Math.sin(progress * 10 + x * 0.12) * 4;
+      ctx.fillRect(Math.round(x + sway), height - 38, 4, 28);
+    }
+  }
+
+  function drawSporePopTarget(ctx, x, y, size, phase) {
+    const glow = Math.sin(phase) * 0.5 + 0.5;
+    ctx.fillStyle = '#8f6335';
+    ctx.fillRect(Math.round(x - size / 2), Math.round(y - size / 2), size, size);
+    ctx.fillStyle = '#d8a356';
+    ctx.fillRect(Math.round(x - size / 2 + 2), Math.round(y - size / 2 + 1), Math.max(2, size - 3), 2);
+    if (glow > 0.55) {
+      ctx.fillStyle = '#fff2a5';
+      ctx.fillRect(Math.round(x + size / 2), Math.round(y - size / 2 - 1), 2, 2);
+    }
+  }
+
+  function seededSporeUnit(seed, index, salt) {
+    const value = Math.sin(seed * 0.00013 + index * 73.313 + salt * 19.91) * 10000;
+    return value - Math.floor(value);
+  }

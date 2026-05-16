@@ -743,9 +743,52 @@ test('minigame completion grants bounded rewards and records play history', () =
   assert(result.state.history.minigames.dewCatch.bestScore === 20, 'expected best score history');
 });
 
+test('spore pop grants bounded happiness and spores without hydration', () => {
+  const rules = {
+    minigames: {
+      sporePop: {
+        id: 'sporePop',
+        label: 'Pękanie zarodników',
+        durationMs: 18000,
+        targetCount: 20,
+        rewards: {
+          happinessBase: 2,
+          happinessPerPop: 1,
+          happinessMax: 14,
+          sporesPerPop: 0.22,
+          sporesMax: 4
+        }
+      }
+    }
+  };
+  const now = Date.parse('2026-05-16T12:20:00.000Z');
+  const session = core.createMinigameSession('sporePop', rules, now, 456).session;
+  session.score = 30;
+  const result = core.finishMinigame({
+    stats: { hydration: 50, happiness: 50 },
+    inventory: { spores: 1 },
+    coins: 1,
+    history: {},
+    minigames: {}
+  }, session, rules, now + 18000);
+
+  assert(result.ok, 'expected spore pop finish success');
+  assert(result.state.stats.hydration === 50, `expected unchanged hydration, got ${result.state.stats.hydration}`);
+  assert(result.state.stats.happiness === 64, `expected capped happiness reward, got ${result.state.stats.happiness}`);
+  assert(result.state.inventory.spores === 5, `expected capped spore reward, got ${result.state.inventory.spores}`);
+  assert(result.state.history.minigames.sporePop.plays === 1, 'expected spore pop history');
+  assert(result.state.minigames.lastResult.id === 'sporePop', 'expected spore pop last result');
+});
+
 test('evolution variant reacts to care history and legendary threshold', () => {
   const rules = {
-    evolution: { legendaryGrowth: 100, variants: { songcap: 'Śpiewopieczarka', dewcap: 'Rosopieczarka' } }
+    evolution: {
+      legendaryGrowth: 100,
+      variants: { songcap: 'Śpiewopieczarka', dewcap: 'Rosopieczarka' },
+      traits: {
+        dewcap: { title: 'Rytm rosy', favoriteAction: 'hydrate', message: 'Rosopieczarka lubi rosę.' }
+      }
+    }
   };
   const song = core.getEvolutionVariant({
     actionsPerformed: { instrument: 4, sing: 3, play: 1 },
@@ -764,6 +807,7 @@ test('evolution variant reacts to care history and legendary threshold', () => {
   }, rules, Date.parse('2026-05-16T12:00:00.000Z'));
   assert(evolved.stage === 'legendary', `expected legendary stage, got ${evolved.stage}`);
   assert(evolved.evolution.variant === 'dewcap', `expected dewcap evolution, got ${evolved.evolution.variant}`);
+  assert(core.getEvolutionTrait('dewcap', rules).favoriteAction === 'hydrate', 'expected dewcap trait metadata');
 });
 
 test('decoration purchase spends spores, records ownership, and boosts happiness', () => {
