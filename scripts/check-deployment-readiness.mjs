@@ -207,6 +207,9 @@ function checkHtmlIncludes() {
   if (!codeGs.includes('serveClientBundle_') || !codeGs.includes('ContentService.MimeType.JAVASCRIPT')) {
     fail('Code.gs must serve client bundles as JavaScript ContentService outputs.');
   }
+  if (codeGs.includes('setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)')) {
+    fail('Code.gs should not force ALLOWALL for the public Apps Script surface.');
+  }
 }
 
 function readIncludes(fileName) {
