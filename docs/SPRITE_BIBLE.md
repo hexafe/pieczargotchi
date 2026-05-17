@@ -187,7 +187,7 @@ Aktualny kontrakt stage'owy to 16 sheetów na etap:
 | `excellent_sheet.png` | bardzo dobra opieka, połysk, stan nagrody |
 | `curious_sheet.png` | reakcja na obecność kursora, tapnięcie albo szelest przy Pieczarce |
 | `sun_sheet.png` | spokojna reakcja na słoneczne okno pogodowe |
-| `rain_sheet.png` | reakcja na deszcz/storm foreground bez canvasowego rysowania akcesoriów na twarzy |
+| `rain_sheet.png` | zwykła reakcja na deszcz/storm foreground; nie używa wariantu `neutral_rain`, parasolki ani miny `:|` |
 | `stargaze_sheet.png` | nocna reakcja na gwiazdy i konstelacje |
 | `snow_sheet.png` | reakcja na śnieg i chłód |
 | `tired_sheet.png` | senność i opadanie energii |
@@ -204,6 +204,7 @@ Aktualny kontrakt stage'owy to 16 sheetów na etap:
 - `happy` podnosi energię, ale nie rozwala sylwetki.
 - `excellent` jest mocniejsze niż `happy`, ale nie może zasłonić twarzy błyskami.
 - `curious`, `sun`, `rain`, `stargaze` i `snow` są reakcjami immersyjnymi. Nie zmieniają statystyk, nie zastępują potrzeb i nie mogą maskować `critical`, `sick`, kuracji ani game over.
+- `rain` jest normalną reakcją pogodową Pieczargotchi. Deszczowa Iwoniasta Pieczarka z parasolką pozostaje wyłącznie easter eggiem `assets/easter-eggs/<stage>/neutral_rain_sheet.png`.
 - `tired`, `dry`, `hungry`, `dirty`, `sick` muszą różnić się od siebie charakterem, nie tylko kolorem.
 - `critical` ma być najmocniejszym sygnałem ostrzegawczym, ale wciąż czytelnym w skali całej planszy.
 

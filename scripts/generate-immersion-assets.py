@@ -28,7 +28,7 @@ def load_reaction_frames(stage: str, reaction: str) -> list[Image.Image]:
     source = {
         "curious": ASSETS / "stages" / stage / "wake_sheet.png",
         "sun": ASSETS / "stages" / stage / "excellent_sheet.png",
-        "rain": ASSETS / ("stages/spore/idle_sheet.png" if stage == "spore" else f"easter-eggs/{stage}/neutral_rain_sheet.png"),
+        "rain": ASSETS / "stages" / stage / "idle_sheet.png",
         "stargaze": ASSETS / "stages" / stage / "idle_sheet.png",
         "snow": ASSETS / "stages" / stage / "tired_sheet.png",
     }[reaction]
