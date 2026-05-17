@@ -136,6 +136,11 @@ function checkAppsScriptManifest() {
   if (manifest.runtimeVersion !== 'V8') {
     fail(`appsscript.json runtimeVersion should be V8, got ${JSON.stringify(manifest.runtimeVersion)}`);
   }
+  if (!Array.isArray(manifest.oauthScopes)) {
+    fail('appsscript.json must set oauthScopes explicitly for the public web app.');
+  } else if (manifest.oauthScopes.some((scope) => String(scope).includes('/auth/drive'))) {
+    fail('Public appsscript.json must not request Drive OAuth scopes unless OAuth verification is handled.');
+  }
   if (!manifest.webapp) {
     fail('appsscript.json is missing webapp config.');
     return;
@@ -252,6 +257,9 @@ function checkStaticConfig() {
   }
   if (!config.runtime || config.runtime.assetMode !== 'critical') {
     fail(`Production runtime assetMode should be critical, got ${config.runtime && config.runtime.assetMode}`);
+  }
+  if (!readText('Config.gs').includes('PIECZARGOTCHI_DRIVE_ASSETS_ENABLED = false')) {
+    fail('Public Config.gs must keep PIECZARGOTCHI_DRIVE_ASSETS_ENABLED disabled unless Drive OAuth scopes are deliberately restored.');
   }
 
   const assets = Array.isArray(config.assets) ? config.assets : [];

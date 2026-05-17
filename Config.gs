@@ -9,6 +9,9 @@ const PIECZARGOTCHI_RUNTIME_OPTIONS = {
   assetMode: 'critical'
 };
 
+// Publiczny web app pozostaje bez Drive OAuth scope; wlaczenie Drive wymaga
+// osobnej weryfikacji OAuth i dodania odpowiednich scope w appsscript.json.
+const PIECZARGOTCHI_DRIVE_ASSETS_ENABLED = false;
 const PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID = '';
 const PIECZARGOTCHI_ASSET_DRIVE_FOLDER_PROPERTY = 'PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID';
 
@@ -18,6 +21,10 @@ const PIECZARGOTCHI_ASSET_FILE_IDS = {
 };
 
 function getConfiguredAssetDriveFolderId() {
+  if (!PIECZARGOTCHI_DRIVE_ASSETS_ENABLED) {
+    return '';
+  }
+
   const committedFolderId = String(PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID || '').trim();
   if (committedFolderId) {
     return committedFolderId;

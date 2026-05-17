@@ -225,6 +225,9 @@ function fileToDataUrl(fileId) {
   if (!fileId) {
     return null;
   }
+  if (!PIECZARGOTCHI_DRIVE_ASSETS_ENABLED) {
+    throw new Error('Drive asset loading jest wylaczone dla publicznego deploymentu.');
+  }
 
   const file = DriveApp.getFileById(fileId);
   const blob = file.getBlob();

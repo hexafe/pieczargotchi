@@ -100,6 +100,7 @@ function createAssetServiceContext(options) {
 function readText(fileName, options) {
   let text = readFileSync(path.join(rootDir, fileName), 'utf8');
   if (fileName === 'Config.gs') {
+    text = text.replace('const PIECZARGOTCHI_DRIVE_ASSETS_ENABLED = false;', 'const PIECZARGOTCHI_DRIVE_ASSETS_ENABLED = true;');
     if (options.folderIdSource === 'constant') {
       text = text.replace("const PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID = '';", "const PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID = 'root-folder';");
     }

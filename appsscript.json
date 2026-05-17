@@ -2,6 +2,7 @@
   "timeZone": "Europe/Warsaw",
   "dependencies": {},
   "exceptionLogging": "STACKDRIVER",
+  "oauthScopes": [],
   "runtimeVersion": "V8",
   "webapp": {
     "access": "ANYONE_ANONYMOUS",
