@@ -140,8 +140,8 @@ function checkAppsScriptManifest() {
     fail('appsscript.json is missing webapp config.');
     return;
   }
-  if (manifest.webapp.access !== 'ANYONE') {
-    fail(`webapp.access should be ANYONE for the public dry-run web app, got ${JSON.stringify(manifest.webapp.access)}`);
+  if (manifest.webapp.access !== 'ANYONE_ANONYMOUS') {
+    fail(`webapp.access should be ANYONE_ANONYMOUS for a public web app, got ${JSON.stringify(manifest.webapp.access)}`);
   }
   if (manifest.webapp.executeAs !== 'USER_DEPLOYING') {
     fail(`webapp.executeAs should be USER_DEPLOYING, got ${JSON.stringify(manifest.webapp.executeAs)}`);
@@ -157,6 +157,9 @@ function checkHtmlIncludes() {
   }
   if (!indexHtml.includes('window.PIECZARGOTCHI_CONFIG')) {
     fail('Index.html does not inject window.PIECZARGOTCHI_CONFIG.');
+  }
+  if (!indexHtml.includes('__pieczargotchiBootSeen') || !indexHtml.includes('Awaryjny watchdog sceny')) {
+    fail('Index.html is missing the Apps Script startup watchdog fallback.');
   }
 
   const coreIncludes = readIncludes('ClientCore.html');

@@ -345,6 +345,87 @@
     <script>
       window.PIECZARGOTCHI_CONFIG = <?!= clientConfigJson ?>;
     </script>
+    <script>
+      (function() {
+        'use strict';
+
+        window.__pieczargotchiBootSeen = false;
+        window.__pieczargotchiBootError = null;
+
+        function setAssetStatus(message) {
+          const status = document.querySelector('[data-asset-status]');
+          if (status) {
+            status.textContent = message;
+          }
+        }
+
+        function drawWatchdogFallback(label, detail) {
+          const canvas = document.getElementById('mushroomCanvas');
+          if (!canvas || typeof canvas.getContext !== 'function') {
+            return;
+          }
+
+          const config = window.PIECZARGOTCHI_CONFIG || {};
+          const size = Number(config.canvasSize) || 512;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            return;
+          }
+
+          canvas.width = size;
+          canvas.height = size;
+          ctx.imageSmoothingEnabled = false;
+
+          ctx.fillStyle = '#e6f0d1';
+          ctx.fillRect(0, 0, size, size);
+          ctx.fillStyle = '#9cc47a';
+          ctx.fillRect(0, Math.round(size * 0.74), size, Math.round(size * 0.26));
+          ctx.fillStyle = '#d7a56b';
+          ctx.fillRect(Math.round(size * 0.44), Math.round(size * 0.48), Math.round(size * 0.12), Math.round(size * 0.24));
+          ctx.fillStyle = '#f3d5a5';
+          ctx.fillRect(Math.round(size * 0.30), Math.round(size * 0.34), Math.round(size * 0.40), Math.round(size * 0.18));
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(Math.round(size * 0.38), Math.round(size * 0.38), Math.round(size * 0.06), Math.round(size * 0.05));
+          ctx.fillRect(Math.round(size * 0.56), Math.round(size * 0.38), Math.round(size * 0.06), Math.round(size * 0.05));
+          ctx.fillStyle = '#5d432c';
+          ctx.fillRect(Math.round(size * 0.40), Math.round(size * 0.40), Math.round(size * 0.025), Math.round(size * 0.025));
+          ctx.fillRect(Math.round(size * 0.58), Math.round(size * 0.40), Math.round(size * 0.025), Math.round(size * 0.025));
+          ctx.fillStyle = 'rgba(54, 65, 43, 0.82)';
+          ctx.fillRect(Math.round(size * 0.08), Math.round(size * 0.08), Math.round(size * 0.84), Math.round(size * 0.14));
+          ctx.fillStyle = '#fffaf0';
+          ctx.font = '22px sans-serif';
+          ctx.fillText(label, Math.round(size * 0.12), Math.round(size * 0.16));
+          if (detail) {
+            ctx.font = '15px sans-serif';
+            ctx.fillText(String(detail).slice(0, 58), Math.round(size * 0.12), Math.round(size * 0.20));
+          }
+        }
+
+        function showClientStartupFailure(message) {
+          if (window.__pieczargotchiBootSeen) {
+            return;
+          }
+          window.__pieczargotchiBootError = message || window.__pieczargotchiBootError;
+          setAssetStatus('Awaryjny watchdog sceny');
+          drawWatchdogFallback('Awaryjny start', window.__pieczargotchiBootError || 'Główny renderer nie wystartował.');
+        }
+
+        window.addEventListener('error', function(event) {
+          const message = event && event.message ? event.message : 'Błąd klienta przed startem.';
+          showClientStartupFailure(message);
+        });
+
+        window.addEventListener('unhandledrejection', function(event) {
+          const reason = event && event.reason;
+          const message = reason && reason.message ? reason.message : String(reason || 'Odrzucona obietnica przed startem.');
+          showClientStartupFailure(message);
+        });
+
+        window.setTimeout(function() {
+          showClientStartupFailure('Główny renderer nie wystartował w Google Apps Script.');
+        }, 1800);
+      })();
+    </script>
     <?!= include('ClientCore'); ?>
     <?!= include('Client'); ?>
   </body>

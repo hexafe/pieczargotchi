@@ -258,6 +258,7 @@
     }
 
     drawEmergencyCanvasFallback('Awaryjny start');
+    markClientBootSeen();
     try {
       if (!dom.assetStatus) {
         dom.assetStatus = document.querySelector('[data-asset-status]');
@@ -276,6 +277,7 @@
     }
 
     runtime.booted = true;
+    markClientBootSeen();
     runtime.state = loadState();
     runtime.state = applyElapsedTime(runtime.state, getRuntimeNow());
     saveState(runtime.state);
@@ -392,6 +394,11 @@
     }
     runtime.ctx.imageSmoothingEnabled = false;
     drawEmergencyCanvasFallback('Ładowanie sceny');
+    markClientBootSeen();
+  }
+
+  function markClientBootSeen() {
+    window.__pieczargotchiBootSeen = true;
   }
 
   function bindControls() {
