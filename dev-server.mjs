@@ -26,6 +26,10 @@ const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`);
 
+    if (url.searchParams.get('smoke') === '1') {
+      send(response, 200, renderDeploymentSmokeHtml(), contentTypes['.html']);
+      return;
+    }
     if (url.searchParams.get('bundle') === 'config') {
       send(response, 200, renderConfigBundle(), contentTypes['.js']);
       return;
@@ -57,6 +61,17 @@ server.listen(port, '127.0.0.1', () => {
 
 async function renderPreviewHtml() {
   return renderTemplate('Index.html');
+}
+
+function renderDeploymentSmokeHtml() {
+  return '<!doctype html><html lang="pl"><head><meta charset="utf-8">'
+    + '<meta name="viewport" content="width=device-width, initial-scale=1">'
+    + '<title>Pieczargotchi smoke</title>'
+    + '<style>body{margin:0;padding:24px;font:16px sans-serif;background:#e7f0d0;color:#221814}'
+    + '.box{display:grid;gap:8px;max-width:420px;padding:18px;border:3px solid #3c2b20;background:#fff8ea}'
+    + 'strong{font-size:22px}</style></head>'
+    + '<body><div class="box"><strong>Pieczargotchi smoke OK</strong>'
+    + '<span>Minimalny HTML Apps Script został wyrenderowany.</span></div></body></html>';
 }
 
 function renderTemplate(fileName) {

@@ -204,11 +204,19 @@ function checkHtmlIncludes() {
   if (!codeGs.includes('serveClientConfigScript_') || !codeGs.includes('serveClientBundle_') || !codeGs.includes('ContentService.MimeType.JAVASCRIPT')) {
     fail('Code.gs must serve config and client bundles as JavaScript ContentService outputs.');
   }
+  if (!codeGs.includes("parameters.smoke === '1'") || !codeGs.includes('serveDeploymentSmokePage_')) {
+    fail('Code.gs must expose the minimal ?smoke=1 Apps Script deployment diagnostic.');
+  }
   if (!codeGs.includes('window.PIECZARGOTCHI_CONFIG')) {
     fail('Code.gs config bundle must assign window.PIECZARGOTCHI_CONFIG.');
   }
   if (codeGs.includes('setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)')) {
     fail('Code.gs should not force ALLOWALL for the public Apps Script surface.');
+  }
+
+  const devServer = readText('dev-server.mjs');
+  if (!devServer.includes("url.searchParams.get('smoke') === '1'") || !devServer.includes('renderDeploymentSmokeHtml')) {
+    fail('dev-server.mjs must mirror the ?smoke=1 deployment diagnostic.');
   }
 }
 
