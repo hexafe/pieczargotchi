@@ -110,6 +110,7 @@ function main() {
   checkRequiredFiles();
   checkAppsScriptManifest();
   checkHtmlIncludes();
+  checkAppsScriptLoadOrderSafety();
   checkStaticConfig();
   checkLocalPreviewConfig();
   checkAssetFallbackContract();
@@ -196,6 +197,38 @@ function readIncludes(fileName) {
   return [...readText(fileName).matchAll(/include\('([^']+)'\)/g)].map((match) => match[1]);
 }
 
+function checkAppsScriptLoadOrderSafety() {
+  const context = createAppsScriptVmContext({
+    DriveApp: {
+      getFileById(fileId) {
+        throw new Error(`DriveApp unavailable during Apps Script load-order check for ${fileId}.`);
+      }
+    }
+  });
+
+  const serverFiles = requiredSourceFiles
+    .filter((fileName) => fileName.endsWith('.gs'))
+    .sort((left, right) => left.localeCompare(right));
+
+  for (const fileName of serverFiles) {
+    try {
+      vm.runInContext(readText(fileName), context, { filename: fileName });
+    } catch (error) {
+      fail(`${fileName} has an Apps Script load-order unsafe top-level reference: ${error.message}`);
+      return;
+    }
+  }
+
+  try {
+    const config = context.getClientConfig();
+    if (!config || !Array.isArray(config.assets) || !config.assets.length) {
+      fail('Apps Script load-order check produced an empty client config.');
+    }
+  } catch (error) {
+    fail(`getClientConfig() failed after Apps Script load-order check: ${error.message}`);
+  }
+}
+
 function checkStaticConfig() {
   const config = loadStaticConfig();
   if (!config) {
@@ -274,9 +307,7 @@ function checkAssetDriveFolderConfig(folderMode) {
 }
 
 function checkLocalPreviewConfig() {
-  const context = {
-    console,
-    Object,
+  const context = createAppsScriptVmContext({
     Utilities: {
       base64Encode() {
         return '';
@@ -287,8 +318,7 @@ function checkLocalPreviewConfig() {
         throw new Error(`DriveApp unavailable during local preview config check for ${fileId}.`);
       }
     }
-  };
-  vm.createContext(context);
+  });
 
   const files = [
     'Config.gs',
@@ -416,9 +446,7 @@ function checkTrackedSecretLeaks() {
 }
 
 function loadStaticConfig() {
-  const context = {
-    console,
-    Object,
+  const context = createAppsScriptVmContext({
     Utilities: {
       base64Encode() {
         return '';
@@ -429,8 +457,7 @@ function loadStaticConfig() {
         throw new Error(`DriveApp unavailable during readiness check for ${fileId}.`);
       }
     }
-  };
-  vm.createContext(context);
+  });
 
   for (const fileName of ['Config.gs', 'AnimationConfig.gs']) {
     try {
@@ -447,6 +474,46 @@ function loadStaticConfig() {
     fail(`getStaticAppConfig() failed: ${error.message}`);
     return null;
   }
+}
+
+function createAppsScriptVmContext(overrides = {}) {
+  const context = Object.assign({
+    console,
+    Object,
+    HtmlService: {
+      createTemplateFromFile() {
+        return {
+          evaluate() {
+            return {
+              getContent() {
+                return '';
+              },
+              setTitle() {
+                return this;
+              },
+              setXFrameOptionsMode() {
+                return this;
+              },
+              addMetaTag() {
+                return this;
+              }
+            };
+          }
+        };
+      },
+      XFrameOptionsMode: {
+        ALLOWALL: 'ALLOWALL'
+      }
+    },
+    Utilities: {
+      base64Encode() {
+        return '';
+      }
+    }
+  }, overrides);
+
+  vm.createContext(context);
+  return context;
 }
 
 function readJson(fileName) {

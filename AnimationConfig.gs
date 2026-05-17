@@ -1,4 +1,5 @@
 const PIECZARGOTCHI_ANIMATION_STAGES = ['spore', 'baby', 'young', 'adult', 'legendary'];
+const PIECZARGOTCHI_ANIMATION_DEFAULT_CANVAS_SIZE = 512;
 
 const PIECZARGOTCHI_STAGE_ANIMATIONS = [
   {
@@ -343,7 +344,6 @@ const PIECZARGOTCHI_ENVIRONMENT_ASSETS = [
     key: 'environment.grassPatch',
     kind: 'environment',
     fileName: 'environment/grass_patch.png',
-    width: PIECZARGOTCHI_CANVAS_SIZE,
     height: 158,
     frames: 1,
     required: false
@@ -398,6 +398,8 @@ function getAnimationManifest() {
 }
 
 function getRuntimeAssetManifest() {
+  const canvasSize = getPieczargotchiAnimationCanvasSize_();
+
   return getAnimationManifest().map(function(animation) {
     return {
       key: animation.key,
@@ -415,18 +417,21 @@ function getRuntimeAssetManifest() {
       fileName: asset.fileName,
       fileId: PIECZARGOTCHI_ASSET_FILE_IDS[asset.key] || '',
       required: false,
-      width: PIECZARGOTCHI_CANVAS_SIZE * 4,
-      height: PIECZARGOTCHI_CANVAS_SIZE,
+      width: canvasSize * 4,
+      height: canvasSize,
       frames: 4
     };
   })).concat(PIECZARGOTCHI_ENVIRONMENT_ASSETS.map(function(asset) {
     return Object.assign({}, asset, {
+      width: asset.width || canvasSize,
       fileId: PIECZARGOTCHI_ASSET_FILE_IDS[asset.key] || ''
     });
   }));
 }
 
 function buildStageAnimationEntry(stage, animation) {
+  const canvasSize = getPieczargotchiAnimationCanvasSize_();
+
   return {
     key: stage + '.' + animation.state,
     kind: 'stage',
@@ -435,8 +440,8 @@ function buildStageAnimationEntry(stage, animation) {
     need: animation.need || null,
     fileName: 'stages/' + stage + '/' + animation.state + '_sheet.png',
     frameCount: animation.frameCount,
-    frameWidth: PIECZARGOTCHI_CANVAS_SIZE,
-    frameHeight: PIECZARGOTCHI_CANVAS_SIZE,
+    frameWidth: canvasSize,
+    frameHeight: canvasSize,
     frameDurationsMs: animation.frameDurationsMs.slice(),
     loop: animation.loop,
     priority: animation.priority,
@@ -445,6 +450,8 @@ function buildStageAnimationEntry(stage, animation) {
 }
 
 function buildActivityAnimationEntry(stage, animation) {
+  const canvasSize = getPieczargotchiAnimationCanvasSize_();
+
   return {
     key: stage + '.activity.' + animation.activity,
     kind: 'activity',
@@ -453,8 +460,8 @@ function buildActivityAnimationEntry(stage, animation) {
     minStage: null,
     fileName: 'activities/' + stage + '/' + animation.activity + '_sheet.png',
     frameCount: animation.frameCount,
-    frameWidth: PIECZARGOTCHI_CANVAS_SIZE,
-    frameHeight: PIECZARGOTCHI_CANVAS_SIZE,
+    frameWidth: canvasSize,
+    frameHeight: canvasSize,
     frameDurationsMs: animation.frameDurationsMs.slice(),
     loop: animation.loop,
     priority: animation.priority,
@@ -463,6 +470,8 @@ function buildActivityAnimationEntry(stage, animation) {
 }
 
 function buildEasterEggAnimationEntry(stage, animation) {
+  const canvasSize = getPieczargotchiAnimationCanvasSize_();
+
   return {
     key: stage + '.easter.' + animation.state,
     kind: 'easterEgg',
@@ -470,11 +479,19 @@ function buildEasterEggAnimationEntry(stage, animation) {
     state: animation.state,
     fileName: 'easter-eggs/' + stage + '/' + animation.state + '_sheet.png',
     frameCount: animation.frameCount,
-    frameWidth: PIECZARGOTCHI_CANVAS_SIZE,
-    frameHeight: PIECZARGOTCHI_CANVAS_SIZE,
+    frameWidth: canvasSize,
+    frameHeight: canvasSize,
     frameDurationsMs: animation.frameDurationsMs.slice(),
     loop: animation.loop,
     priority: animation.priority,
     required: false
   };
+}
+
+function getPieczargotchiAnimationCanvasSize_() {
+  if (typeof PIECZARGOTCHI_CANVAS_SIZE === 'number' && PIECZARGOTCHI_CANVAS_SIZE > 0) {
+    return PIECZARGOTCHI_CANVAS_SIZE;
+  }
+
+  return PIECZARGOTCHI_ANIMATION_DEFAULT_CANVAS_SIZE;
 }
