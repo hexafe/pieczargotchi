@@ -24,6 +24,13 @@ const stageSamples = [
   ['legendary', 100]
 ];
 const activitySamples = ['hydrate', 'feed', 'clean', 'play', 'instrument', 'sing', 'spores', 'harvest'];
+const immersionSamples = [
+  { id: 'pointerHover', state: 'curious' },
+  { id: 'sun', state: 'sun' },
+  { id: 'rain', state: 'rain' },
+  { id: 'stargaze', state: 'stargaze' },
+  { id: 'snow', state: 'snow' }
+];
 
 function createCaptureDebugSettings() {
   const weather = process.env.PIECZARGOTCHI_DEBUG_WEATHER || 'auto';
@@ -175,6 +182,12 @@ try {
     }
   }
 
+  if (process.env.PIECZARGOTCHI_CAPTURE_IMMERSION === '1') {
+    for (const sample of immersionSamples) {
+      await captureImmersion(cdp, sample);
+    }
+  }
+
   if (process.env.PIECZARGOTCHI_CAPTURE_ARENA === '1') {
     await captureArena(cdp);
   }
@@ -223,6 +236,16 @@ async function captureActivity(cdp, stage, growth, activity) {
     growth,
     activity: `{ type: ${JSON.stringify(activity)}, label: ${JSON.stringify(activity)}, startedAt: runtimeNow, until: runtimeNow + 2400 }`,
     expectedAnimationKey: `${stage}.activity.${activity}`
+  });
+}
+
+async function captureImmersion(cdp, sample) {
+  await captureCanvas(cdp, `immersion-${sample.id}`, {
+    mode: 'awake',
+    growth: 70,
+    activity: 'null',
+    expectedAnimationKey: `adult.${sample.state}`,
+    immersion: sample
   });
 }
 
@@ -490,6 +513,9 @@ async function captureCanvas(cdp, label, options) {
   await waitForLoad(cdp, () => cdp.send('Page.reload', { ignoreCache: true }));
   await waitForExpression(cdp, `document.querySelector('[data-asset-status]') && document.querySelector('[data-asset-status]').textContent.includes('Grafiki załadowane')`, 6000);
   await applyCaptureSceneOverrides(cdp);
+  if (options.immersion) {
+    await forceCaptureImmersion(cdp, options.immersion);
+  }
   await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.booted && window.__pieczargotchiRuntime.currentAnimationKey)`, 6000);
   await delay(captureDelayMs);
 
@@ -559,6 +585,78 @@ async function captureCanvas(cdp, label, options) {
     });
     console.log(`${label} scene: ${JSON.stringify(sceneSummary.result.value)}`);
   }
+}
+
+async function forceCaptureImmersion(cdp, sample) {
+  const sceneOverrides = getCaptureImmersionSceneOverrides(sample.id);
+  const debugOverrides = getCaptureImmersionDebugOverrides(sample.id);
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const runtime = window.__pieczargotchiRuntime;
+      if (!runtime) {
+        return;
+      }
+      const now = Date.now();
+      const sceneOverrides = ${JSON.stringify(sceneOverrides)};
+      const debugOverrides = ${JSON.stringify(debugOverrides)};
+      runtime.debug = Object.assign(runtime.debug || {}, { enabled: true, panelOpen: false }, debugOverrides);
+      if (runtime.weatherScene && sceneOverrides) {
+        Object.assign(runtime.weatherScene, sceneOverrides);
+      }
+      runtime.input = Object.assign(runtime.input || {}, {
+        inside: true,
+        x: 258,
+        y: 266,
+        lastMoveAt: now,
+        lastDownAt: ${sample.id === 'pointerHover' ? '0' : 'now - 5000'},
+        consumedDownAt: now,
+        speed: 0.1
+      });
+      runtime.immersion = runtime.immersion || {};
+      runtime.immersion.active = {
+        id: ${JSON.stringify(sample.id)},
+        state: ${JSON.stringify(sample.state)},
+        source: 'capture',
+        sourceAt: now,
+        startedAt: now,
+        until: now + 5000,
+        durationMs: 5000,
+        cooldownMs: 10000,
+        priority: 99
+      };
+      runtime.immersion.cooldownUntil = now + 10000;
+    })()`,
+    awaitPromise: true
+  });
+}
+
+function getCaptureImmersionDebugOverrides(id) {
+  if (id === 'rain') {
+    return { fixedAt: Date.parse('2026-05-14T12:00:00.000Z'), weather: 'rain', cloudCoverOverride: 86, precipitationOverride: 2.8 };
+  }
+  if (id === 'snow') {
+    return { fixedAt: Date.parse('2026-01-14T12:00:00.000Z'), weather: 'snow', cloudCoverOverride: 82, precipitationOverride: 1.6 };
+  }
+  if (id === 'stargaze') {
+    return { fixedAt: Date.parse('2026-01-14T23:00:00.000Z'), weather: 'clear', cloudCoverOverride: 8, precipitationOverride: 0 };
+  }
+  return { fixedAt: Date.parse('2026-05-14T12:00:00.000Z'), weather: 'clear', cloudCoverOverride: 18, precipitationOverride: 0 };
+}
+
+function getCaptureImmersionSceneOverrides(id) {
+  if (id === 'rain') {
+    return { condition: 'rain', isDay: true, dayPhase: 'noon', cloudCover: 86, precipitation: 2.8, rain: 2.8, showers: 0.6 };
+  }
+  if (id === 'snow') {
+    return { condition: 'snow', isDay: true, dayPhase: 'noon', cloudCover: 82, precipitation: 1.6, snowfall: 1.6, snowIntensity: 0.6, snowCoverTarget: 0.55 };
+  }
+  if (id === 'stargaze') {
+    return { condition: 'clear', isDay: false, dayPhase: 'night', cloudCover: 8, precipitation: 0, rain: 0, snowfall: 0, starVisibility: 1 };
+  }
+  if (id === 'sun') {
+    return { condition: 'clear', isDay: true, dayPhase: 'noon', cloudCover: 12, precipitation: 0, rain: 0, snowfall: 0 };
+  }
+  return { condition: 'clear', isDay: true, dayPhase: 'noon', cloudCover: 18, precipitation: 0, rain: 0, snowfall: 0 };
 }
 
 async function applyCaptureSceneOverrides(cdp) {

@@ -22,13 +22,18 @@ Aktualnie repo zawiera 5 etapów wzrostu:
 - `adult`
 - `legendary`
 
-Każdy etap ma komplet 11 sheetów stanów:
+Każdy etap ma komplet 16 sheetów stanów:
 
 - `idle_sheet.png`
 - `sleep_sheet.png`
 - `wake_sheet.png`
 - `happy_sheet.png`
 - `excellent_sheet.png`
+- `curious_sheet.png`
+- `sun_sheet.png`
+- `rain_sheet.png`
+- `stargaze_sheet.png`
+- `snow_sheet.png`
 - `tired_sheet.png`
 - `dry_sheet.png`
 - `hungry_sheet.png`
@@ -53,7 +58,7 @@ W runtime manifest używa wariantów `assets/activities/<stage>/...`; root-level
 
 ### Efekty pomocnicze
 
-Aktualnie repo zawiera 5 opcjonalnych sheetów efektów:
+Aktualnie repo zawiera 5 sheetów efektów pomocniczych ładowanych przez runtime:
 
 - `drops_sheet.png`
 - `sparkle_sheet.png`
@@ -61,7 +66,7 @@ Aktualnie repo zawiera 5 opcjonalnych sheetów efektów:
 - `notes_sheet.png`
 - `spore_cloud_sheet.png`
 
-Efekty są walidowane razem z sheetami, ale nie są jeszcze ładowane przez runtime manifest.
+Efekty są walidowane razem z sheetami i ładowane przez runtime manifest jako warstwy `effect.*`.
 
 ## 2. Format techniczny
 
@@ -171,7 +176,7 @@ Nie skalujemy całej sceny między etapami. Trawa/mech jest wspólną kotwicą w
 
 ## 6. Zestaw animacji stage'owych
 
-Aktualny kontrakt stage'owy to 11 sheetów na etap:
+Aktualny kontrakt stage'owy to 16 sheetów na etap:
 
 | Sheet | Rola |
 | --- | --- |
@@ -180,6 +185,11 @@ Aktualny kontrakt stage'owy to 11 sheetów na etap:
 | `wake_sheet.png` | wejście z uśpienia do czuwania |
 | `happy_sheet.png` | pozytywna reakcja, zadowolenie |
 | `excellent_sheet.png` | bardzo dobra opieka, połysk, stan nagrody |
+| `curious_sheet.png` | reakcja na obecność kursora, tapnięcie albo szelest przy Pieczarce |
+| `sun_sheet.png` | spokojna reakcja na słoneczne okno pogodowe |
+| `rain_sheet.png` | reakcja na deszcz/storm foreground bez canvasowego rysowania akcesoriów na twarzy |
+| `stargaze_sheet.png` | nocna reakcja na gwiazdy i konstelacje |
+| `snow_sheet.png` | reakcja na śnieg i chłód |
 | `tired_sheet.png` | senność i opadanie energii |
 | `dry_sheet.png` | przesuszenie, spadek świeżości |
 | `hungry_sheet.png` | głód, brak zasobów |
@@ -193,6 +203,7 @@ Aktualny kontrakt stage'owy to 11 sheetów na etap:
 - `sleep` oraz `wake` mają czytać się bez tekstu i bez ikon interfejsu.
 - `happy` podnosi energię, ale nie rozwala sylwetki.
 - `excellent` jest mocniejsze niż `happy`, ale nie może zasłonić twarzy błyskami.
+- `curious`, `sun`, `rain`, `stargaze` i `snow` są reakcjami immersyjnymi. Nie zmieniają statystyk, nie zastępują potrzeb i nie mogą maskować `critical`, `sick`, kuracji ani game over.
 - `tired`, `dry`, `hungry`, `dirty`, `sick` muszą różnić się od siebie charakterem, nie tylko kolorem.
 - `critical` ma być najmocniejszym sygnałem ostrzegawczym, ale wciąż czytelnym w skali całej planszy.
 
@@ -221,7 +232,7 @@ Aktywności są stage-specific. Ten sam typ akcji musi mieć osobny sheet dla ka
 
 ## 8. Efekty pomocnicze
 
-Efekty z `assets/effects/` nie zastępują animacji postaci. To małe warstwy pomocnicze, które można wykorzystać później przy akcjach lub minigrach.
+Efekty z `assets/effects/` nie zastępują animacji postaci. To małe warstwy pomocnicze używane przez akcje, minigry i drobne reakcje środowiskowe.
 
 | Sheet | Znaczenie praktyczne |
 | --- | --- |
@@ -233,7 +244,15 @@ Efekty z `assets/effects/` nie zastępują animacji postaci. To małe warstwy po
 
 Efekty mogą mieć większy dryf niż postać, bo są ruchem cząstek. Nadal muszą mieścić się w `512x512` per klatka i nie mogą wymuszać przesuwania głównego sprite'a.
 
-## 9. Rytm animacji
+## 9. Imagegen vs canvas
+
+Reguła produkcyjna dla immersji:
+
+- PNG/imagegen: sylwetka Pieczarki, oczy, usta, kapelusz, akcesoria dotykające postaci, parasolka/liść/osłona, duże reakcje mimiczne i stage-specific stany.
+- Canvas: opady, wiatr, ruch trawy, gwiazdy, promienie, mokrość, śnieg na ziemi, cursor ripple, szelest i małe cząstki.
+- Runtime nie maluje nowej mimiki po głównym PNG. Jeśli reakcja wymaga twarzy, dostaje własny sheet w `assets/stages/<stage>/`.
+
+## 10. Rytm animacji
 
 Plan implementacyjny mówi o manifeście z liczbą klatek, timingiem, pętlą i priorytetem. Dla aktualnej paczki warto trzymać się tych zasad:
 
@@ -246,7 +265,7 @@ Plan implementacyjny mówi o manifeście z liczbą klatek, timingiem, pętlą i 
 
 Jeżeli sheet ma tylko 4 klatki, różnicę rytmu osiągamy timingiem i intensywnością pozy, nie dokładaniem losowych mikro-ruchów.
 
-## 10. Walidacja przed wrzutką
+## 11. Walidacja przed wrzutką
 
 Nowy sheet nie powinien trafiać do runtime bez tej listy kontrolnej.
 
@@ -273,7 +292,7 @@ Nowy sheet nie powinien trafiać do runtime bez tej listy kontrolnej.
 - aktywność albo potrzeba jest zrozumiała bez tutoriala,
 - etap wzrostu jest rozpoznawalny, ale nadal należy do tej samej rodziny postaci.
 
-## 11. Co robić przy nowych sheetach
+## 12. Co robić przy nowych sheetach
 
 ### Gdy dodajesz nowy sheet do istniejącego etapu
 

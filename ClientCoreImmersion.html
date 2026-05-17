@@ -1,0 +1,184 @@
+  const IMMERSION_DEFAULTS = {
+    pointerFreshMs: 1800,
+    pointerTapFreshMs: 1300,
+    pointerFaceRadius: 170,
+    pointerGroundRadius: 96,
+    pointerMinSpeed: 0.42,
+    pointerHoverDurationMs: 1500,
+    pointerHoverCooldownMs: 2600,
+    pointerTapDurationMs: 1150,
+    pointerTapCooldownMs: 2400,
+    weatherDurationMs: 2600,
+    weatherCooldownMs: 8200,
+    celestialDurationMs: 3000,
+    celestialCooldownMs: 10000,
+    windDurationMs: 1800,
+    windCooldownMs: 6200
+  };
+
+  function selectImmersionReaction(state, scene, input, now, rules) {
+    const timestamp = Number(now) || 0;
+    const config = Object.assign({}, IMMERSION_DEFAULTS, rules && rules.immersion ? rules.immersion : {});
+    if (isImmersionBlockedCore(state, rules, timestamp)) {
+      return null;
+    }
+
+    const safeInput = isPlainObject(input) ? input : {};
+    const pointer = selectPointerImmersionReaction(safeInput, timestamp, config);
+    if (pointer) {
+      return pointer;
+    }
+
+    const weather = selectWeatherImmersionReaction(scene, timestamp, config);
+    if (weather) {
+      return weather;
+    }
+
+    return selectCelestialImmersionReaction(scene, timestamp, config);
+  }
+
+  function isImmersionBlockedCore(state, rules, now) {
+    if (!isPlainObject(state)) {
+      return true;
+    }
+
+    if (state.gameOver && state.gameOver.active) {
+      return true;
+    }
+
+    if (state.recovery && state.recovery.active) {
+      return true;
+    }
+
+    if (state.mode === 'sleeping') {
+      return true;
+    }
+
+    const activity = getActiveActivityCore(state, now);
+    if (activity) {
+      return true;
+    }
+
+    const need = getStrongestNeedCore(state, rules || {});
+    return Boolean(need);
+  }
+
+  function selectPointerImmersionReaction(input, now, config) {
+    const x = readOptionalCoreNumber(input.x);
+    const y = readOptionalCoreNumber(input.y);
+    const inside = Boolean(input.inside);
+    if (x === null || y === null) {
+      return null;
+    }
+
+    const downAt = readOptionalCoreNumber(input.lastDownAt);
+    const consumedDownAt = readOptionalCoreNumber(input.consumedDownAt) || 0;
+    if (
+      downAt !== null
+      && downAt > consumedDownAt
+      && now - downAt >= 0
+      && now - downAt <= config.pointerTapFreshMs
+      && isPointNearMushroomCore(x, y, 'body', config.pointerFaceRadius + 22)
+    ) {
+      return buildImmersionCandidate('pointerTap', 'curious', 'input', downAt, config.pointerTapDurationMs, config.pointerTapCooldownMs, 92);
+    }
+
+    if (!inside) {
+      return null;
+    }
+
+    const movedAt = readOptionalCoreNumber(input.lastMoveAt);
+    if (movedAt === null || now - movedAt < 0 || now - movedAt > config.pointerFreshMs) {
+      return null;
+    }
+
+    const speed = Math.max(0, Number(input.speed) || 0);
+    if (isPointNearMushroomCore(x, y, 'face', config.pointerFaceRadius)) {
+      return buildImmersionCandidate('pointerHover', 'curious', 'input', movedAt, config.pointerHoverDurationMs, config.pointerHoverCooldownMs, 80);
+    }
+
+    if (speed >= config.pointerMinSpeed && isPointNearMushroomCore(x, y, 'ground', config.pointerGroundRadius)) {
+      return buildImmersionCandidate('pointerGrass', 'curious', 'input', movedAt, 900, 1800, 74);
+    }
+
+    return null;
+  }
+
+  function selectWeatherImmersionReaction(scene, now, config) {
+    if (!isPlainObject(scene)) {
+      return null;
+    }
+
+    const condition = scene.condition || 'clear';
+    const precipitation = Math.max(
+      0,
+      Number(scene.precipitation) || 0,
+      Number(scene.rain) || 0,
+      Number(scene.showers) || 0,
+      Number(scene.snowfall) || 0
+    );
+
+    if (condition === 'snow' || Number(scene.snowfall) > 0.04 || Number(scene.snowIntensity) > 0.05) {
+      return buildImmersionCandidate('snow', 'snow', 'weather', now, config.weatherDurationMs + 400, config.weatherCooldownMs, 64);
+    }
+
+    if (['rain', 'storm'].includes(condition) && precipitation > 0.04) {
+      return buildImmersionCandidate('rain', 'rain', 'weather', now, config.weatherDurationMs, config.weatherCooldownMs, condition === 'storm' ? 66 : 62);
+    }
+
+    const windLevel = Math.max(0, Number(scene.windLevel) || 0, Number(scene.gustLevel) || 0);
+    if (windLevel >= 0.72 && precipitation <= 0.04) {
+      return buildImmersionCandidate('wind', 'curious', 'weather', now, config.windDurationMs, config.windCooldownMs, 48);
+    }
+
+    return null;
+  }
+
+  function selectCelestialImmersionReaction(scene, now, config) {
+    if (!isPlainObject(scene)) {
+      return null;
+    }
+
+    const cloudCover = clampNumber(Number(scene.cloudCover), 0, 100, 0);
+    const isDay = Boolean(scene.isDay);
+    const condition = scene.condition || 'clear';
+    const precipitation = Math.max(0, Number(scene.precipitation) || 0, Number(scene.rain) || 0, Number(scene.snowfall) || 0);
+
+    if (isDay && !['rain', 'storm', 'snow', 'fog'].includes(condition) && precipitation <= 0.03 && cloudCover <= 62) {
+      return buildImmersionCandidate('sun', 'sun', 'celestial', now, config.celestialDurationMs - 400, config.celestialCooldownMs, 42);
+    }
+
+    const starVisibility = Number(scene.starVisibility);
+    const visibleStars = Number.isFinite(starVisibility)
+      ? starVisibility > 0.12
+      : (!isDay && cloudCover <= 68 && !['rain', 'storm', 'snow', 'fog'].includes(condition));
+    if (!isDay && visibleStars && precipitation <= 0.03) {
+      return buildImmersionCandidate('stargaze', 'stargaze', 'celestial', now, config.celestialDurationMs, config.celestialCooldownMs, 44);
+    }
+
+    return null;
+  }
+
+  function buildImmersionCandidate(id, state, source, sourceAt, durationMs, cooldownMs, priority) {
+    return {
+      id: id,
+      state: state,
+      source: source,
+      sourceAt: sourceAt,
+      durationMs: Math.max(300, Number(durationMs) || 1200),
+      cooldownMs: Math.max(0, Number(cooldownMs) || 0),
+      priority: Number(priority) || 0
+    };
+  }
+
+  function isPointNearMushroomCore(x, y, zone, radius) {
+    const centers = {
+      face: { x: 256, y: 260, rx: radius, ry: radius * 0.72 },
+      body: { x: 256, y: 300, rx: radius, ry: radius * 0.95 },
+      ground: { x: 256, y: 424, rx: radius * 2.4, ry: radius * 0.75 }
+    };
+    const center = centers[zone] || centers.body;
+    const dx = (Number(x) - center.x) / center.rx;
+    const dy = (Number(y) - center.y) / center.ry;
+    return dx * dx + dy * dy <= 1;
+  }

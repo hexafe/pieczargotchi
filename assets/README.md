@@ -15,11 +15,11 @@ Runtime assets live in this directory.
 
 ## Struktura
 
-- `stages/` - animacje etapów wzrostu: `spore`, `baby`, `young`, `adult`, `legendary`.
+- `stages/` - animacje etapów wzrostu: `spore`, `baby`, `young`, `adult`, `legendary`, w tym reakcje immersyjne `curious`, `sun`, `rain`, `stargaze` i `snow`.
 - `activities/<stage>/` - jednorazowe reakcje na akcje opieki, muzykę, zarodniki i plon dla konkretnego etapu.
 - `activities/*.png` - fallbacki kompatybilnosci z wariantu `adult`.
 - `easter-eggs/<stage>/` - rzadkie warianty specjalne budowane z osobnych wyrenderowanych source cutoutow, np. neutralna mina `:|` i deszczowa wersja Iwoniastej Pieczarki z parasolka.
-- `effects/` - małe opcjonalne efekty pomocnicze z atlasu imagegen.
+- `effects/` - małe efekty pomocnicze z atlasu imagegen ładowane przez runtime jako warstwy `effect.*`.
 - `environment/` - runtime assety sceny, np. wygenerowany trawnik `grass_patch.png`.
 - `reference/` - źródłowe referencje stylu, nie ładować ich w aplikacji.
 - `source/imagegen/raw/` - surowe atlasy z wbudowanego generatora obrazow, w tym `neutral_atlas.png`, `neutral_rain_atlas.png` i `grass_patch_atlas.png`.

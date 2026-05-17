@@ -37,6 +37,41 @@ const PIECZARGOTCHI_STAGE_ANIMATIONS = [
     priority: 40
   },
   {
+    state: 'curious',
+    frameCount: 4,
+    frameDurationsMs: [180, 220, 320, 420],
+    loop: true,
+    priority: 34
+  },
+  {
+    state: 'sun',
+    frameCount: 4,
+    frameDurationsMs: [220, 260, 320, 420],
+    loop: true,
+    priority: 32
+  },
+  {
+    state: 'rain',
+    frameCount: 4,
+    frameDurationsMs: [180, 220, 260, 360],
+    loop: true,
+    priority: 36
+  },
+  {
+    state: 'stargaze',
+    frameCount: 4,
+    frameDurationsMs: [260, 360, 420, 520],
+    loop: true,
+    priority: 33
+  },
+  {
+    state: 'snow',
+    frameCount: 4,
+    frameDurationsMs: [240, 320, 380, 440],
+    loop: true,
+    priority: 37
+  },
+  {
     state: 'tired',
     frameCount: 4,
     frameDurationsMs: [520, 520, 700, 520],
@@ -189,6 +224,29 @@ const PIECZARGOTCHI_ENVIRONMENT_ASSETS = [
   }
 ];
 
+const PIECZARGOTCHI_EFFECT_ASSETS = [
+  {
+    key: 'effect.drops',
+    fileName: 'effects/drops_sheet.png'
+  },
+  {
+    key: 'effect.sparkle',
+    fileName: 'effects/sparkle_sheet.png'
+  },
+  {
+    key: 'effect.dust',
+    fileName: 'effects/dust_sheet.png'
+  },
+  {
+    key: 'effect.notes',
+    fileName: 'effects/notes_sheet.png'
+  },
+  {
+    key: 'effect.sporeCloud',
+    fileName: 'effects/spore_cloud_sheet.png'
+  }
+];
+
 function getAnimationManifest() {
   const entries = [];
 
@@ -224,7 +282,18 @@ function getRuntimeAssetManifest() {
       height: animation.frameHeight,
       frames: animation.frameCount
     };
-  }).concat(PIECZARGOTCHI_ENVIRONMENT_ASSETS.map(function(asset) {
+  }).concat(PIECZARGOTCHI_EFFECT_ASSETS.map(function(asset) {
+    return {
+      key: asset.key,
+      kind: 'effect',
+      fileName: asset.fileName,
+      fileId: PIECZARGOTCHI_ASSET_FILE_IDS[asset.key] || '',
+      required: false,
+      width: PIECZARGOTCHI_CANVAS_SIZE * 4,
+      height: PIECZARGOTCHI_CANVAS_SIZE,
+      frames: 4
+    };
+  })).concat(PIECZARGOTCHI_ENVIRONMENT_ASSETS.map(function(asset) {
     return Object.assign({}, asset, {
       fileId: PIECZARGOTCHI_ASSET_FILE_IDS[asset.key] || ''
     });

@@ -170,6 +170,8 @@
     assetPromises: {},
     assetStatus: 'Ładowanie grafik',
     effects: [],
+    input: createDefaultInputState(),
+    immersion: createDefaultImmersionState(),
     wakeSurpriseUntil: 0,
     weatherLocation: null,
     weatherScene: createLocalWeatherScene(defaultWeatherLocation),
@@ -211,6 +213,7 @@
     renderActions();
     renderDebugControls();
     bindControls();
+    bindImmersionInput();
     bindKeyboardShortcuts();
     renderUi();
     resumeMinigameIfActive();

@@ -25,6 +25,7 @@ Wymagane atlasy:
 - easter eggi: `neutral_atlas.png` dla miny `:|`, `neutral_rain_atlas.png` dla Iwoniastej Pieczarki z parasolka
 - srodowisko: `grass_patch_atlas.png` dla trawnika wypelniajacego dol sceny
 - efekty: `effects`
+- reakcje immersyjne: `curious`, `sun`, `rain`, `stargaze`, `snow`
 
 Kazdy atlas stanu lub akcji ma jeden rzad pieciu postaci: `spore`, `baby`, `young`, `adult`, `legendary`. Tlo atlasu jest plaskim chroma-key `#ff00ff`.
 
@@ -39,7 +40,7 @@ assets/source/imagegen/raw/neutral_rain_atlas.png
 assets/source/imagegen/cutouts/easter-eggs/neutral_rain/<stage>.png
 ```
 
-Builder nie rysuje ani nie dokleja miny `:|` do `idle_sheet.png` i nie rysuje parasolki pixel po pixelu. Runtime `assets/easter-eggs/<stage>/neutral_sheet.png` oraz `assets/easter-eggs/<stage>/neutral_rain_sheet.png` sa skladane z wyrenderowanych cutoutow i wspolnej frontowej trawy.
+Builder nie rysuje ani nie dokleja miny `:|` do `idle_sheet.png` i nie rysuje parasolki pixel po pixelu. Runtime `assets/easter-eggs/<stage>/neutral_sheet.png` oraz `assets/easter-eggs/<stage>/neutral_rain_sheet.png` sa skladane z wyrenderowanych cutoutow i wspolnej frontowej trawy. Reakcje immersyjne, ktore zmieniaja mimike albo rekwizyt postaci, rowniez powinny docelowo powstawac jako pelne PNG sheety, a nie jako canvasowy retusz twarzy.
 
 Trawnik sceny tez ma osobne wyrenderowane zrodla:
 
@@ -85,23 +86,29 @@ Skrypt tworzy:
 - `assets/environment/grass_patch.png`
 - pomocnicze wycinki w `assets/source/imagegen/cutouts/`
 
-Stary `scripts/generate-pixel-assets.py` deleguje do tego buildera, jezeli wykryje `assets/source/imagegen/raw/idle_atlas.png`.
+Reakcje immersyjne (`curious`, `sun`, `rain`, `stargaze`, `snow`) sa generowane z istniejacych sheetow przez:
+
+```sh
+python3 scripts/generate-immersion-assets.py
+```
+
+Stary `scripts/generate-pixel-assets.py` deleguje do tego buildera, jezeli wykryje `assets/source/imagegen/raw/idle_atlas.png`, a potem odswieza reakcje immersyjne.
 
 ## Walidacja
 
 ```sh
-python3 -m py_compile scripts/build-imagegen-sprites.py scripts/generate-pixel-assets.py
+python3 -m py_compile scripts/build-imagegen-sprites.py scripts/generate-pixel-assets.py scripts/generate-immersion-assets.py
 python3 scripts/build-imagegen-sprites.py
 node scripts/validate-assets.mjs
 python3 scripts/audit-sprite-consistency.py
 PIECZARGOTCHI_CAPTURE_STAGES=1 PIECZARGOTCHI_CAPTURE_ACTIVITIES=1 node scripts/capture-app-render.mjs http://127.0.0.1:8092/ /tmp/pieczargotchi-imagegen-final
-PIECZARGOTCHI_CAPTURE_VIEWPORT=1 PIECZARGOTCHI_CAPTURE_STAGES=1 PIECZARGOTCHI_CAPTURE_ACTIVITIES=1 node scripts/capture-app-render.mjs http://127.0.0.1:8092/ /tmp/pieczargotchi-ui-final
+PIECZARGOTCHI_CAPTURE_VIEWPORT=1 PIECZARGOTCHI_CAPTURE_STAGES=1 PIECZARGOTCHI_CAPTURE_ACTIVITIES=1 PIECZARGOTCHI_CAPTURE_IMMERSION=1 node scripts/capture-app-render.mjs http://127.0.0.1:8092/ /tmp/pieczargotchi-ui-final
 ```
 
 Ostatnia walidacja:
 
-- `118` sheetow PNG i `1` asset srodowiska przechodzi `validate-assets`,
-- manifest runtime laduje `106` assetow; poza manifestem zostaja swiadomie walidowane fallbacki `assets/activities/*.png` oraz opcjonalne efekty `assets/effects/*.png`,
+- `143` sheety PNG i `1` asset srodowiska przechodza `validate-assets`,
+- manifest runtime laduje stage, activity, easter egg, effect i environment assety; poza manifestem zostaja swiadomie walidowane tylko fallbacki `assets/activities/*.png`,
 - stany bazowe, aktywnosci i neutralne easter eggi trzymaja rozmiar/baseline w kazdym etapie,
 - lokalny capture potwierdza osobne animacje akcji dla `spore`, `baby`, `young`, `adult` i `legendary`,
 - viewport capture `1194x891` potwierdza czytelny prawy panel i brak checkerboardu w obszarze canvasu.

@@ -724,6 +724,93 @@ test('animation intent keeps activity and wake above sleep, need above happy, th
   }, rules, now).state === 'idle', 'neutral care state should idle');
 });
 
+test('immersion reaction prefers fresh pointer tap and blocks when care state needs attention', () => {
+  const now = 1_000_000;
+  const rules = {
+    attention: { mildThreshold: 45, criticalThreshold: 25 },
+    needDefinitions: {
+      hydration: { category: 'physical', actionId: 'hydrate' }
+    }
+  };
+  const state = {
+    mode: 'awake',
+    stats: { hydration: 82, nutrients: 82, happiness: 82, cleanliness: 82, energy: 82, health: 100 },
+    patch: { quality: 82 },
+    attention: {}
+  };
+  const reaction = core.selectImmersionReaction(state, { condition: 'clear', isDay: true, cloudCover: 20 }, {
+    inside: true,
+    x: 260,
+    y: 268,
+    lastMoveAt: now - 80,
+    lastDownAt: now - 120,
+    consumedDownAt: 0,
+    speed: 0.2
+  }, now, rules);
+
+  assert(reaction && reaction.id === 'pointerTap', `expected pointer tap reaction, got ${reaction && reaction.id}`);
+  assert(reaction.state === 'curious', `expected curious state, got ${reaction.state}`);
+
+  const blocked = core.selectImmersionReaction({
+    ...state,
+    stats: { ...state.stats, hydration: 20 }
+  }, { condition: 'clear', isDay: true, cloudCover: 20 }, {
+    inside: true,
+    x: 260,
+    y: 268,
+    lastMoveAt: now - 80
+  }, now, rules);
+  assert(blocked === null, 'active care need should block immersion reaction');
+});
+
+test('immersion reaction maps weather and celestial context to dedicated animation states', () => {
+  const now = 2_000_000;
+  const rules = {
+    attention: { mildThreshold: 45, criticalThreshold: 25 },
+    needDefinitions: {
+      hydration: { category: 'physical', actionId: 'hydrate' }
+    }
+  };
+  const state = {
+    mode: 'awake',
+    stats: { hydration: 82, nutrients: 82, happiness: 82, cleanliness: 82, energy: 82, health: 100 },
+    patch: { quality: 82 },
+    attention: {}
+  };
+  const noInput = { inside: false };
+  const rain = core.selectImmersionReaction(state, {
+    condition: 'rain',
+    isDay: true,
+    cloudCover: 92,
+    precipitation: 2.4,
+    rain: 2.4
+  }, noInput, now, rules);
+  const snow = core.selectImmersionReaction(state, {
+    condition: 'snow',
+    isDay: true,
+    cloudCover: 88,
+    precipitation: 1.1,
+    snowfall: 1.1
+  }, noInput, now, rules);
+  const sun = core.selectImmersionReaction(state, {
+    condition: 'clear',
+    isDay: true,
+    cloudCover: 18,
+    precipitation: 0
+  }, noInput, now, rules);
+  const stars = core.selectImmersionReaction(state, {
+    condition: 'clear',
+    isDay: false,
+    cloudCover: 20,
+    precipitation: 0
+  }, noInput, now, rules);
+
+  assert(rain && rain.state === 'rain', `expected rain state, got ${rain && rain.state}`);
+  assert(snow && snow.state === 'snow', `expected snow state, got ${snow && snow.state}`);
+  assert(sun && sun.state === 'sun', `expected sun state, got ${sun && sun.state}`);
+  assert(stars && stars.state === 'stargaze', `expected stargaze state, got ${stars && stars.state}`);
+});
+
 test('battle training spends one spore and respects the configured cap', () => {
   const rules = getBattleTestRules();
   const state = getLegendaryBattleState({

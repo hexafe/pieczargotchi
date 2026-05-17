@@ -64,6 +64,7 @@ def main() -> None:
     imagegen_source = ASSETS / "source" / "imagegen" / "raw" / "idle_atlas.png"
     if imagegen_builder.exists() and imagegen_source.exists():
         runpy.run_path(str(imagegen_builder), run_name="__main__")
+        zrob_animacje_immersji()
         return
 
     awake = Image.open(ASSETS / "awake.png").convert("RGBA")
@@ -75,6 +76,7 @@ def main() -> None:
 
     zrob_animacje_aktywnosci(layers)
     zrob_animacje_efektow()
+    zrob_animacje_immersji()
     print("Wygenerowano assety etapów i aktywności.")
 
 
@@ -362,6 +364,10 @@ def zrob_animacje_efektow() -> None:
         efekt_zarodniki(2),
         efekt_zarodniki(3),
     ])
+
+
+def zrob_animacje_immersji() -> None:
+    runpy.run_path(str(ROOT / "scripts" / "generate-immersion-assets.py"), run_name="__main__")
 
 
 def zrob_baze_etapu(stage: str, layers: dict[str, Image.Image | tuple[int, int, int, int]], offset_x: int = 0, offset_y: int = 0) -> Image.Image:

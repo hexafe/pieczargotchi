@@ -16,6 +16,8 @@
     }
 
     drawStageBackground(ctx, now);
+    updateImmersionReaction(wallNow);
+    drawImmersionBackground(ctx, now, wallNow);
 
     const selectedAnimation = selectAnimation(runtime.state, wallNow);
     runtime.currentAnimationKey = selectedAnimation && selectedAnimation.animation
@@ -31,6 +33,7 @@
     drawPatchDecorationsForeground(ctx, now);
     drawAmbientLifeForeground(ctx, now);
     drawWeatherPrecipitationForeground(ctx, now);
+    drawImmersionForeground(ctx, now, wallNow);
 
     if (runtime.state && runtime.state.mode === 'sleeping') {
       drawSleepAmbient(ctx, now);
@@ -104,6 +107,14 @@
       );
     }
 
+    const immersion = getActiveImmersionReaction(now);
+    if (immersion && immersion.state) {
+      const immersionAnimation = findExactStageAnimation(stage, immersion.state);
+      if (immersionAnimation) {
+        return buildAnimationSelection(immersionAnimation, immersion.startedAt);
+      }
+    }
+
     if (state.stats.happiness > 82 && state.stats.health > 78 && state.patch.quality > 82) {
       return buildAnimationSelection(findStageAnimation(stage, 'excellent') || findStageAnimation(stage, 'happy'), null);
     }
@@ -150,6 +161,10 @@
       || animationsByKey.get('spore.' + stateName)
       || animationsByKey.get('spore.idle')
       || null;
+  }
+
+  function findExactStageAnimation(stage, stateName) {
+    return animationsByKey.get(stage + '.' + stateName) || null;
   }
 
   function findActivityAnimation(activityType, stage) {

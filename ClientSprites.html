@@ -254,6 +254,10 @@
   }
 
   function drawEffect(ctx, effect, progress) {
+    if (drawEffectAssetFrame(ctx, effect, progress)) {
+      return;
+    }
+
     if (effect.type === 'water') {
       drawParticleSet(ctx, effect, progress, '#317fb5', 'drop');
     } else if (effect.type === 'clean') {
@@ -269,6 +273,44 @@
     } else if (effect.type === 'attention') {
       drawAttentionAlarm(ctx, 1 - progress);
     }
+  }
+
+  function drawEffectAssetFrame(ctx, effect, progress) {
+    const assetKey = effect.assetKey || getEffectAssetKey(effect.type);
+    if (!assetKey) {
+      return false;
+    }
+
+    const image = runtime.assets[assetKey];
+    if (!image) {
+      ensureAssetLoaded(assetKey);
+      return false;
+    }
+
+    const frameCount = 4;
+    const frame = Math.max(0, Math.min(frameCount - 1, Math.floor(progress * frameCount)));
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, 1 - progress * 0.15));
+    ctx.drawImage(image, frame * canvasSize, 0, canvasSize, canvasSize, 0, 0, canvasSize, canvasSize);
+    ctx.restore();
+    return true;
+  }
+
+  function getEffectAssetKey(type) {
+    const mapping = {
+      water: 'effect.drops',
+      hydrate: 'effect.drops',
+      clean: 'effect.sparkle',
+      sparkle: 'effect.sparkle',
+      dust: 'effect.dust',
+      music: 'effect.notes',
+      instrument: 'effect.notes',
+      sing: 'effect.notes',
+      spores: 'effect.sporeCloud',
+      sporeCloud: 'effect.sporeCloud',
+      harvest: 'effect.sporeCloud'
+    };
+    return mapping[type] || null;
   }
 
   function drawParticleSet(ctx, effect, progress, color, shape) {

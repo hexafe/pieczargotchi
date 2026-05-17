@@ -6,7 +6,7 @@ Pieczargotchi is a Google Apps Script web app for a Polish pixel-art mushroom ca
 
 - `Code.gs` wires `doGet()` and HTML partial inclusion.
 - `Config.gs`, `GameRules.gs`, `StateModel.gs`, `Actions.gs`, `AnimationConfig.gs`, `MinigamesConfig.gs`, `DecorationStore.gs`, and service files hold deterministic config, state templates, rules, and server-side helpers.
-- `Client.html` is the client aggregator. Core logic is split across `ClientCore*.html`; UI, animation, scene, battle, minigame, debug, and backup code live in dedicated `Client*.html` partials.
+- `Client.html` is the client aggregator. Core logic is split across `ClientCore*.html`; UI, interaction, animation, scene, battle, minigame, debug, and backup code live in dedicated `Client*.html` partials.
 - `assets/` stores runtime PNG sheets and generated environment assets; source/reference material stays under `assets/source/` or `assets/reference/`.
 - `scripts/` contains local validation, render capture, asset audits, and deterministic Node tests.
 - `docs/` contains product rules, implementation plans, project-state notes, sprite/weather documentation, and handoff material.
@@ -33,7 +33,7 @@ Use two-space indentation for JavaScript, Apps Script, HTML, and CSS. Prefer sma
 
 Keep game rules deterministic and testable. Rule logic belongs in `GameRules.gs`, `StateModel.gs`, or `ClientCore*.html`, not directly in renderers. UI controls and keyboard shortcuts should call the same action path, usually `handleAction(actionId)`.
 
-Visible UI strings, logs, confirmations, and messages are Polish. Function and variable names may stay English. Main mushroom states and activities must come from PNG sheets; JavaScript draws only temporary effects, weather, grass, overlays, and particles.
+Visible UI strings, logs, confirmations, and messages are Polish. Function and variable names may stay English. Main mushroom states, activities, and large immersion reactions must come from PNG sheets; JavaScript draws only temporary effects, weather, grass, overlays, pointer ripples, and particles.
 
 ## Gameplay Contracts
 
@@ -49,7 +49,7 @@ Add behavior tests with deterministic dates, seeds, and state fixtures. Useful c
 
 Do not add superficial tests that only assert implementation details. Prefer tests that describe user-visible behavior, for example: recovery starts at zero health, neglected recovery reaches game over, and care actions are blocked after game over.
 
-Manual smoke checks should cover: app loads, 512x512 canvas renders crisply, sleep/wake/idle animations select correctly, rain/snow fall downward in foreground/background passes, grass covers the mushroom base without growing from the mushroom, mobile layout stays readable, keyboard shortcuts work, and reset starts a fresh save.
+Manual smoke checks should cover: app loads, 512x512 canvas renders crisply, sleep/wake/idle animations select correctly, pointer/tap and weather/celestial immersion reactions do not override care needs, rain/snow fall downward in foreground/background passes, grass covers the mushroom base without growing from the mushroom, mobile layout stays readable, keyboard shortcuts work, and reset starts a fresh save.
 
 ## Commit & Pull Request Guidelines
 
