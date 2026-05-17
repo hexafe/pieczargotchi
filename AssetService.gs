@@ -46,8 +46,9 @@ function getAssetDataUrls() {
 
 function getAssetDriveFileIdsFromFolder_(assets) {
   const fileIds = {};
+  const assetDriveFolderId = getConfiguredAssetDriveFolderId();
 
-  if (!PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID) {
+  if (!assetDriveFolderId) {
     return { fileIds: fileIds, error: null };
   }
 
@@ -59,7 +60,7 @@ function getAssetDriveFileIdsFromFolder_(assets) {
   }
 
   try {
-    const index = buildDriveFolderAssetIndex_(DriveApp.getFolderById(PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID));
+    const index = buildDriveFolderAssetIndex_(DriveApp.getFolderById(assetDriveFolderId));
 
     assets.forEach(function(asset) {
       if (asset.fileId) {
@@ -145,7 +146,7 @@ function getMissingAssetFileIdMessage_(folderLookup) {
   if (folderLookup.error) {
     return 'Nie udalo sie odczytac folderu Drive z assetami: ' + folderLookup.error;
   }
-  if (PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID) {
+  if (getConfiguredAssetDriveFolderId()) {
     return 'Nie znaleziono pliku w folderze Drive po sciezce z manifestu.';
   }
   return 'ID pliku Drive nie jest ustawione.';

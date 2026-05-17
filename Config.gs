@@ -10,14 +10,34 @@ const PIECZARGOTCHI_RUNTIME_OPTIONS = {
 };
 
 const PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID = '';
+const PIECZARGOTCHI_ASSET_DRIVE_FOLDER_PROPERTY = 'PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID';
 
 const PIECZARGOTCHI_ASSET_FILE_IDS = {
   // Lokalny podglad uzywa fallbacku assets/... . Folder Drive moze uzupelnic ID po fileName.
   'environment.grassPatch': ''
 };
 
+function getConfiguredAssetDriveFolderId() {
+  const committedFolderId = String(PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID || '').trim();
+  if (committedFolderId) {
+    return committedFolderId;
+  }
+
+  if (typeof PropertiesService === 'undefined' || typeof PropertiesService.getScriptProperties !== 'function') {
+    return '';
+  }
+
+  const scriptProperties = PropertiesService.getScriptProperties();
+  if (!scriptProperties || typeof scriptProperties.getProperty !== 'function') {
+    return '';
+  }
+
+  return String(scriptProperties.getProperty(PIECZARGOTCHI_ASSET_DRIVE_FOLDER_PROPERTY) || '').trim();
+}
+
 function getStaticAppConfig() {
   const assets = getRuntimeAssetManifest();
+  const assetDriveFolderId = getConfiguredAssetDriveFolderId();
 
   return {
     appTitle: PIECZARGOTCHI_APP_TITLE,
@@ -25,7 +45,7 @@ function getStaticAppConfig() {
     stateVersion: PIECZARGOTCHI_STATE_VERSION,
     canvasSize: PIECZARGOTCHI_CANVAS_SIZE,
     runtime: Object.assign({}, PIECZARGOTCHI_RUNTIME_OPTIONS),
-    assetDriveFolderConfigured: Boolean(PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID),
+    assetDriveFolderConfigured: Boolean(assetDriveFolderId),
     assets: assets.map(function(asset) {
       return Object.assign({}, asset, { hasFileId: Boolean(asset.fileId) });
     }),

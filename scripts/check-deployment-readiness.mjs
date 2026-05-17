@@ -257,6 +257,9 @@ function checkAssetDriveFolderConfig(folderMode) {
     fail('getStaticAppConfig() assetDriveFolderConfigured does not match PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID.');
   }
   if (!folderId) {
+    if (!configText.includes("PIECZARGOTCHI_ASSET_DRIVE_FOLDER_PROPERTY = 'PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID'")) {
+      fail('Config.gs must support the PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID script property for local-only Drive folder IDs.');
+    }
     return;
   }
   if (/^https?:\/\//.test(folderId)) {
@@ -320,8 +323,28 @@ function checkLocalPreviewConfig() {
     if (!Array.isArray(config.rules && config.rules.decorations) || !config.rules.decorations.length) {
       fail('Local preview config is missing decorations.');
     }
+    checkDebugAnimationCoverage(config);
   } catch (error) {
     fail(`getClientConfig() failed for local preview config: ${error.message}`);
+  }
+}
+
+function checkDebugAnimationCoverage(config) {
+  const boot = readText('ClientBoot.html');
+  const optionBlock = boot.match(/const debugAnimationOptions = \[([\s\S]*?)\n  \];/);
+  if (!optionBlock) {
+    fail('ClientBoot.html is missing debugAnimationOptions.');
+    return;
+  }
+
+  const debugIds = new Set([...optionBlock[1].matchAll(/id:\s*'([^']+)'/g)].map((match) => match[1]));
+  const stageStates = new Set((config.animations || [])
+    .filter((animation) => animation.kind === 'stage')
+    .map((animation) => `state.${animation.state}`));
+  const missing = [...stageStates].filter((id) => !debugIds.has(id)).sort();
+
+  if (missing.length) {
+    fail(`Debug animation selector is missing stage animations: ${missing.join(', ')}`);
   }
 }
 

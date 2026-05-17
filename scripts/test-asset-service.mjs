@@ -5,22 +5,10 @@ import { fileURLToPath } from 'node:url';
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
-const context = {
-  console,
-  Object,
-  Utilities: {
-    base64Encode(bytes) {
-      return `encoded-${Array.from(bytes).join('-')}`;
-    }
-  },
-  DriveApp: createDriveAppMock()
-};
-
-vm.createContext(context);
-
-for (const fileName of ['Config.gs', 'AnimationConfig.gs', 'AssetService.gs']) {
-  vm.runInContext(readText(fileName), context, { filename: fileName });
-}
+const context = createAssetServiceContext({
+  folderIdSource: 'constant',
+  manualGrassId: 'manual-grass'
+});
 
 test('Drive folder lookup resolves manifest paths and keeps manual overrides', () => {
   const assetData = context.getAssetDataUrls();
@@ -41,12 +29,60 @@ test('Drive folder lookup resolves manifest paths and keeps manual overrides', (
   assert(assetData['environment.grassPatch'].dataUrl === 'data:image/png;base64,encoded-manual-grass', 'unexpected manual override data URL');
 });
 
-function readText(fileName) {
+test('Drive folder lookup can use local-only Apps Script property', () => {
+  const propertyContext = createAssetServiceContext({
+    folderIdSource: 'scriptProperty',
+    manualGrassId: 'manual-grass'
+  });
+  const staticConfig = propertyContext.getStaticAppConfig();
+  const assetData = propertyContext.getAssetDataUrls();
+
+  assert(staticConfig.assetDriveFolderConfigured === true, 'script property folder should mark asset folder mode configured');
+  assert(propertyContext.getConfiguredAssetDriveFolderId() === 'root-folder', 'script property should provide the folder ID');
+  assert(assetData['spore.idle'].status === 'loaded', 'spore idle should load from script property Drive folder');
+  assert(assetData['spore.idle'].source === 'folder', `expected folder source, got ${assetData['spore.idle'].source}`);
+});
+
+function createAssetServiceContext(options) {
+  const testContext = {
+    console,
+    Object,
+    Utilities: {
+      base64Encode(bytes) {
+        return `encoded-${Array.from(bytes).join('-')}`;
+      }
+    },
+    DriveApp: createDriveAppMock()
+  };
+
+  if (options.folderIdSource === 'scriptProperty') {
+    testContext.PropertiesService = {
+      getScriptProperties() {
+        return {
+          getProperty(name) {
+            return name === 'PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID' ? 'root-folder' : '';
+          }
+        };
+      }
+    };
+  }
+
+  vm.createContext(testContext);
+
+  for (const fileName of ['Config.gs', 'AnimationConfig.gs', 'AssetService.gs']) {
+    vm.runInContext(readText(fileName, options), testContext, { filename: fileName });
+  }
+
+  return testContext;
+}
+
+function readText(fileName, options) {
   let text = readFileSync(path.join(rootDir, fileName), 'utf8');
   if (fileName === 'Config.gs') {
-    text = text
-      .replace("const PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID = '';", "const PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID = 'root-folder';")
-      .replace("'environment.grassPatch': ''", "'environment.grassPatch': 'manual-grass'");
+    if (options.folderIdSource === 'constant') {
+      text = text.replace("const PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID = '';", "const PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID = 'root-folder';");
+    }
+    text = text.replace("'environment.grassPatch': ''", `'environment.grassPatch': '${options.manualGrassId}'`);
   }
   return text;
 }
