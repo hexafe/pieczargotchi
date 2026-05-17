@@ -3,17 +3,37 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "assets"
 FRAME = 512
 STAGES = ["spore", "baby", "young", "adult", "legendary"]
-REACTIONS = ["curious", "sun", "rain", "stargaze", "snow"]
+REACTIONS = [
+    "curious",
+    "idle_fidget",
+    "ponder",
+    "watch_butterfly",
+    "watch_firefly",
+    "watch_crawler",
+    "sun",
+    "rain",
+    "stargaze",
+    "snow",
+]
 RAIN_FRAME_COUNT = 16
+REACTION_FRAME_COUNTS = {
+    "idle_fidget": 8,
+    "ponder": 10,
+    "watch_butterfly": 10,
+    "watch_firefly": 12,
+    "watch_crawler": 10,
+    "rain": RAIN_FRAME_COUNT,
+}
 
 
 def main() -> None:
@@ -28,6 +48,11 @@ def main() -> None:
 def load_reaction_frames(stage: str, reaction: str) -> list[Image.Image]:
     source = {
         "curious": ASSETS / "stages" / stage / "wake_sheet.png",
+        "idle_fidget": ASSETS / "stages" / stage / "idle_sheet.png",
+        "ponder": ASSETS / "stages" / stage / "idle_sheet.png",
+        "watch_butterfly": ASSETS / "stages" / stage / "idle_sheet.png",
+        "watch_firefly": ASSETS / "stages" / stage / "idle_sheet.png",
+        "watch_crawler": ASSETS / "stages" / stage / "idle_sheet.png",
         "sun": ASSETS / "stages" / stage / "excellent_sheet.png",
         "rain": ASSETS / "stages" / stage / "idle_sheet.png",
         "stargaze": ASSETS / "stages" / stage / "idle_sheet.png",
@@ -46,8 +71,9 @@ def load_reaction_frames(stage: str, reaction: str) -> list[Image.Image]:
         raise ValueError(f"{source} ma {frame_count} klatek, oczekiwano 4 klatek bazowych")
 
     frames = [sheet.crop((index * FRAME, 0, (index + 1) * FRAME, FRAME)).copy() for index in range(frame_count)]
-    if reaction == "rain":
-        return [frames[index % frame_count].copy() for index in range(RAIN_FRAME_COUNT)]
+    target_frame_count = REACTION_FRAME_COUNTS.get(reaction, frame_count)
+    if target_frame_count != frame_count:
+        return [frames[index % frame_count].copy() for index in range(target_frame_count)]
 
     return frames
 
@@ -55,6 +81,16 @@ def load_reaction_frames(stage: str, reaction: str) -> list[Image.Image]:
 def decorate_frame(frame: Image.Image, stage: str, reaction: str, index: int) -> Image.Image:
     if reaction == "curious":
         return add_curiosity(frame, stage, index)
+    if reaction == "idle_fidget":
+        return add_idle_fidget(frame, stage, index)
+    if reaction == "ponder":
+        return add_ponder(frame, stage, index)
+    if reaction == "watch_butterfly":
+        return add_watch_butterfly(frame, stage, index)
+    if reaction == "watch_firefly":
+        return add_watch_firefly(frame, stage, index)
+    if reaction == "watch_crawler":
+        return add_watch_crawler(frame, stage, index)
     if reaction == "sun":
         return add_sun(frame, stage, index)
     if reaction == "rain":
@@ -87,6 +123,135 @@ def add_sun(frame: Image.Image, stage: str, index: int) -> Image.Image:
         add_pixel_sparkle(draw, x + index * 2, y - (index % 2) * 3, (255, 246, 184, 225))
     draw.rectangle((178, 420, 334, 427), fill=(255, 229, 150, 78))
     return tinted
+
+
+def add_idle_fidget(frame: Image.Image, stage: str, index: int) -> Image.Image:
+    offsets = [(0, 0), (1, -1), (2, -2), (1, -1), (0, 0), (-1, 1), (0, 0), (0, 0)]
+    dx, dy = offsets[index % len(offsets)]
+    return move_character_layer(frame, stage, dx, dy)
+
+
+def add_ponder(frame: Image.Image, stage: str, index: int) -> Image.Image:
+    offsets = [(0, 0), (0, -1), (-1, -2), (-1, -2), (0, -1), (1, 0), (1, 1), (0, 0), (0, 0), (0, 0)]
+    dx, dy = offsets[index % len(offsets)]
+    result = move_character_layer(frame, stage, dx, dy)
+    draw = ImageDraw.Draw(result)
+    anchor = bubble_anchor(stage)
+    pulse = 1 + (index % 3)
+    for dot_index in range(3):
+        x = anchor[0] + 12 + dot_index * 14 + (index % 2)
+        y = anchor[1] + 6 - dot_index * 12
+        color = (255, 253, 247, 120 + dot_index * 32)
+        draw.rectangle((x, y, x + 5 + pulse, y + 5 + pulse), fill=color)
+    return result
+
+
+def add_watch_butterfly(frame: Image.Image, stage: str, index: int) -> Image.Image:
+    offsets = [(0, 0), (-1, 0), (-2, -1), (-2, -1), (-1, 0), (0, 0), (1, 0), (1, 0), (0, 0), (0, 0)]
+    dx, dy = offsets[index % len(offsets)]
+    result = move_character_layer(frame, stage, dx, dy)
+    draw = ImageDraw.Draw(result)
+    anchor = bubble_anchor(stage)
+    x = anchor[0] - 42 + index * 5
+    y = anchor[1] + 46 + round(math.sin(index / 2) * 5)
+    draw.rectangle((x - 6, y - 3, x - 1, y + 4), fill=(140, 103, 49, 190))
+    draw.rectangle((x + 3, y - 2, x + 9, y + 3), fill=(244, 196, 95, 205))
+    draw.rectangle((x + 1, y, x + 3, y + 6), fill=(61, 44, 34, 210))
+    return result
+
+
+def add_watch_firefly(frame: Image.Image, stage: str, index: int) -> Image.Image:
+    offsets = [(0, 0), (0, -1), (1, -2), (1, -2), (0, -1), (-1, 0), (-1, 0), (0, 0), (0, 0), (0, 0), (1, 0), (0, 0)]
+    if stage == "spore":
+        offsets = [(0, 0), (0, 0), (1, -1), (1, -1), (0, 0), (-1, 0), (-1, 0), (0, 0), (0, 0), (0, 0), (1, 0), (0, 0)]
+    dx, dy = offsets[index % len(offsets)]
+    result = move_character_layer(frame, stage, dx, dy)
+    if stage == "spore":
+        return result
+
+    draw = ImageDraw.Draw(result)
+    anchor = bubble_anchor(stage)
+    for spark in range(4):
+        phase = (index + spark * 3) % 12
+        alpha = 70 + max(0, 6 - abs(phase - 6)) * 24
+        x = anchor[0] - 62 + spark * 34 + (phase % 3)
+        y = anchor[1] + 62 + ((phase + spark) % 4) * 5
+        draw.rectangle((x - 3, y - 3, x + 5, y + 5), fill=(255, 230, 130, round(alpha * 0.24)))
+        draw.rectangle((x, y, x + 2, y + 2), fill=(255, 248, 206, alpha))
+    return result
+
+
+def add_watch_crawler(frame: Image.Image, stage: str, index: int) -> Image.Image:
+    offsets = [(0, 0), (0, 1), (1, 2), (1, 2), (0, 1), (-1, 1), (-1, 0), (0, 0), (0, 0), (0, 0)]
+    dx, dy = offsets[index % len(offsets)]
+    result = move_character_layer(frame, stage, dx, dy)
+    draw = ImageDraw.Draw(result)
+    anchor = bubble_anchor(stage)
+    base_y = {
+        "spore": 408,
+        "baby": 418,
+        "young": 428,
+        "adult": 440,
+        "legendary": 440,
+    }.get(stage, 440)
+    x = anchor[0] - 84 + index * 10
+    draw.rectangle((x, base_y - 4, x + 13, base_y + 3), fill=(31, 25, 21, 190))
+    draw.rectangle((x + 2, base_y - 3, x + 11, base_y + 2), fill=(106, 59, 32, 205))
+    for blade in range(4):
+        draw.rectangle((x - 8 + blade * 7, base_y - 20 - blade % 2 * 4, x - 6 + blade * 7, base_y + 2), fill=(95, 163, 66, 150))
+    return result
+
+
+def move_character_layer(frame: Image.Image, stage: str, dx: int, dy: int) -> Image.Image:
+    if dx == 0 and dy == 0:
+        return frame
+
+    mask = build_character_mask(frame, stage)
+    character = Image.composite(frame, Image.new("RGBA", frame.size, (0, 0, 0, 0)), mask)
+    base = Image.composite(Image.new("RGBA", frame.size, (0, 0, 0, 0)), frame, mask)
+    shifted = shift_image(character, dx, dy)
+    base.alpha_composite(shifted)
+    return base
+
+
+def build_character_mask(frame: Image.Image, stage: str) -> Image.Image:
+    cutoff = {
+        "spore": 392,
+        "baby": 420,
+        "young": 436,
+        "adult": 452,
+        "legendary": 458,
+    }.get(stage, 452)
+    mask = Image.new("L", frame.size, 0)
+    pixels = frame.load()
+    mask_pixels = mask.load()
+
+    for y in range(cutoff):
+        for x in range(FRAME):
+            r, g, b, a = pixels[x, y]
+            if a <= 8 or is_grass_pixel(r, g, b):
+                continue
+            mask_pixels[x, y] = a
+
+    return mask.filter(ImageFilter.MaxFilter(3))
+
+
+def is_grass_pixel(r: int, g: int, b: int) -> bool:
+    return g > r * 1.08 and g > b * 1.08 and g > 76
+
+
+def shift_image(image: Image.Image, dx: int, dy: int) -> Image.Image:
+    result = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    src_left = max(0, -dx)
+    src_top = max(0, -dy)
+    src_right = FRAME - max(0, dx)
+    src_bottom = FRAME - max(0, dy)
+    if src_right <= src_left or src_bottom <= src_top:
+        return result
+
+    crop = image.crop((src_left, src_top, src_right, src_bottom))
+    result.alpha_composite(crop, (max(0, dx), max(0, dy)))
+    return result
 
 
 def add_rain(frame: Image.Image, stage: str, index: int) -> Image.Image:

@@ -86,6 +86,55 @@ test('rain and snow have separate background and foreground passes', () => {
   assert(snowBack.fillRects !== snowFront.fillRects, 'snow passes should not duplicate the same layer set');
 });
 
+test('foreground rain covers left, center, and right side for every rain strength', () => {
+  const samples = [
+    ['drizzle', 0.18],
+    ['light', 0.32],
+    ['moderate', 0.64],
+    ['heavy', 0.88],
+    ['violent', 1]
+  ];
+
+  for (const [rainClass, rainIntensity] of samples) {
+    context.runtime.precipitationMotion = null;
+    const ctx = createRecordingContext();
+    context.drawRainLayer(ctx, {
+      condition: rainClass === 'violent' ? 'storm' : 'rain',
+      rainIntensity,
+      rainClass,
+      rain: rainClass === 'drizzle' ? 0.18 : rainClass === 'light' ? 0.8 : rainClass === 'moderate' ? 4 : 10,
+      windLevel: 0.08,
+      gustLevel: 0.03,
+      windVector: { x: 0.22, y: 0 },
+      isDay: true
+    }, 1800, 'foreground');
+    assertHorizontalCoverage(ctx, `foreground ${rainClass} rain`);
+  }
+});
+
+test('foreground snow covers left, center, and right side for snow styles', () => {
+  const samples = [
+    ['powder', 0.28],
+    ['wet', 0.42],
+    ['blowing', 0.72]
+  ];
+
+  for (const [snowStyle, snowIntensity] of samples) {
+    context.runtime.precipitationMotion = null;
+    const ctx = createRecordingContext();
+    context.drawSnowLayer(ctx, {
+      condition: 'snow',
+      snowIntensity,
+      snowStyle,
+      windLevel: snowStyle === 'blowing' ? 0.35 : 0.08,
+      gustLevel: snowStyle === 'blowing' ? 0.2 : 0.04,
+      windVector: { x: snowStyle === 'blowing' ? -0.45 : 0.16, y: 0 },
+      isDay: true
+    }, 1800, 'foreground');
+    assertHorizontalCoverage(ctx, `foreground ${snowStyle} snow`);
+  }
+});
+
 function createCountingContext() {
   return {
     fillRects: 0,
@@ -97,6 +146,34 @@ function createCountingContext() {
       this.fillRects += 1;
     }
   };
+}
+
+function createRecordingContext() {
+  return {
+    fillRects: 0,
+    rects: [],
+    globalAlpha: 1,
+    fillStyle: '#000',
+    save() {},
+    restore() {},
+    fillRect(x, y, width, height) {
+      this.fillRects += 1;
+      this.rects.push({ x, y, width, height });
+    }
+  };
+}
+
+function assertHorizontalCoverage(ctx, label) {
+  const visibleRects = ctx.rects.filter((rect) => (
+    rect.x + rect.width >= -4
+    && rect.x <= 516
+    && rect.y + rect.height >= -4
+    && rect.y <= 516
+  ));
+  assert(visibleRects.length > 0, `${label} should draw visible foreground precipitation`);
+  assert(visibleRects.some((rect) => rect.x < 150), `${label} should reach the left side`);
+  assert(visibleRects.some((rect) => rect.x >= 190 && rect.x <= 322), `${label} should reach the center`);
+  assert(visibleRects.some((rect) => rect.x > 350), `${label} should reach the right side`);
 }
 
 function test(name, fn) {

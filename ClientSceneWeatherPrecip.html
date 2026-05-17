@@ -133,8 +133,8 @@
       },
       {
         seedOffset: 4000,
-        count: Math.round(baseCount * 0.18),
-        alpha: 0.44 + intensity * 0.18,
+        count: Math.max(profile.foregroundMin, Math.round(baseCount * profile.foregroundShare)),
+        alpha: profile.foregroundAlpha + intensity * 0.16,
         color: '#c7e2ff',
         width: profile.dropWidth + (profile.rainClass === 'heavy' || profile.rainClass === 'violent' ? 1 : 0),
         length: profile.dropLength + 3 + intensity * 16,
@@ -168,7 +168,10 @@
         dropWidth: 1,
         dropLength: 5,
         sheetAlpha: 0,
-        frontColor: '#9cc8e8'
+        frontColor: '#9cc8e8',
+        foregroundShare: 0.30,
+        foregroundMin: 18,
+        foregroundAlpha: 0.28
       },
       light: {
         intensity: clamp(baseIntensity * 0.78 + 0.04, 0, 0.62, 0),
@@ -178,7 +181,10 @@
         dropWidth: 2,
         dropLength: 7,
         sheetAlpha: 0,
-        frontColor: '#82b9ed'
+        frontColor: '#82b9ed',
+        foregroundShare: 0.28,
+        foregroundMin: 28,
+        foregroundAlpha: 0.34
       },
       moderate: {
         intensity: clamp(baseIntensity * 0.96 + 0.02, 0, 0.82, 0),
@@ -188,7 +194,10 @@
         dropWidth: 3,
         dropLength: 10,
         sheetAlpha: 0.03,
-        frontColor: '#6aa8e8'
+        frontColor: '#6aa8e8',
+        foregroundShare: 0.22,
+        foregroundMin: 36,
+        foregroundAlpha: 0.42
       },
       heavy: {
         intensity: clamp(baseIntensity + 0.10 + stormBoost, 0, 1, 0),
@@ -198,7 +207,10 @@
         dropWidth: 3,
         dropLength: 14,
         sheetAlpha: scene.condition === 'storm' ? 0.13 : 0.08,
-        frontColor: scene.condition === 'storm' ? '#5f98d8' : '#66a4e5'
+        frontColor: scene.condition === 'storm' ? '#5f98d8' : '#66a4e5',
+        foregroundShare: 0.20,
+        foregroundMin: 46,
+        foregroundAlpha: 0.50
       },
       violent: {
         intensity: 1,
@@ -208,7 +220,10 @@
         dropWidth: 4,
         dropLength: 17,
         sheetAlpha: 0.18,
-        frontColor: '#5d94d2'
+        frontColor: '#5d94d2',
+        foregroundShare: 0.20,
+        foregroundMin: 60,
+        foregroundAlpha: 0.58
       }
     };
     const profile = profiles[rainClass] || {
@@ -219,7 +234,10 @@
       dropWidth: 2,
       dropLength: 7,
       sheetAlpha: 0,
-      frontColor: '#82b9ed'
+      frontColor: '#82b9ed',
+      foregroundShare: 0.26,
+      foregroundMin: 28,
+      foregroundAlpha: 0.34
     };
     return Object.assign({ rainClass: rainClass }, profile);
   }
@@ -286,11 +304,13 @@
       const cycleMs = cycleBase / layer.speed + seededUnit(seed + 1) * 210;
       const phaseOffset = seededUnit(seed + 2) * cycleMs;
       const progress = getFallingLoopProgress(motionNow, phaseOffset, cycleMs);
-      const spawnX = seededUnit(seed + 3) * 584 - 36;
+      const coverageWidth = layer.coverageWidth || 584;
+      const coverageMargin = layer.coverageMargin || 36;
+      const spawnX = getDistributedPrecipitationX(index, layer.count, seed + 3, coverageWidth, coverageMargin);
       const spawnY = -112 - seededUnit(seed + 4) * 80;
       const windDrift = slant * progress * (1.16 + seededUnit(seed + 5) * 0.54);
       const jitter = Math.round((seededUnit(seed + Math.floor(motionNow / 180)) - 0.5) * 2);
-      const x = positiveModulo(spawnX + windDrift, 676) - 82 + jitter;
+      const x = positiveModulo(spawnX + windDrift + coverageMargin, coverageWidth + coverageMargin * 2) - coverageMargin + jitter;
       const y = spawnY + progress * travelHeight;
       const length = Math.round(layer.length + seededUnit(seed + 6) * (7 + windLevel * 9) + wind.gustPulse * 3);
       const width = layer.width + (seededUnit(seed + 7) > 0.86 ? 1 : 0);
@@ -383,6 +403,7 @@
     const styleSpeed = snowStyle === 'blowing' ? 1.28 : snowStyle === 'wet' ? 1.18 : 1;
     const styleSway = snowStyle === 'wet' ? 0.46 : snowStyle === 'blowing' ? 1.28 : 1;
     const baseCount = Math.round((24 + intensity * 58 + wind.averageLevel * 10) * styleCount);
+    const foregroundSnowMin = snowStyle === 'wet' ? 18 : 24;
     const slant = wind.directionX * (2 + wind.level * 26 + wind.gustPulse * 8) * (snowStyle === 'blowing' ? 1.48 : 1);
     const cycleBase = Math.max(1100, (3150 - intensity * 820 - wind.level * 520) / styleSpeed);
     const layers = [
@@ -408,7 +429,7 @@
       },
       {
         seedOffset: 13000,
-        count: Math.round(baseCount * 0.22),
+        count: Math.max(foregroundSnowMin + Math.round(intensity * 10), Math.round(baseCount * 0.22)),
         alpha: 0.64 + intensity * 0.14,
         color: '#ffffff',
         size: snowStyle === 'wet' ? 6 : 5,
@@ -437,12 +458,14 @@
       const cycleMs = cycleBase / layer.speed + seededUnit(seed + 1) * 780;
       const phaseOffset = seededUnit(seed + 2) * cycleMs;
       const progress = getFallingLoopProgress(motionNow, phaseOffset, cycleMs);
-      const spawnX = seededUnit(seed + 3) * 560 - 24;
+      const coverageWidth = layer.coverageWidth || 560;
+      const coverageMargin = layer.coverageMargin || 24;
+      const spawnX = getDistributedPrecipitationX(index, layer.count, seed + 3, coverageWidth, coverageMargin);
       const spawnY = -74 - seededUnit(seed + 4) * 58;
       const calmSway = Math.sin(motionNow / (720 + seededUnit(seed + 5) * 420) + seed) * layer.sway * (1 - wind.level * 0.62);
       const gustSway = Math.sin(motionNow / 620 + seed) * wind.gustPulse * (3 + wind.level * 5);
       const windDrift = slant * progress * (1.12 + seededUnit(seed + 6) * 0.82);
-      const x = positiveModulo(spawnX + windDrift + calmSway + gustSway, 620) - 54;
+      const x = positiveModulo(spawnX + windDrift + calmSway + gustSway + coverageMargin, coverageWidth + coverageMargin * 2) - coverageMargin;
       const y = spawnY + progress * travelHeight;
       const size = layer.size + (seededUnit(seed + 7) > 0.72 ? 1 : 0);
 
@@ -480,6 +503,13 @@
 
   function getFallingLoopProgress(motionNow, phaseOffset, cycleMs) {
     return positiveModulo(motionNow + phaseOffset, Math.max(1, cycleMs)) / Math.max(1, cycleMs);
+  }
+
+  function getDistributedPrecipitationX(index, count, seed, width, margin) {
+    const safeCount = Math.max(1, count || 1);
+    const bandWidth = width / safeCount;
+    const jitter = (seededUnit(seed) - 0.5) * bandWidth * 0.78;
+    return -margin + bandWidth * (index + 0.5) + jitter;
   }
 
   function drawSnowFlake(ctx, x, y, size, slant, wind) {

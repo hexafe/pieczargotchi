@@ -155,6 +155,20 @@
         xBands: profile.tall.xBands
       });
     }
+    if (profile.canopy) {
+      drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
+        count: profile.canopy.count,
+        seedBase: 28319,
+        baseYMin: profile.canopy.baseYMin,
+        baseYMax: profile.canopy.baseYMax,
+        heightMin: profile.canopy.heightMin,
+        heightMax: profile.canopy.heightMax,
+        alpha: (condition === 'snow' || snowCover > 0.12 ? 0.20 : 0.48) * profile.canopy.alphaScale,
+        width: 3,
+        front: true,
+        xBands: profile.canopy.xBands
+      });
+    }
     drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
       count: profile.primary.count,
       seedBase: 9331,
@@ -493,10 +507,11 @@
 
   function expandGroundForegroundProfile(profile, stage) {
     return {
-      primary: amplifyGrassLayer(profile.primary, 1.22, 4, 10),
-      secondary: amplifyGrassLayer(profile.secondary, 1.36, 6, 18),
-      groundline: amplifyGrassLayer(profile.groundline, 1.34, 0, 8),
+      primary: amplifyGrassLayer(profile.primary, 1.34, 6, 16),
+      secondary: amplifyGrassLayer(profile.secondary, 1.58, 8, 26),
+      groundline: amplifyGrassLayer(profile.groundline, 1.44, 0, 10),
       tall: buildTallGrassProfile(profile, stage),
+      canopy: buildCanopyGrassProfile(profile, stage),
       cover: buildCoverGrassProfile(stage)
     };
   }
@@ -516,13 +531,27 @@
   function buildTallGrassProfile(profile, stage) {
     const secondary = profile.secondary;
     return {
-      count: Math.round(secondary.count * 0.72),
+      count: Math.round(secondary.count * 0.96),
       baseYMin: secondary.baseYMin + 4,
       baseYMax: Math.min(512, secondary.baseYMax + 6),
-      heightMin: secondary.heightMin + 12,
-      heightMax: secondary.heightMax + 24,
-      alphaScale: secondary.alphaScale * 0.88,
+      heightMin: secondary.heightMin + 16,
+      heightMax: secondary.heightMax + 34,
+      alphaScale: secondary.alphaScale * 0.92,
       xBands: getTallGrassBands(stage)
+    };
+  }
+
+  function buildCanopyGrassProfile(profile, stage) {
+    const secondary = profile.secondary;
+    const stageBoost = stage === 'spore' ? -10 : stage === 'baby' ? -4 : 0;
+    return {
+      count: Math.round(secondary.count * 0.72),
+      baseYMin: Math.min(512, secondary.baseYMin + 24),
+      baseYMax: 512,
+      heightMin: Math.max(38, secondary.heightMin + 24 + stageBoost),
+      heightMax: Math.max(76, secondary.heightMax + 48 + stageBoost),
+      alphaScale: secondary.alphaScale * 0.76,
+      xBands: getCanopyGrassBands(stage)
     };
   }
 
@@ -538,13 +567,25 @@
     return bands[stage] || bands.spore;
   }
 
+  function getCanopyGrassBands(stage) {
+    const bands = {
+      spore: [[94, 414], [128, 386], [178, 334], [18, 118], [394, 500]],
+      baby: [[100, 412], [138, 374], [184, 330], [18, 132], [380, 500]],
+      young: [[96, 416], [134, 378], [186, 326], [14, 118], [394, 504]],
+      adult: [[86, 426], [126, 386], [190, 322], [10, 108], [406, 506]],
+      legendary: [[82, 430], [122, 390], [190, 322], [8, 102], [412, 506]]
+    };
+
+    return bands[stage] || bands.spore;
+  }
+
   function buildCoverGrassProfile(stage) {
     const profiles = {
-      spore: { count: 74, baseYMin: 462, baseYMax: 508, heightMin: 28, heightMax: 74, xBands: [[126, 386], [174, 338], [218, 296]] },
-      baby: { count: 82, baseYMin: 474, baseYMax: 512, heightMin: 34, heightMax: 86, xBands: [[126, 386], [168, 342], [214, 302]] },
-      young: { count: 88, baseYMin: 486, baseYMax: 512, heightMin: 38, heightMax: 92, xBands: [[126, 386], [166, 344], [210, 306]] },
-      adult: { count: 94, baseYMin: 494, baseYMax: 512, heightMin: 34, heightMax: 84, xBands: [[118, 394], [154, 358], [208, 306]] },
-      legendary: { count: 94, baseYMin: 494, baseYMax: 512, heightMin: 34, heightMax: 84, xBands: [[118, 394], [154, 358], [208, 306]] }
+      spore: { count: 104, baseYMin: 460, baseYMax: 508, heightMin: 34, heightMax: 86, xBands: [[112, 400], [158, 352], [208, 306]] },
+      baby: { count: 112, baseYMin: 472, baseYMax: 512, heightMin: 40, heightMax: 100, xBands: [[112, 400], [156, 354], [206, 306]] },
+      young: { count: 120, baseYMin: 484, baseYMax: 512, heightMin: 44, heightMax: 108, xBands: [[108, 404], [154, 358], [204, 310]] },
+      adult: { count: 128, baseYMin: 490, baseYMax: 512, heightMin: 42, heightMax: 106, xBands: [[104, 408], [148, 364], [202, 314]] },
+      legendary: { count: 128, baseYMin: 490, baseYMax: 512, heightMin: 42, heightMax: 106, xBands: [[104, 408], [148, 364], [202, 314]] }
     };
     const profile = profiles[stage] || profiles.spore;
 

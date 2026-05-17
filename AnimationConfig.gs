@@ -44,6 +44,41 @@ const PIECZARGOTCHI_STAGE_ANIMATIONS = [
     priority: 34
   },
   {
+    state: 'idle_fidget',
+    frameCount: 8,
+    frameDurationsMs: [260, 220, 180, 160, 200, 240, 320, 420],
+    loop: false,
+    priority: 31
+  },
+  {
+    state: 'ponder',
+    frameCount: 10,
+    frameDurationsMs: [260, 220, 190, 180, 180, 220, 260, 300, 340, 420],
+    loop: false,
+    priority: 32
+  },
+  {
+    state: 'watch_butterfly',
+    frameCount: 10,
+    frameDurationsMs: [160, 150, 140, 140, 160, 190, 220, 260, 300, 360],
+    loop: false,
+    priority: 57
+  },
+  {
+    state: 'watch_firefly',
+    frameCount: 12,
+    frameDurationsMs: [180, 160, 140, 130, 130, 150, 170, 190, 220, 260, 320, 420],
+    loop: false,
+    priority: 56
+  },
+  {
+    state: 'watch_crawler',
+    frameCount: 10,
+    frameDurationsMs: [170, 150, 150, 160, 180, 210, 240, 280, 320, 380],
+    loop: false,
+    priority: 55
+  },
+  {
     state: 'sun',
     frameCount: 4,
     frameDurationsMs: [220, 260, 320, 420],

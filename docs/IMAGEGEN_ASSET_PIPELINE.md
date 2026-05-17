@@ -25,7 +25,7 @@ Wymagane atlasy:
 - easter eggi: `neutral_atlas.png` dla miny `:|`, `neutral_rain_atlas.png` dla Iwoniastej Pieczarki z parasolka
 - srodowisko: `grass_patch_atlas.png` dla trawnika wypelniajacego dol sceny
 - efekty: `effects`
-- reakcje immersyjne: `curious`, `sun`, `rain`, `stargaze`, `snow`
+- reakcje immersyjne: `curious`, `idle_fidget`, `ponder`, `sun`, `rain`, `stargaze`, `snow`, `watch_butterfly`, `watch_firefly`, `watch_crawler`
 
 Kazdy atlas stanu lub akcji ma jeden rzad pieciu postaci: `spore`, `baby`, `young`, `adult`, `legendary`. Tlo atlasu jest plaskim chroma-key `#ff00ff`.
 
@@ -86,7 +86,7 @@ Skrypt tworzy:
 - `assets/environment/grass_patch.png`
 - pomocnicze wycinki w `assets/source/imagegen/cutouts/`
 
-Reakcje immersyjne (`curious`, `sun`, `rain`, `stargaze`, `snow`) sa generowane z istniejacych sheetow przez:
+Reakcje immersyjne (`curious`, `idle_fidget`, `ponder`, `sun`, `rain`, `stargaze`, `snow`, `watch_butterfly`, `watch_firefly`, `watch_crawler`) sa generowane z istniejacych sheetow przez:
 
 ```sh
 python3 scripts/generate-immersion-assets.py
@@ -107,7 +107,7 @@ PIECZARGOTCHI_CAPTURE_VIEWPORT=1 PIECZARGOTCHI_CAPTURE_STAGES=1 PIECZARGOTCHI_CA
 
 Ostatnia walidacja:
 
-- `143` sheety PNG i `1` asset srodowiska przechodza `validate-assets`,
+- `168` sheetow PNG i `1` asset srodowiska przechodza `validate-assets`,
 - manifest runtime laduje stage, activity, easter egg, effect i environment assety; poza manifestem zostaja swiadomie walidowane tylko fallbacki `assets/activities/*.png`,
 - stany bazowe, aktywnosci i neutralne easter eggi trzymaja rozmiar/baseline w kazdym etapie,
 - lokalny capture potwierdza osobne animacje akcji dla `spore`, `baby`, `young`, `adult` i `legendary`,

@@ -39,6 +39,142 @@
     };
   }
 
+  function calculateAmbientLifeFocusCue(scene, dateInput, nowInput) {
+    const source = isPlainObject(scene) ? scene : {};
+    const date = normalizeDate(dateInput);
+    const now = Number.isFinite(Number(nowInput)) ? Number(nowInput) : date.getTime();
+    const profile = calculateAmbientLife(source, date);
+    const condition = source.condition || 'clear';
+    const precipitation = Math.max(0, Number(source.precipitation) || 0, Number(source.rain) || 0, Number(source.snowfall) || 0);
+    if (condition === 'storm' || condition === 'snow' || precipitation > 0.08) {
+      return null;
+    }
+
+    const cycleMs = 13500;
+    const activeMs = 5600;
+    const slot = Math.floor(now / cycleMs);
+    const cycleStart = slot * cycleMs;
+    const local = now - cycleStart;
+    if (local < 0 || local > activeMs) {
+      return null;
+    }
+
+    const daySeed = Math.floor(date.getTime() / 86400000);
+    const seed = daySeed * 4099 + slot * 131;
+    const candidates = buildAmbientLifeCueCandidates(profile, source, date, seed);
+    if (!candidates.length) {
+      return null;
+    }
+
+    const totalWeight = candidates.reduce(function(sum, item) {
+      return sum + item.weight;
+    }, 0);
+    const eventChance = clampNumber(0.18 + totalWeight * 0.58, 0, 0.92, 0);
+    if (ambientLifeSeededUnit(seed + 17) > eventChance) {
+      return null;
+    }
+
+    const pick = ambientLifeSeededUnit(seed + 23) * totalWeight;
+    let cursor = 0;
+    let selected = candidates[candidates.length - 1];
+    for (let index = 0; index < candidates.length; index += 1) {
+      cursor += candidates[index].weight;
+      if (pick <= cursor) {
+        selected = candidates[index];
+        break;
+      }
+    }
+
+    const progress = clampNumber(local / activeMs, 0, 1, 0);
+    return buildAmbientLifeCue(selected.kind, progress, seed + selected.seedOffset, cycleStart, activeMs, selected.intensity);
+  }
+
+  function buildAmbientLifeCueCandidates(profile, scene, date, seed) {
+    const candidates = [];
+    const butterflyIntensity = clampNumber(Number(profile.butterflyIntensity), 0, 1, 0);
+    const fireflyIntensity = clampNumber(Number(profile.fireflyIntensity), 0, 1, 0);
+    const crawlerIntensity = clampNumber(Number(profile.crawlerIntensity), 0, 1, 0);
+
+    if (butterflyIntensity >= 0.28 && Boolean(scene.isDay) !== false) {
+      candidates.push({ kind: 'butterfly', weight: butterflyIntensity * 1.2, intensity: butterflyIntensity, seedOffset: 101 });
+    }
+    if (fireflyIntensity >= 0.22) {
+      candidates.push({ kind: 'firefly', weight: fireflyIntensity * 1.35, intensity: fireflyIntensity, seedOffset: 211 });
+    }
+    if (crawlerIntensity >= 0.34 && ambientLifeSeededUnit(seed + date.getDate()) > 0.18) {
+      candidates.push({ kind: 'crawler', weight: crawlerIntensity * 0.86, intensity: crawlerIntensity, seedOffset: 307 });
+    }
+
+    return candidates;
+  }
+
+  function buildAmbientLifeCue(kind, progress, seed, startedAt, durationMs, intensity) {
+    const direction = ambientLifeSeededUnit(seed + 3) > 0.5 ? 1 : -1;
+    const eased = easeAmbientLifeCue(progress);
+    if (kind === 'butterfly') {
+      const startX = direction > 0 ? -28 : 540;
+      const endX = direction > 0 ? 390 + ambientLifeSeededUnit(seed + 4) * 46 : 122 - ambientLifeSeededUnit(seed + 4) * 46;
+      const baseY = 166 + ambientLifeSeededUnit(seed + 5) * 74;
+      const x = startX + (endX - startX) * eased;
+      const y = baseY + Math.sin(progress * Math.PI * 3.2 + seed) * (12 + intensity * 10);
+      return buildAmbientLifeCueResult(kind, 'watch_butterfly', x, y, direction, progress, seed, startedAt, durationMs, intensity);
+    }
+
+    if (kind === 'firefly') {
+      const anchorX = 150 + ambientLifeSeededUnit(seed + 6) * 220;
+      const anchorY = 328 + ambientLifeSeededUnit(seed + 7) * 76;
+      const x = anchorX + Math.sin(progress * Math.PI * 2.4 + seed) * (18 + intensity * 14);
+      const y = anchorY + Math.sin(progress * Math.PI * 3.4 + seed * 0.7) * (12 + intensity * 8);
+      return buildAmbientLifeCueResult(kind, 'watch_firefly', x, y, direction, progress, seed, startedAt, durationMs, intensity);
+    }
+
+    const routeLeft = direction > 0;
+    const startX = routeLeft ? 84 + ambientLifeSeededUnit(seed + 8) * 38 : 430 - ambientLifeSeededUnit(seed + 8) * 38;
+    const endX = routeLeft ? 214 + ambientLifeSeededUnit(seed + 9) * 42 : 304 - ambientLifeSeededUnit(seed + 9) * 42;
+    const x = startX + (endX - startX) * eased;
+    const y = 454 + ambientLifeSeededUnit(seed + 10) * 24 + Math.sin(progress * Math.PI * 4 + seed) * 2;
+    return buildAmbientLifeCueResult('crawler', 'watch_crawler', x, y, direction, progress, seed, startedAt, durationMs, intensity);
+  }
+
+  function buildAmbientLifeCueResult(kind, state, x, y, direction, progress, seed, startedAt, durationMs, intensity) {
+    return {
+      kind: kind,
+      state: state,
+      x: Math.round(clampNumber(x, -40, 552, 256)),
+      y: Math.round(clampNumber(y, 110, 486, 340)),
+      direction: direction,
+      progress: Math.round(clampNumber(progress, 0, 1, 0) * 1000) / 1000,
+      seed: seed,
+      startedAt: startedAt,
+      durationMs: durationMs,
+      intensity: roundAmbientLife(intensity),
+      visible: fadeAmbientLifeCue(progress) > 0.05
+    };
+  }
+
+  function easeAmbientLifeCue(progress) {
+    const p = clampNumber(progress, 0, 1, 0);
+    return 0.5 - Math.cos(p * Math.PI) / 2;
+  }
+
+  function fadeAmbientLifeCue(progress) {
+    const p = clampNumber(progress, 0, 1, 0);
+    return Math.min(smoothAmbientLifeCueStep(0.04, 0.18, p), smoothAmbientLifeCueStep(0.10, 0.24, 1 - p));
+  }
+
+  function smoothAmbientLifeCueStep(edge0, edge1, value) {
+    const t = clampNumber((value - edge0) / Math.max(0.0001, edge1 - edge0), 0, 1, 0);
+    return t * t * (3 - 2 * t);
+  }
+
+  function ambientLifeSeededUnit(seed) {
+    let value = Math.imul(Math.floor(seed) ^ 0x9e3779b9, 0x85ebca6b);
+    value ^= value >>> 13;
+    value = Math.imul(value, 0xc2b2ae35);
+    value ^= value >>> 16;
+    return (value >>> 0) / 4294967295;
+  }
+
   function getEcologicalMonth(date, latitude) {
     const month = date.getMonth();
     const numericLatitude = Number(latitude);

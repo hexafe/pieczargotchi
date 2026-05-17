@@ -26,10 +26,15 @@ const stageSamples = [
 const activitySamples = ['hydrate', 'feed', 'clean', 'play', 'instrument', 'sing', 'spores', 'harvest'];
 const immersionSamples = [
   { id: 'pointerHover', state: 'curious' },
+  { id: 'idleFidget', state: 'idle_fidget' },
+  { id: 'ponder', state: 'ponder' },
   { id: 'sun', state: 'sun' },
   { id: 'rain', state: 'rain' },
   { id: 'stargaze', state: 'stargaze' },
-  { id: 'snow', state: 'snow' }
+  { id: 'snow', state: 'snow' },
+  { id: 'ambientButterfly', state: 'watch_butterfly' },
+  { id: 'ambientFirefly', state: 'watch_firefly' },
+  { id: 'ambientCrawler', state: 'watch_crawler' }
 ];
 
 function createCaptureDebugSettings() {
@@ -455,6 +460,12 @@ function rectsHorizontallyOverlap(first, second) {
 
 function getExpectedAwakeIdleAnimationKey(stage) {
   if (!captureDebugSettings || captureDebugSettings.neutralEasterEggOverride === 'auto') {
+    if (isCaptureRainy()) {
+      return `${stage}.rain`;
+    }
+    if (isCaptureSnowy()) {
+      return `${stage}.snow`;
+    }
     return `${stage}.idle`;
   }
 
@@ -471,6 +482,15 @@ function isCaptureRainy() {
   }
 
   return ['rain', 'storm'].includes(captureDebugSettings.weather)
+    && Math.max(0, Number(captureDebugSettings.precipitationOverride) || 0) > 0;
+}
+
+function isCaptureSnowy() {
+  if (!captureDebugSettings) {
+    return false;
+  }
+
+  return captureDebugSettings.weather === 'snow'
     && Math.max(0, Number(captureDebugSettings.precipitationOverride) || 0) > 0;
 }
 
@@ -599,7 +619,10 @@ async function forceCaptureImmersion(cdp, sample) {
       const now = Date.now();
       const sceneOverrides = ${JSON.stringify(sceneOverrides)};
       const debugOverrides = ${JSON.stringify(debugOverrides)};
-      runtime.debug = Object.assign(runtime.debug || {}, { enabled: true, panelOpen: false }, debugOverrides);
+      runtime.debug = Object.assign(runtime.debug || {}, { enabled: true, panelOpen: false }, debugOverrides, {
+        forcedAnimation: 'state.' + ${JSON.stringify(sample.state)},
+        forcedAnimationStartedAt: now
+      });
       if (runtime.weatherScene && sceneOverrides) {
         Object.assign(runtime.weatherScene, sceneOverrides);
       }
@@ -640,6 +663,15 @@ function getCaptureImmersionDebugOverrides(id) {
   if (id === 'stargaze') {
     return { fixedAt: Date.parse('2026-01-14T23:00:00.000Z'), weather: 'clear', cloudCoverOverride: 8, precipitationOverride: 0 };
   }
+  if (id === 'ambientFirefly') {
+    return { fixedAt: Date.parse('2026-07-14T22:30:00.000Z'), weather: 'clear', cloudCoverOverride: 10, precipitationOverride: 0, windOverride: 0.8 };
+  }
+  if (id === 'ambientCrawler') {
+    return { fixedAt: Date.parse('2026-06-14T17:00:00.000Z'), weather: 'clear', cloudCoverOverride: 22, precipitationOverride: 0, windOverride: 1.6 };
+  }
+  if (id === 'idleFidget' || id === 'ponder' || id === 'ambientButterfly') {
+    return { fixedAt: Date.parse('2026-06-14T14:00:00.000Z'), weather: 'clear', cloudCoverOverride: 16, precipitationOverride: 0, windOverride: 1.2 };
+  }
   return { fixedAt: Date.parse('2026-05-14T12:00:00.000Z'), weather: 'clear', cloudCoverOverride: 18, precipitationOverride: 0 };
 }
 
@@ -655,6 +687,15 @@ function getCaptureImmersionSceneOverrides(id) {
   }
   if (id === 'sun') {
     return { condition: 'clear', isDay: true, dayPhase: 'noon', cloudCover: 12, precipitation: 0, rain: 0, snowfall: 0 };
+  }
+  if (id === 'ambientFirefly') {
+    return { condition: 'clear', isDay: false, dayPhase: 'night', cloudCover: 10, precipitation: 0, rain: 0, snowfall: 0, windSpeed: 0.8, gustLevel: 0.1, fireflyIntensity: 1, starVisibility: 0.9 };
+  }
+  if (id === 'ambientCrawler') {
+    return { condition: 'clear', isDay: true, dayPhase: 'afternoon', cloudCover: 22, precipitation: 0, rain: 0, snowfall: 0, windSpeed: 1.6, gustLevel: 0.2, crawlerIntensity: 1 };
+  }
+  if (id === 'idleFidget' || id === 'ponder' || id === 'ambientButterfly') {
+    return { condition: 'clear', isDay: true, dayPhase: 'afternoon', cloudCover: 16, precipitation: 0, rain: 0, snowfall: 0, windSpeed: 1.2, gustLevel: 0.1, butterflyIntensity: 1 };
   }
   return { condition: 'clear', isDay: true, dayPhase: 'noon', cloudCover: 18, precipitation: 0, rain: 0, snowfall: 0 };
 }
@@ -917,6 +958,12 @@ function connectCdp(url) {
 
   socket.addEventListener('message', (event) => {
     const message = JSON.parse(event.data);
+    if (message.method === 'Runtime.exceptionThrown') {
+      const details = message.params && message.params.exceptionDetails;
+      const text = details && (details.exception && details.exception.description || details.text);
+      const url = details && details.url ? ` ${details.url}:${details.lineNumber || 0}` : '';
+      console.error(`page exception:${url} ${text || JSON.stringify(details || {})}`);
+    }
     if (message.method && listeners.has(message.method)) {
       const callbacks = listeners.get(message.method);
       listeners.delete(message.method);

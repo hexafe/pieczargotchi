@@ -22,7 +22,7 @@ Aktualnie repo zawiera 5 etapów wzrostu:
 - `adult`
 - `legendary`
 
-Każdy etap ma komplet 16 sheetów stanów:
+Każdy etap ma komplet 21 sheetów stanów:
 
 - `idle_sheet.png`
 - `sleep_sheet.png`
@@ -30,10 +30,15 @@ Każdy etap ma komplet 16 sheetów stanów:
 - `happy_sheet.png`
 - `excellent_sheet.png`
 - `curious_sheet.png`
+- `idle_fidget_sheet.png`
+- `ponder_sheet.png`
 - `sun_sheet.png`
 - `rain_sheet.png`
 - `stargaze_sheet.png`
 - `snow_sheet.png`
+- `watch_butterfly_sheet.png`
+- `watch_firefly_sheet.png`
+- `watch_crawler_sheet.png`
 - `tired_sheet.png`
 - `dry_sheet.png`
 - `hungry_sheet.png`
@@ -75,6 +80,9 @@ Te zasady są obowiązkowe dla wszystkich nowych sheetów.
 - Każda klatka runtime ma rozmiar `512x512`.
 - Każdy sheet jest układany poziomo.
 - Większość sheetów w paczce używa `4` klatek, czyli rozmiaru `2048x512`.
+- `idle_fidget_sheet.png` używa `8` klatek, czyli rozmiaru `4096x512`.
+- `ponder_sheet.png`, `watch_butterfly_sheet.png` i `watch_crawler_sheet.png` używają `10` klatek, czyli rozmiaru `5120x512`.
+- `watch_firefly_sheet.png` używa `12` klatek, czyli rozmiaru `6144x512`.
 - `rain_sheet.png` jest celowym wyjątkiem: używa `16` klatek, czyli rozmiaru `8192x512`, żeby pokazać narastanie kropli, spływanie po kapeluszu, oderwanie i rozbicie o ziemię.
 - Format pliku: `PNG RGBA` z przezroczystym tłem.
 - Runtime zakłada, że sprite jest już poprawnie wycentrowany. Renderer nie ma korygować pozycji offsetami per klatka.
@@ -176,7 +184,7 @@ Nie skalujemy całej sceny między etapami. Trawa/mech jest wspólną kotwicą w
 
 ## 6. Zestaw animacji stage'owych
 
-Aktualny kontrakt stage'owy to 16 sheetów na etap:
+Aktualny kontrakt stage'owy to 21 sheetów na etap:
 
 | Sheet | Rola |
 | --- | --- |
@@ -186,10 +194,15 @@ Aktualny kontrakt stage'owy to 16 sheetów na etap:
 | `happy_sheet.png` | pozytywna reakcja, zadowolenie |
 | `excellent_sheet.png` | bardzo dobra opieka, połysk, stan nagrody |
 | `curious_sheet.png` | reakcja na obecność kursora, tapnięcie albo szelest przy Pieczarce |
+| `idle_fidget_sheet.png` | bezczynne wiercenie się, krótka zmiana postawy i powrót do spokoju |
+| `ponder_sheet.png` | ciche zastanowienie się w spokojnej scenie |
 | `sun_sheet.png` | spokojna reakcja na słoneczne okno pogodowe |
 | `rain_sheet.png` | zwykła reakcja na deszcz/storm foreground; 16-klatkowy cykl większych kropli spływających po kapeluszu i spadających na ziemię; nie używa wariantu `neutral_rain`, parasolki ani miny `:|` |
 | `stargaze_sheet.png` | nocna reakcja na gwiazdy i konstelacje |
 | `snow_sheet.png` | reakcja na śnieg i chłód |
+| `watch_butterfly_sheet.png` | Pieczarka śledzi motyla albo drobny ruch przy kapeluszu |
+| `watch_firefly_sheet.png` | nocna reakcja na świetliki bez doklejania obcych efektów do ciała |
+| `watch_crawler_sheet.png` | spojrzenie w wysoką trawę na robaczka lub żuka |
 | `tired_sheet.png` | senność i opadanie energii |
 | `dry_sheet.png` | przesuszenie, spadek świeżości |
 | `hungry_sheet.png` | głód, brak zasobów |
@@ -203,7 +216,7 @@ Aktualny kontrakt stage'owy to 16 sheetów na etap:
 - `sleep` oraz `wake` mają czytać się bez tekstu i bez ikon interfejsu.
 - `happy` podnosi energię, ale nie rozwala sylwetki.
 - `excellent` jest mocniejsze niż `happy`, ale nie może zasłonić twarzy błyskami.
-- `curious`, `sun`, `rain`, `stargaze` i `snow` są reakcjami immersyjnymi. Nie zmieniają statystyk, nie zastępują potrzeb i nie mogą maskować `critical`, `sick`, kuracji ani game over.
+- `curious`, `idle_fidget`, `ponder`, `sun`, `rain`, `stargaze`, `snow`, `watch_butterfly`, `watch_firefly` i `watch_crawler` są reakcjami immersyjnymi. Nie zmieniają statystyk, nie zastępują potrzeb i nie mogą maskować `critical`, `sick`, kuracji ani game over.
 - `rain` jest normalną reakcją pogodową Pieczargotchi. Deszczowa Iwoniasta Pieczarka z parasolką pozostaje wyłącznie easter eggiem `assets/easter-eggs/<stage>/neutral_rain_sheet.png`.
 - `tired`, `dry`, `hungry`, `dirty`, `sick` muszą różnić się od siebie charakterem, nie tylko kolorem.
 - `critical` ma być najmocniejszym sygnałem ostrzegawczym, ale wciąż czytelnym w skali całej planszy.
@@ -250,8 +263,9 @@ Efekty mogą mieć większy dryf niż postać, bo są ruchem cząstek. Nadal mus
 Reguła produkcyjna dla immersji:
 
 - PNG/imagegen: sylwetka Pieczarki, oczy, usta, kapelusz, akcesoria dotykające postaci, parasolka/liść/osłona, duże reakcje mimiczne i stage-specific stany.
-- Canvas: opady, wiatr, ruch trawy, gwiazdy, promienie, mokrość, śnieg na ziemi, cursor ripple, szelest i małe cząstki.
+- Canvas: opady, wiatr, ruch trawy, gwiazdy, promienie, mokrość, śnieg na ziemi, cursor ripple, szelest, motyle, świetliki, żuki i małe cząstki.
 - Runtime nie maluje nowej mimiki po głównym PNG. Jeśli reakcja wymaga twarzy, dostaje własny sheet w `assets/stages/<stage>/`.
+- Trawa foreground rośnie proceduralnie z ziemi pod Pieczarką i może częściowo przykrywać dolną część postaci, ale nie może wyglądać jak element wyrastający z kapelusza albo twarzy. Dekoracje patcha muszą być rysowane nad trawą albo na osobnym meblu, żeby zakupione przedmioty nie ginęły w zaroślach.
 
 ## 10. Rytm animacji
 
@@ -263,6 +277,8 @@ Plan implementacyjny mówi o manifeście z liczbą klatek, timingiem, pętlą i 
   szybsza czytelna reakcja wejścia, potem powrót do spokoju.
 - `critical`:
   najmocniejsza czytelność, ale nie migotanie powodujące chaos.
+- `idle_fidget`, `ponder`, `watch_butterfly`, `watch_firefly`, `watch_crawler`:
+  dłuższy oddech sceny i małe przesunięcia ciała, bez skakania po baseline albo zmiany bohatera w inny wariant graficzny.
 
 Jeżeli sheet ma tylko 4 klatki, różnicę rytmu osiągamy timingiem i intensywnością pozy, nie dokładaniem losowych mikro-ruchów.
 

@@ -6,6 +6,10 @@ Gałąź `codex-weather-sprite-audit` ma teraz wdrożony slice balansu rozgrywki
 
 Po slice'ie immersji klient ma też aktywną warstwę reakcji środowiskowych: Pieczarka reaguje wizualnie na kursor/tapnięcie, słońce, deszcz, śnieg, gwiazdy i silny wiatr. Reakcje są wizualne, nie modyfikują statystyk i nie przykrywają stanów opieki, kuracji ani game over.
 
+Najnowszy slice dodaje kolejne warstwy życia sceny: Pieczarka co jakiś czas wierci się albo zamyśla w spokojnych warunkach, śledzi motyle, świetliki i robaczki w trawie, a foreground ma więcej długiej, falującej trawy wyrastającej spod niej. Dekoracje patcha pozostają nad trawą, żeby zakupione przedmioty były widoczne.
+
+Opady foreground są teraz rozłożone po całej szerokości kadru: lekki deszcz, mocny deszcz i śnieg mają deterministyczne pasy po lewej, środku i prawej stronie, więc krople nie skupiają się tylko przy osi Pieczarki.
+
 ## Balans Opieki I Kuracja
 
 - `Config.gs` podnosi zapis do wersji `7`; stan ma `history.dailyGrowth`, rozszerzone `attention.pausedUntil` i `attention.quietSuppressed`, `recovery` dla kuracji w mchu oraz terminalny `gameOver`.
@@ -37,6 +41,8 @@ Nowe testy w `scripts/test-client-core.mjs` obejmują:
 - utrzymanie wariantów ewolucji po zmianie algorytmu.
 - wybór reakcji immersyjnych i blokowanie ich przez potrzeby opieki,
 - mapowanie deszczu, śniegu, słońca i gwiazd na dedykowane stany animacji.
+- reakcje na ambient life oraz spokojne idle fidget/ponder bez wyprzedzania pogody i pilnych potrzeb.
+- rozkład foreground rain/snow po lewej, środku i prawej stronie dla drizzle/light/moderate/heavy/violent oraz stylów śniegu.
 
 Pełna bramka QA dla tego slice'a pozostaje:
 

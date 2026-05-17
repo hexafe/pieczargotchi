@@ -21,6 +21,7 @@
     drawSmallFlyingInsects(ctx, palette, now, scene, profile, true);
     drawCrawlingBugs(ctx, palette, now, scene, profile);
     drawFireflies(ctx, palette, now, scene, profile, true);
+    drawAmbientLifeFocusCue(ctx, palette, now, scene);
   }
 
   function getAmbientLifeProfile(scene) {
@@ -375,6 +376,52 @@
     ctx.globalAlpha = alpha;
     ctx.fillStyle = '#fff7b2';
     ctx.fillRect(x, y, 2, 2);
+  }
+
+  function drawAmbientLifeFocusCue(ctx, palette, now, scene) {
+    const cue = getAmbientLifeFocusCue(scene);
+    if (!cue || !cue.visible) {
+      return;
+    }
+
+    const alpha = fadeLifeEdge(cue.progress || 0) * (0.76 + clamp(Number(cue.intensity), 0, 1, 0) * 0.24);
+    if (alpha <= 0.04) {
+      return;
+    }
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    if (cue.kind === 'butterfly') {
+      const flap = (Math.sin(now / 82 + cue.seed) + 1) / 2;
+      const colors = { wing: '#f4c45f', edge: '#8c6731', body: '#3d2c22' };
+      drawPixelButterfly(ctx, cue.x, cue.y, cue.direction || 1, 7, flap, colors);
+      drawFocusSpark(ctx, cue.x - (cue.direction || 1) * 18, cue.y - 14, '#fff6b8');
+    } else if (cue.kind === 'firefly') {
+      for (let index = 0; index < 4; index += 1) {
+        const offsetX = Math.round(Math.sin(now / (760 + index * 170) + cue.seed + index) * (10 + index * 3));
+        const offsetY = Math.round(Math.sin(now / (940 + index * 130) + cue.seed * 0.7 + index) * (8 + index * 2));
+        drawPixelFirefly(ctx, cue.x + offsetX, cue.y + offsetY, 0.72 + index * 0.06, true);
+      }
+    } else if (cue.kind === 'crawler') {
+      drawPixelCrawler(ctx, cue.x, cue.y, cue.direction || 1, 8, now, palette, cue.seed || 1);
+      drawCrawlerGrassCover(ctx, cue.x, cue.y, 8, cue.progress || 0.5, palette);
+    }
+    ctx.restore();
+  }
+
+  function getAmbientLifeFocusCue(scene) {
+    const core = window.PieczargotchiCore;
+    if (!core || typeof core.calculateAmbientLifeFocusCue !== 'function') {
+      return null;
+    }
+
+    return core.calculateAmbientLifeFocusCue(scene, getRuntimeDate(), getRuntimeNow());
+  }
+
+  function drawFocusSpark(ctx, x, y, color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(Math.round(x), Math.round(y), 8, 2);
+    ctx.fillRect(Math.round(x + 3), Math.round(y - 3), 2, 8);
   }
 
   function fadeLifeEdge(progress) {

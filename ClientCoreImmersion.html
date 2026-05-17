@@ -13,7 +13,11 @@
     celestialDurationMs: 3000,
     celestialCooldownMs: 10000,
     windDurationMs: 1800,
-    windCooldownMs: 6200
+    windCooldownMs: 6200,
+    ambientLifeDurationMs: 1900,
+    ambientLifeCooldownMs: 7200,
+    idleFidgetDurationMs: 1700,
+    idleFidgetCooldownMs: 8800
   };
 
   function selectImmersionReaction(state, scene, input, now, rules) {
@@ -34,7 +38,22 @@
       return weather;
     }
 
-    return selectCelestialImmersionReaction(scene, timestamp, config);
+    const ambient = selectAmbientLifeImmersionReaction(scene, timestamp, config);
+    if (ambient) {
+      return ambient;
+    }
+
+    const celestial = selectCelestialImmersionReaction(scene, timestamp, config);
+    if (celestial) {
+      return celestial;
+    }
+
+    const idleMotion = selectIdleImmersionReaction(scene, timestamp, config);
+    if (idleMotion) {
+      return idleMotion;
+    }
+
+    return null;
   }
 
   function isImmersionBlockedCore(state, rules, now) {
@@ -159,6 +178,74 @@
     return null;
   }
 
+  function selectAmbientLifeImmersionReaction(scene, now, config) {
+    if (typeof calculateAmbientLifeFocusCue !== 'function') {
+      return null;
+    }
+
+    const cue = calculateAmbientLifeFocusCue(scene, new Date(now), now);
+    if (!cue || !cue.visible || !cue.state) {
+      return null;
+    }
+
+    const idByKind = {
+      butterfly: 'ambientButterfly',
+      firefly: 'ambientFirefly',
+      crawler: 'ambientCrawler'
+    };
+    const priorityByKind = {
+      butterfly: 57,
+      firefly: 56,
+      crawler: 55
+    };
+    const candidate = buildImmersionCandidate(
+      idByKind[cue.kind] || 'ambientLife',
+      cue.state,
+      'ambient',
+      cue.startedAt || now,
+      config.ambientLifeDurationMs,
+      config.ambientLifeCooldownMs,
+      priorityByKind[cue.kind] || 54
+    );
+    candidate.cue = cue;
+    return candidate;
+  }
+
+  function selectIdleImmersionReaction(scene, now, config) {
+    const source = isPlainObject(scene) ? scene : {};
+    const condition = source.condition || 'clear';
+    const precipitation = Math.max(0, Number(source.precipitation) || 0, Number(source.rain) || 0, Number(source.snowfall) || 0);
+    const windLevel = Math.max(0, Number(source.windLevel) || 0, Number(source.gustLevel) || 0);
+    if (['rain', 'storm', 'snow'].includes(condition) || precipitation > 0.03 || windLevel > 0.64) {
+      return null;
+    }
+
+    const cycleMs = 23000;
+    const activeMs = 4300;
+    const slot = Math.floor(now / cycleMs);
+    const cycleStart = slot * cycleMs;
+    const local = now - cycleStart;
+    if (local < 0 || local > activeMs) {
+      return null;
+    }
+
+    const seed = slot * 1777 + Math.floor(now / 86400000) * 37;
+    if (immersionSeededUnit(seed + 11) > 0.62) {
+      return null;
+    }
+
+    const state = immersionSeededUnit(seed + 17) > 0.48 ? 'ponder' : 'idle_fidget';
+    return buildImmersionCandidate(
+      state === 'ponder' ? 'idlePonder' : 'idleFidget',
+      state,
+      'idle',
+      cycleStart,
+      config.idleFidgetDurationMs,
+      config.idleFidgetCooldownMs,
+      38
+    );
+  }
+
   function buildImmersionCandidate(id, state, source, sourceAt, durationMs, cooldownMs, priority) {
     return {
       id: id,
@@ -181,4 +268,12 @@
     const dx = (Number(x) - center.x) / center.rx;
     const dy = (Number(y) - center.y) / center.ry;
     return dx * dx + dy * dy <= 1;
+  }
+
+  function immersionSeededUnit(seed) {
+    let value = Math.imul(Math.floor(seed) ^ 0x9e3779b9, 0x85ebca6b);
+    value ^= value >>> 13;
+    value = Math.imul(value, 0xc2b2ae35);
+    value ^= value >>> 16;
+    return (value >>> 0) / 4294967295;
   }

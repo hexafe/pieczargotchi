@@ -811,6 +811,107 @@ test('immersion reaction maps weather and celestial context to dedicated animati
   assert(stars && stars.state === 'stargaze', `expected stargaze state, got ${stars && stars.state}`);
 });
 
+test('ambient life focus cues trigger mushroom reactions without outranking care or weather', () => {
+  const rules = {
+    attention: { mildThreshold: 45, criticalThreshold: 25 },
+    needDefinitions: {
+      hydration: { category: 'physical', actionId: 'hydrate' }
+    }
+  };
+  const state = {
+    mode: 'awake',
+    stats: { hydration: 82, nutrients: 82, happiness: 82, cleanliness: 82, energy: 82, health: 100 },
+    patch: { quality: 82 },
+    attention: {}
+  };
+  const summerScene = {
+    condition: 'clear',
+    isDay: true,
+    dayPhase: 'noon',
+    cloudCover: 18,
+    precipitation: 0,
+    rain: 0,
+    snowfall: 0,
+    temperature: 24,
+    humidity: 68,
+    windLevel: 0.06,
+    latitude: 50.2649
+  };
+  const cueSample = findAmbientCue(summerScene, Date.parse('2026-07-08T12:00:00.000Z'));
+
+  assert(cueSample, 'expected at least one deterministic summer ambient cue');
+  assert(['butterfly', 'crawler'].includes(cueSample.cue.kind), `expected daytime ambient cue, got ${cueSample.cue.kind}`);
+
+  const reaction = core.selectImmersionReaction(state, summerScene, { inside: false }, cueSample.now, rules);
+  assert(reaction && reaction.source === 'ambient', `expected ambient reaction, got ${reaction && reaction.source}`);
+  assert(['watch_butterfly', 'watch_crawler'].includes(reaction.state), `expected ambient watch state, got ${reaction && reaction.state}`);
+
+  const pointer = core.selectImmersionReaction(state, summerScene, {
+    inside: true,
+    x: 260,
+    y: 268,
+    lastMoveAt: cueSample.now - 80,
+    lastDownAt: cueSample.now - 120,
+    consumedDownAt: 0,
+    speed: 0.2
+  }, cueSample.now, rules);
+  assert(pointer && pointer.id === 'pointerTap', `pointer should outrank ambient cue, got ${pointer && pointer.id}`);
+
+  const rain = core.selectImmersionReaction(state, Object.assign({}, summerScene, {
+    condition: 'rain',
+    precipitation: 2.2,
+    rain: 2.2,
+    cloudCover: 92
+  }), { inside: false }, cueSample.now, rules);
+  assert(rain && rain.state === 'rain', `rain should outrank ambient cue, got ${rain && rain.state}`);
+
+  const blocked = core.selectImmersionReaction({
+    ...state,
+    stats: { ...state.stats, hydration: 20 }
+  }, summerScene, { inside: false }, cueSample.now, rules);
+  assert(blocked === null, 'active care need should block ambient cue');
+});
+
+test('quiet neutral scenes can select idle fidget or ponder motion', () => {
+  const rules = {
+    attention: { mildThreshold: 45, criticalThreshold: 25 },
+    needDefinitions: {
+      hydration: { category: 'physical', actionId: 'hydrate' }
+    }
+  };
+  const state = {
+    mode: 'awake',
+    stats: { hydration: 82, nutrients: 82, happiness: 72, cleanliness: 82, energy: 82, health: 100 },
+    patch: { quality: 72 },
+    attention: {}
+  };
+  const quietScene = {
+    condition: 'cloudy',
+    isDay: true,
+    dayPhase: 'afternoon',
+    cloudCover: 96,
+    precipitation: 0,
+    rain: 0,
+    snowfall: 0,
+    temperature: 1,
+    humidity: 60,
+    windLevel: 0.08,
+    latitude: 50.2649
+  };
+  const start = Date.parse('2026-01-08T13:00:00.000Z');
+  let reaction = null;
+
+  for (let step = 0; step < 64; step += 1) {
+    reaction = core.selectImmersionReaction(state, quietScene, { inside: false }, start + step * 23000, rules);
+    if (reaction && reaction.source === 'idle') {
+      break;
+    }
+  }
+
+  assert(reaction && reaction.source === 'idle', 'expected deterministic idle motion in quiet scene');
+  assert(['idle_fidget', 'ponder'].includes(reaction.state), `expected idle fidget or ponder, got ${reaction && reaction.state}`);
+});
+
 test('battle training spends one spore and respects the configured cap', () => {
   const rules = getBattleTestRules();
   const state = getLegendaryBattleState({
@@ -1171,6 +1272,18 @@ test('fireflies appear in the right summer evening window', () => {
   assert(noon.fireflyIntensity === 0, `expected no noon fireflies, got ${noon.fireflyIntensity}`);
   assert(january.fireflyIntensity === 0, `expected no winter fireflies, got ${january.fireflyIntensity}`);
 });
+
+function findAmbientCue(scene, start) {
+  for (let step = 0; step < 80; step += 1) {
+    const now = start + step * 13500 + 2200;
+    const cue = core.calculateAmbientLifeFocusCue(scene, new Date(now), now);
+    if (cue && cue.visible) {
+      return { cue, now };
+    }
+  }
+
+  return null;
+}
 
 function getBattleTestRules() {
   return {
