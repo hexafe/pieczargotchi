@@ -28,6 +28,12 @@ Run checks from the repository root. Prefer these gates before committing:
 
 For browser smoke, start `node dev-server.mjs <port>` and run `node scripts/capture-app-render.mjs http://127.0.0.1:<port>/`. Local server binding may require sandbox escalation.
 
+## Agent Workflow
+
+Use subagents for broad audits, parallel research, or clearly separable implementation slices. Pick the task-appropriate/optimal model for each subtask: use stronger models for architecture, cross-file reasoning, risky migrations, and visual/debug investigations; use smaller or faster models for narrow searches, inventory work, simple validation, and isolated mechanical edits.
+
+Keep delegated tasks concrete, bounded, and non-overlapping. Prefer read-only explorer subagents for codebase discovery and worker subagents only when the write scope is explicit. The main agent owns sequencing, integration, final review, and validation. Do not spawn subagents for simple single-file edits or for immediate blocking work that is faster and safer to do locally.
+
 ## Coding Style & Naming Conventions
 
 Use two-space indentation for JavaScript, Apps Script, HTML, and CSS. Prefer small named functions over large inline handlers. Use `camelCase` for functions, variables, state fields, and action IDs; use `UPPER_SNAKE_CASE` for constants.
