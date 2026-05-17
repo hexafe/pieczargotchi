@@ -35,15 +35,16 @@ Attention call jest ważniejszy niż sam niski pasek:
 - care mistakes powinny wpływać na ewolucję i długoterminowy charakter Pieczarki,
 - naprawiona potrzeba czyści attention i daje krótką reakcję.
 
-## Kryzys Zdrowia I Kuracja
+## Kryzys Zdrowia, Kuracja I Game Over
 
-Pieczargotchi nie używa twardego `game over`. Gdy zdrowie spadnie do `0`, Pieczarka trafia do kuracji w mchu:
+Pieczargotchi używa `game over`, ale nie przy pierwszym spadku zdrowia do `0`. Pierwsze `0` uruchamia kurację w mchu jako ostatnią szansę:
 
 - kuracja trwa kilka godzin i nie kończy się natychmiast po kliknięciu,
 - Pieczarka leży w mchu jak w łóżku, więc nie walczy, nie bawi się i nie gra w minigry,
 - gracz nadal musi zraszać, karmić i czyścić grzybnię,
 - koniec kuracji wymaga świeżej opieki oraz stabilnej wilgoci, odżywek i czystości,
-- zaniedbana kuracja przedłuża się i obniża jakość patcha, ale nie kasuje zapisu.
+- zaniedbana kuracja przedłuża się i obniża jakość patcha,
+- po limicie nieudanych okien kuracji stan przechodzi w `gameOver.active`, blokuje akcje i wymaga rozpoczęcia nowej gry.
 
 ## Rytm Dnia I Nocy
 

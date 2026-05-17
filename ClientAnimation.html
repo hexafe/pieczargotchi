@@ -5,7 +5,12 @@
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, canvasSize, canvasSize);
 
-    if (runtime.viewMode === 'arena' && isArenaUnlockedForRuntime() && typeof drawBattleFrame === 'function') {
+    if (
+      runtime.viewMode === 'arena'
+      && isArenaUnlockedForRuntime()
+      && !(runtime.state && runtime.state.gameOver && runtime.state.gameOver.active)
+      && typeof drawBattleFrame === 'function'
+    ) {
       drawBattleFrame(ctx, now, wallNow);
       return;
     }
@@ -47,6 +52,13 @@
     const debugSelection = getDebugAnimationSelection(stage, now);
     if (debugSelection) {
       return debugSelection;
+    }
+
+    if (state.gameOver && state.gameOver.active) {
+      return buildAnimationSelection(
+        findStageAnimation(stage, 'critical') || findStageAnimation(stage, 'sick') || findStageAnimation(stage, 'sleep'),
+        null
+      );
     }
 
     if (state.recovery && state.recovery.active) {

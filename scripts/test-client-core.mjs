@@ -358,15 +358,15 @@ test('corrupted save shape falls back to a normal migration target', () => {
   assert(migrated.battle && migrated.battle.rewards.wins === 0, 'expected normalized battle rewards');
 });
 
-test('v2 saves migrate to v6 progression history, evolution, minigames, decorations, recovery, and daily growth', () => {
+test('v2 saves migrate to v7 progression history, evolution, minigames, decorations, recovery, game over, and daily growth', () => {
   const migrated = core.migrateStateVersion({
     version: 2,
     stage: 'adult',
     stats: { growth: 70 },
     history: { actionsPerformed: { hydrate: 2 } }
-  }, 6);
+  }, 7);
 
-  assert(migrated.version === 6, `expected version 6, got ${migrated.version}`);
+  assert(migrated.version === 7, `expected version 7, got ${migrated.version}`);
   assert(migrated.history.actionsPerformed.hydrate === 2, 'expected action history to survive migration');
   assert(migrated.history.attention.handled === 0, 'expected attention history defaults');
   assert(migrated.history.dailyGrowth.earned === 0, 'expected daily growth defaults');
@@ -374,6 +374,7 @@ test('v2 saves migrate to v6 progression history, evolution, minigames, decorati
   assert(migrated.minigames && migrated.minigames.active === null, 'expected empty minigame state');
   assert(Array.isArray(migrated.decorations.owned), 'expected decoration ownership list');
   assert(migrated.recovery && migrated.recovery.active === false, 'expected empty recovery state');
+  assert(migrated.gameOver && migrated.gameOver.active === false, 'expected empty game-over state');
 });
 
 test('arena unlocks only at legendary stage', () => {
@@ -482,6 +483,38 @@ test('moss-bed recovery extends without fresh care and completes after recent ca
   assert(!completed.state.recovery.active, 'recovery should complete after recent care and stable needs');
   assert(completed.state.stats.health === 28, `expected completion health, got ${completed.state.stats.health}`);
   assert(completed.events[0].type === 'recoveryComplete', 'expected completion event');
+});
+
+test('moss-bed recovery reaches game over after too many missed care windows', () => {
+  const now = Date.parse('2026-05-17T12:00:00.000Z');
+  const rules = getRecoveryTestRules();
+  const started = core.updateRecoveryState({
+    createdAt: '2026-05-15T09:00:00.000Z',
+    mode: 'awake',
+    stage: 'young',
+    stats: { health: 0, hydration: 10, nutrients: 12, cleanliness: 8, energy: 5, happiness: 20 },
+    patch: { quality: 20, mycelium: 0, harvests: 0, careStreak: 2 },
+    attention: { activeNeed: 'hydration', severity: 'critical' },
+    recovery: {},
+    minigames: { active: { id: 'dewCatch' } },
+    battle: { mode: 'active', activeBattle: { mode: 'active' } }
+  }, rules, now).state;
+
+  let current = started;
+  for (let miss = 0; miss < 3; miss += 1) {
+    current = core.updateRecoveryState(current, rules, Date.parse(current.recovery.until) + 1).state;
+  }
+
+  assert(current.gameOver && current.gameOver.active, 'expected game over after the third missed recovery window');
+  assert(current.gameOver.reason === 'recoveryNeglected', `expected recoveryNeglected reason, got ${current.gameOver.reason}`);
+  assert(current.gameOver.recoveryMissedCare === 3, 'expected missed recovery count on game over');
+  assert(current.stats.health === 0, 'game over should leave health at zero');
+  assert(!current.recovery.active, 'recovery should stop after game over');
+  assert(current.minigames.active === null, 'active minigame should be cleared');
+  assert(current.battle.activeBattle === null, 'active battle should be cleared');
+  assert(core.isGameOver(current), 'core game-over helper should report terminal state');
+  assert(!core.getActionAvailability(current, { id: 'hydrate', awakeOnly: true, recoveryCare: true }, now, rules).ok, 'care actions should be blocked after game over');
+  assert(core.getAnimationIntent(current, rules, now).type === 'gameOver', 'game over should own animation intent');
 });
 
 test('attention call starts, records missed deadline, and clears after the right care action', () => {
@@ -951,15 +984,15 @@ test('decoration purchase spends spores, records ownership, and boosts happiness
 
 test('state export and import preserve save shape while rejecting invalid files', () => {
   const envelope = core.buildStateExportEnvelope({
-    version: 6,
+    version: 7,
     stats: { hydration: 70 },
     history: { actionsPerformed: { hydrate: 1 } }
   }, Date.parse('2026-05-16T12:00:00.000Z'));
-  const imported = core.importStateEnvelope(JSON.stringify(envelope), 6);
-  const rejected = core.importStateEnvelope(JSON.stringify({ nope: true }), 6);
+  const imported = core.importStateEnvelope(JSON.stringify(envelope), 7);
+  const rejected = core.importStateEnvelope(JSON.stringify({ nope: true }), 7);
 
   assert(imported.ok, `expected import success: ${imported.reason}`);
-  assert(imported.state.version === 6, 'expected imported v6 state');
+  assert(imported.state.version === 7, 'expected imported v7 state');
   assert(imported.state.history.actionsPerformed.hydrate === 1, 'expected imported history');
   assert(!rejected.ok, 'expected invalid import rejection');
 });
@@ -1084,6 +1117,7 @@ function getRecoveryTestRules() {
       durationMs: 6 * 60 * 60000,
       extensionMs: 2 * 60 * 60000,
       recentCareMs: 2.5 * 60 * 60000,
+      maxMissedCare: 3,
       startHealth: 8,
       completeHealth: 28,
       extensionPenalty: {

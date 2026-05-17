@@ -18,6 +18,10 @@
 
     const now = getRuntimeNow();
     runtime.state = applyElapsedTime(runtime.state, now);
+    if (isGameOverForRuntime()) {
+      renderUi();
+      return;
+    }
 
     const check = canRunAction(action, now);
     if (!check.ok) {
@@ -68,6 +72,10 @@
 
     const now = getRuntimeNow();
     runtime.state = applyElapsedTime(runtime.state, now);
+    if (isGameOverForRuntime()) {
+      renderUi();
+      return;
+    }
     if (isRecoveryActiveForRuntime(now)) {
       setTransientMessage('Kuracja', 'Arena poczeka. Pieczarka leży teraz w mchu.');
       renderUi();
@@ -94,6 +102,10 @@
 
     const now = getRuntimeNow();
     runtime.state = applyElapsedTime(runtime.state, now);
+    if (isGameOverForRuntime()) {
+      renderUi();
+      return;
+    }
     if (isRecoveryActiveForRuntime(now)) {
       setTransientMessage('Kuracja', 'Trening poczeka do końca kuracji.');
       renderUi();
@@ -120,6 +132,10 @@
     }
 
     const now = getRuntimeNow();
+    if (isGameOverForRuntime()) {
+      renderUi();
+      return;
+    }
     if (isRecoveryActiveForRuntime(now)) {
       setTransientMessage('Kuracja', 'Pieczarka nie walczy podczas kuracji.');
       renderUi();
@@ -145,6 +161,13 @@
       return {
         ok: false,
         reason: 'Najpierw zakończ minigrę.'
+      };
+    }
+
+    if (isGameOverForRuntime()) {
+      return {
+        ok: false,
+        reason: 'Gra zakończona. Zacznij od nowa.'
       };
     }
 
@@ -284,6 +307,10 @@
     }
 
     runtime.state = applyElapsedTime(runtime.state, now);
+    if (isGameOverForRuntime()) {
+      renderUi();
+      return;
+    }
     if (isRecoveryActiveForRuntime(now)) {
       setTransientMessage('Kuracja', 'Minigry wrócą po kuracji w mchu.');
       renderUi();
@@ -354,6 +381,10 @@
     }
 
     runtime.state = applyElapsedTime(runtime.state, now);
+    if (isGameOverForRuntime()) {
+      renderUi();
+      return;
+    }
     const result = core.buyDecoration(runtime.state, decorationId, rules, now);
     runtime.state = result.state || runtime.state;
     if (!result.ok) {
@@ -379,6 +410,12 @@
   function isRecoveryActiveForRuntime(now) {
     const core = window.PieczargotchiCore;
     return Boolean(core && core.isRecoveryActive && runtime.state && core.isRecoveryActive(runtime.state, rules, now));
+  }
+
+  function isGameOverForRuntime() {
+    const core = window.PieczargotchiCore;
+    return Boolean(runtime.state && runtime.state.gameOver && runtime.state.gameOver.active)
+      || Boolean(core && core.isGameOver && runtime.state && core.isGameOver(runtime.state));
   }
 
   function recordRecoveryCare(state, actionId, now) {

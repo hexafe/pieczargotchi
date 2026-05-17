@@ -160,6 +160,7 @@ function getGameRulesConfig() {
       durationMs: 6 * 60 * 60000,
       extensionMs: 2 * 60 * 60000,
       recentCareMs: 2.5 * 60 * 60000,
+      maxMissedCare: 3,
       startHealth: 8,
       completeHealth: 28,
       extensionPenalty: {

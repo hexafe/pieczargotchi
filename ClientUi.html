@@ -29,11 +29,12 @@
 
   function renderViewSwitch() {
     const unlocked = isArenaUnlockedForRuntime();
+    const gameOver = isGameOverUiState();
     if (dom.viewSwitch) {
-      dom.viewSwitch.hidden = !unlocked;
+      dom.viewSwitch.hidden = !unlocked || gameOver;
     }
 
-    if (!unlocked) {
+    if (!unlocked || gameOver) {
       runtime.viewMode = 'care';
     }
 
@@ -64,10 +65,14 @@
       ? Math.max(1, Math.floor((getRuntimeNow() - createdAt) / 86400000) + 1)
       : 1;
 
-    dom.modePill.textContent = state.recovery && state.recovery.active
+    dom.modePill.textContent = state.gameOver && state.gameOver.active
+      ? 'Koniec'
+      : state.recovery && state.recovery.active
       ? 'Kuracja'
       : state.mode === 'awake' ? 'Czuwa' : 'Śpi';
-    dom.modePill.dataset.mode = state.recovery && state.recovery.active ? 'recovery' : state.mode;
+    dom.modePill.dataset.mode = state.gameOver && state.gameOver.active
+      ? 'game-over'
+      : state.recovery && state.recovery.active ? 'recovery' : state.mode;
     dom.mushroomName.textContent = state.mushroomName;
     dom.stageLabel.textContent = getStageLabel(state.stage);
     if (dom.evolutionLabel) {
@@ -152,6 +157,7 @@
   function renderActionStates() {
     const now = getRuntimeNow();
     let soonestRemaining = 0;
+    const gameOver = isGameOverUiState();
 
     actions.forEach(function(action) {
       const button = runtime.actionButtons.get(action.id);
@@ -159,7 +165,9 @@
         return;
       }
 
-      const check = canRunAction(action, now);
+      const check = gameOver
+        ? { ok: false, reason: 'Gra zakończona. Zacznij od nowa.' }
+        : canRunAction(action, now);
       const cooldownUntil = Number(runtime.state.cooldowns[action.id]) || 0;
       const remainingMs = Math.max(0, cooldownUntil - now);
 
@@ -190,7 +198,7 @@
 
     const attention = runtime.state.attention || {};
     const definition = attention.activeNeed && rules.needDefinitions ? rules.needDefinitions[attention.activeNeed] : null;
-    if (!definition) {
+    if (!definition || isGameOverUiState()) {
       dom.attentionChip.hidden = true;
       dom.attentionChip.textContent = '';
       dom.attentionChip.dataset.severity = '';
@@ -208,6 +216,7 @@
     }
 
     const active = runtime.state.minigames && runtime.state.minigames.active;
+    const gameOver = isGameOverUiState();
     const now = getRuntimeNow();
     const minigameRules = rules.minigames || {};
     const cooldowns = Object.keys(minigameRules).map(function(minigameId) {
@@ -215,7 +224,9 @@
       return Math.max(0, cooldownUntil - now);
     }).filter(Boolean);
     const remaining = cooldowns.length ? Math.min.apply(null, cooldowns) : 0;
-    if (active) {
+    if (gameOver) {
+      dom.minigameStatus.textContent = 'Koniec gry';
+    } else if (active) {
       dom.minigameStatus.textContent = active.label || (minigameRules[active.id] && minigameRules[active.id].label) || 'Trwa';
     } else if (remaining) {
       dom.minigameStatus.textContent = 'Za ' + formatRemainingLabel(remaining);
@@ -234,8 +245,8 @@
       const minigameId = button.dataset.minigameStart;
       const cooldownUntil = Number(runtime.state.cooldowns[getMinigameCooldownKey(minigameId)]) || 0;
       const ownRemaining = Math.max(0, cooldownUntil - now);
-      button.disabled = Boolean(active) || ownRemaining > 0 || runtime.state.mode !== 'awake';
-      button.textContent = ownRemaining ? formatCooldownLabel(ownRemaining) : 'Start';
+      button.disabled = gameOver || Boolean(active) || ownRemaining > 0 || runtime.state.mode !== 'awake';
+      button.textContent = gameOver ? 'Koniec' : ownRemaining ? formatCooldownLabel(ownRemaining) : 'Start';
     });
     updateMinigameHud(now);
   }
@@ -287,7 +298,7 @@
       button.className = 'ghost-button';
       button.type = 'button';
       button.textContent = isOwned ? 'Masz' : 'Kup';
-      button.disabled = isOwned || availableSpores < Number(item.cost);
+      button.disabled = isGameOverUiState() || isOwned || availableSpores < Number(item.cost);
       button.addEventListener('click', function() {
         handleDecorationBuy(item.id);
       });
@@ -320,7 +331,9 @@
     const evolutionLabel = getEvolutionHistoryLabel(state);
 
     if (dom.historyScore) {
-      dom.historyScore.textContent = (actionTotal + handled) + ' opieki';
+      dom.historyScore.textContent = state.gameOver && state.gameOver.active
+        ? 'Koniec gry'
+        : (actionTotal + handled) + ' opieki';
     }
 
     dom.careHistory.innerHTML = '';
@@ -518,6 +531,7 @@
     }
 
     const battle = runtime.state.battle || {};
+    const gameOver = isGameOverUiState();
     const active = battle.activeBattle || null;
     const rewards = battle.rewards || {};
     const activeTerminal = active && ['victory', 'defeat'].includes(active.mode);
@@ -529,12 +543,12 @@
     renderBattleCombatant(dom.battlePlayerHp, dom.battlePlayerStamina, active && active.player);
     renderBattleCombatant(dom.battleOpponentHp, dom.battleOpponentStamina, active && active.opponent);
 
-    dom.battleStart.disabled = Boolean(activeRunning);
-    dom.battleStart.textContent = activeRunning ? 'Walka trwa' : 'Start walki';
-    dom.battleResult.textContent = getBattleResultLabel(active);
+    dom.battleStart.disabled = gameOver || Boolean(activeRunning);
+    dom.battleStart.textContent = gameOver ? 'Koniec gry' : activeRunning ? 'Walka trwa' : 'Start walki';
+    dom.battleResult.textContent = gameOver ? 'Koniec gry' : getBattleResultLabel(active);
 
-    renderBattleMoves(active, activeRunning);
-    renderBattleTraining(activeRunning);
+    renderBattleMoves(active, gameOver ? false : activeRunning);
+    renderBattleTraining(gameOver || activeRunning);
     renderBattleLog();
   }
 
@@ -679,6 +693,10 @@
       return getBattleMessage(state, now);
     }
 
+    if (state.gameOver && state.gameOver.active) {
+      return getGameOverMessage(state);
+    }
+
     if (state.currentActivity && Number(state.currentActivity.until) > now) {
       if (state.currentActivity.type === 'notice') {
         return {
@@ -755,6 +773,10 @@
   }
 
   function getBattleMessage(state, now) {
+    if (state.gameOver && state.gameOver.active) {
+      return getGameOverMessage(state);
+    }
+
     if (state.currentActivity && state.currentActivity.type === 'notice' && Number(state.currentActivity.until) > now) {
       return {
         title: state.currentActivity.label,
@@ -786,6 +808,19 @@
       title: 'Tura ' + (Number(active.turn) + 1),
       body: 'Pieczarka i rywal mierzą oddech.'
     };
+  }
+
+  function getGameOverMessage(state) {
+    const days = Number(state.gameOver && state.gameOver.survivedDays) || 0;
+    const dayText = days ? ' Przetrwała ' + days + ' dni.' : '';
+    return {
+      title: 'Koniec gry',
+      body: 'Kuracja była zbyt długo zaniedbana i Pieczarka obumarła w mchu.' + dayText + ' Użyj „Od nowa”, żeby zacząć kolejną hodowlę.'
+    };
+  }
+
+  function isGameOverUiState() {
+    return Boolean(runtime.state && runtime.state.gameOver && runtime.state.gameOver.active);
   }
 
   const neutralEasterEggMessages = {

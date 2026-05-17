@@ -24,6 +24,13 @@
     const recovery = normalizeRecoveryStateCore(currentState.recovery);
     const recoveryActive = isRecoveryActiveStateCore(currentState, rules, timestamp);
 
+    if (isGameOverStateCore(currentState)) {
+      return {
+        ok: false,
+        reason: 'Gra zakończona. Zacznij od nowa, aby wyhodować kolejną Pieczarkę.'
+      };
+    }
+
     if (remainingMs > 0) {
       return {
         ok: false,
@@ -205,6 +212,10 @@
       return { type: 'none', state: null };
     }
 
+    if (state.gameOver && state.gameOver.active) {
+      return { type: 'gameOver', state: 'critical' };
+    }
+
     if (state.recovery && state.recovery.active) {
       return {
         type: 'recovery',
@@ -364,6 +375,11 @@
     state.stats = isPlainObject(state.stats) ? Object.assign({}, state.stats) : {};
     state.patch = normalizePatchCore(state.patch);
     state.recovery = normalizeRecoveryStateCore(state.recovery);
+    state.gameOver = normalizeGameOverStateCore(state.gameOver);
+
+    if (state.gameOver.active) {
+      return { state: state, events: events };
+    }
 
     if ((Number(state.stats.health) || 0) <= recoveryRules.triggerHealth && !state.recovery.active) {
       startRecoveryCore(state, recoveryRules, timestamp, 'healthZero');
@@ -388,7 +404,14 @@
       return { state: state, events: events };
     }
 
-    state.recovery.missedCare += 1;
+    const missedCare = state.recovery.missedCare + 1;
+    if (missedCare >= recoveryRules.maxMissedCare) {
+      finishGameOverCore(state, timestamp, 'recoveryNeglected', missedCare);
+      events.push({ type: 'gameOver', reason: state.gameOver.reason, at: state.gameOver.at });
+      return { state: state, events: events };
+    }
+
+    state.recovery.missedCare = missedCare;
     state.recovery.until = new Date(timestamp + recoveryRules.extensionMs).toISOString();
     state.patch.careStreak = 0;
     state.patch.quality = clampNumber(
@@ -472,9 +495,51 @@
     };
   }
 
+  function normalizeGameOverStateCore(gameOver) {
+    const source = isPlainObject(gameOver) ? gameOver : {};
+    return {
+      active: Boolean(source.active),
+      reason: source.reason || null,
+      at: source.at || null,
+      survivedDays: Math.max(0, Math.floor(Number(source.survivedDays) || 0)),
+      stage: source.stage || null,
+      recoveryMissedCare: Math.max(0, Math.floor(Number(source.recoveryMissedCare) || 0))
+    };
+  }
+
+  function isGameOverStateCore(state) {
+    return Boolean(state && state.gameOver && state.gameOver.active);
+  }
+
+  function finishGameOverCore(state, now, reason, missedCare) {
+    const createdAt = Date.parse(state.createdAt || '');
+    const survivedDays = Number.isFinite(createdAt)
+      ? Math.max(1, Math.floor((now - createdAt) / 86400000) + 1)
+      : 0;
+    state.recovery.active = false;
+    state.recovery.endedAt = new Date(now).toISOString();
+    state.attention = normalizeAttentionCore({});
+    state.minigames = isPlainObject(state.minigames) ? state.minigames : {};
+    state.minigames.active = null;
+    state.battle = isPlainObject(state.battle) ? state.battle : {};
+    state.battle.activeBattle = null;
+    state.battle.mode = 'idle';
+    state.mode = 'sleeping';
+    state.currentActivity = null;
+    state.stats.health = 0;
+    state.gameOver = {
+      active: true,
+      reason: reason || 'recoveryNeglected',
+      at: new Date(now).toISOString(),
+      survivedDays: survivedDays,
+      stage: state.stage || null,
+      recoveryMissedCare: missedCare || state.recovery.missedCare || 0
+    };
+  }
+
   function isRecoveryActiveStateCore(state, rules, now) {
     const recovery = normalizeRecoveryStateCore(state && state.recovery);
-    return Boolean(recovery.active);
+    return Boolean(recovery.active) && !isGameOverStateCore(state);
   }
 
   function isRecoveryActionBlockedCore(actionId, rules) {
@@ -492,6 +557,7 @@
       durationMs: clampInteger(source.durationMs, 60000, 24 * 3600000, 6 * 3600000),
       extensionMs: clampInteger(source.extensionMs, 60000, 12 * 3600000, 2 * 3600000),
       recentCareMs: clampInteger(source.recentCareMs, 60000, 12 * 3600000, 2.5 * 3600000),
+      maxMissedCare: clampInteger(source.maxMissedCare, 1, 12, 3),
       startHealth: clampNumber(Number(source.startHealth), 1, 100, 8),
       completeHealth: clampNumber(Number(source.completeHealth), 1, 100, 28),
       extensionPenalty: {

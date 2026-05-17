@@ -92,6 +92,14 @@ function createDefaultStateTemplate() {
       reason: null,
       endedAt: null
     },
+    gameOver: {
+      active: false,
+      reason: null,
+      at: null,
+      survivedDays: 0,
+      stage: null,
+      recoveryMissedCare: 0
+    },
     careMistakes: {
       physical: 0,
       mental: 0,
