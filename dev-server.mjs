@@ -26,6 +26,10 @@ const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`);
 
+    if (url.searchParams.get('bundle') === 'config') {
+      send(response, 200, renderConfigBundle(), contentTypes['.js']);
+      return;
+    }
     if (url.searchParams.get('bundle') === 'core') {
       send(response, 200, renderScriptBundle('ClientCore.html'), contentTypes['.js']);
       return;
@@ -52,21 +56,24 @@ server.listen(port, '127.0.0.1', () => {
 });
 
 async function renderPreviewHtml() {
-  const clientConfigJson = JSON.stringify(buildClientConfig()).replace(/<\/script/gi, '<\\/script');
-  return renderTemplate('Index.html', { clientConfigJson });
+  return renderTemplate('Index.html');
 }
 
-function renderTemplate(fileName, values) {
+function renderTemplate(fileName) {
   return readTextSync(fileName)
     .replace(/<\?=\s*PIECZARGOTCHI_APP_TITLE\s*\?>/g, 'Pieczargotchi')
-    .replace(/<\?!=\s*clientConfigJson\s*\?>/g, values.clientConfigJson)
     .replace(/<\?!=\s*include\('([^']+)'\);\s*\?>/g, function(_match, partialName) {
-      return renderTemplate(partialName + '.html', values);
+      return renderTemplate(partialName + '.html');
     });
 }
 
 function renderScriptBundle(fileName) {
-  return stripScriptTag(renderTemplate(fileName, {}));
+  return stripScriptTag(renderTemplate(fileName));
+}
+
+function renderConfigBundle() {
+  const clientConfigJson = JSON.stringify(buildClientConfig()).replace(/<\/script/gi, '<\\/script');
+  return `window.PIECZARGOTCHI_CONFIG = ${clientConfigJson};`;
 }
 
 function stripScriptTag(content) {

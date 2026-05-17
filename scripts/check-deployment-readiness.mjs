@@ -160,11 +160,8 @@ function checkHtmlIncludes() {
       fail(`Index.html does not include ${includeName}.`);
     }
   }
-  if (!indexHtml.includes('?bundle=core') || !indexHtml.includes('?bundle=client')) {
-    fail('Index.html must load ClientCore and Client through Apps Script bundle endpoints.');
-  }
-  if (!indexHtml.includes('window.PIECZARGOTCHI_CONFIG')) {
-    fail('Index.html does not inject window.PIECZARGOTCHI_CONFIG.');
+  if (!indexHtml.includes('?bundle=config') || !indexHtml.includes('?bundle=core') || !indexHtml.includes('?bundle=client')) {
+    fail('Index.html must load config, ClientCore, and Client through Apps Script bundle endpoints.');
   }
   if (!indexHtml.includes('__pieczargotchiBootSeen') || !indexHtml.includes('Awaryjny watchdog sceny')) {
     fail('Index.html is missing the Apps Script startup watchdog fallback.');
@@ -204,8 +201,11 @@ function checkHtmlIncludes() {
   }
 
   const codeGs = readText('Code.gs');
-  if (!codeGs.includes('serveClientBundle_') || !codeGs.includes('ContentService.MimeType.JAVASCRIPT')) {
-    fail('Code.gs must serve client bundles as JavaScript ContentService outputs.');
+  if (!codeGs.includes('serveClientConfigScript_') || !codeGs.includes('serveClientBundle_') || !codeGs.includes('ContentService.MimeType.JAVASCRIPT')) {
+    fail('Code.gs must serve config and client bundles as JavaScript ContentService outputs.');
+  }
+  if (!codeGs.includes('window.PIECZARGOTCHI_CONFIG')) {
+    fail('Code.gs config bundle must assign window.PIECZARGOTCHI_CONFIG.');
   }
   if (codeGs.includes('setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)')) {
     fail('Code.gs should not force ALLOWALL for the public Apps Script surface.');

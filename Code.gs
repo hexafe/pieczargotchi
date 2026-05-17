@@ -1,5 +1,8 @@
 function doGet(event) {
   const parameters = event && event.parameter ? event.parameter : {};
+  if (parameters.bundle === 'config') {
+    return serveClientConfigScript_();
+  }
   if (parameters.bundle === 'core') {
     return serveClientBundle_(['ClientCore']);
   }
@@ -8,7 +11,6 @@ function doGet(event) {
   }
 
   const template = HtmlService.createTemplateFromFile('Index');
-  template.clientConfigJson = JSON.stringify(getClientConfig());
 
   return template
     .evaluate()
@@ -18,6 +20,13 @@ function doGet(event) {
 
 function include(filename) {
   return HtmlService.createTemplateFromFile(filename).evaluate().getContent();
+}
+
+function serveClientConfigScript_() {
+  const json = JSON.stringify(getClientConfig()).replace(/<\/script/gi, '<\\/script');
+  return ContentService
+    .createTextOutput('window.PIECZARGOTCHI_CONFIG = ' + json + ';')
+    .setMimeType(ContentService.MimeType.JAVASCRIPT);
 }
 
 function serveClientBundle_(fileNames) {
