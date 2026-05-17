@@ -358,21 +358,22 @@ test('corrupted save shape falls back to a normal migration target', () => {
   assert(migrated.battle && migrated.battle.rewards.wins === 0, 'expected normalized battle rewards');
 });
 
-test('v2 saves migrate to v5 progression history, evolution, minigames, decorations, and daily growth', () => {
+test('v2 saves migrate to v6 progression history, evolution, minigames, decorations, recovery, and daily growth', () => {
   const migrated = core.migrateStateVersion({
     version: 2,
     stage: 'adult',
     stats: { growth: 70 },
     history: { actionsPerformed: { hydrate: 2 } }
-  }, 5);
+  }, 6);
 
-  assert(migrated.version === 5, `expected version 5, got ${migrated.version}`);
+  assert(migrated.version === 6, `expected version 6, got ${migrated.version}`);
   assert(migrated.history.actionsPerformed.hydrate === 2, 'expected action history to survive migration');
   assert(migrated.history.attention.handled === 0, 'expected attention history defaults');
   assert(migrated.history.dailyGrowth.earned === 0, 'expected daily growth defaults');
   assert(migrated.evolution && migrated.evolution.variant === null, 'expected empty evolution state');
   assert(migrated.minigames && migrated.minigames.active === null, 'expected empty minigame state');
   assert(Array.isArray(migrated.decorations.owned), 'expected decoration ownership list');
+  assert(migrated.recovery && migrated.recovery.active === false, 'expected empty recovery state');
 });
 
 test('arena unlocks only at legendary stage', () => {
@@ -435,6 +436,52 @@ test('care actions respect cooldown, awake, stage, and energy blocks', () => {
     now,
     rules
   ).ok, 'sleep/wake should remain available at zero energy');
+});
+
+test('recovery starts at zero health and blocks play while allowing moss-bed care', () => {
+  const now = Date.parse('2026-05-17T12:00:00.000Z');
+  const rules = getRecoveryTestRules();
+  const started = core.updateRecoveryState({
+    mode: 'awake',
+    stats: { health: 0, hydration: 50, nutrients: 50, cleanliness: 50, energy: 0, happiness: 50 },
+    patch: { quality: 70, mycelium: 0, harvests: 0, careStreak: 0 },
+    recovery: {}
+  }, rules, now);
+
+  assert(started.state.recovery.active, 'expected recovery to start at zero health');
+  assert(started.state.mode === 'sleeping', 'recovery should put mushroom in moss-bed rest');
+  assert(started.state.stats.health === 8, `expected recovery start health, got ${started.state.stats.health}`);
+  assert(started.events[0].type === 'recoveryStart', 'expected recovery start event');
+  assert(!core.getActionAvailability(started.state, { id: 'play', awakeOnly: true, recoveryBlocked: true }, now, rules).ok, 'play should be blocked during recovery');
+  assert(core.getActionAvailability(started.state, { id: 'hydrate', awakeOnly: true, recoveryCare: true }, now, rules).ok, 'hydrate should be allowed during recovery even while resting');
+  assert(core.getAnimationIntent(started.state, {}, now).state === 'critical', 'recovery at very low health should use critical animation');
+});
+
+test('moss-bed recovery extends without fresh care and completes after recent care with stable needs', () => {
+  const now = Date.parse('2026-05-17T12:00:00.000Z');
+  const rules = getRecoveryTestRules();
+  const started = core.updateRecoveryState({
+    mode: 'awake',
+    stats: { health: 0, hydration: 50, nutrients: 50, cleanliness: 50, energy: 30, happiness: 50 },
+    patch: { quality: 70, mycelium: 0, harvests: 0, careStreak: 0 },
+    recovery: {}
+  }, rules, now).state;
+  const until = Date.parse(started.recovery.until);
+  const extended = core.updateRecoveryState(started, rules, until + 1);
+
+  assert(extended.state.recovery.active, 'recovery should remain active without recent care');
+  assert(extended.events[0].type === 'recoveryExtended', 'expected extension event');
+  assert(extended.state.recovery.missedCare === 1, 'expected one missed recovery care mark');
+
+  const cared = core.recordRecoveryCare({
+    ...extended.state,
+    stats: { ...extended.state.stats, hydration: 44, nutrients: 42, cleanliness: 41 }
+  }, 'clean', rules, until + 60_000).state;
+  const completed = core.updateRecoveryState(cared, rules, Date.parse(cared.recovery.until) + 1);
+
+  assert(!completed.state.recovery.active, 'recovery should complete after recent care and stable needs');
+  assert(completed.state.stats.health === 28, `expected completion health, got ${completed.state.stats.health}`);
+  assert(completed.events[0].type === 'recoveryComplete', 'expected completion event');
 });
 
 test('attention call starts, records missed deadline, and clears after the right care action', () => {
@@ -904,15 +951,15 @@ test('decoration purchase spends spores, records ownership, and boosts happiness
 
 test('state export and import preserve save shape while rejecting invalid files', () => {
   const envelope = core.buildStateExportEnvelope({
-    version: 5,
+    version: 6,
     stats: { hydration: 70 },
     history: { actionsPerformed: { hydrate: 1 } }
   }, Date.parse('2026-05-16T12:00:00.000Z'));
-  const imported = core.importStateEnvelope(JSON.stringify(envelope), 5);
-  const rejected = core.importStateEnvelope(JSON.stringify({ nope: true }), 5);
+  const imported = core.importStateEnvelope(JSON.stringify(envelope), 6);
+  const rejected = core.importStateEnvelope(JSON.stringify({ nope: true }), 6);
 
   assert(imported.ok, `expected import success: ${imported.reason}`);
-  assert(imported.state.version === 5, 'expected imported v5 state');
+  assert(imported.state.version === 6, 'expected imported v6 state');
   assert(imported.state.history.actionsPerformed.hydrate === 1, 'expected imported history');
   assert(!rejected.ok, 'expected invalid import rejection');
 });
@@ -1026,6 +1073,31 @@ function getBattleTestRules() {
       { id: 'adult' },
       { id: 'legendary' }
     ]
+  };
+}
+
+function getRecoveryTestRules() {
+  return {
+    recovery: {
+      triggerHealth: 0,
+      manualHealthThreshold: 45,
+      durationMs: 6 * 60 * 60000,
+      extensionMs: 2 * 60 * 60000,
+      recentCareMs: 2.5 * 60 * 60000,
+      startHealth: 8,
+      completeHealth: 28,
+      extensionPenalty: {
+        happiness: -3,
+        patchQuality: -4
+      },
+      careMinimums: {
+        hydration: 28,
+        nutrients: 28,
+        cleanliness: 28
+      },
+      careActionIds: ['hydrate', 'feed', 'clean', 'mossRest'],
+      blockedActionIds: ['sleepWake', 'play', 'instrument', 'sing', 'spores']
+    }
   };
 }
 

@@ -4,6 +4,7 @@
     state.evolution = normalizeEvolutionCore(state.evolution);
     state.minigames = normalizeMinigamesCore(state.minigames);
     state.decorations = normalizeDecorationsCore(state.decorations);
+    state.recovery = normalizeRecoveryCore(state.recovery);
     return state;
   }
 
@@ -91,6 +92,19 @@
     return {
       owned: uniqueStringList(source.owned),
       active: uniqueStringList(source.active)
+    };
+  }
+
+  function normalizeRecoveryCore(recovery) {
+    const source = isPlainObject(recovery) ? recovery : {};
+    return {
+      active: Boolean(source.active),
+      startedAt: source.startedAt || null,
+      until: source.until || null,
+      lastCareAt: source.lastCareAt || null,
+      missedCare: clampInteger(source.missedCare, 0, 999999, 0),
+      reason: source.reason || null,
+      endedAt: source.endedAt || null
     };
   }
 

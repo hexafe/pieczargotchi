@@ -49,6 +49,14 @@
       return debugSelection;
     }
 
+    if (state.recovery && state.recovery.active) {
+      const recoveryState = state.stats && Number(state.stats.health) <= 12 ? 'critical' : 'sick';
+      return buildAnimationSelection(
+        findStageAnimation(stage, recoveryState) || findStageAnimation(stage, 'sleep'),
+        null
+      );
+    }
+
     const activity = getActiveActivity(state, now);
 
     if (activity) {

@@ -50,6 +50,7 @@
     result.history = Object.assign({}, base.history, override.history || {});
     result.patch = Object.assign({}, base.patch, override.patch || {});
     result.attention = Object.assign({}, base.attention, override.attention || {});
+    result.recovery = Object.assign({}, base.recovery, override.recovery || {});
     result.careMistakes = Object.assign({}, base.careMistakes, override.careMistakes || {});
     result.battle = Object.assign({}, base.battle, override.battle || {});
     result.evolution = Object.assign({}, base.evolution, override.evolution || {});
@@ -70,6 +71,7 @@
     state.inventory = state.inventory || {};
     state.patch = normalizePatch(state.patch || {});
     state.attention = normalizeAttention(state.attention || {});
+    state.recovery = normalizeRecovery(state.recovery || {});
     state.careMistakes = normalizeCareMistakes(state.careMistakes || {});
     state.battle = normalizeBattleForRuntime(state.battle || {});
     state = normalizeProgressionForRuntime(state);
@@ -78,6 +80,7 @@
     state.log = Array.isArray(state.log) ? state.log.slice(0, rules.maxLogEntries || 8) : [];
     state.stage = getStageForGrowth(state.stats.growth || 0);
     state = applyEvolutionIfReady(state, getRuntimeNow(), false);
+    updateRecoveryState(state, getRuntimeNow(), false);
     updateArenaUnlock(state);
     return state;
   }
@@ -97,6 +100,7 @@
     state.evolution = normalized.evolution;
     state.minigames = normalized.minigames;
     state.decorations = normalized.decorations;
+    state.recovery = normalized.recovery || normalizeRecovery(state.recovery || {});
     return state;
   }
 
@@ -118,6 +122,18 @@
       lastMistakeAt: attention.lastMistakeAt || null,
       pausedUntil: attention.pausedUntil || null,
       quietSuppressed: Boolean(attention.quietSuppressed)
+    };
+  }
+
+  function normalizeRecovery(recovery) {
+    return {
+      active: Boolean(recovery.active),
+      startedAt: recovery.startedAt || null,
+      until: recovery.until || null,
+      lastCareAt: recovery.lastCareAt || null,
+      missedCare: Math.max(0, Math.floor(Number(recovery.missedCare) || 0)),
+      reason: recovery.reason || null,
+      endedAt: recovery.endedAt || null
     };
   }
 
@@ -201,6 +217,7 @@
     state = applyEvolutionIfReady(state, now, true);
     updateArenaUnlock(state);
     evaluateAttention(state, now);
+    updateRecoveryState(state, now, true);
     state.lastUpdatedAt = new Date(now).toISOString();
     cleanupActivity(now);
     return state;
@@ -474,6 +491,45 @@
     recordAttentionHistory(state, 'missed');
     addLog(state, 'Przegapiona potrzeba: ' + need.definition.title + '. To zapisuje się w historii opieki.', now);
     triggerEffect('attention');
+  }
+
+  function updateRecoveryState(state, now, shouldLog) {
+    const core = window.PieczargotchiCore;
+    if (!core || !core.updateRecoveryState) {
+      return state;
+    }
+
+    const result = core.updateRecoveryState(state, rules, now);
+    const nextState = result.state || state;
+    state.recovery = normalizeRecovery(nextState.recovery || {});
+    state.stats = clampAllStats(nextState.stats || state.stats);
+    state.patch = normalizePatch(nextState.patch || state.patch);
+    state.mode = nextState.mode || state.mode;
+    state.currentActivity = nextState.currentActivity || state.currentActivity;
+
+    if (shouldLog) {
+      (result.events || []).forEach(function(event) {
+        logRecoveryEvent(state, event, now);
+      });
+    }
+
+    return state;
+  }
+
+  function logRecoveryEvent(state, event, now) {
+    if (!event) {
+      return;
+    }
+    if (event.type === 'recoveryStart') {
+      addLog(state, 'Kryzys zdrowia: Pieczarka leży w mchu i zaczyna kurację.', now);
+      triggerEffect('attention');
+    } else if (event.type === 'recoveryExtended') {
+      addLog(state, 'Kuracja potrwa dłużej. Trzeba dalej pilnować wilgoci, kompostu i czystości.', now);
+      triggerEffect('attention');
+    } else if (event.type === 'recoveryComplete') {
+      addLog(state, 'Kuracja zakończona. Pieczarka nadal jest słaba, ale zdrowie wraca.', now);
+      triggerEffect('hearts');
+    }
   }
 
   function recordActionHistory(state, actionId) {

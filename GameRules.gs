@@ -154,6 +154,26 @@ function getGameRulesConfig() {
       poorConditions: -4,
       goodConditions: 2
     },
+    recovery: {
+      triggerHealth: 0,
+      manualHealthThreshold: 45,
+      durationMs: 6 * 60 * 60000,
+      extensionMs: 2 * 60 * 60000,
+      recentCareMs: 2.5 * 60 * 60000,
+      startHealth: 8,
+      completeHealth: 28,
+      extensionPenalty: {
+        happiness: -3,
+        patchQuality: -4
+      },
+      careMinimums: {
+        hydration: 28,
+        nutrients: 28,
+        cleanliness: 28
+      },
+      careActionIds: ['hydrate', 'feed', 'clean', 'mossRest'],
+      blockedActionIds: ['sleepWake', 'play', 'instrument', 'sing', 'spores']
+    },
     growthPerHour: {
       awakeHealthy: 0.6,
       sleepingHealthy: 0.18,

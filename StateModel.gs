@@ -83,6 +83,15 @@ function createDefaultStateTemplate() {
       pausedUntil: null,
       quietSuppressed: false
     },
+    recovery: {
+      active: false,
+      startedAt: null,
+      until: null,
+      lastCareAt: null,
+      missedCare: 0,
+      reason: null,
+      endedAt: null
+    },
     careMistakes: {
       physical: 0,
       mental: 0,
@@ -129,6 +138,7 @@ function createDefaultStateTemplate() {
       instrument: 0,
       sing: 0,
       sleepWake: 0,
+      mossRest: 0,
       spores: 0
     },
     flags: {

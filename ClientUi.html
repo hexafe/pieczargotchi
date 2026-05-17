@@ -64,8 +64,10 @@
       ? Math.max(1, Math.floor((getRuntimeNow() - createdAt) / 86400000) + 1)
       : 1;
 
-    dom.modePill.textContent = state.mode === 'awake' ? 'Czuwa' : 'Śpi';
-    dom.modePill.dataset.mode = state.mode;
+    dom.modePill.textContent = state.recovery && state.recovery.active
+      ? 'Kuracja'
+      : state.mode === 'awake' ? 'Czuwa' : 'Śpi';
+    dom.modePill.dataset.mode = state.recovery && state.recovery.active ? 'recovery' : state.mode;
     dom.mushroomName.textContent = state.mushroomName;
     dom.stageLabel.textContent = getStageLabel(state.stage);
     if (dom.evolutionLabel) {
@@ -716,6 +718,19 @@
           body: (state.attention.severity === 'critical' ? definition.criticalMessage : definition.mildMessage) + suffix
         };
       }
+    }
+
+    if (state.recovery && state.recovery.active) {
+      const until = Date.parse(state.recovery.until || '');
+      const remaining = Number.isFinite(until) ? Math.max(0, until - now) : 0;
+      const lastCare = Date.parse(state.recovery.lastCareAt || '');
+      const careText = Number.isFinite(lastCare)
+        ? 'Ostatnia opieka: ' + formatLogTime(state.recovery.lastCareAt) + '.'
+        : 'Potrzebuje świeżej opieki w trakcie kuracji.';
+      return {
+        title: 'Kuracja w mchu',
+        body: 'Pieczarka leży w mchu jak w łóżku. Pozostało około ' + formatRemainingLabel(remaining) + '. ' + careText
+      };
     }
 
     if (state.mode === 'sleeping') {

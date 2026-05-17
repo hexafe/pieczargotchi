@@ -21,6 +21,8 @@
     const cooldowns = isPlainObject(currentState.cooldowns) ? currentState.cooldowns : {};
     const cooldownUntil = Number(cooldowns[currentAction.id]) || 0;
     const remainingMs = cooldownUntil - timestamp;
+    const recovery = normalizeRecoveryStateCore(currentState.recovery);
+    const recoveryActive = isRecoveryActiveStateCore(currentState, rules, timestamp);
 
     if (remainingMs > 0) {
       return {
@@ -29,7 +31,25 @@
       };
     }
 
-    if (currentAction.awakeOnly && currentState.mode !== 'awake') {
+    if (recoveryActive) {
+      if (currentAction.recoveryBlocked || isRecoveryActionBlockedCore(currentAction.id, rules)) {
+        return {
+          ok: false,
+          reason: 'Pieczarka leży w mchu. Najpierw trzeba dokończyć kurację.'
+        };
+      }
+    } else if (currentAction.recoveryOnly) {
+      const stats = isPlainObject(currentState.stats) ? currentState.stats : {};
+      const recoveryRules = getRecoveryRulesCore(rules);
+      if ((Number(stats.health) || 0) > recoveryRules.manualHealthThreshold) {
+        return {
+          ok: false,
+          reason: 'Kuracja jest potrzebna dopiero przy niskim zdrowiu.'
+        };
+      }
+    }
+
+    if (currentAction.awakeOnly && currentState.mode !== 'awake' && !(recoveryActive && currentAction.recoveryCare)) {
       return {
         ok: false,
         reason: 'Najpierw obudź Pieczarkę.'
@@ -44,10 +64,17 @@
     }
 
     const stats = isPlainObject(currentState.stats) ? currentState.stats : {};
-    if ((Number(stats.energy) || 0) <= 0 && currentAction.id !== 'sleepWake') {
+    if ((Number(stats.energy) || 0) <= 0 && currentAction.id !== 'sleepWake' && !(recoveryActive && currentAction.recoveryCare)) {
       return {
         ok: false,
         reason: 'Brakuje energii.'
+      };
+    }
+
+    if (recovery.active && !recoveryActive) {
+      return {
+        ok: false,
+        reason: 'Kuracja kończy się przy następnym odświeżeniu stanu.'
       };
     }
 
@@ -176,6 +203,13 @@
   function getAnimationIntent(state, rules, now) {
     if (!isPlainObject(state)) {
       return { type: 'none', state: null };
+    }
+
+    if (state.recovery && state.recovery.active) {
+      return {
+        type: 'recovery',
+        state: state.stats && Number(state.stats.health) <= 12 ? 'critical' : 'sick'
+      };
     }
 
     const timestamp = Number(now) || 0;
@@ -319,6 +353,159 @@
     if (typeof recordAttentionHistoryCore === 'function') {
       state.history = recordAttentionHistoryCore(state, 'missed').history;
     }
+  }
+
+  function updateRecoveryStateCore(rawState, rules, now) {
+    const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    const timestamp = Number(now) || 0;
+    const recoveryRules = getRecoveryRulesCore(rules);
+    const events = [];
+
+    state.stats = isPlainObject(state.stats) ? Object.assign({}, state.stats) : {};
+    state.patch = normalizePatchCore(state.patch);
+    state.recovery = normalizeRecoveryStateCore(state.recovery);
+
+    if ((Number(state.stats.health) || 0) <= recoveryRules.triggerHealth && !state.recovery.active) {
+      startRecoveryCore(state, recoveryRules, timestamp, 'healthZero');
+      events.push({ type: 'recoveryStart', reason: 'healthZero', until: state.recovery.until });
+    }
+
+    if (!state.recovery.active) {
+      return { state: state, events: events };
+    }
+
+    state.mode = 'sleeping';
+    const until = Date.parse(state.recovery.until || '');
+    if (!Number.isFinite(until) || timestamp < until) {
+      return { state: state, events: events };
+    }
+
+    if (isRecoveryReadyToCompleteCore(state, recoveryRules, timestamp)) {
+      state.recovery.active = false;
+      state.recovery.endedAt = new Date(timestamp).toISOString();
+      state.stats.health = Math.max(Number(state.stats.health) || 0, recoveryRules.completeHealth);
+      events.push({ type: 'recoveryComplete', health: state.stats.health });
+      return { state: state, events: events };
+    }
+
+    state.recovery.missedCare += 1;
+    state.recovery.until = new Date(timestamp + recoveryRules.extensionMs).toISOString();
+    state.patch.careStreak = 0;
+    state.patch.quality = clampNumber(
+      Number(state.patch.quality) + recoveryRules.extensionPenalty.patchQuality,
+      0,
+      100,
+      72
+    );
+    state.stats.happiness = (Number(state.stats.happiness) || 0) + recoveryRules.extensionPenalty.happiness;
+    state.stats.health = Math.max(Number(state.stats.health) || 0, recoveryRules.startHealth);
+    events.push({ type: 'recoveryExtended', until: state.recovery.until, missedCare: state.recovery.missedCare });
+    return { state: state, events: events };
+  }
+
+  function recordRecoveryCareCore(rawState, actionId, rules, now) {
+    const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    const timestamp = Number(now) || 0;
+    const recoveryRules = getRecoveryRulesCore(rules);
+    const events = [];
+
+    state.stats = isPlainObject(state.stats) ? Object.assign({}, state.stats) : {};
+    state.recovery = normalizeRecoveryStateCore(state.recovery);
+
+    if (actionId === 'mossRest' && !state.recovery.active && (Number(state.stats.health) || 0) <= recoveryRules.manualHealthThreshold) {
+      startRecoveryCore(state, recoveryRules, timestamp, 'manual');
+      events.push({ type: 'recoveryStart', reason: 'manual', until: state.recovery.until });
+    }
+
+    if (state.recovery.active && recoveryRules.careActionIds.indexOf(actionId) !== -1) {
+      state.recovery.lastCareAt = new Date(timestamp).toISOString();
+      events.push({ type: 'recoveryCare', actionId: actionId });
+    }
+
+    return { state: state, events: events };
+  }
+
+  function startRecoveryCore(state, recoveryRules, now, reason) {
+    const timestamp = Number(now) || 0;
+    const startIso = new Date(timestamp).toISOString();
+    state.recovery = {
+      active: true,
+      startedAt: startIso,
+      until: new Date(timestamp + recoveryRules.durationMs).toISOString(),
+      lastCareAt: null,
+      missedCare: 0,
+      reason: reason || 'healthZero',
+      endedAt: null
+    };
+    state.mode = 'sleeping';
+    state.stats.health = Math.max(Number(state.stats.health) || 0, recoveryRules.startHealth);
+    state.currentActivity = {
+      type: 'mossRest',
+      label: 'Kuracja w mchu',
+      startedAt: timestamp,
+      until: timestamp + 2400
+    };
+  }
+
+  function isRecoveryReadyToCompleteCore(state, recoveryRules, now) {
+    const stats = isPlainObject(state.stats) ? state.stats : {};
+    const minimums = recoveryRules.careMinimums;
+    const lastCare = Date.parse(state.recovery.lastCareAt || '');
+    const hasRecentCare = Number.isFinite(lastCare) && now - lastCare <= recoveryRules.recentCareMs;
+    const basicCareOk = Object.keys(minimums).every(function(stat) {
+      return (Number(stats[stat]) || 0) >= minimums[stat];
+    });
+
+    return hasRecentCare && basicCareOk;
+  }
+
+  function normalizeRecoveryStateCore(recovery) {
+    const source = isPlainObject(recovery) ? recovery : {};
+    return {
+      active: Boolean(source.active),
+      startedAt: source.startedAt || null,
+      until: source.until || null,
+      lastCareAt: source.lastCareAt || null,
+      missedCare: Math.max(0, Math.floor(Number(source.missedCare) || 0)),
+      reason: source.reason || null,
+      endedAt: source.endedAt || null
+    };
+  }
+
+  function isRecoveryActiveStateCore(state, rules, now) {
+    const recovery = normalizeRecoveryStateCore(state && state.recovery);
+    return Boolean(recovery.active);
+  }
+
+  function isRecoveryActionBlockedCore(actionId, rules) {
+    const recoveryRules = getRecoveryRulesCore(rules);
+    return recoveryRules.blockedActionIds.indexOf(actionId) !== -1;
+  }
+
+  function getRecoveryRulesCore(rules) {
+    const source = rules && rules.recovery ? rules.recovery : {};
+    const extensionPenalty = isPlainObject(source.extensionPenalty) ? source.extensionPenalty : {};
+    const minimums = isPlainObject(source.careMinimums) ? source.careMinimums : {};
+    return {
+      triggerHealth: clampNumber(Number(source.triggerHealth), 0, 100, 0),
+      manualHealthThreshold: clampNumber(Number(source.manualHealthThreshold), 1, 100, 45),
+      durationMs: clampInteger(source.durationMs, 60000, 24 * 3600000, 6 * 3600000),
+      extensionMs: clampInteger(source.extensionMs, 60000, 12 * 3600000, 2 * 3600000),
+      recentCareMs: clampInteger(source.recentCareMs, 60000, 12 * 3600000, 2.5 * 3600000),
+      startHealth: clampNumber(Number(source.startHealth), 1, 100, 8),
+      completeHealth: clampNumber(Number(source.completeHealth), 1, 100, 28),
+      extensionPenalty: {
+        happiness: clampNumber(Number(extensionPenalty.happiness), -100, 100, -3),
+        patchQuality: clampNumber(Number(extensionPenalty.patchQuality), -100, 100, -4)
+      },
+      careMinimums: {
+        hydration: clampNumber(Number(minimums.hydration), 0, 100, 28),
+        nutrients: clampNumber(Number(minimums.nutrients), 0, 100, 28),
+        cleanliness: clampNumber(Number(minimums.cleanliness), 0, 100, 28)
+      },
+      careActionIds: Array.isArray(source.careActionIds) ? source.careActionIds.slice() : ['hydrate', 'feed', 'clean', 'mossRest'],
+      blockedActionIds: Array.isArray(source.blockedActionIds) ? source.blockedActionIds.slice() : ['sleepWake', 'play', 'instrument', 'sing', 'spores']
+    };
   }
 
   function calculateCareTimeSegmentsCore(startMs, endMs, mode, rules) {

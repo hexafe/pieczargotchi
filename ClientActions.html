@@ -68,6 +68,11 @@
 
     const now = getRuntimeNow();
     runtime.state = applyElapsedTime(runtime.state, now);
+    if (isRecoveryActiveForRuntime(now)) {
+      setTransientMessage('Kuracja', 'Arena poczeka. Pieczarka leży teraz w mchu.');
+      renderUi();
+      return;
+    }
     const result = core.startBattle(runtime.state, rules, now);
     if (!result.ok) {
       setTransientMessage('Arena', result.reason);
@@ -89,6 +94,11 @@
 
     const now = getRuntimeNow();
     runtime.state = applyElapsedTime(runtime.state, now);
+    if (isRecoveryActiveForRuntime(now)) {
+      setTransientMessage('Kuracja', 'Trening poczeka do końca kuracji.');
+      renderUi();
+      return;
+    }
     const result = core.trainBattleStat(runtime.state, statId, rules, now);
     if (!result.ok) {
       setTransientMessage('Trening', result.reason);
@@ -110,6 +120,11 @@
     }
 
     const now = getRuntimeNow();
+    if (isRecoveryActiveForRuntime(now)) {
+      setTransientMessage('Kuracja', 'Pieczarka nie walczy podczas kuracji.');
+      renderUi();
+      return;
+    }
     const resolved = core.resolveBattleRound(activeBattle, moveId, rules.battle && rules.battle.moveCatalog);
     runtime.state.battle.activeBattle = resolved;
     runtime.state.battle.mode = resolved.mode;
@@ -196,6 +211,7 @@
   }
 
   function applyAction(action, now, source) {
+    recordRecoveryCare(runtime.state, action.id, now);
     applyStatDeltas(runtime.state, action.stats || {}, now);
     recordActionHistory(runtime.state, action.id);
 
@@ -230,6 +246,7 @@
 
     triggerEffect(action.effectType || action.id);
     rewardCareIfNeeded(runtime.state, action, now);
+    updateRecoveryState(runtime.state, now, true);
     applyEvolutionActionBonus(runtime.state, action, now);
     flashActionButton(action.id);
   }
@@ -265,13 +282,18 @@
       renderUi();
       return;
     }
+
+    runtime.state = applyElapsedTime(runtime.state, now);
+    if (isRecoveryActiveForRuntime(now)) {
+      setTransientMessage('Kuracja', 'Minigry wrócą po kuracji w mchu.');
+      renderUi();
+      return;
+    }
     if (runtime.state.mode !== 'awake') {
       setTransientMessage('Gry', 'Najpierw obudź Pieczarkę.');
       renderUi();
       return;
     }
-
-    runtime.state = applyElapsedTime(runtime.state, now);
     const cooldownKey = getMinigameCooldownKey(minigameId);
     const cooldownUntil = Number(runtime.state.cooldowns[cooldownKey]) || 0;
     if (cooldownUntil > now) {
@@ -352,6 +374,30 @@
       runtime.minigame && runtime.minigame.session
       || runtime.state && runtime.state.minigames && runtime.state.minigames.active
     );
+  }
+
+  function isRecoveryActiveForRuntime(now) {
+    const core = window.PieczargotchiCore;
+    return Boolean(core && core.isRecoveryActive && runtime.state && core.isRecoveryActive(runtime.state, rules, now));
+  }
+
+  function recordRecoveryCare(state, actionId, now) {
+    const core = window.PieczargotchiCore;
+    if (!core || !core.recordRecoveryCare) {
+      return state;
+    }
+
+    const result = core.recordRecoveryCare(state, actionId, rules, now);
+    const nextState = result.state || state;
+    state.recovery = nextState.recovery || state.recovery;
+    state.mode = nextState.mode || state.mode;
+    state.currentActivity = nextState.currentActivity || state.currentActivity;
+    (result.events || []).forEach(function(event) {
+      if (event.type === 'recoveryStart') {
+        addLog(state, 'Pieczarka układa się w mchu. Kuracja potrwa kilka godzin.', now);
+      }
+    });
+    return state;
   }
 
   function getMinigameCooldownKey(minigameId) {

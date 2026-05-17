@@ -35,6 +35,16 @@ Attention call jest ważniejszy niż sam niski pasek:
 - care mistakes powinny wpływać na ewolucję i długoterminowy charakter Pieczarki,
 - naprawiona potrzeba czyści attention i daje krótką reakcję.
 
+## Kryzys Zdrowia I Kuracja
+
+Pieczargotchi nie używa twardego `game over`. Gdy zdrowie spadnie do `0`, Pieczarka trafia do kuracji w mchu:
+
+- kuracja trwa kilka godzin i nie kończy się natychmiast po kliknięciu,
+- Pieczarka leży w mchu jak w łóżku, więc nie walczy, nie bawi się i nie gra w minigry,
+- gracz nadal musi zraszać, karmić i czyścić grzybnię,
+- koniec kuracji wymaga świeżej opieki oraz stabilnej wilgoci, odżywek i czystości,
+- zaniedbana kuracja przedłuża się i obniża jakość patcha, ale nie kasuje zapisu.
+
 ## Rytm Dnia I Nocy
 
 Balans opieki jest ustawiony pod normalny dzień użytkownika, a nie pod budzik w środku nocy. Research bazowy: oficjalne instrukcje Tamagotchi Connection pokazują klasyczny rytm karmienia, zabawy i leczenia, a społeczność często łagodzi trudność przez sitterów, rodziców albo zmianę zegara, gdy urządzenie koliduje z pracą i snem.
