@@ -43,6 +43,27 @@ test('Drive folder lookup can use local-only Apps Script property', () => {
   assert(assetData['spore.idle'].source === 'folder', `expected folder source, got ${assetData['spore.idle'].source}`);
 });
 
+test('critical initial asset data keeps the first Apps Script payload small', () => {
+  const initialAssetData = context.getInitialAssetDataUrls_(context.getRuntimeAssetManifest(), { assetMode: 'critical' });
+  const keys = Object.keys(initialAssetData);
+
+  assert(initialAssetData['spore.idle'].status === 'loaded', 'critical payload should include required spore idle');
+  assert(initialAssetData['environment.grassPatch'].status === 'loaded', 'critical payload should include environment assets');
+  assert(!initialAssetData['adult.idle'], 'critical payload should not inline adult idle');
+  assert(!initialAssetData['effect.drops'], 'critical payload should not inline effect drops');
+  assert(keys.length < 10, `critical payload should stay small, got ${keys.length} records`);
+});
+
+test('single asset data lookup supports lazy client loading', () => {
+  const drops = context.getAssetDataUrl('effect.drops');
+  const unknown = context.getAssetDataUrl('missing.asset');
+
+  assert(drops.status === 'loaded', 'lazy effect lookup should load effect drops');
+  assert(drops.source === 'folder', `expected folder source, got ${drops.source}`);
+  assert(drops.dataUrl === 'data:image/png;base64,encoded-drive-drops', 'unexpected lazy effect data URL');
+  assert(unknown.status === 'missingFileId', 'unknown lazy lookup should return a missing record');
+});
+
 function createAssetServiceContext(options) {
   const testContext = {
     console,

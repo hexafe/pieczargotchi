@@ -76,7 +76,7 @@ Manual `PIECZARGOTCHI_ASSET_FILE_IDS` entries can still override individual asse
 
 If the folder ID and manual IDs are blank or unavailable, the local preview loads PNG files from `assets/`. In a deployed Apps Script environment, missing Drive IDs fall back to canvas placeholders instead of showing a blank app. Reference files under `assets/reference/` are not loaded at runtime.
 
-Production runtime flags live in `Config.gs`. By default the deployed config keeps the debug panel and `window.__pieczargotchiRuntime` private; `dev-server.mjs` enables both for local preview and capture tooling.
+Production runtime flags live in `Config.gs`. By default the deployed config keeps the debug panel and `window.__pieczargotchiRuntime` private, and boots in critical asset mode so Apps Script does not inline the full PNG manifest into the first HTML response. `dev-server.mjs` enables debug tooling and full local asset loading for local preview and capture tooling.
 
 ## Local Preview
 

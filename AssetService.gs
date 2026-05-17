@@ -4,13 +4,33 @@ function getClientConfig() {
   config.state = getStateModelConfig();
   config.rules = getGameRulesConfig();
   config.actions = getActionDefinitions();
-  config.assetData = getAssetDataUrls();
+  config.assetData = getInitialAssetDataUrls_(config.assets, config.runtime);
 
   return config;
 }
 
-function getAssetDataUrls() {
-  const assets = getRuntimeAssetManifest();
+function getAssetDataUrl(assetKey) {
+  const key = String(assetKey || '');
+  if (!key) {
+    return createMissingAssetDataRecord_('', '', false, 'Brak klucza grafiki.');
+  }
+
+  const asset = getRuntimeAssetManifest().filter(function(item) {
+    return item.key === key;
+  })[0];
+  if (!asset) {
+    return createMissingAssetDataRecord_(key, '', false, 'Nieznana grafika runtime.');
+  }
+
+  const assetData = getAssetDataUrls([key]);
+  return assetData[key] || createMissingAssetDataRecord_(asset.key, asset.fileName, asset.required, 'Nie znaleziono grafiki runtime.');
+}
+
+function getAssetDataUrls(assetKeys) {
+  const requestedKeys = normalizeAssetKeyFilter_(assetKeys);
+  const assets = getRuntimeAssetManifest().filter(function(asset) {
+    return !requestedKeys || requestedKeys[asset.key];
+  });
   const folderLookup = getAssetDriveFileIdsFromFolder_(assets);
 
   return assets.reduce(function(result, asset) {
@@ -18,14 +38,7 @@ function getAssetDataUrls() {
     const fileId = asset.fileId || folderFileId;
     const source = asset.fileId ? 'manual' : (folderFileId ? 'folder' : null);
 
-    result[asset.key] = {
-      fileName: asset.fileName,
-      required: asset.required,
-      dataUrl: null,
-      source: source,
-      status: fileId ? 'unloaded' : 'missingFileId',
-      error: fileId ? null : getMissingAssetFileIdMessage_(folderLookup)
-    };
+    result[asset.key] = createAssetDataRecord_(asset, fileId, source, folderLookup);
 
     if (!fileId) {
       return result;
@@ -42,6 +55,62 @@ function getAssetDataUrls() {
 
     return result;
   }, {});
+}
+
+function getInitialAssetDataUrls_(assets, runtimeOptions) {
+  return getAssetDataUrls(getInitialAssetManifest_(assets, runtimeOptions).map(function(asset) {
+    return asset.key;
+  }));
+}
+
+function getInitialAssetManifest_(assets, runtimeOptions) {
+  const manifest = Array.isArray(assets) ? assets : getRuntimeAssetManifest();
+  const assetMode = runtimeOptions && runtimeOptions.assetMode;
+
+  if (assetMode !== 'critical') {
+    return manifest;
+  }
+
+  return manifest.filter(function(asset) {
+    return asset.required || asset.kind === 'environment';
+  });
+}
+
+function normalizeAssetKeyFilter_(assetKeys) {
+  if (!Array.isArray(assetKeys)) {
+    return null;
+  }
+
+  return assetKeys.reduce(function(result, key) {
+    const normalized = String(key || '').trim();
+    if (normalized) {
+      result[normalized] = true;
+    }
+    return result;
+  }, {});
+}
+
+function createAssetDataRecord_(asset, fileId, source, folderLookup) {
+  return {
+    fileName: asset.fileName,
+    required: asset.required,
+    dataUrl: null,
+    source: source,
+    status: fileId ? 'unloaded' : 'missingFileId',
+    error: fileId ? null : getMissingAssetFileIdMessage_(folderLookup)
+  };
+}
+
+function createMissingAssetDataRecord_(key, fileName, required, error) {
+  return {
+    key: key,
+    fileName: fileName,
+    required: Boolean(required),
+    dataUrl: null,
+    source: null,
+    status: 'missingFileId',
+    error: error
+  };
 }
 
 function getAssetDriveFileIdsFromFolder_(assets) {

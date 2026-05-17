@@ -68,7 +68,7 @@
   }
 
   function ensureAssetLoaded(key) {
-    if (!key || runtime.assets[key] || runtime.assetPromises[key]) {
+    if (!key || runtime.assets[key] || runtime.assetPromises[key] || runtime.assetFailures[key]) {
       return;
     }
 
@@ -84,22 +84,37 @@
   }
 
   function loadAsset(asset) {
+    const promise = getAssetImageCandidates(asset).then(loadImageFromCandidates).then(function(image) {
+      runtime.assets[asset.key] = image;
+      delete runtime.assetFailures[asset.key];
+    }).catch(function() {
+      runtime.assets[asset.key] = null;
+      runtime.assetFailures[asset.key] = true;
+    });
+    runtime.assetPromises[asset.key] = promise;
+    return promise;
+  }
+
+  function getAssetImageCandidates(asset) {
     const assetData = config.assetData && config.assetData[asset.key];
     const candidates = [];
 
     if (assetData && assetData.dataUrl) {
       candidates.push(assetData.dataUrl);
+      return Promise.resolve(candidates);
+    }
+
+    if (canFetchAssetDataUrl()) {
+      return fetchAssetDataUrl(asset.key).then(function(remoteAssetData) {
+        if (remoteAssetData && remoteAssetData.dataUrl) {
+          candidates.push(remoteAssetData.dataUrl);
+        }
+        return candidates;
+      });
     }
 
     candidates.push('assets/' + asset.fileName);
-
-    const promise = loadImageFromCandidates(candidates).then(function(image) {
-      runtime.assets[asset.key] = image;
-    }).catch(function() {
-      runtime.assets[asset.key] = null;
-    });
-    runtime.assetPromises[asset.key] = promise;
-    return promise;
+    return Promise.resolve(candidates);
   }
 
   function loadImageFromCandidates(candidates) {
@@ -113,10 +128,31 @@
         }
 
         const image = new Image();
+        let settled = false;
+        const timeout = window.setTimeout(function() {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          image.onload = null;
+          image.onerror = null;
+          index += 1;
+          tryNext();
+        }, 8000);
         image.onload = function() {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          window.clearTimeout(timeout);
           resolve(image);
         };
         image.onerror = function() {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          window.clearTimeout(timeout);
           index += 1;
           tryNext();
         };
@@ -124,5 +160,42 @@
       }
 
       tryNext();
+    });
+  }
+
+  function canFetchAssetDataUrl() {
+    return typeof google !== 'undefined'
+      && google.script
+      && google.script.run
+      && typeof google.script.run.withSuccessHandler === 'function'
+      && typeof google.script.run.withFailureHandler === 'function';
+  }
+
+  function fetchAssetDataUrl(assetKey) {
+    return new Promise(function(resolve) {
+      let settled = false;
+      const timeout = window.setTimeout(function() {
+        finish(null);
+      }, 10000);
+
+      function finish(result) {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        window.clearTimeout(timeout);
+        resolve(result);
+      }
+
+      try {
+        google.script.run
+          .withSuccessHandler(finish)
+          .withFailureHandler(function() {
+            finish(null);
+          })
+          .getAssetDataUrl(assetKey);
+      } catch (error) {
+        finish(null);
+      }
     });
   }

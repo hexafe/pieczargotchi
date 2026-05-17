@@ -22,6 +22,7 @@ Expected posture before binding:
 - `.clasp.json` is absent or ignored by Git.
 - `Config.gs` does not contain private Drive URLs or deployment credentials.
 - Production runtime flags keep `debugEnabled: false` and `exposeRuntime: false`.
+- Production `assetMode` stays `critical` so the deployed app renders quickly instead of embedding the full PNG manifest in the initial Apps Script HTML response.
 - Missing Drive IDs are acceptable for the first smoke because the app should render canvas fallbacks instead of a blank page.
 - If runtime PNGs are hosted in Drive, prefer a project-level script property named `PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID` over hundreds of manual IDs. Keep `Config.gs` empty unless the folder ID is intentionally public and approved for the repository. Store the folder ID only, not a URL.
 - The Drive folder should mirror manifest paths without the leading `assets/`, for example `stages/adult/idle_sheet.png`; flat folders only work for unique basenames.
@@ -53,6 +54,7 @@ The first command may show local `.clasp.json`; the second command must print no
 Deploy or open a test deployment from the Apps Script UI, then verify in the browser:
 
 - The app loads without a blank screen.
+- The first UI render appears before live weather or non-critical PNGs finish loading.
 - The asset status settles to fallback graphics, partial graphics, or loaded graphics.
 - The debug panel is hidden.
 - `window.__pieczargotchiRuntime` is `undefined` in the browser console.

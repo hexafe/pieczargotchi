@@ -6,7 +6,7 @@ const PIECZARGOTCHI_CANVAS_SIZE = 512;
 const PIECZARGOTCHI_RUNTIME_OPTIONS = {
   debugEnabled: false,
   exposeRuntime: false,
-  assetMode: 'full'
+  assetMode: 'critical'
 };
 
 const PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID = '';

@@ -247,8 +247,8 @@ function checkStaticConfig() {
   if (!config.runtime || config.runtime.exposeRuntime !== false) {
     fail('Production runtime exposeRuntime must be false.');
   }
-  if (!config.runtime || config.runtime.assetMode !== 'full') {
-    fail(`Production runtime assetMode should be full, got ${config.runtime && config.runtime.assetMode}`);
+  if (!config.runtime || config.runtime.assetMode !== 'critical') {
+    fail(`Production runtime assetMode should be critical, got ${config.runtime && config.runtime.assetMode}`);
   }
 
   const assets = Array.isArray(config.assets) ? config.assets : [];
@@ -352,6 +352,10 @@ function checkLocalPreviewConfig() {
     }
     if (!Array.isArray(config.rules && config.rules.decorations) || !config.rules.decorations.length) {
       fail('Local preview config is missing decorations.');
+    }
+    const initialAssetDataKeys = Object.keys(config.assetData || {});
+    if (config.runtime && config.runtime.assetMode === 'critical' && initialAssetDataKeys.length > 20) {
+      fail(`Initial Apps Script asset payload is too large for critical mode: ${initialAssetDataKeys.length} asset records.`);
     }
     checkDebugAnimationCoverage(config);
   } catch (error) {

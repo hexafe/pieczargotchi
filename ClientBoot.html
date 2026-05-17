@@ -191,6 +191,7 @@
     canvas: null,
     assets: {},
     assetPromises: {},
+    assetFailures: {},
     assetStatus: 'Ładowanie grafik',
     effects: [],
     input: createDefaultInputState(),
@@ -220,7 +221,9 @@
     }
     runtime.debug = loadDebugSettings();
     loadAssets();
-    initWeatherScene().then(finishInit).catch(finishInit);
+    const weatherReady = initWeatherScene();
+    finishInit();
+    weatherReady.then(renderUi).catch(renderUi);
   }
 
   function finishInit() {
