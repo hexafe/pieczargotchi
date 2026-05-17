@@ -206,11 +206,19 @@
     viewMode: 'care',
     currentAnimationKey: null,
     currentAnimationStartedAt: 0,
+    bootError: null,
+    renderError: null,
     renderStarted: false,
     booted: false
   };
 
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', function() {
+    try {
+      init();
+    } catch (error) {
+      handleBootError(error);
+    }
+  });
 
   function init() {
     bindDom();
@@ -224,6 +232,42 @@
     const weatherReady = initWeatherScene();
     finishInit();
     weatherReady.then(renderUi).catch(renderUi);
+  }
+
+  function handleBootError(error) {
+    const message = error && error.message ? error.message : String(error || 'Nieznany błąd startu');
+    runtime.bootError = message;
+    runtime.assetStatus = 'Awaryjny start sceny';
+    if (window.console && typeof window.console.error === 'function') {
+      window.console.error('Błąd startu Pieczargotchi:', error);
+    }
+
+    if (!runtime.canvas || !runtime.ctx) {
+      try {
+        runtime.canvas = document.getElementById('mushroomCanvas');
+        if (runtime.canvas && typeof runtime.canvas.getContext === 'function') {
+          runtime.canvas.width = canvasSize;
+          runtime.canvas.height = canvasSize;
+          runtime.ctx = runtime.canvas.getContext('2d');
+        }
+      } catch (canvasError) {
+        if (window.console && typeof window.console.error === 'function') {
+          window.console.error('Nie udało się przygotować awaryjnego canvasa:', canvasError);
+        }
+      }
+    }
+
+    drawEmergencyCanvasFallback('Awaryjny start');
+    try {
+      if (!dom.assetStatus) {
+        dom.assetStatus = document.querySelector('[data-asset-status]');
+      }
+      renderAssetStatus();
+    } catch (statusError) {
+      if (window.console && typeof window.console.error === 'function') {
+        window.console.error('Nie udało się pokazać statusu awaryjnego:', statusError);
+      }
+    }
   }
 
   function finishInit() {
@@ -337,10 +381,17 @@
 
   function setupCanvas() {
     runtime.canvas = document.getElementById('mushroomCanvas');
+    if (!runtime.canvas || typeof runtime.canvas.getContext !== 'function') {
+      return;
+    }
     runtime.canvas.width = canvasSize;
     runtime.canvas.height = canvasSize;
     runtime.ctx = runtime.canvas.getContext('2d');
+    if (!runtime.ctx) {
+      return;
+    }
     runtime.ctx.imageSmoothingEnabled = false;
+    drawEmergencyCanvasFallback('Ładowanie sceny');
   }
 
   function bindControls() {

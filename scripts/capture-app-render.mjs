@@ -11,6 +11,7 @@ const viewportWidth = Number(process.env.PIECZARGOTCHI_VIEWPORT_WIDTH) || 1194;
 const viewportHeight = Number(process.env.PIECZARGOTCHI_VIEWPORT_HEIGHT) || 891;
 const emulateMobile = process.env.PIECZARGOTCHI_EMULATE_MOBILE === '1';
 const captureDelayMs = Number(process.env.PIECZARGOTCHI_CAPTURE_DELAY_MS) || 350;
+const captureAppsScriptNoAssets = process.env.PIECZARGOTCHI_CAPTURE_APPS_SCRIPT_NO_ASSETS === '1';
 const port = 9237 + Math.floor(Math.random() * 400);
 const userDataDir = path.join(tmpdir(), `pieczargotchi-cdp-${Date.now()}`);
 const captureDebugSettings = createCaptureDebugSettings();
@@ -175,6 +176,45 @@ try {
   const cdp = await connectCdp(endpoint.webSocketDebuggerUrl);
   await cdp.send('Page.enable');
   await cdp.send('Runtime.enable');
+  if (captureAppsScriptNoAssets) {
+    await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
+      source: `
+        (() => {
+          function createRunner(successHandler, failureHandler) {
+            return {
+              withSuccessHandler(handler) {
+                return createRunner(handler, failureHandler);
+              },
+              withFailureHandler(handler) {
+                return createRunner(successHandler, handler);
+              },
+              getAssetDataUrl(assetKey) {
+                setTimeout(() => {
+                  if (typeof successHandler === 'function') {
+                    successHandler({
+                      key: String(assetKey || ''),
+                      fileName: '',
+                      required: false,
+                      dataUrl: null,
+                      source: null,
+                      status: 'missingFileId',
+                      error: 'capture Apps Script no-assets stub'
+                    });
+                  }
+                }, 0);
+              }
+            };
+          }
+
+          window.google = {
+            script: {
+              run: createRunner(null, null)
+            }
+          };
+        })();
+      `
+    });
+  }
   await cdp.send('Emulation.setDeviceMetricsOverride', {
     width: viewportWidth,
     height: viewportHeight,
@@ -548,7 +588,7 @@ async function captureCanvas(cdp, label, options) {
 
   await cdp.send('Runtime.evaluate', { expression: stateExpression, awaitPromise: true });
   await waitForLoad(cdp, () => cdp.send('Page.reload', { ignoreCache: true }));
-  await waitForExpression(cdp, `document.querySelector('[data-asset-status]') && document.querySelector('[data-asset-status]').textContent.includes('Grafiki załadowane')`, 6000);
+  await waitForExpression(cdp, getAssetStatusReadyExpression(), 6000);
   await applyCaptureSceneOverrides(cdp);
   if (options.immersion) {
     await forceCaptureImmersion(cdp, options.immersion);
@@ -819,7 +859,7 @@ async function applyCaptureSceneOverrides(cdp) {
 }
 
 async function captureViewport(cdp) {
-  await waitForExpression(cdp, `document.querySelector('[data-asset-status]') && document.querySelector('[data-asset-status]').textContent.includes('Grafiki załadowane')`, 6000);
+  await waitForExpression(cdp, getAssetStatusReadyExpression(), 6000);
   await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.booted && window.__pieczargotchiRuntime.currentAnimationKey)`, 6000);
   await delay(captureDelayMs);
 
@@ -979,6 +1019,20 @@ async function getCurrentAnimationKey(cdp) {
     returnByValue: true
   });
   return result.result ? result.result.value : null;
+}
+
+function getAssetStatusReadyExpression() {
+  if (captureAppsScriptNoAssets) {
+    return `(() => {
+      const node = document.querySelector('[data-asset-status]');
+      const text = node && node.textContent || '';
+      return text.includes('Grafiki załadowane')
+        || text.includes('Część grafik')
+        || text.includes('Aktywne grafiki zapasowe');
+    })()`;
+  }
+
+  return `document.querySelector('[data-asset-status]') && document.querySelector('[data-asset-status]').textContent.includes('Grafiki załadowane')`;
 }
 
 async function navigate(cdp, url) {

@@ -16,15 +16,79 @@
     if (runtime.renderStarted) {
       return;
     }
+    if (!runtime.ctx) {
+      runtime.assetStatus = 'Canvas niedostępny';
+      renderAssetStatus();
+      return;
+    }
 
     runtime.renderStarted = true;
 
     function render(now) {
-      drawFrame(now);
+      try {
+        drawFrame(now);
+        runtime.renderError = null;
+      } catch (error) {
+        handleRenderError(error);
+      }
       window.requestAnimationFrame(render);
     }
 
     window.requestAnimationFrame(render);
+  }
+
+  function handleRenderError(error) {
+    const message = error && error.message ? error.message : String(error || 'Nieznany błąd renderera');
+    if (runtime.renderError !== message) {
+      runtime.renderError = message;
+      if (window.console && typeof window.console.error === 'function') {
+        window.console.error('Błąd renderowania Pieczargotchi:', error);
+      }
+    }
+
+    runtime.assetStatus = 'Awaryjny render sceny';
+    renderAssetStatus();
+    drawEmergencyCanvasFallback('Render awaryjny');
+  }
+
+  function drawEmergencyCanvasFallback(label) {
+    const ctx = runtime.ctx;
+    if (!ctx) {
+      return;
+    }
+
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, canvasSize, canvasSize);
+    ctx.fillStyle = '#d7e8b4';
+    ctx.fillRect(0, 0, canvasSize, canvasSize);
+    ctx.fillStyle = '#9ac46a';
+    ctx.fillRect(0, 390, canvasSize, 122);
+    ctx.fillStyle = '#6fa74c';
+    for (let x = 0; x < canvasSize; x += 18) {
+      const h = 16 + (x % 54);
+      ctx.fillRect(x, 390 - h, 8, h);
+      ctx.fillRect(x + 8, 404 - Math.floor(h / 2), 6, Math.floor(h / 2));
+    }
+    ctx.fillStyle = '#f3c88f';
+    ctx.fillRect(206, 218, 100, 152);
+    ctx.fillStyle = '#fff0c7';
+    ctx.fillRect(128, 124, 256, 76);
+    ctx.fillRect(156, 92, 200, 56);
+    ctx.fillStyle = '#765033';
+    ctx.fillRect(150, 202, 212, 26);
+    ctx.fillStyle = '#2c2119';
+    ctx.fillRect(224, 270, 20, 28);
+    ctx.fillRect(286, 270, 20, 28);
+    ctx.fillRect(246, 318, 44, 8);
+    if (label) {
+      ctx.fillStyle = 'rgba(255, 253, 247, 0.84)';
+      ctx.fillRect(144, 36, 224, 34);
+      ctx.fillStyle = '#2f4f35';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillText(label, 164, 58);
+    }
+    ctx.restore();
   }
 
   function loadAssets() {

@@ -683,6 +683,10 @@
   }
 
   function renderAssetStatus() {
+    if (!dom.assetStatus) {
+      return;
+    }
+
     dom.assetStatus.textContent = runtime.assetStatus;
   }
 
