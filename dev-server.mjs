@@ -26,6 +26,15 @@ const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`);
 
+    if (url.searchParams.get('bundle') === 'core') {
+      send(response, 200, renderScriptBundle('ClientCore.html'), contentTypes['.js']);
+      return;
+    }
+    if (url.searchParams.get('bundle') === 'client') {
+      send(response, 200, renderScriptBundle('Client.html'), contentTypes['.js']);
+      return;
+    }
+
     if (url.pathname === '/' || url.pathname === '/index.html') {
       const html = await renderPreviewHtml();
       send(response, 200, html, contentTypes['.html']);
@@ -54,6 +63,16 @@ function renderTemplate(fileName, values) {
     .replace(/<\?!=\s*include\('([^']+)'\);\s*\?>/g, function(_match, partialName) {
       return renderTemplate(partialName + '.html', values);
     });
+}
+
+function renderScriptBundle(fileName) {
+  return stripScriptTag(renderTemplate(fileName, {}));
+}
+
+function stripScriptTag(content) {
+  return String(content || '')
+    .replace(/^\s*<script[^>]*>\s*/i, '')
+    .replace(/\s*<\/script>\s*$/i, '');
 }
 
 function buildClientConfig() {

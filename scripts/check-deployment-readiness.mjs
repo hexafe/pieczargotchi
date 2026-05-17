@@ -155,10 +155,13 @@ function checkAppsScriptManifest() {
 
 function checkHtmlIncludes() {
   const indexHtml = readText('Index.html');
-  for (const includeName of ['Styles', 'ClientCore', 'Client']) {
+  for (const includeName of ['Styles']) {
     if (!indexHtml.includes(`include('${includeName}')`)) {
       fail(`Index.html does not include ${includeName}.`);
     }
+  }
+  if (!indexHtml.includes('?bundle=core') || !indexHtml.includes('?bundle=client')) {
+    fail('Index.html must load ClientCore and Client through Apps Script bundle endpoints.');
   }
   if (!indexHtml.includes('window.PIECZARGOTCHI_CONFIG')) {
     fail('Index.html does not inject window.PIECZARGOTCHI_CONFIG.');
@@ -198,6 +201,11 @@ function checkHtmlIncludes() {
   }
   if (duplicateWeatherIncludes.length) {
     fail(`ClientSceneWeather.html has duplicate includes: ${[...new Set(duplicateWeatherIncludes)].join(', ')}`);
+  }
+
+  const codeGs = readText('Code.gs');
+  if (!codeGs.includes('serveClientBundle_') || !codeGs.includes('ContentService.MimeType.JAVASCRIPT')) {
+    fail('Code.gs must serve client bundles as JavaScript ContentService outputs.');
   }
 }
 
