@@ -44,7 +44,16 @@ MAX_NEUTRAL_FRAME_DRIFT = 8
 MAX_NEUTRAL_RAIN_BODY_HEIGHT_DELTA = 115
 MAX_NEUTRAL_RAIN_BODY_CENTER_DELTA = 90
 MAX_NEUTRAL_RAIN_BASELINE_DELTA = 70
+MIN_CURSOR_DIRECTION_SHIFT_X = 1.0
+MIN_CURSOR_DIRECTION_SHIFT_Y = 0.3
 SPORE_DETACHED_STRIP_STATES = ["tired", "dry", "hungry", "dirty", "sick"]
+EYE_SEARCH_BOXES = {
+    "spore": [(228, 382, 250, 404), (264, 382, 286, 404)],
+    "baby": [(206, 333, 246, 369), (270, 333, 311, 369)],
+    "young": [(196, 310, 238, 352), (274, 310, 318, 352)],
+    "adult": [(188, 288, 236, 332), (276, 288, 326, 332)],
+    "legendary": [(194, 272, 238, 316), (280, 272, 324, 316)],
+}
 
 EASTER_EGG_VARIANTS = [
     {
@@ -127,6 +136,7 @@ def main() -> None:
                 failures.append(f"{stage}.activity.{activity}: klatki Pieczarki dryfują o {item['drift']:.1f}px")
 
         audit_neutral_easter_eggs(stage, builder, failures)
+        audit_cursor_direction(stage, failures)
         if stage == "spore":
             audit_spore_detached_strips(builder, failures)
 
@@ -340,6 +350,58 @@ def audit_spore_detached_strips(builder, failures: list[str]) -> None:
                 height = bbox[3] - bbox[1]
                 if width >= 18 and height <= 20:
                     failures.append(f"spore.{state}: klatka {index + 1} ma odklejony pasek nad sprite {bbox}")
+
+
+def audit_cursor_direction(stage: str, failures: list[str]) -> None:
+    print("  [cursor direction]")
+    idle = read_eye_centers(STAGES_DIR / stage / "idle_sheet.png", stage)
+    checks = [
+        ("watch_cursor_left", -MIN_CURSOR_DIRECTION_SHIFT_X, None),
+        ("watch_cursor_right", MIN_CURSOR_DIRECTION_SHIFT_X, None),
+        ("watch_cursor_up_right", MIN_CURSOR_DIRECTION_SHIFT_X, -MIN_CURSOR_DIRECTION_SHIFT_Y),
+    ]
+    for state, expected_dx, expected_dy in checks:
+        path = STAGES_DIR / stage / f"{state}_sheet.png"
+        gaze = read_eye_centers(path, stage)
+        if len(idle) != 2 or len(gaze) != 2:
+            failures.append(f"{stage}.{state}: nie wykryto pary oczu do audytu kursora")
+            continue
+
+        deltas = [(gaze[index][0] - idle[index][0], gaze[index][1] - idle[index][1]) for index in range(2)]
+        print(
+            f"  {state:22s} "
+            f"L={deltas[0][0]:5.1f},{deltas[0][1]:5.1f} "
+            f"R={deltas[1][0]:5.1f},{deltas[1][1]:5.1f}"
+        )
+        for eye_index, (delta_x, delta_y) in enumerate(deltas, start=1):
+            if expected_dx < 0 and delta_x > expected_dx:
+                failures.append(f"{stage}.{state}: oko {eye_index} przesuwa sie w lewo tylko o {delta_x:.1f}px")
+            if expected_dx > 0 and delta_x < expected_dx:
+                failures.append(f"{stage}.{state}: oko {eye_index} przesuwa sie w prawo tylko o {delta_x:.1f}px")
+            if expected_dy is not None and delta_y > expected_dy:
+                failures.append(f"{stage}.{state}: oko {eye_index} patrzy w gore tylko o {delta_y:.1f}px")
+
+
+def read_eye_centers(path: Path, stage: str) -> list[tuple[float, float]]:
+    image = Image.open(path).convert("RGBA")
+    frame = image.crop((0, 0, FRAME, FRAME))
+    pixels = frame.load()
+    centers: list[tuple[float, float]] = []
+
+    for box in EYE_SEARCH_BOXES[stage]:
+        left, top, right, bottom = box
+        xs: list[int] = []
+        ys: list[int] = []
+        for y in range(top, bottom):
+            for x in range(left, right):
+                r, g, b, a = pixels[x, y]
+                if a > 80 and r < 95 and g < 95 and b < 95:
+                    xs.append(x)
+                    ys.append(y)
+        if xs:
+            centers.append((sum(xs) / len(xs), sum(ys) / len(ys)))
+
+    return centers
 
 
 def metrics_from_boxes(boxes: list[tuple[int, int, int, int]]) -> dict[str, float]:

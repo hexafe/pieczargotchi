@@ -49,7 +49,10 @@ const immersionSamples = [
 ];
 
 function createCaptureDebugSettings() {
-  const weather = process.env.PIECZARGOTCHI_DEBUG_WEATHER || 'auto';
+  const liveWeatherBaseline = process.env.PIECZARGOTCHI_CAPTURE_LIVE_WEATHER === '1';
+  const explicitDebugWeather = process.env.PIECZARGOTCHI_DEBUG_WEATHER !== undefined;
+  const deterministicBaseline = !liveWeatherBaseline && !explicitDebugWeather;
+  const weather = process.env.PIECZARGOTCHI_DEBUG_WEATHER || (deterministicBaseline ? 'clear' : 'auto');
   const cloud = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_CLOUD');
   const precipitation = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_PRECIPITATION');
   const wind = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_WIND');
@@ -60,7 +63,8 @@ function createCaptureDebugSettings() {
   const moonPhase = process.env.PIECZARGOTCHI_DEBUG_MOON_PHASE || 'auto';
   const constellation = process.env.PIECZARGOTCHI_DEBUG_CONSTELLATION || 'auto';
   const rainbow = process.env.PIECZARGOTCHI_DEBUG_RAINBOW || 'auto';
-  const hasDebugWeather = weather !== 'auto'
+  const hasDebugWeather = deterministicBaseline
+    || weather !== 'auto'
     || cloud !== null
     || precipitation !== null
     || wind !== null
@@ -78,11 +82,13 @@ function createCaptureDebugSettings() {
 
   return {
     enabled: true,
-    fixedAt: fixedAt === null ? Date.now() : fixedAt,
+    fixedAt: fixedAt === null
+      ? (deterministicBaseline ? Date.parse('2026-05-14T12:00:00.000Z') : Date.now())
+      : fixedAt,
     weather,
-    cloudCoverOverride: cloud,
-    precipitationOverride: precipitation,
-    windSpeedOverride: wind,
+    cloudCoverOverride: cloud === null && deterministicBaseline ? 18 : cloud,
+    precipitationOverride: precipitation === null && deterministicBaseline ? 0 : precipitation,
+    windSpeedOverride: wind === null && deterministicBaseline ? 1.2 : wind,
     windDirectionOverride: windDirection,
     locationOverride: location,
     moonPhaseOverride: moonPhase,
@@ -546,6 +552,8 @@ async function captureCanvas(cdp, label, options) {
   await applyCaptureSceneOverrides(cdp);
   if (options.immersion) {
     await forceCaptureImmersion(cdp, options.immersion);
+  } else if (shouldSuppressCaptureImmersion(options)) {
+    await suppressCaptureImmersion(cdp);
   }
   await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.booted && window.__pieczargotchiRuntime.currentAnimationKey)`, 6000);
   await delay(captureDelayMs);
@@ -627,7 +635,7 @@ async function forceCaptureImmersion(cdp, sample) {
       if (!runtime) {
         return;
       }
-      const now = Date.now();
+      const now = Number(runtime.debug && runtime.debug.fixedAt) || Date.now();
       const sceneOverrides = ${JSON.stringify(sceneOverrides)};
       const debugOverrides = ${JSON.stringify(debugOverrides)};
       runtime.debug = Object.assign(runtime.debug || {}, { enabled: true, panelOpen: false }, debugOverrides, {
@@ -659,6 +667,27 @@ async function forceCaptureImmersion(cdp, sample) {
         priority: 99
       };
       runtime.immersion.cooldownUntil = now + 10000;
+    })()`,
+    awaitPromise: true
+  });
+}
+
+function shouldSuppressCaptureImmersion(options) {
+  return typeof options.expectedAnimationKey === 'string'
+    && options.expectedAnimationKey.endsWith('.idle');
+}
+
+async function suppressCaptureImmersion(cdp) {
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const runtime = window.__pieczargotchiRuntime;
+      if (!runtime) {
+        return;
+      }
+      const now = Number(runtime.debug && runtime.debug.fixedAt) || Date.now();
+      runtime.immersion = runtime.immersion || {};
+      runtime.immersion.active = null;
+      runtime.immersion.cooldownUntil = now + 30000;
     })()`,
     awaitPromise: true
   });
@@ -1063,7 +1092,38 @@ async function waitForExpression(cdp, expression, timeoutMs) {
     }
     await delay(100);
   }
+  const diagnostic = await getRuntimeWaitDiagnostic(cdp);
+  if (diagnostic) {
+    console.error(`capture diagnostic: ${JSON.stringify(diagnostic)}`);
+  }
   throw new Error(`Warunek nie spełnił się: ${expression}`);
+}
+
+async function getRuntimeWaitDiagnostic(cdp) {
+  try {
+    const result = await cdp.send('Runtime.evaluate', {
+      expression: `(() => {
+        const runtime = window.__pieczargotchiRuntime;
+        return {
+          hasConfig: Boolean(window.PIECZARGOTCHI_CONFIG),
+          hasRuntime: Boolean(runtime),
+          booted: Boolean(runtime && runtime.booted),
+          renderStarted: Boolean(runtime && runtime.renderStarted),
+          currentAnimationKey: runtime && runtime.currentAnimationKey || null,
+          forcedAnimation: runtime && runtime.debug && runtime.debug.forcedAnimation || null,
+          activeImmersion: runtime && runtime.immersion && runtime.immersion.active
+            ? runtime.immersion.active.state
+            : null,
+          assetStatus: document.querySelector('[data-asset-status]') && document.querySelector('[data-asset-status]').textContent,
+          bodyText: document.body && document.body.textContent ? document.body.textContent.slice(0, 180) : ''
+        };
+      })()`,
+      returnByValue: true
+    });
+    return result.result && result.result.value ? result.result.value : null;
+  } catch {
+    return null;
+  }
 }
 
 function delay(ms) {
