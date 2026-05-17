@@ -25,7 +25,7 @@
     if (remainingMs > 0) {
       return {
         ok: false,
-        reason: 'Gotowe za ' + Math.ceil(remainingMs / 1000) + ' s.'
+        reason: 'Gotowe za ' + formatRemainingTimeCore(remainingMs) + '.'
       };
     }
 
@@ -87,10 +87,36 @@
     }
 
     const attentionRules = rules && rules.attention ? rules.attention : {};
+    const protectedUntil = getAttentionProtectedUntilCore(timestamp, rules);
     const activeNeed = state.attention.activeNeed;
     const deadline = Date.parse(state.attention.deadlineAt || '');
     const lastMistake = Date.parse(state.attention.lastMistakeAt || '');
     const repeatedCooldown = attentionRules.repeatedMistakeCooldownMs || 900000;
+
+    if (protectedUntil) {
+      const protectedDeadline = Math.max(
+        protectedUntil,
+        Number.isFinite(deadline) && activeNeed === strongestNeed.id ? deadline : 0
+      );
+      state.attention = {
+        activeNeed: strongestNeed.id,
+        severity: strongestNeed.severity,
+        startedAt: activeNeed === strongestNeed.id && state.attention.startedAt
+          ? state.attention.startedAt
+          : new Date(timestamp).toISOString(),
+        deadlineAt: new Date(protectedDeadline).toISOString(),
+        lastMistakeAt: state.attention.lastMistakeAt || null,
+        pausedUntil: new Date(protectedUntil).toISOString(),
+        quietSuppressed: true
+      };
+      events.push({
+        type: activeNeed === strongestNeed.id ? 'protected' : 'start',
+        need: strongestNeed.id,
+        severity: strongestNeed.severity,
+        protectedUntil: state.attention.pausedUntil
+      });
+      return { state: state, events: events };
+    }
 
     if (activeNeed !== strongestNeed.id) {
       state.attention = {
@@ -98,13 +124,17 @@
         severity: strongestNeed.severity,
         startedAt: new Date(timestamp).toISOString(),
         deadlineAt: new Date(timestamp + strongestNeed.deadlineMs).toISOString(),
-        lastMistakeAt: state.attention.lastMistakeAt || null
+        lastMistakeAt: state.attention.lastMistakeAt || null,
+        pausedUntil: null,
+        quietSuppressed: false
       };
       events.push({ type: 'start', need: strongestNeed.id, severity: strongestNeed.severity });
       return { state: state, events: events };
     }
 
     state.attention.severity = strongestNeed.severity;
+    state.attention.pausedUntil = null;
+    state.attention.quietSuppressed = false;
     if (Number.isFinite(deadline) && timestamp >= deadline) {
       const canRecordMistake = !Number.isFinite(lastMistake) || timestamp - lastMistake >= repeatedCooldown;
       if (canRecordMistake) {
@@ -191,7 +221,9 @@
       severity: source.severity || null,
       startedAt: source.startedAt || null,
       deadlineAt: source.deadlineAt || null,
-      lastMistakeAt: source.lastMistakeAt || null
+      lastMistakeAt: source.lastMistakeAt || null,
+      pausedUntil: source.pausedUntil || null,
+      quietSuppressed: Boolean(source.quietSuppressed)
     };
   }
 
@@ -248,6 +280,7 @@
         value: value,
         severity: severity,
         definition: definition,
+        rules: attentionRules,
         message: severity === 'critical' ? definition.criticalMessage : definition.mildMessage,
         deadlineMs: severity === 'critical'
           ? Number(needRules.criticalDeadlineMs) || attentionRules.criticalDeadlineMs || 90000
@@ -268,14 +301,158 @@
 
   function recordCareMistakeCore(state, need, now) {
     const category = need.definition.category || 'physical';
+    const rules = need.rules || {};
+    const penalties = isPlainObject(rules.penalties) ? rules.penalties : {};
+    const penalty = isPlainObject(penalties[need.severity])
+      ? penalties[need.severity]
+      : need.severity === 'critical'
+        ? { health: -6, happiness: -4, patchQuality: -5 }
+        : { health: -2, happiness: -1, patchQuality: -2 };
     state.careMistakes[category] = (Number(state.careMistakes[category]) || 0) + 1;
     state.attention.lastMistakeAt = new Date(now).toISOString();
+    state.attention.pausedUntil = null;
+    state.attention.quietSuppressed = false;
     state.patch.careStreak = 0;
-    state.stats.health = (Number(state.stats.health) || 0) - (need.severity === 'critical' ? 8 : 4);
-    state.stats.happiness = (Number(state.stats.happiness) || 0) - (need.severity === 'critical' ? 6 : 3);
+    state.patch.quality = clampNumber(Number(state.patch.quality) + (Number(penalty.patchQuality) || 0), 0, 100, 72);
+    state.stats.health = (Number(state.stats.health) || 0) + (Number(penalty.health) || 0);
+    state.stats.happiness = (Number(state.stats.happiness) || 0) + (Number(penalty.happiness) || 0);
     if (typeof recordAttentionHistoryCore === 'function') {
       state.history = recordAttentionHistoryCore(state, 'missed').history;
     }
+  }
+
+  function calculateCareTimeSegmentsCore(startMs, endMs, mode, rules) {
+    const rhythm = getCareRhythmRulesCore(rules);
+    const end = Math.max(0, Number(endMs) || 0);
+    const rawStart = Math.max(0, Number(startMs) || 0);
+    const cappedStart = Math.max(rawStart, end - rhythm.offlineCapHours * 3600000);
+    const segments = [];
+    let cursor = Math.min(cappedStart, end);
+
+    while (cursor < end) {
+      const phase = getCareDecayKeyCore(cursor, mode, rules);
+      const nextBoundary = Math.min(end, getNextCarePhaseBoundaryCore(cursor, rules));
+      const next = nextBoundary > cursor ? nextBoundary : Math.min(end, cursor + 3600000);
+      segments.push({
+        decayKey: phase,
+        elapsedMs: next - cursor,
+        elapsedHours: (next - cursor) / 3600000
+      });
+      cursor = next;
+    }
+
+    return {
+      appliedMs: Math.max(0, end - cappedStart),
+      skippedMs: Math.max(0, cappedStart - rawStart),
+      segments: segments
+    };
+  }
+
+  function getCareDecayKeyCore(timestamp, mode, rules) {
+    const rhythmInfo = getCareRhythmInfoCore(timestamp, rules);
+    if (rhythmInfo.inQuietHours) {
+      return mode === 'awake' ? 'quietAwake' : 'quietSleeping';
+    }
+
+    return mode === 'awake' ? 'awake' : 'sleeping';
+  }
+
+  function getAttentionProtectedUntilCore(timestamp, rules) {
+    const rhythmInfo = getCareRhythmInfoCore(timestamp, rules);
+    return rhythmInfo.protectedUntil;
+  }
+
+  function getCareRhythmInfoCore(timestamp, rules) {
+    const rhythm = getCareRhythmRulesCore(rules);
+    const date = new Date(Number(timestamp) || 0);
+    const minutes = date.getHours() * 60 + date.getMinutes();
+    const quietStart = rhythm.quietStartMinute;
+    const quietEnd = rhythm.quietEndMinute;
+    const crossesMidnight = quietStart > quietEnd;
+    const inQuietHours = crossesMidnight
+      ? minutes >= quietStart || minutes < quietEnd
+      : minutes >= quietStart && minutes < quietEnd;
+    const quietEndAt = getQuietEndAtCore(date, rhythm);
+    const graceEndAt = quietEndAt + rhythm.morningGraceMs;
+    const inMorningGrace = !inQuietHours && Number(timestamp) >= quietEndAt && Number(timestamp) < graceEndAt;
+
+    return {
+      inQuietHours: inQuietHours,
+      inMorningGrace: inMorningGrace,
+      quietEndAt: quietEndAt,
+      protectedUntil: inQuietHours || inMorningGrace ? graceEndAt : null
+    };
+  }
+
+  function getQuietEndAtCore(date, rhythm) {
+    const minutes = date.getHours() * 60 + date.getMinutes();
+    const quietStart = rhythm.quietStartMinute;
+    const quietEnd = rhythm.quietEndMinute;
+    const crossesMidnight = quietStart > quietEnd;
+    const endDate = new Date(date.getTime());
+
+    if (crossesMidnight && minutes >= quietStart) {
+      endDate.setDate(endDate.getDate() + 1);
+    }
+
+    endDate.setHours(Math.floor(quietEnd / 60), quietEnd % 60, 0, 0);
+    return endDate.getTime();
+  }
+
+  function getNextCarePhaseBoundaryCore(timestamp, rules) {
+    const rhythm = getCareRhythmRulesCore(rules);
+    const date = new Date(Number(timestamp) || 0);
+    const candidates = [];
+
+    [-1, 0, 1, 2].forEach(function(offset) {
+      const day = new Date(date.getTime());
+      day.setDate(day.getDate() + offset);
+      candidates.push(getMinuteTimestampForDateCore(day, rhythm.quietStartMinute));
+      candidates.push(getMinuteTimestampForDateCore(day, rhythm.quietEndMinute));
+    });
+
+    const next = candidates
+      .filter(function(candidate) {
+        return candidate > timestamp + 1;
+      })
+      .sort(function(a, b) {
+        return a - b;
+      })[0];
+
+    return next || timestamp + 24 * 3600000;
+  }
+
+  function getMinuteTimestampForDateCore(date, minuteOfDay) {
+    const output = new Date(date.getTime());
+    output.setHours(Math.floor(minuteOfDay / 60), minuteOfDay % 60, 0, 0);
+    return output.getTime();
+  }
+
+  function getCareRhythmRulesCore(rules) {
+    const source = rules && rules.careRhythm ? rules.careRhythm : {};
+    return {
+      quietStartMinute: clampInteger(source.quietStartMinute, 0, 1439, 22 * 60 + 30),
+      quietEndMinute: clampInteger(source.quietEndMinute, 0, 1439, 7 * 60),
+      morningGraceMs: clampInteger(source.morningGraceMs, 0, 4 * 3600000, 45 * 60000),
+      offlineCapHours: clampNumber(Number(source.offlineCapHours), 1, 72, 24),
+      dailyGrowthCap: clampNumber(Number(source.dailyGrowthCap), 0, 100, 8.5)
+    };
+  }
+
+  function formatRemainingTimeCore(milliseconds) {
+    const ms = Math.max(0, Number(milliseconds) || 0);
+    if (ms < 60000) {
+      return Math.ceil(ms / 1000) + ' s';
+    }
+
+    const minutes = Math.ceil(ms / 60000);
+    if (minutes < 90) {
+      return minutes + ' min';
+    }
+
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    return rest ? hours + ' h ' + rest + ' min' : hours + ' h';
   }
 
   function getNeedAnimationStateCore(needId) {

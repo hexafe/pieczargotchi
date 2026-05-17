@@ -143,7 +143,7 @@
     if (remainingMs > 0) {
       return {
         ok: false,
-        reason: 'Gotowe za ' + Math.ceil(remainingMs / 1000) + ' s.'
+        reason: 'Gotowe za ' + formatRemainingTime(remainingMs) + '.'
       };
     }
 
@@ -196,7 +196,7 @@
   }
 
   function applyAction(action, now, source) {
-    applyStatDeltas(runtime.state, action.stats || {});
+    applyStatDeltas(runtime.state, action.stats || {}, now);
     recordActionHistory(runtime.state, action.id);
 
     if (action.coins) {
@@ -275,7 +275,7 @@
     const cooldownKey = getMinigameCooldownKey(minigameId);
     const cooldownUntil = Number(runtime.state.cooldowns[cooldownKey]) || 0;
     if (cooldownUntil > now) {
-      setTransientMessage('Gry', 'Następna rozgrywka za ' + Math.ceil((cooldownUntil - now) / 1000) + ' s.');
+      setTransientMessage('Gry', 'Następna rozgrywka za ' + formatRemainingTime(cooldownUntil - now) + '.');
       renderUi();
       return;
     }
@@ -412,10 +412,23 @@
     addLog(state, trait.title + ': ulubiona akcja wzmacnia grzybnię.', now);
   }
 
-  function applyStatDeltas(state, deltas) {
+  function applyStatDeltas(state, deltas, now) {
     Object.keys(deltas).forEach(function(stat) {
+      if (stat === 'growth' && typeof applyGrowthDelta === 'function' && Number.isFinite(Number(now))) {
+        applyGrowthDelta(state, deltas[stat], now);
+        return;
+      }
       state.stats[stat] = (Number(state.stats[stat]) || 0) + deltas[stat];
     });
+  }
+
+  function formatRemainingTime(milliseconds) {
+    const core = window.PieczargotchiCore;
+    if (core && core.formatRemainingTime) {
+      return core.formatRemainingTime(milliseconds);
+    }
+
+    return Math.ceil(Math.max(0, Number(milliseconds) || 0) / 1000) + ' s';
   }
 
   function getActivityLabel(action) {

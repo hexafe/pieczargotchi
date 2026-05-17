@@ -115,7 +115,9 @@
       severity: attention.severity || null,
       startedAt: attention.startedAt || null,
       deadlineAt: attention.deadlineAt || null,
-      lastMistakeAt: attention.lastMistakeAt || null
+      lastMistakeAt: attention.lastMistakeAt || null,
+      pausedUntil: attention.pausedUntil || null,
+      quietSuppressed: Boolean(attention.quietSuppressed)
     };
   }
 
@@ -167,21 +169,37 @@
       return state;
     }
 
-    const elapsedHours = elapsedMs / 3600000;
-    const decay = (rules.decayPerHour && rules.decayPerHour[state.mode]) || {};
+    const core = window.PieczargotchiCore;
+    const timePlan = core && core.calculateCareTimeSegments
+      ? core.calculateCareTimeSegments(safeLastUpdated, now, state.mode, rules)
+      : {
+        appliedMs: elapsedMs,
+        skippedMs: 0,
+        segments: [{ decayKey: state.mode, elapsedMs: elapsedMs, elapsedHours: elapsedMs / 3600000 }]
+      };
+    const segments = timePlan.segments || [];
 
-    Object.keys(decay).forEach(function(stat) {
-      state.stats[stat] = (Number(state.stats[stat]) || 0) + decay[stat] * elapsedHours;
+    segments.forEach(function(segment) {
+      const decay = (rules.decayPerHour && rules.decayPerHour[segment.decayKey])
+        || (rules.decayPerHour && rules.decayPerHour[state.mode])
+        || {};
+
+      Object.keys(decay).forEach(function(stat) {
+        state.stats[stat] = (Number(state.stats[stat]) || 0) + decay[stat] * segment.elapsedHours;
+      });
     });
 
-    applyWeatherStatEffects(state, elapsedHours);
-    updateHealthAndGrowth(state, elapsedHours);
+    applyWeatherStatEffects(state, (Number(timePlan.appliedMs) || elapsedMs) / 3600000);
     state.stats = clampAllStats(state.stats);
+    segments.forEach(function(segment) {
+      updateHealthAndGrowth(state, segment.elapsedHours, segment.decayKey, now);
+      state.stats = clampAllStats(state.stats);
+      updatePatch(state, segment.elapsedHours, now);
+    });
     state.stage = getStageForGrowth(state.stats.growth || 0);
     recordElapsedHistory(state, elapsedMs);
     state = applyEvolutionIfReady(state, now, true);
     updateArenaUnlock(state);
-    updatePatch(state, elapsedHours, now);
     evaluateAttention(state, now);
     state.lastUpdatedAt = new Date(now).toISOString();
     cleanupActivity(now);
@@ -199,7 +217,7 @@
     applyStatDeltas(state, deltas);
   }
 
-  function updateHealthAndGrowth(state, elapsedHours) {
+  function updateHealthAndGrowth(state, elapsedHours, decayKey, now) {
     const stats = state.stats;
     const poorConditions = stats.hydration < 20 || stats.nutrients < 20 || stats.cleanliness < 20 || stats.energy < 12;
     const goodConditions = stats.hydration >= 55 && stats.nutrients >= 55 && stats.cleanliness >= 55 && stats.health >= 55;
@@ -212,11 +230,62 @@
       stats.health += (healthRules.goodConditions || 4) * elapsedHours;
     }
 
-    if (goodConditions && state.mode === 'awake') {
-      stats.growth += (growthRules.awakeHealthy || 3) * elapsedHours;
-    } else if (goodConditions && state.mode === 'sleeping') {
-      stats.growth += (growthRules.sleepingHealthy || 1.25) * elapsedHours;
+    if (!goodConditions) {
+      return;
     }
+
+    if (decayKey === 'awake') {
+      applyGrowthDelta(state, (growthRules.awakeHealthy || 0.6) * elapsedHours, now);
+    } else if (decayKey === 'quietAwake') {
+      applyGrowthDelta(state, (growthRules.quietDrowsyHealthy || 0.08) * elapsedHours, now);
+    } else {
+      applyGrowthDelta(state, (growthRules.sleepingHealthy || 0.18) * elapsedHours, now);
+    }
+  }
+
+  function applyGrowthDelta(state, amount, now) {
+    const delta = Number(amount) || 0;
+    if (!delta) {
+      return 0;
+    }
+
+    state.history = state.history || {};
+    state.history.dailyGrowth = normalizeDailyGrowth(state.history.dailyGrowth, now);
+
+    if (delta < 0) {
+      state.stats.growth = (Number(state.stats.growth) || 0) + delta;
+      return delta;
+    }
+
+    const cap = rules.careRhythm && Number(rules.careRhythm.dailyGrowthCap) || 8.5;
+    const remaining = Math.max(0, cap - (Number(state.history.dailyGrowth.earned) || 0));
+    const applied = Math.min(delta, remaining);
+    state.stats.growth = (Number(state.stats.growth) || 0) + applied;
+    state.history.dailyGrowth.earned += applied;
+    return applied;
+  }
+
+  function normalizeDailyGrowth(dailyGrowth, now) {
+    const dateKey = getLocalDateKey(now);
+    const source = dailyGrowth || {};
+    if (source.dateKey !== dateKey) {
+      return {
+        dateKey: dateKey,
+        earned: 0
+      };
+    }
+
+    return {
+      dateKey: dateKey,
+      earned: Math.max(0, Number(source.earned) || 0)
+    };
+  }
+
+  function getLocalDateKey(now) {
+    const date = new Date(Number(now) || getRuntimeNow());
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return date.getFullYear() + '-' + month + '-' + day;
   }
 
   function updatePatch(state, elapsedHours, now) {
@@ -261,6 +330,21 @@
   }
 
   function evaluateAttention(state, now) {
+    const core = window.PieczargotchiCore;
+    if (core && core.evaluateAttentionState) {
+      const result = core.evaluateAttentionState(state, rules, now);
+      const nextState = result.state || state;
+      state.attention = normalizeAttention(nextState.attention || {});
+      state.careMistakes = normalizeCareMistakes(nextState.careMistakes || {});
+      state.patch = normalizePatch(nextState.patch || {});
+      state.stats = clampAllStats(nextState.stats || state.stats);
+      state.history = nextState.history || state.history;
+      (result.events || []).forEach(function(event) {
+        logAttentionEvent(state, event, now);
+      });
+      return;
+    }
+
     const strongestNeed = getStrongestNeed(state);
     const attentionRules = rules.attention || {};
 
@@ -302,6 +386,35 @@
     }
   }
 
+  function logAttentionEvent(state, event, now) {
+    if (!event || event.type === 'protected') {
+      return;
+    }
+
+    const definition = rules.needDefinitions && rules.needDefinitions[event.need]
+      ? rules.needDefinitions[event.need]
+      : null;
+    if (event.type === 'resolved') {
+      addLog(state, 'Pieczarka uspokoiła się. Potrzeba została zaopiekowana.', now);
+      return;
+    }
+    if (!definition) {
+      return;
+    }
+    if (event.type === 'start') {
+      if (event.protectedUntil) {
+        return;
+      }
+      const message = event.severity === 'critical' ? definition.criticalMessage : definition.mildMessage;
+      addLog(state, definition.title + ': ' + message, now);
+      return;
+    }
+    if (event.type === 'mistake') {
+      addLog(state, 'Przegapiona potrzeba: ' + definition.title + '. To zapisuje się w historii opieki.', now);
+      triggerEffect('attention');
+    }
+  }
+
   function getStrongestNeed(state) {
     const definitions = rules.needDefinitions || {};
     const attentionRules = rules.attention || {};
@@ -325,6 +438,7 @@
         value: value,
         severity: severity,
         definition: definition,
+        rules: attentionRules,
         message: severity === 'critical' ? definition.criticalMessage : definition.mildMessage,
         deadlineMs: severity === 'critical'
           ? Number(needRules.criticalDeadlineMs) || attentionRules.criticalDeadlineMs || 90000
@@ -345,11 +459,18 @@
 
   function recordCareMistake(state, need, now) {
     const category = need.definition.category || 'physical';
+    const penalties = need.rules && need.rules.penalties ? need.rules.penalties : {};
+    const penalty = penalties[need.severity] || (need.severity === 'critical'
+      ? { health: -6, happiness: -4, patchQuality: -5 }
+      : { health: -2, happiness: -1, patchQuality: -2 });
     state.careMistakes[category] = (Number(state.careMistakes[category]) || 0) + 1;
     state.attention.lastMistakeAt = new Date(now).toISOString();
+    state.attention.pausedUntil = null;
+    state.attention.quietSuppressed = false;
     state.patch.careStreak = 0;
-    state.stats.health -= need.severity === 'critical' ? 8 : 4;
-    state.stats.happiness -= need.severity === 'critical' ? 6 : 3;
+    state.patch.quality += Number(penalty.patchQuality) || 0;
+    state.stats.health += Number(penalty.health) || 0;
+    state.stats.happiness += Number(penalty.happiness) || 0;
     recordAttentionHistory(state, 'missed');
     addLog(state, 'Przegapiona potrzeba: ' + need.definition.title + '. To zapisuje się w historii opieki.', now);
     triggerEffect('attention');

@@ -2,7 +2,7 @@
 
 Pieczargotchi is a small Google Apps Script web app for a pixel-art mushroom care game.
 
-The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake loop, care actions, visible cooldowns, keyboard shortcuts, weather-driven scene life, minigames, long-term progression, JSON backup, patch decorations, and a local Legendary Arena. See `docs/IMPLEMENTATION_PLAN.md` for the original implementation roadmap and `docs/PROJECT_STATE_2026-05-16.md` for the current checkpoint.
+The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake loop, care actions, visible cooldowns, keyboard shortcuts, weather-driven scene life, minigames, long-term progression, JSON backup, patch decorations, and a local Legendary Arena. See `docs/IMPLEMENTATION_PLAN.md` for the original implementation roadmap and `docs/PROJECT_STATE_2026-05-17.md` for the current checkpoint.
 
 ## Current Layout
 
@@ -37,7 +37,8 @@ The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake l
 - `docs/UI_RENDER_AUDIT_2026-05-10.md` - screenshot-driven UI/rendering fixes and viewport validation.
 - `docs/SPRITE_AUDIT_2026-05-10.md` - focused audit for sprite size and wake-face alignment.
 - `docs/APPS_SCRIPT_DEPLOYMENT_DRY_RUN.md` - test deployment checklist that keeps `.clasp.json`, script IDs, and private Drive IDs local.
-- `docs/PROJECT_STATE_2026-05-16.md` - current architecture and maintenance checkpoint.
+- `docs/PROJECT_STATE_2026-05-17.md` - current architecture, balance, and maintenance checkpoint.
+- `docs/PROJECT_STATE_2026-05-16.md` - previous progression, rendering, and weather checkpoint.
 - `docs/PRODUCT_RULES.md` - gameplay and balance rules for future development.
 - `docs/WEATHER_SYSTEM.md` - current weather simulation rules, gameplay/environment interactions, and realism notes.
 - `.github/workflows/ci.yml` - GitHub Actions checks for client syntax, core rules, assets, sprite consistency, and local preview scripts.

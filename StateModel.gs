@@ -62,6 +62,10 @@ function createDefaultStateTemplate() {
         handled: 0,
         missed: 0
       },
+      dailyGrowth: {
+        dateKey: null,
+        earned: 0
+      },
       minigames: {}
     },
     patch: {
@@ -75,7 +79,9 @@ function createDefaultStateTemplate() {
       severity: null,
       startedAt: null,
       deadlineAt: null,
-      lastMistakeAt: null
+      lastMistakeAt: null,
+      pausedUntil: null,
+      quietSuppressed: false
     },
     careMistakes: {
       physical: 0,

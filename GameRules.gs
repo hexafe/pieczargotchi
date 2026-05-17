@@ -9,35 +9,59 @@ function getGameRulesConfig() {
     wakeSurpriseMs: 1800,
     activityMs: 2400,
     attention: {
-      mildThreshold: 45,
-      criticalThreshold: 25,
-      deadlineMs: 180000,
-      criticalDeadlineMs: 90000,
-      repeatedMistakeCooldownMs: 900000,
+      mildThreshold: 40,
+      criticalThreshold: 20,
+      deadlineMs: 90 * 60000,
+      criticalDeadlineMs: 35 * 60000,
+      repeatedMistakeCooldownMs: 3 * 60 * 60000,
+      penalties: {
+        mild: {
+          health: -2,
+          happiness: -1,
+          patchQuality: -2
+        },
+        critical: {
+          health: -6,
+          happiness: -4,
+          patchQuality: -5
+        }
+      },
       perNeed: {
         hydration: {
-          mildThreshold: 48,
-          criticalThreshold: 28,
-          deadlineMs: 150000,
-          criticalDeadlineMs: 75000
+          mildThreshold: 42,
+          criticalThreshold: 22,
+          deadlineMs: 75 * 60000,
+          criticalDeadlineMs: 30 * 60000
         },
-        cleanliness: {
+        nutrients: {
+          mildThreshold: 40,
+          criticalThreshold: 20,
+          deadlineMs: 90 * 60000,
+          criticalDeadlineMs: 35 * 60000
+        },
+        happiness: {
           mildThreshold: 38,
           criticalThreshold: 18,
-          deadlineMs: 240000,
-          criticalDeadlineMs: 120000
+          deadlineMs: 100 * 60000,
+          criticalDeadlineMs: 40 * 60000
+        },
+        cleanliness: {
+          mildThreshold: 34,
+          criticalThreshold: 16,
+          deadlineMs: 120 * 60000,
+          criticalDeadlineMs: 50 * 60000
         },
         energy: {
-          mildThreshold: 36,
-          criticalThreshold: 18,
-          deadlineMs: 240000,
-          criticalDeadlineMs: 120000
+          mildThreshold: 30,
+          criticalThreshold: 12,
+          deadlineMs: 120 * 60000,
+          criticalDeadlineMs: 50 * 60000
         },
         health: {
-          mildThreshold: 55,
-          criticalThreshold: 35,
-          deadlineMs: 120000,
-          criticalDeadlineMs: 60000
+          mildThreshold: 45,
+          criticalThreshold: 25,
+          deadlineMs: 45 * 60000,
+          criticalDeadlineMs: 20 * 60000
         }
       }
     },
@@ -91,49 +115,72 @@ function getGameRulesConfig() {
     },
     stageThresholds: [
       { id: 'spore', label: 'Zarodnik', growth: 0 },
-      { id: 'baby', label: 'Maluch', growth: 12 },
-      { id: 'young', label: 'Młoda', growth: 35 },
-      { id: 'adult', label: 'Dorosła', growth: 70 },
+      { id: 'baby', label: 'Maluch', growth: 8 },
+      { id: 'young', label: 'Młoda', growth: 28 },
+      { id: 'adult', label: 'Dorosła', growth: 62 },
       { id: 'legendary', label: 'Legendarna', growth: 100 }
     ],
     decayPerHour: {
       awake: {
-        hydration: -5,
-        nutrients: -4,
-        energy: -6,
-        happiness: -3,
-        cleanliness: -2
+        hydration: -3.8,
+        nutrients: -3.1,
+        energy: -4.2,
+        happiness: -2.4,
+        cleanliness: -1.35
       },
       sleeping: {
-        hydration: -2,
-        nutrients: -2,
-        energy: 10,
-        happiness: -1,
-        cleanliness: -1
+        hydration: -1.2,
+        nutrients: -1,
+        energy: 8.5,
+        happiness: -0.45,
+        cleanliness: -0.45
+      },
+      quietSleeping: {
+        hydration: -0.6,
+        nutrients: -0.5,
+        energy: 8,
+        happiness: -0.2,
+        cleanliness: -0.25
+      },
+      quietAwake: {
+        hydration: -1,
+        nutrients: -0.8,
+        energy: 3,
+        happiness: -0.4,
+        cleanliness: -0.35
       }
     },
     healthPerHour: {
-      poorConditions: -10,
-      goodConditions: 4
+      poorConditions: -4,
+      goodConditions: 2
     },
     growthPerHour: {
-      awakeHealthy: 3,
-      sleepingHealthy: 1.25
+      awakeHealthy: 0.6,
+      sleepingHealthy: 0.18,
+      quietDrowsyHealthy: 0.08
     },
     patchPerHour: {
-      cleanHealthy: 2,
-      neglected: -6
+      cleanHealthy: 0.9,
+      neglected: -3
+    },
+    careRhythm: {
+      profile: 'normal',
+      quietStartMinute: 22 * 60 + 30,
+      quietEndMinute: 7 * 60,
+      morningGraceMs: 45 * 60000,
+      offlineCapHours: 24,
+      dailyGrowthCap: 8.5
     },
     weatherBalance: {
-      maxElapsedHours: 2,
-      rainHydrationPerHour: 8,
-      stormHydrationPerHour: 5,
-      snowHydrationPerHour: 1.5,
-      highHumidityHydrationPerHour: 1.2,
-      windDryingPerHour: -3,
-      heatDryingPerHour: -2,
-      stormHappinessPerHour: -2,
-      stormCleanlinessPerHour: -1.5
+      maxElapsedHours: 3,
+      rainHydrationPerHour: 3.2,
+      stormHydrationPerHour: 2,
+      snowHydrationPerHour: 0.7,
+      highHumidityHydrationPerHour: 0.6,
+      windDryingPerHour: -1.4,
+      heatDryingPerHour: -1.2,
+      stormHappinessPerHour: -1,
+      stormCleanlinessPerHour: -0.8
     },
     minigames: getMinigamesConfig(),
     evolution: getEvolutionRulesConfig(),

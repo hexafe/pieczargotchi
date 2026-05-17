@@ -159,7 +159,7 @@
 
       const check = canRunAction(action, now);
       const cooldownUntil = Number(runtime.state.cooldowns[action.id]) || 0;
-      const remainingSeconds = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
+      const remainingMs = Math.max(0, cooldownUntil - now);
 
       button.disabled = !check.ok;
       button.title = check.ok ? action.label + ' (' + action.shortcut + ')' : check.reason;
@@ -169,16 +169,16 @@
         oldChip.remove();
       }
 
-      if (remainingSeconds > 0) {
+      if (remainingMs > 0) {
         const chip = document.createElement('span');
         chip.className = 'cooldown-chip';
-        chip.textContent = remainingSeconds + 's';
+        chip.textContent = formatCooldownLabel(remainingMs);
         button.appendChild(chip);
-        soonestRemaining = soonestRemaining ? Math.min(soonestRemaining, remainingSeconds) : remainingSeconds;
+        soonestRemaining = soonestRemaining ? Math.min(soonestRemaining, remainingMs) : remainingMs;
       }
     });
 
-    dom.cooldownLabel.textContent = soonestRemaining ? 'Za ' + soonestRemaining + ' s' : 'Gotowe';
+    dom.cooldownLabel.textContent = soonestRemaining ? 'Za ' + formatRemainingLabel(soonestRemaining) : 'Gotowe';
   }
 
   function renderAttentionChip() {
@@ -210,13 +210,13 @@
     const minigameRules = rules.minigames || {};
     const cooldowns = Object.keys(minigameRules).map(function(minigameId) {
       const cooldownUntil = Number(runtime.state.cooldowns[getMinigameCooldownKey(minigameId)]) || 0;
-      return Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
+      return Math.max(0, cooldownUntil - now);
     }).filter(Boolean);
     const remaining = cooldowns.length ? Math.min.apply(null, cooldowns) : 0;
     if (active) {
       dom.minigameStatus.textContent = active.label || (minigameRules[active.id] && minigameRules[active.id].label) || 'Trwa';
     } else if (remaining) {
-      dom.minigameStatus.textContent = 'Za ' + remaining + ' s';
+      dom.minigameStatus.textContent = 'Za ' + formatRemainingLabel(remaining);
     } else {
       dom.minigameStatus.textContent = 'Gotowe';
     }
@@ -231,9 +231,9 @@
     dom.minigameStartButtons.forEach(function(button) {
       const minigameId = button.dataset.minigameStart;
       const cooldownUntil = Number(runtime.state.cooldowns[getMinigameCooldownKey(minigameId)]) || 0;
-      const ownRemaining = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
+      const ownRemaining = Math.max(0, cooldownUntil - now);
       button.disabled = Boolean(active) || ownRemaining > 0 || runtime.state.mode !== 'awake';
-      button.textContent = ownRemaining ? ownRemaining + 's' : 'Start';
+      button.textContent = ownRemaining ? formatCooldownLabel(ownRemaining) : 'Start';
     });
     updateMinigameHud(now);
   }
@@ -402,6 +402,29 @@
     }
 
     return Math.floor(minutes / 60) + ' h';
+  }
+
+  function formatCooldownLabel(milliseconds) {
+    const ms = Math.max(0, Number(milliseconds) || 0);
+    if (ms < 60000) {
+      return Math.ceil(ms / 1000) + 's';
+    }
+
+    const minutes = Math.ceil(ms / 60000);
+    if (minutes < 90) {
+      return minutes + 'm';
+    }
+
+    return Math.ceil(minutes / 60) + 'h';
+  }
+
+  function formatRemainingLabel(milliseconds) {
+    const core = window.PieczargotchiCore;
+    if (core && core.formatRemainingTime) {
+      return core.formatRemainingTime(milliseconds);
+    }
+
+    return formatCooldownLabel(milliseconds);
   }
 
   function getEvolutionHistoryLabel(state) {

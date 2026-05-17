@@ -5,13 +5,13 @@ function getMinigamesConfig() {
       label: 'Łapanie rosy',
       durationMs: 20000,
       dropCount: 18,
-      cooldownMs: 60000,
+      cooldownMs: 25 * 60000,
       rewards: {
         hydrationBase: 4,
         hydrationPerCatch: 2,
-        hydrationMax: 18,
-        happinessPerCatch: 1,
-        happinessMax: 6
+        hydrationMax: 14,
+        happinessPerCatch: 0.5,
+        happinessMax: 4
       }
     },
     sporePop: {
@@ -19,13 +19,13 @@ function getMinigamesConfig() {
       label: 'Pękanie zarodników',
       durationMs: 18000,
       targetCount: 20,
-      cooldownMs: 75000,
+      cooldownMs: 30 * 60000,
       rewards: {
         happinessBase: 2,
         happinessPerPop: 1,
-        happinessMax: 14,
-        sporesPerPop: 0.22,
-        sporesMax: 4
+        happinessMax: 10,
+        sporesPerPop: 0.12,
+        sporesMax: 2
       }
     }
   };

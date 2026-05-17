@@ -358,17 +358,18 @@ test('corrupted save shape falls back to a normal migration target', () => {
   assert(migrated.battle && migrated.battle.rewards.wins === 0, 'expected normalized battle rewards');
 });
 
-test('v2 saves migrate to v4 progression history, evolution, minigames, and decorations', () => {
+test('v2 saves migrate to v5 progression history, evolution, minigames, decorations, and daily growth', () => {
   const migrated = core.migrateStateVersion({
     version: 2,
     stage: 'adult',
     stats: { growth: 70 },
     history: { actionsPerformed: { hydrate: 2 } }
-  }, 4);
+  }, 5);
 
-  assert(migrated.version === 4, `expected version 4, got ${migrated.version}`);
+  assert(migrated.version === 5, `expected version 5, got ${migrated.version}`);
   assert(migrated.history.actionsPerformed.hydrate === 2, 'expected action history to survive migration');
   assert(migrated.history.attention.handled === 0, 'expected attention history defaults');
+  assert(migrated.history.dailyGrowth.earned === 0, 'expected daily growth defaults');
   assert(migrated.evolution && migrated.evolution.variant === null, 'expected empty evolution state');
   assert(migrated.minigames && migrated.minigames.active === null, 'expected empty minigame state');
   assert(Array.isArray(migrated.decorations.owned), 'expected decoration ownership list');
@@ -470,7 +471,8 @@ test('attention call starts, records missed deadline, and clears after the right
 
   const missed = core.evaluateAttentionState(started.state, rules, now + 1001);
   assert(missed.state.careMistakes.physical === 1, 'expected one physical care mistake');
-  assert(missed.state.stats.health === 96, `expected health penalty, got ${missed.state.stats.health}`);
+  assert(missed.state.stats.health === 98, `expected health penalty, got ${missed.state.stats.health}`);
+  assert(missed.state.patch.quality === 70, `expected patch penalty, got ${missed.state.patch.quality}`);
   assert(missed.events[0].type === 'mistake', 'expected missed-deadline event');
 
   const handled = core.resolveAttentionAction(started.state, 'hydrate', rules, now + 400);
@@ -530,6 +532,76 @@ test('attention can use per-need thresholds and records history outcomes', () =>
   assert(missed.state.history.attention.missed === 1, 'expected missed attention history');
   const handled = core.resolveAttentionAction(started.state, 'clean', rules, now + 1000);
   assert(handled.state.history.attention.handled === 1, 'expected handled attention history');
+});
+
+test('quiet hours pause attention deadlines until morning grace ends', () => {
+  const rules = {
+    careRhythm: {
+      quietStartMinute: 22 * 60 + 30,
+      quietEndMinute: 7 * 60,
+      morningGraceMs: 45 * 60000,
+      offlineCapHours: 24
+    },
+    attention: {
+      mildThreshold: 45,
+      criticalThreshold: 25,
+      deadlineMs: 1000,
+      criticalDeadlineMs: 500,
+      repeatedMistakeCooldownMs: 10_000
+    },
+    needDefinitions: {
+      hydration: {
+        category: 'physical',
+        actionId: 'hydrate',
+        title: 'Chce wilgoci',
+        mildMessage: 'Sucho.',
+        criticalMessage: 'Bardzo sucho.'
+      }
+    }
+  };
+  const state = {
+    mode: 'awake',
+    stats: { hydration: 40, health: 100, happiness: 80 },
+    attention: {},
+    careMistakes: {},
+    patch: { quality: 72, mycelium: 0, harvests: 0, careStreak: 0 }
+  };
+  const night = new Date(2026, 4, 16, 23, 0).getTime();
+  const graceEnd = new Date(2026, 4, 17, 7, 45).getTime();
+  const started = core.evaluateAttentionState(state, rules, night);
+
+  assert(started.state.attention.activeNeed === 'hydration', 'expected hydration attention at night');
+  assert(started.state.attention.quietSuppressed, 'night attention should be marked as quiet-suppressed');
+  assert(Date.parse(started.state.attention.deadlineAt) === graceEnd, 'deadline should move to morning grace end');
+
+  const morning = core.evaluateAttentionState(started.state, rules, new Date(2026, 4, 17, 7, 30).getTime());
+  assert(!morning.state.careMistakes.physical, 'morning grace should not record mistakes');
+
+  const late = core.evaluateAttentionState(morning.state, rules, new Date(2026, 4, 17, 8, 0).getTime());
+  assert(late.state.careMistakes.physical === 1, 'missed morning grace should record one mistake');
+});
+
+test('care time segmentation applies quiet-night decay separately from daytime decay', () => {
+  const rules = {
+    careRhythm: {
+      quietStartMinute: 22 * 60 + 30,
+      quietEndMinute: 7 * 60,
+      morningGraceMs: 45 * 60000,
+      offlineCapHours: 24
+    }
+  };
+  const start = new Date(2026, 4, 16, 22, 0).getTime();
+  const end = new Date(2026, 4, 17, 8, 0).getTime();
+  const plan = core.calculateCareTimeSegments(start, end, 'sleeping', rules);
+  const quietHours = plan.segments
+    .filter((segment) => segment.decayKey === 'quietSleeping')
+    .reduce((sum, segment) => sum + segment.elapsedHours, 0);
+  const sleepHours = plan.segments
+    .filter((segment) => segment.decayKey === 'sleeping')
+    .reduce((sum, segment) => sum + segment.elapsedHours, 0);
+
+  assert(Math.abs(quietHours - 8.5) < 0.001, `expected 8.5 quiet hours, got ${quietHours}`);
+  assert(Math.abs(sleepHours - 1.5) < 0.001, `expected 1.5 regular sleep hours, got ${sleepHours}`);
 });
 
 test('animation intent keeps activity and wake above sleep, need above happy, then idle', () => {
@@ -792,7 +864,7 @@ test('evolution variant reacts to care history and legendary threshold', () => {
   };
   const song = core.getEvolutionVariant({
     actionsPerformed: { instrument: 4, sing: 3, play: 1 },
-    statSamples: { count: 2, health: 150 },
+    statSamples: { count: 2, health: 150, happiness: 140 },
     attention: {},
     minigames: {}
   }, { careMistakes: {}, patch: { quality: 75 } }, rules);
@@ -832,15 +904,15 @@ test('decoration purchase spends spores, records ownership, and boosts happiness
 
 test('state export and import preserve save shape while rejecting invalid files', () => {
   const envelope = core.buildStateExportEnvelope({
-    version: 4,
+    version: 5,
     stats: { hydration: 70 },
     history: { actionsPerformed: { hydrate: 1 } }
   }, Date.parse('2026-05-16T12:00:00.000Z'));
-  const imported = core.importStateEnvelope(JSON.stringify(envelope), 4);
-  const rejected = core.importStateEnvelope(JSON.stringify({ nope: true }), 4);
+  const imported = core.importStateEnvelope(JSON.stringify(envelope), 5);
+  const rejected = core.importStateEnvelope(JSON.stringify({ nope: true }), 5);
 
   assert(imported.ok, `expected import success: ${imported.reason}`);
-  assert(imported.state.version === 4, 'expected imported v4 state');
+  assert(imported.state.version === 5, 'expected imported v5 state');
   assert(imported.state.history.actionsPerformed.hydrate === 1, 'expected imported history');
   assert(!rejected.ok, 'expected invalid import rejection');
 });

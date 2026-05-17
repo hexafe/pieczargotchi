@@ -35,6 +35,18 @@ Attention call jest ważniejszy niż sam niski pasek:
 - care mistakes powinny wpływać na ewolucję i długoterminowy charakter Pieczarki,
 - naprawiona potrzeba czyści attention i daje krótką reakcję.
 
+## Rytm Dnia I Nocy
+
+Balans opieki jest ustawiony pod normalny dzień użytkownika, a nie pod budzik w środku nocy. Research bazowy: oficjalne instrukcje Tamagotchi Connection pokazują klasyczny rytm karmienia, zabawy i leczenia, a społeczność często łagodzi trudność przez sitterów, rodziców albo zmianę zegara, gdy urządzenie koliduje z pracą i snem.
+
+Docelowy rytm `normal`:
+
+- 2-3 krótkie wejścia dziennie utrzymują zdrową Pieczarkę i dobry patch,
+- 1 wejście dziennie jest przeżywalne, ale daje słabszy patch i większe ryzyko care mistakes,
+- noc `22:30-07:00` oraz poranna karencja do `07:45` nie zapisują nowych care mistakes,
+- nocny sen ma osobny łagodny decay, a Pieczarka zostawiona w trybie awake nocą przechodzi w miękkie auto-drzemanie,
+- wzrost ma dzienny limit, żeby spam kliknięć nie skracał drogi do legendy.
+
 ## Wzrost I Ewolucja
 
 Wzrost nie powinien być tylko zegarem. Docelowo powinien brać pod uwagę:

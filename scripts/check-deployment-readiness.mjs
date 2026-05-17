@@ -201,7 +201,7 @@ function checkStaticConfig() {
   if (config.storageKey !== 'pieczargotchi_state_v2') {
     fail(`Unexpected storage key: ${config.storageKey}`);
   }
-  if (config.stateVersion !== 4) {
+  if (config.stateVersion !== 5) {
     fail(`Unexpected state version: ${config.stateVersion}`);
   }
   if (!config.runtime || config.runtime.debugEnabled !== false) {
