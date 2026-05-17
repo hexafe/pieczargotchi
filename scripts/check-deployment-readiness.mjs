@@ -229,10 +229,44 @@ function checkStaticConfig() {
   }
 
   const configuredIds = assets.filter((asset) => asset.hasFileId).map((asset) => asset.key);
+  const folderMode = Boolean(config.assetDriveFolderConfigured);
+  checkAssetDriveFolderConfig(folderMode);
+
   if (configuredIds.length) {
     warn(`Config.gs contains ${configuredIds.length} committed Drive asset ID(s): ${configuredIds.slice(0, 6).join(', ')}`);
+    if (folderMode) {
+      warn('Drive asset folder mode is configured; committed per-asset IDs will override folder lookup for those keys.');
+    }
+  } else if (folderMode) {
+    warn('Drive asset folder mode is configured; Apps Script deployment should resolve asset IDs from manifest fileName values.');
   } else {
-    warn('No Drive asset IDs are configured; deployed Apps Script smoke should verify canvas fallback rendering.');
+    warn('No Drive asset IDs or Drive asset folder are configured; deployed Apps Script smoke should verify canvas fallback rendering.');
+  }
+}
+
+function checkAssetDriveFolderConfig(folderMode) {
+  const configText = readText('Config.gs');
+  const match = configText.match(/PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID\s*=\s*(['"])(.*?)\1/);
+  const folderId = match ? match[2].trim() : '';
+
+  if (!match) {
+    fail('Config.gs is missing PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID.');
+    return;
+  }
+  if (folderMode !== Boolean(folderId)) {
+    fail('getStaticAppConfig() assetDriveFolderConfigured does not match PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID.');
+  }
+  if (!folderId) {
+    return;
+  }
+  if (/^https?:\/\//.test(folderId)) {
+    fail('PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID must be a folder ID, not a Drive URL.');
+  }
+  if (/\s/.test(folderId)) {
+    fail('PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID must not contain whitespace.');
+  }
+  if (folderId === '...' || folderId.toLowerCase() === 'folderid') {
+    fail('PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID still contains a placeholder value.');
   }
 }
 
@@ -307,6 +341,9 @@ function checkAssetFallbackContract() {
   }
   if (!assetService.includes('missingFileId')) {
     fail('AssetService.gs no longer marks missing Drive IDs for the client.');
+  }
+  if (!assetService.includes('getAssetDriveFileIdsFromFolder_')) {
+    fail('AssetService.gs no longer supports Drive folder asset lookup.');
   }
 }
 

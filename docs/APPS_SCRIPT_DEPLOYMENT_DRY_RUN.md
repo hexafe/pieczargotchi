@@ -23,6 +23,8 @@ Expected posture before binding:
 - `Config.gs` does not contain private Drive URLs or deployment credentials.
 - Production runtime flags keep `debugEnabled: false` and `exposeRuntime: false`.
 - Missing Drive IDs are acceptable for the first smoke because the app should render canvas fallbacks instead of a blank page.
+- If runtime PNGs are hosted in Drive, prefer `PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID` over hundreds of manual IDs. Store the folder ID only, not a URL.
+- The Drive folder should mirror manifest paths without the leading `assets/`, for example `stages/adult/idle_sheet.png`; flat folders only work for unique basenames.
 
 ## Test Project Bind
 
@@ -70,20 +72,20 @@ location.reload();
 
 ## Optional Drive Asset Smoke
 
-For one controlled test, temporarily set a test Drive PNG file ID for `environment.grassPatch` in `Config.gs`, run:
+For one controlled test, either temporarily set `PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID` to a test folder containing runtime PNGs, or set a test Drive PNG file ID for `environment.grassPatch` in `Config.gs`, then run:
 
 ```sh
 node scripts/check-deployment-readiness.mjs
 npx @google/clasp push
 ```
 
-Then open the deployed app and confirm the asset status counts at least one loaded graphic. Revert the local ID before committing unless the ID is intentionally public and approved for the repository.
+Then open the deployed app and confirm the asset status counts loaded graphics. Revert local private folder/file IDs before committing unless they are intentionally public and approved for the repository.
 
 ## Closeout
 
 After the dry run:
 
 - Remove or leave untracked local-only `.clasp.json`.
-- Revert any temporary private Drive IDs.
+- Revert any temporary private Drive folder or file IDs.
 - Record the result in the PR body or project checkpoint.
 - Commit only documentation, checker, or code changes that do not contain private deployment data.

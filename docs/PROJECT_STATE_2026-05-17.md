@@ -10,6 +10,10 @@ Najnowszy slice dodaje kolejne warstwy życia sceny: Pieczarka co jakiś czas wi
 
 Opady foreground są teraz rozłożone po całej szerokości kadru: lekki deszcz, mocny deszcz i śnieg mają deterministyczne pasy po lewej, środku i prawej stronie, więc krople nie skupiają się tylko przy osi Pieczarki.
 
+Najnowszy slice animacji dodaje kierunkowe śledzenie kursora i warianty spokojnej bezczynności. Pieczarka ma osobne sheety `watch_cursor_*`, `follow_cursor_*`, dodatkowe `idle_fidget_*`, `idle_look_*` oraz `ponder_*`; selector immersji wybiera warianty grupami i pamięta ostatni wariant, żeby nie odpalać stale tej samej pozy. Debug/capture potrafią wymusić nowe stany, a testy pokrywają kierunek kursora, szybki przelot i brak natychmiastowego powtarzania idle/ponder.
+
+Deployment assetów dostał tryb folderowy: `PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID` może wskazywać folder Drive, `AssetService.gs` indeksuje pliki po `fileName` z manifestu, a ręczne wpisy w `PIECZARGOTCHI_ASSET_FILE_IDS` nadal nadpisują pojedyncze wyjątki. Lokalny fallback `assets/...` pozostaje bez zmian.
+
 ## Balans Opieki I Kuracja
 
 - `Config.gs` podnosi zapis do wersji `7`; stan ma `history.dailyGrowth`, rozszerzone `attention.pausedUntil` i `attention.quietSuppressed`, `recovery` dla kuracji w mchu oraz terminalny `gameOver`.
@@ -43,6 +47,8 @@ Nowe testy w `scripts/test-client-core.mjs` obejmują:
 - mapowanie deszczu, śniegu, słońca i gwiazd na dedykowane stany animacji.
 - reakcje na ambient life oraz spokojne idle fidget/ponder bez wyprzedzania pogody i pilnych potrzeb.
 - rozkład foreground rain/snow po lewej, środku i prawej stronie dla drizzle/light/moderate/heavy/violent oraz stylów śniegu.
+- kierunkowe reakcje na kursor, szybki przelot kursora, follow-after oraz brak powtórki ostatniego wariantu idle/ponder.
+- deployment checker pilnuje, że tryb folderowy Drive nie używa URL-a, whitespace ani placeholdera.
 
 Pełna bramka QA dla tego slice'a pozostaje:
 
@@ -50,6 +56,7 @@ Pełna bramka QA dla tego slice'a pozostaje:
 node scripts/check-client-syntax.mjs
 node scripts/check-deployment-readiness.mjs
 node scripts/test-client-core.mjs
+node scripts/test-asset-service.mjs
 env TZ=UTC node scripts/test-client-core.mjs
 node scripts/test-weather-precip-motion.mjs
 node scripts/validate-assets.mjs

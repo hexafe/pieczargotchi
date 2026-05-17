@@ -22,7 +22,7 @@ Aktualnie repo zawiera 5 etapów wzrostu:
 - `adult`
 - `legendary`
 
-Każdy etap ma komplet 21 sheetów stanów:
+Każdy etap ma komplet 34 sheetów stanów:
 
 - `idle_sheet.png`
 - `sleep_sheet.png`
@@ -31,7 +31,20 @@ Każdy etap ma komplet 21 sheetów stanów:
 - `excellent_sheet.png`
 - `curious_sheet.png`
 - `idle_fidget_sheet.png`
+- `idle_fidget_sway_sheet.png`
+- `idle_fidget_shift_sheet.png`
+- `idle_look_left_sheet.png`
+- `idle_look_right_sheet.png`
 - `ponder_sheet.png`
+- `ponder_up_sheet.png`
+- `ponder_side_sheet.png`
+- `ponder_breath_sheet.png`
+- `watch_cursor_left_sheet.png`
+- `watch_cursor_right_sheet.png`
+- `watch_cursor_up_left_sheet.png`
+- `watch_cursor_up_right_sheet.png`
+- `follow_cursor_fast_sheet.png`
+- `follow_cursor_after_sheet.png`
 - `sun_sheet.png`
 - `rain_sheet.png`
 - `stargaze_sheet.png`
@@ -80,8 +93,8 @@ Te zasady są obowiązkowe dla wszystkich nowych sheetów.
 - Każda klatka runtime ma rozmiar `512x512`.
 - Każdy sheet jest układany poziomo.
 - Większość sheetów w paczce używa `4` klatek, czyli rozmiaru `2048x512`.
-- `idle_fidget_sheet.png` używa `8` klatek, czyli rozmiaru `4096x512`.
-- `ponder_sheet.png`, `watch_butterfly_sheet.png` i `watch_crawler_sheet.png` używają `10` klatek, czyli rozmiaru `5120x512`.
+- `idle_fidget_sheet.png`, `idle_fidget_sway_sheet.png`, `idle_fidget_shift_sheet.png`, `idle_look_left_sheet.png`, `idle_look_right_sheet.png`, `watch_cursor_*_sheet.png` i `follow_cursor_*_sheet.png` używają `8` klatek, czyli rozmiaru `4096x512`.
+- `ponder_sheet.png`, `ponder_up_sheet.png`, `ponder_side_sheet.png`, `ponder_breath_sheet.png`, `watch_butterfly_sheet.png` i `watch_crawler_sheet.png` używają `10` klatek, czyli rozmiaru `5120x512`.
 - `watch_firefly_sheet.png` używa `12` klatek, czyli rozmiaru `6144x512`.
 - `rain_sheet.png` jest celowym wyjątkiem: używa `16` klatek, czyli rozmiaru `8192x512`, żeby pokazać narastanie kropli, spływanie po kapeluszu, oderwanie i rozbicie o ziemię.
 - Format pliku: `PNG RGBA` z przezroczystym tłem.
@@ -184,7 +197,7 @@ Nie skalujemy całej sceny między etapami. Trawa/mech jest wspólną kotwicą w
 
 ## 6. Zestaw animacji stage'owych
 
-Aktualny kontrakt stage'owy to 21 sheetów na etap:
+Aktualny kontrakt stage'owy to 34 sheety na etap:
 
 | Sheet | Rola |
 | --- | --- |
@@ -195,7 +208,20 @@ Aktualny kontrakt stage'owy to 21 sheetów na etap:
 | `excellent_sheet.png` | bardzo dobra opieka, połysk, stan nagrody |
 | `curious_sheet.png` | reakcja na obecność kursora, tapnięcie albo szelest przy Pieczarce |
 | `idle_fidget_sheet.png` | bezczynne wiercenie się, krótka zmiana postawy i powrót do spokoju |
+| `idle_fidget_sway_sheet.png` | spokojny boczny kołys i mikrooddech, wariant bezczynności |
+| `idle_fidget_shift_sheet.png` | krótka zmiana ciężaru ciała i powrót do bazowej pozy |
+| `idle_look_left_sheet.png` | leniwe rozejrzenie się w lewo bez bodźca z kursora |
+| `idle_look_right_sheet.png` | leniwe rozejrzenie się w prawo bez bodźca z kursora |
 | `ponder_sheet.png` | ciche zastanowienie się w spokojnej scenie |
+| `ponder_up_sheet.png` | zamyślenie z lekkim spojrzeniem ku górze |
+| `ponder_side_sheet.png` | zamyślenie z bocznym spojrzeniem i spokojnym powrotem |
+| `ponder_breath_sheet.png` | wolniejszy wariant ponder oparty o oddech i minimalny ruch |
+| `watch_cursor_left_sheet.png` | Pieczarka śledzi kursor po lewej stronie twarzy |
+| `watch_cursor_right_sheet.png` | Pieczarka śledzi kursor po prawej stronie twarzy |
+| `watch_cursor_up_left_sheet.png` | Pieczarka patrzy za kursorem nad lewą częścią kapelusza |
+| `watch_cursor_up_right_sheet.png` | Pieczarka patrzy za kursorem nad prawą częścią kapelusza |
+| `follow_cursor_fast_sheet.png` | szybka reakcja na przelot kursora blisko postaci |
+| `follow_cursor_after_sheet.png` | krótkie dopatrzenie za kursorem po wyjściu z okolicy postaci |
 | `sun_sheet.png` | spokojna reakcja na słoneczne okno pogodowe |
 | `rain_sheet.png` | zwykła reakcja na deszcz/storm foreground; 16-klatkowy cykl większych kropli spływających po kapeluszu i spadających na ziemię; nie używa wariantu `neutral_rain`, parasolki ani miny `:|` |
 | `stargaze_sheet.png` | nocna reakcja na gwiazdy i konstelacje |
@@ -216,7 +242,7 @@ Aktualny kontrakt stage'owy to 21 sheetów na etap:
 - `sleep` oraz `wake` mają czytać się bez tekstu i bez ikon interfejsu.
 - `happy` podnosi energię, ale nie rozwala sylwetki.
 - `excellent` jest mocniejsze niż `happy`, ale nie może zasłonić twarzy błyskami.
-- `curious`, `idle_fidget`, `ponder`, `sun`, `rain`, `stargaze`, `snow`, `watch_butterfly`, `watch_firefly` i `watch_crawler` są reakcjami immersyjnymi. Nie zmieniają statystyk, nie zastępują potrzeb i nie mogą maskować `critical`, `sick`, kuracji ani game over.
+- `curious`, warianty `idle_fidget`, warianty `idle_look`, warianty `ponder`, reakcje kursora, `sun`, `rain`, `stargaze`, `snow`, `watch_butterfly`, `watch_firefly` i `watch_crawler` są reakcjami immersyjnymi. Nie zmieniają statystyk, nie zastępują potrzeb i nie mogą maskować `critical`, `sick`, kuracji ani game over.
 - `rain` jest normalną reakcją pogodową Pieczargotchi. Deszczowa Iwoniasta Pieczarka z parasolką pozostaje wyłącznie easter eggiem `assets/easter-eggs/<stage>/neutral_rain_sheet.png`.
 - `tired`, `dry`, `hungry`, `dirty`, `sick` muszą różnić się od siebie charakterem, nie tylko kolorem.
 - `critical` ma być najmocniejszym sygnałem ostrzegawczym, ale wciąż czytelnym w skali całej planszy.
@@ -277,7 +303,7 @@ Plan implementacyjny mówi o manifeście z liczbą klatek, timingiem, pętlą i 
   szybsza czytelna reakcja wejścia, potem powrót do spokoju.
 - `critical`:
   najmocniejsza czytelność, ale nie migotanie powodujące chaos.
-- `idle_fidget`, `ponder`, `watch_butterfly`, `watch_firefly`, `watch_crawler`:
+- warianty `idle_fidget`, warianty `ponder`, reakcje kursora, `watch_butterfly`, `watch_firefly`, `watch_crawler`:
   dłuższy oddech sceny i małe przesunięcia ciała, bez skakania po baseline albo zmiany bohatera w inny wariant graficzny.
 
 Jeżeli sheet ma tylko 4 klatki, różnicę rytmu osiągamy timingiem i intensywnością pozy, nie dokładaniem losowych mikro-ruchów.

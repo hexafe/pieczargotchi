@@ -51,11 +51,102 @@ const PIECZARGOTCHI_STAGE_ANIMATIONS = [
     priority: 31
   },
   {
+    state: 'idle_fidget_sway',
+    frameCount: 8,
+    frameDurationsMs: [280, 220, 180, 160, 190, 240, 320, 460],
+    loop: false,
+    priority: 31
+  },
+  {
+    state: 'idle_fidget_shift',
+    frameCount: 8,
+    frameDurationsMs: [240, 200, 180, 180, 220, 260, 320, 440],
+    loop: false,
+    priority: 31
+  },
+  {
+    state: 'idle_look_left',
+    frameCount: 8,
+    frameDurationsMs: [260, 240, 220, 220, 260, 300, 360, 460],
+    loop: false,
+    priority: 31
+  },
+  {
+    state: 'idle_look_right',
+    frameCount: 8,
+    frameDurationsMs: [260, 240, 220, 220, 260, 300, 360, 460],
+    loop: false,
+    priority: 31
+  },
+  {
     state: 'ponder',
     frameCount: 10,
     frameDurationsMs: [260, 220, 190, 180, 180, 220, 260, 300, 340, 420],
     loop: false,
     priority: 32
+  },
+  {
+    state: 'ponder_up',
+    frameCount: 10,
+    frameDurationsMs: [280, 240, 200, 180, 180, 220, 260, 300, 360, 460],
+    loop: false,
+    priority: 32
+  },
+  {
+    state: 'ponder_side',
+    frameCount: 10,
+    frameDurationsMs: [260, 220, 200, 190, 190, 230, 280, 320, 360, 440],
+    loop: false,
+    priority: 32
+  },
+  {
+    state: 'ponder_breath',
+    frameCount: 10,
+    frameDurationsMs: [300, 260, 220, 200, 200, 240, 280, 340, 400, 500],
+    loop: false,
+    priority: 32
+  },
+  {
+    state: 'watch_cursor_left',
+    frameCount: 8,
+    frameDurationsMs: [120, 120, 140, 160, 190, 230, 280, 340],
+    loop: false,
+    priority: 58
+  },
+  {
+    state: 'watch_cursor_right',
+    frameCount: 8,
+    frameDurationsMs: [120, 120, 140, 160, 190, 230, 280, 340],
+    loop: false,
+    priority: 58
+  },
+  {
+    state: 'watch_cursor_up_left',
+    frameCount: 8,
+    frameDurationsMs: [130, 120, 140, 160, 200, 240, 300, 360],
+    loop: false,
+    priority: 58
+  },
+  {
+    state: 'watch_cursor_up_right',
+    frameCount: 8,
+    frameDurationsMs: [130, 120, 140, 160, 200, 240, 300, 360],
+    loop: false,
+    priority: 58
+  },
+  {
+    state: 'follow_cursor_fast',
+    frameCount: 8,
+    frameDurationsMs: [90, 90, 110, 130, 160, 210, 280, 360],
+    loop: false,
+    priority: 59
+  },
+  {
+    state: 'follow_cursor_after',
+    frameCount: 8,
+    frameDurationsMs: [160, 160, 180, 200, 240, 300, 360, 440],
+    loop: false,
+    priority: 57
   },
   {
     state: 'watch_butterfly',

@@ -16,7 +16,20 @@ STAGES = ["spore", "baby", "young", "adult", "legendary"]
 REACTIONS = [
     "curious",
     "idle_fidget",
+    "idle_fidget_sway",
+    "idle_fidget_shift",
+    "idle_look_left",
+    "idle_look_right",
     "ponder",
+    "ponder_up",
+    "ponder_side",
+    "ponder_breath",
+    "watch_cursor_left",
+    "watch_cursor_right",
+    "watch_cursor_up_left",
+    "watch_cursor_up_right",
+    "follow_cursor_fast",
+    "follow_cursor_after",
     "watch_butterfly",
     "watch_firefly",
     "watch_crawler",
@@ -28,7 +41,20 @@ REACTIONS = [
 RAIN_FRAME_COUNT = 16
 REACTION_FRAME_COUNTS = {
     "idle_fidget": 8,
+    "idle_fidget_sway": 8,
+    "idle_fidget_shift": 8,
+    "idle_look_left": 8,
+    "idle_look_right": 8,
     "ponder": 10,
+    "ponder_up": 10,
+    "ponder_side": 10,
+    "ponder_breath": 10,
+    "watch_cursor_left": 8,
+    "watch_cursor_right": 8,
+    "watch_cursor_up_left": 8,
+    "watch_cursor_up_right": 8,
+    "follow_cursor_fast": 8,
+    "follow_cursor_after": 8,
     "watch_butterfly": 10,
     "watch_firefly": 12,
     "watch_crawler": 10,
@@ -48,16 +74,11 @@ def main() -> None:
 def load_reaction_frames(stage: str, reaction: str) -> list[Image.Image]:
     source = {
         "curious": ASSETS / "stages" / stage / "wake_sheet.png",
-        "idle_fidget": ASSETS / "stages" / stage / "idle_sheet.png",
-        "ponder": ASSETS / "stages" / stage / "idle_sheet.png",
-        "watch_butterfly": ASSETS / "stages" / stage / "idle_sheet.png",
-        "watch_firefly": ASSETS / "stages" / stage / "idle_sheet.png",
-        "watch_crawler": ASSETS / "stages" / stage / "idle_sheet.png",
         "sun": ASSETS / "stages" / stage / "excellent_sheet.png",
         "rain": ASSETS / "stages" / stage / "idle_sheet.png",
         "stargaze": ASSETS / "stages" / stage / "idle_sheet.png",
         "snow": ASSETS / "stages" / stage / "tired_sheet.png",
-    }[reaction]
+    }.get(reaction, ASSETS / "stages" / stage / "idle_sheet.png")
     if not source.exists() and reaction == "rain":
         source = ASSETS / "stages" / stage / "idle_sheet.png"
     if not source.exists():
@@ -81,10 +102,16 @@ def load_reaction_frames(stage: str, reaction: str) -> list[Image.Image]:
 def decorate_frame(frame: Image.Image, stage: str, reaction: str, index: int) -> Image.Image:
     if reaction == "curious":
         return add_curiosity(frame, stage, index)
+    if reaction in {"idle_fidget_sway", "idle_fidget_shift", "idle_look_left", "idle_look_right"}:
+        return add_idle_variant(frame, stage, reaction, index)
     if reaction == "idle_fidget":
         return add_idle_fidget(frame, stage, index)
+    if reaction in {"ponder_up", "ponder_side", "ponder_breath"}:
+        return add_ponder_variant(frame, stage, reaction, index)
     if reaction == "ponder":
         return add_ponder(frame, stage, index)
+    if reaction.startswith("watch_cursor_") or reaction.startswith("follow_cursor_"):
+        return add_cursor_watch(frame, stage, reaction, index)
     if reaction == "watch_butterfly":
         return add_watch_butterfly(frame, stage, index)
     if reaction == "watch_firefly":
@@ -131,6 +158,22 @@ def add_idle_fidget(frame: Image.Image, stage: str, index: int) -> Image.Image:
     return move_character_layer(frame, stage, dx, dy)
 
 
+def add_idle_variant(frame: Image.Image, stage: str, reaction: str, index: int) -> Image.Image:
+    offsets = {
+        "idle_fidget_sway": [(0, 0), (1, 0), (2, -1), (2, -1), (1, 0), (0, 0), (-1, 0), (0, 0)],
+        "idle_fidget_shift": [(0, 0), (0, 0), (-1, 1), (-2, 1), (-1, 1), (0, 0), (1, 0), (0, 0)],
+        "idle_look_left": [(0, 0), (-1, 0), (-1, 0), (-1, 0), (0, 0), (0, 0), (0, 0), (0, 0)],
+        "idle_look_right": [(0, 0), (1, 0), (1, 0), (1, 0), (0, 0), (0, 0), (0, 0), (0, 0)],
+    }[reaction]
+    dx, dy = offsets[index % len(offsets)]
+    result = move_character_layer(frame, stage, dx, dy)
+    if reaction == "idle_look_left":
+        return apply_gaze(result, stage, -1, 0)
+    if reaction == "idle_look_right":
+        return apply_gaze(result, stage, 1, 0)
+    return result
+
+
 def add_ponder(frame: Image.Image, stage: str, index: int) -> Image.Image:
     offsets = [(0, 0), (0, -1), (-1, -2), (-1, -2), (0, -1), (1, 0), (1, 1), (0, 0), (0, 0), (0, 0)]
     dx, dy = offsets[index % len(offsets)]
@@ -143,6 +186,78 @@ def add_ponder(frame: Image.Image, stage: str, index: int) -> Image.Image:
         y = anchor[1] + 6 - dot_index * 12
         color = (255, 253, 247, 120 + dot_index * 32)
         draw.rectangle((x, y, x + 5 + pulse, y + 5 + pulse), fill=color)
+    return result
+
+
+def add_ponder_variant(frame: Image.Image, stage: str, reaction: str, index: int) -> Image.Image:
+    offsets = {
+        "ponder_up": [(0, 0), (0, -1), (0, -2), (0, -2), (0, -1), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0)],
+        "ponder_side": [(0, 0), (-1, 0), (-2, -1), (-2, -1), (-1, 0), (0, 0), (1, 0), (1, 0), (0, 0), (0, 0)],
+        "ponder_breath": [(0, 0), (0, 0), (0, -1), (0, -1), (0, 0), (0, 1), (0, 1), (0, 0), (0, 0), (0, 0)],
+    }[reaction]
+    dx, dy = offsets[index % len(offsets)]
+    result = move_character_layer(frame, stage, dx, dy)
+    draw = ImageDraw.Draw(result)
+    anchor = bubble_anchor(stage)
+    if reaction == "ponder_up":
+        result = apply_gaze(result, stage, 0, -1)
+        for dot_index in range(3):
+            size = 4 + ((index + dot_index) % 2)
+            x = anchor[0] + 2 + dot_index * 12
+            y = anchor[1] - 2 - dot_index * 14 - (index % 3)
+            draw.rectangle((x, y, x + size, y + size), fill=(255, 253, 247, 150 + dot_index * 28))
+    elif reaction == "ponder_side":
+        gaze_x = -1 if index < 5 else 1
+        result = apply_gaze(result, stage, gaze_x, 0)
+        draw = ImageDraw.Draw(result)
+        draw.rectangle((anchor[0] + 18, anchor[1] + 14, anchor[0] + 52, anchor[1] + 20), fill=(255, 253, 247, 130))
+        draw.rectangle((anchor[0] + 40, anchor[1] + 4, anchor[0] + 48, anchor[1] + 14), fill=(255, 253, 247, 120))
+    else:
+        puff_alpha = 105 + (index % 4) * 20
+        for puff in range(3):
+            x = anchor[0] - 16 + puff * 17 + (index % 2)
+            y = anchor[1] + 76 - puff * 6 - (index % 3)
+            draw.rectangle((x, y, x + 12 - puff * 2, y + 5), fill=(255, 253, 247, puff_alpha))
+    return result
+
+
+def add_cursor_watch(frame: Image.Image, stage: str, reaction: str, index: int) -> Image.Image:
+    plans = {
+        "watch_cursor_left": {
+            "gaze": (-1, 0),
+            "offsets": [(0, 0), (-1, 0), (-2, 0), (-2, 0), (-1, 0), (0, 0), (0, 0), (0, 0)],
+        },
+        "watch_cursor_right": {
+            "gaze": (1, 0),
+            "offsets": [(0, 0), (1, 0), (2, 0), (2, 0), (1, 0), (0, 0), (0, 0), (0, 0)],
+        },
+        "watch_cursor_up_left": {
+            "gaze": (-1, -1),
+            "offsets": [(0, 0), (-1, -1), (-2, -1), (-2, -1), (-1, 0), (0, 0), (0, 0), (0, 0)],
+        },
+        "watch_cursor_up_right": {
+            "gaze": (1, -1),
+            "offsets": [(0, 0), (1, -1), (2, -1), (2, -1), (1, 0), (0, 0), (0, 0), (0, 0)],
+        },
+        "follow_cursor_fast": {
+            "gaze": (1 if index % 8 < 4 else -1, 0),
+            "offsets": [(0, 0), (2, -1), (3, -1), (2, 0), (-1, 0), (-2, 1), (-1, 0), (0, 0)],
+        },
+        "follow_cursor_after": {
+            "gaze": (-1 if index < 4 else 1, 0),
+            "offsets": [(0, 0), (-1, 0), (-1, 0), (0, 0), (1, 0), (1, 0), (0, 0), (0, 0)],
+        },
+    }[reaction]
+    dx, dy = plans["offsets"][index % len(plans["offsets"])]
+    result = move_character_layer(frame, stage, dx, dy)
+    gaze_x, gaze_y = plans["gaze"]
+    result = apply_gaze(result, stage, gaze_x, gaze_y)
+    draw = ImageDraw.Draw(result)
+    if reaction == "follow_cursor_fast":
+        anchor = bubble_anchor(stage)
+        sweep_y = anchor[1] + 86 + (index % 2) * 3
+        sweep_x = anchor[0] - 82 + index * 18
+        draw.rectangle((sweep_x, sweep_y, sweep_x + 24, sweep_y + 3), fill=(242, 246, 255, 96))
     return result
 
 
@@ -240,12 +355,135 @@ def is_grass_pixel(r: int, g: int, b: int) -> bool:
     return g > r * 1.08 and g > b * 1.08 and g > 76
 
 
+def apply_gaze(frame: Image.Image, stage: str, dx: int, dy: int) -> Image.Image:
+    eyes = find_eye_components(frame, stage)
+    if len(eyes) < 2:
+        return frame
+
+    result = frame.copy()
+    for eye in eyes[:2]:
+        move_eye_pixels(result, eye, dx, dy)
+    return result
+
+
+def find_eye_components(frame: Image.Image, stage: str) -> list[dict[str, int]]:
+    left, top, right, bottom = face_region(stage)
+    pixels = frame.load()
+    visited: set[tuple[int, int]] = set()
+    components: list[dict[str, int]] = []
+
+    for y in range(top, bottom):
+        for x in range(left, right):
+            if (x, y) in visited or not is_eye_dark_pixel(pixels[x, y]):
+                continue
+            stack = [(x, y)]
+            visited.add((x, y))
+            xs: list[int] = []
+            ys: list[int] = []
+            while stack:
+                cx, cy = stack.pop()
+                xs.append(cx)
+                ys.append(cy)
+                for nx in range(cx - 1, cx + 2):
+                    for ny in range(cy - 1, cy + 2):
+                        if nx < left or nx >= right or ny < top or ny >= bottom or (nx, ny) in visited:
+                            continue
+                        if is_eye_dark_pixel(pixels[nx, ny]):
+                            visited.add((nx, ny))
+                            stack.append((nx, ny))
+            if len(xs) >= 12:
+                components.append({
+                    "left": min(xs),
+                    "top": min(ys),
+                    "right": max(xs) + 1,
+                    "bottom": max(ys) + 1,
+                    "area": len(xs),
+                })
+
+    components.sort(key=lambda item: (item["top"], -item["area"]))
+    candidates = [item for item in components if item["bottom"] - item["top"] >= 5]
+    candidates = sorted(candidates[:4], key=lambda item: item["left"])
+    if len(candidates) > 2:
+        mid = (left + right) / 2
+        left_eye = max((item for item in candidates if item["left"] < mid), key=lambda item: item["area"], default=None)
+        right_eye = max((item for item in candidates if item["left"] >= mid), key=lambda item: item["area"], default=None)
+        return [item for item in [left_eye, right_eye] if item]
+    return candidates
+
+
+def move_eye_pixels(frame: Image.Image, eye: dict[str, int], dx: int, dy: int) -> None:
+    left = max(0, eye["left"] - 2)
+    top = max(0, eye["top"] - 2)
+    right = min(FRAME, eye["right"] + 2)
+    bottom = min(FRAME, eye["bottom"] + 2)
+    crop = frame.crop((left, top, right, bottom))
+    skin = sample_skin_color(frame, left, top, right, bottom)
+    draw = ImageDraw.Draw(frame)
+    draw.rectangle((left, top, right, bottom), fill=skin)
+
+    mask = Image.new("L", crop.size, 0)
+    mask_pixels = mask.load()
+    crop_pixels = crop.load()
+    for y in range(crop.height):
+        for x in range(crop.width):
+            if is_eye_detail_pixel(crop_pixels[x, y]):
+                mask_pixels[x, y] = crop_pixels[x, y][3]
+
+    target = Image.new("RGBA", crop.size, (0, 0, 0, 0))
+    target.paste(crop, (0, 0), mask)
+    shifted = shift_image(target, int(dx) * 2, int(dy) * 1)
+    frame.alpha_composite(shifted, (left, top))
+
+
+def face_region(stage: str) -> tuple[int, int, int, int]:
+    return {
+        "spore": (214, 332, 302, 394),
+        "baby": (178, 278, 334, 376),
+        "young": (154, 236, 360, 366),
+        "adult": (142, 238, 372, 382),
+        "legendary": (138, 236, 378, 384),
+    }.get(stage, (142, 238, 372, 382))
+
+
+def is_eye_dark_pixel(pixel: tuple[int, int, int, int]) -> bool:
+    r, g, b, a = pixel
+    return a > 80 and r < 95 and g < 95 and b < 95
+
+
+def is_eye_detail_pixel(pixel: tuple[int, int, int, int]) -> bool:
+    r, g, b, a = pixel
+    if a <= 20:
+        return False
+    return (r < 110 and g < 110 and b < 110) or (r > 185 and g > 185 and b > 170)
+
+
+def sample_skin_color(frame: Image.Image, left: int, top: int, right: int, bottom: int) -> tuple[int, int, int, int]:
+    pixels = frame.load()
+    colors: list[tuple[int, int, int]] = []
+    sample_left = max(0, left - 10)
+    sample_top = max(0, top - 8)
+    sample_right = min(FRAME, right + 10)
+    sample_bottom = min(FRAME, bottom + 14)
+    for y in range(sample_top, sample_bottom):
+        for x in range(sample_left, sample_right):
+            r, g, b, a = pixels[x, y]
+            if a <= 160 or is_grass_pixel(r, g, b) or is_eye_detail_pixel((r, g, b, a)):
+                continue
+            if r >= 150 and 105 <= g <= 235 and 70 <= b <= 205:
+                colors.append((r, g, b))
+    if not colors:
+        return (244, 198, 150, 255)
+    colors.sort(key=lambda color: color[0] + color[1] + color[2])
+    r, g, b = colors[len(colors) // 2]
+    return (r, g, b, 255)
+
+
 def shift_image(image: Image.Image, dx: int, dy: int) -> Image.Image:
     result = Image.new("RGBA", image.size, (0, 0, 0, 0))
     src_left = max(0, -dx)
     src_top = max(0, -dy)
-    src_right = FRAME - max(0, dx)
-    src_bottom = FRAME - max(0, dy)
+    src_right = image.width - max(0, dx)
+    src_bottom = image.height - max(0, dy)
     if src_right <= src_left or src_bottom <= src_top:
         return result
 

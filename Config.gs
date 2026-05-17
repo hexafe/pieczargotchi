@@ -9,8 +9,10 @@ const PIECZARGOTCHI_RUNTIME_OPTIONS = {
   assetMode: 'full'
 };
 
+const PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID = '';
+
 const PIECZARGOTCHI_ASSET_FILE_IDS = {
-  // Local preview uses assets/... fallback. Fill Drive file IDs before Apps Script deployment.
+  // Lokalny podglad uzywa fallbacku assets/... . Folder Drive moze uzupelnic ID po fileName.
   'environment.grassPatch': ''
 };
 
@@ -23,6 +25,7 @@ function getStaticAppConfig() {
     stateVersion: PIECZARGOTCHI_STATE_VERSION,
     canvasSize: PIECZARGOTCHI_CANVAS_SIZE,
     runtime: Object.assign({}, PIECZARGOTCHI_RUNTIME_OPTIONS),
+    assetDriveFolderConfigured: Boolean(PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID),
     assets: assets.map(function(asset) {
       return Object.assign({}, asset, { hasFileId: Boolean(asset.fileId) });
     }),

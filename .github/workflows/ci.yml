@@ -37,6 +37,9 @@ jobs:
       - name: Run client core tests
         run: node scripts/test-client-core.mjs
 
+      - name: Run asset service tests
+        run: node scripts/test-asset-service.mjs
+
       - name: Run weather precipitation motion tests
         run: node scripts/test-weather-precip-motion.mjs
 

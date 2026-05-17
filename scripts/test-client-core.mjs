@@ -749,7 +749,7 @@ test('immersion reaction prefers fresh pointer tap and blocks when care state ne
   }, now, rules);
 
   assert(reaction && reaction.id === 'pointerTap', `expected pointer tap reaction, got ${reaction && reaction.id}`);
-  assert(reaction.state === 'curious', `expected curious state, got ${reaction.state}`);
+  assert(reaction.state === 'watch_cursor_right', `expected cursor watch state, got ${reaction.state}`);
 
   const blocked = core.selectImmersionReaction({
     ...state,
@@ -761,6 +761,68 @@ test('immersion reaction prefers fresh pointer tap and blocks when care state ne
     lastMoveAt: now - 80
   }, now, rules);
   assert(blocked === null, 'active care need should block immersion reaction');
+});
+
+test('cursor immersion follows direction and fast fly-by path', () => {
+  const now = 1_200_000;
+  const rules = {
+    attention: { mildThreshold: 45, criticalThreshold: 25 },
+    needDefinitions: {
+      hydration: { category: 'physical', actionId: 'hydrate' }
+    }
+  };
+  const state = {
+    mode: 'awake',
+    stats: { hydration: 82, nutrients: 82, happiness: 82, cleanliness: 82, energy: 82, health: 100 },
+    patch: { quality: 82 },
+    attention: {}
+  };
+  const scene = { condition: 'clear', isDay: true, cloudCover: 82, precipitation: 0 };
+  const left = core.selectImmersionReaction(state, scene, {
+    inside: true,
+    x: 146,
+    y: 270,
+    previousX: 158,
+    previousY: 270,
+    lastMoveAt: now - 70,
+    consumedDownAt: 0,
+    speed: 0.18
+  }, now, rules);
+  const upRight = core.selectImmersionReaction(state, scene, {
+    inside: true,
+    x: 340,
+    y: 184,
+    previousX: 330,
+    previousY: 190,
+    lastMoveAt: now - 70,
+    consumedDownAt: 0,
+    speed: 0.18
+  }, now, rules);
+  const fast = core.selectImmersionReaction(state, scene, {
+    inside: true,
+    x: 420,
+    y: 306,
+    previousX: 88,
+    previousY: 294,
+    lastMoveAt: now - 40,
+    consumedDownAt: 0,
+    speed: 2.1
+  }, now, rules);
+  const after = core.selectImmersionReaction(state, scene, {
+    inside: false,
+    x: 430,
+    y: 294,
+    previousX: 250,
+    previousY: 294,
+    lastMoveAt: now - 120,
+    consumedDownAt: 0,
+    speed: 0
+  }, now, rules);
+
+  assert(left && left.state === 'watch_cursor_left', `expected left cursor watch, got ${left && left.state}`);
+  assert(upRight && upRight.state === 'watch_cursor_up_right', `expected up-right cursor watch, got ${upRight && upRight.state}`);
+  assert(fast && fast.state === 'follow_cursor_fast', `expected fast follow, got ${fast && fast.state}`);
+  assert(after && after.state === 'follow_cursor_after', `expected after-follow outside canvas, got ${after && after.state}`);
 });
 
 test('immersion reaction maps weather and celestial context to dedicated animation states', () => {
@@ -909,7 +971,61 @@ test('quiet neutral scenes can select idle fidget or ponder motion', () => {
   }
 
   assert(reaction && reaction.source === 'idle', 'expected deterministic idle motion in quiet scene');
-  assert(['idle_fidget', 'ponder'].includes(reaction.state), `expected idle fidget or ponder, got ${reaction && reaction.state}`);
+  assert([
+    'idle_fidget_sway',
+    'idle_fidget_shift',
+    'idle_look_left',
+    'idle_look_right',
+    'ponder_up',
+    'ponder_side',
+    'ponder_breath'
+  ].includes(reaction.state), `expected idle or ponder variant, got ${reaction && reaction.state}`);
+});
+
+test('idle and ponder variants avoid repeating the last chosen animation', () => {
+  const rules = {
+    attention: { mildThreshold: 45, criticalThreshold: 25 },
+    needDefinitions: {
+      hydration: { category: 'physical', actionId: 'hydrate' }
+    }
+  };
+  const state = {
+    mode: 'awake',
+    stats: { hydration: 82, nutrients: 82, happiness: 72, cleanliness: 82, energy: 82, health: 100 },
+    patch: { quality: 72 },
+    attention: {}
+  };
+  const quietScene = {
+    condition: 'cloudy',
+    isDay: true,
+    dayPhase: 'afternoon',
+    cloudCover: 96,
+    precipitation: 0,
+    rain: 0,
+    snowfall: 0,
+    temperature: 1,
+    humidity: 60,
+    windLevel: 0.08,
+    latitude: 50.2649
+  };
+  const start = Date.parse('2026-01-08T13:00:00.000Z');
+  let first = null;
+  for (let step = 0; step < 80; step += 1) {
+    const candidate = core.selectImmersionReaction(state, quietScene, { inside: false }, start + step * 23000, rules);
+    if (candidate && candidate.source === 'idle') {
+      first = { candidate, now: start + step * 23000 };
+      break;
+    }
+  }
+
+  assert(first, 'expected first idle variant');
+  const repeated = core.selectImmersionReaction(state, quietScene, {
+    inside: false,
+    lastVariantByGroup: {
+      [first.candidate.variantGroup]: first.candidate.state
+    }
+  }, first.now, rules);
+  assert(repeated && repeated.state !== first.candidate.state, `expected different variant than ${first.candidate.state}, got ${repeated && repeated.state}`);
 });
 
 test('battle training spends one spore and respects the configured cap', () => {

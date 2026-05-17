@@ -18,6 +18,7 @@ Run checks from the repository root. Prefer these gates before committing:
 - `git status --short --branch`: inspect the worktree before and after edits.
 - `node scripts/check-client-syntax.mjs`: validate included client partial syntax.
 - `node scripts/test-client-core.mjs`: run deterministic core rules tests.
+- `node scripts/test-asset-service.mjs`: verify Drive folder asset lookup and manual ID overrides.
 - `env TZ=UTC node scripts/test-client-core.mjs`: catch timezone-sensitive care rhythm regressions.
 - `node scripts/test-weather-precip-motion.mjs`: verify rain/snow motion and render-pass ordering.
 - `node scripts/check-deployment-readiness.mjs`: validate Apps Script packaging assumptions.
@@ -34,6 +35,8 @@ Use two-space indentation for JavaScript, Apps Script, HTML, and CSS. Prefer sma
 Keep game rules deterministic and testable. Rule logic belongs in `GameRules.gs`, `StateModel.gs`, or `ClientCore*.html`, not directly in renderers. UI controls and keyboard shortcuts should call the same action path, usually `handleAction(actionId)`.
 
 Visible UI strings, logs, confirmations, and messages are Polish. Function and variable names may stay English. Main mushroom states, activities, and large immersion reactions must come from PNG sheets; JavaScript draws only temporary effects, weather, grass, overlays, pointer ripples, and particles.
+
+When adding stage animations, update `AnimationConfig.gs`, generate or add the corresponding `assets/stages/<stage>/<state>_sheet.png` files for every stage, extend focused tests for selection behavior, and refresh `docs/SPRITE_BIBLE.md` plus `docs/IMAGEGEN_ASSET_PIPELINE.md`.
 
 ## Gameplay Contracts
 
@@ -59,4 +62,4 @@ Stage intentionally in dirty worktrees. Do not use broad `git add -A` when local
 
 ## Security & Configuration Tips
 
-Do not commit private Drive URLs, secrets, deployment credentials, or local `.clasp.json` files. Store only required Drive file IDs in config. Browser persistence stays under `pieczargotchi_state_v2` unless a migration explicitly changes it.
+Do not commit private Drive URLs, secrets, deployment credentials, or local `.clasp.json` files. Prefer `PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID` for deployment asset loading and store only the folder ID, not a URL. Use `PIECZARGOTCHI_ASSET_FILE_IDS` only for intentional per-asset overrides; manual entries win over folder lookup. Browser persistence stays under `pieczargotchi_state_v2` unless a migration explicitly changes it.

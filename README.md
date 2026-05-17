@@ -7,7 +7,7 @@ The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake l
 ## Current Layout
 
 - `Code.gs` - Apps Script `doGet()` entrypoint and HTML partial include helper.
-- `Config.gs` - app constants, state version, canvas size, runtime flags, and Drive asset IDs.
+- `Config.gs` - app constants, state version, canvas size, runtime flags, Drive asset folder ID, and optional per-asset Drive ID overrides.
 - `AnimationConfig.gs` - runtime animation manifest for stage and activity sprite sheets.
 - `AssetService.gs` - Drive PNG to data URL loading for the client.
 - `StateModel.gs` - default state shape and state metadata exposed to the client.
@@ -66,11 +66,15 @@ npx @google/clasp push
 Do not commit `.clasp.json`, private Apps Script script IDs, private Drive URLs, or deployment credentials. The repo `.gitignore` keeps `.clasp.json` local.
 Use `docs/APPS_SCRIPT_DEPLOYMENT_DRY_RUN.md` for the full test-project dry-run checklist.
 
-Set the Drive file IDs for runtime assets in `Config.gs`:
+For Apps Script deployment, the preferred asset setup is a single Drive folder configured in `Config.gs`:
 
-- keys matching the animation manifest, for example `spore.idle`, `baby.sleep`, and `baby.activity.hydrate`
+- set `PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID` to the folder ID, not a full Drive URL
+- keep the Drive folder structure aligned with manifest paths such as `stages/adult/idle_sheet.png` and `activities/baby/feed_sheet.png`
+- flat folders only work for files whose basenames are unique
 
-If the IDs are blank or unavailable, the local preview loads PNG files from `assets/`. In a deployed Apps Script environment, missing Drive IDs fall back to canvas placeholders instead of showing a blank app. Reference files under `assets/reference/` are not loaded at runtime.
+Manual `PIECZARGOTCHI_ASSET_FILE_IDS` entries can still override individual asset keys, for example `spore.idle`, `baby.sleep`, or `baby.activity.hydrate`.
+
+If the folder ID and manual IDs are blank or unavailable, the local preview loads PNG files from `assets/`. In a deployed Apps Script environment, missing Drive IDs fall back to canvas placeholders instead of showing a blank app. Reference files under `assets/reference/` are not loaded at runtime.
 
 Production runtime flags live in `Config.gs`. By default the deployed config keeps the debug panel and `window.__pieczargotchiRuntime` private; `dev-server.mjs` enables both for local preview and capture tooling.
 
@@ -132,6 +136,7 @@ Quick local syntax checks:
 node scripts/check-client-syntax.mjs
 node scripts/check-deployment-readiness.mjs
 node scripts/test-client-core.mjs
+node scripts/test-asset-service.mjs
 env TZ=UTC node scripts/test-client-core.mjs
 node scripts/test-weather-precip-motion.mjs
 node -e "const fs=require('fs'); for (const f of ['Code.gs','Config.gs','AnimationConfig.gs','AssetService.gs','StateModel.gs','GameRules.gs','MinigamesConfig.gs','EvolutionRules.gs','DecorationStore.gs','SyncService.gs','Actions.gs']) { new Function(fs.readFileSync(f,'utf8')); console.log(f + ' syntax ok'); }"

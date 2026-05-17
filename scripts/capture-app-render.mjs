@@ -27,7 +27,18 @@ const activitySamples = ['hydrate', 'feed', 'clean', 'play', 'instrument', 'sing
 const immersionSamples = [
   { id: 'pointerHover', state: 'curious' },
   { id: 'idleFidget', state: 'idle_fidget' },
+  { id: 'idleFidgetSway', state: 'idle_fidget_sway' },
+  { id: 'idleLookLeft', state: 'idle_look_left' },
+  { id: 'idleLookRight', state: 'idle_look_right' },
   { id: 'ponder', state: 'ponder' },
+  { id: 'ponderUp', state: 'ponder_up' },
+  { id: 'ponderSide', state: 'ponder_side' },
+  { id: 'cursorLeft', state: 'watch_cursor_left' },
+  { id: 'cursorRight', state: 'watch_cursor_right' },
+  { id: 'cursorUpLeft', state: 'watch_cursor_up_left' },
+  { id: 'cursorUpRight', state: 'watch_cursor_up_right' },
+  { id: 'cursorFast', state: 'follow_cursor_fast' },
+  { id: 'cursorAfter', state: 'follow_cursor_after' },
   { id: 'sun', state: 'sun' },
   { id: 'rain', state: 'rain' },
   { id: 'stargaze', state: 'stargaze' },
@@ -669,7 +680,15 @@ function getCaptureImmersionDebugOverrides(id) {
   if (id === 'ambientCrawler') {
     return { fixedAt: Date.parse('2026-06-14T17:00:00.000Z'), weather: 'clear', cloudCoverOverride: 22, precipitationOverride: 0, windOverride: 1.6 };
   }
-  if (id === 'idleFidget' || id === 'ponder' || id === 'ambientButterfly') {
+  if (id === 'idleFidget'
+    || id === 'idleFidgetSway'
+    || id === 'idleLookLeft'
+    || id === 'idleLookRight'
+    || id === 'ponder'
+    || id === 'ponderUp'
+    || id === 'ponderSide'
+    || id.startsWith('cursor')
+    || id === 'ambientButterfly') {
     return { fixedAt: Date.parse('2026-06-14T14:00:00.000Z'), weather: 'clear', cloudCoverOverride: 16, precipitationOverride: 0, windOverride: 1.2 };
   }
   return { fixedAt: Date.parse('2026-05-14T12:00:00.000Z'), weather: 'clear', cloudCoverOverride: 18, precipitationOverride: 0 };
@@ -694,7 +713,15 @@ function getCaptureImmersionSceneOverrides(id) {
   if (id === 'ambientCrawler') {
     return { condition: 'clear', isDay: true, dayPhase: 'afternoon', cloudCover: 22, precipitation: 0, rain: 0, snowfall: 0, windSpeed: 1.6, gustLevel: 0.2, crawlerIntensity: 1 };
   }
-  if (id === 'idleFidget' || id === 'ponder' || id === 'ambientButterfly') {
+  if (id === 'idleFidget'
+    || id === 'idleFidgetSway'
+    || id === 'idleLookLeft'
+    || id === 'idleLookRight'
+    || id === 'ponder'
+    || id === 'ponderUp'
+    || id === 'ponderSide'
+    || id.startsWith('cursor')
+    || id === 'ambientButterfly') {
     return { condition: 'clear', isDay: true, dayPhase: 'afternoon', cloudCover: 16, precipitation: 0, rain: 0, snowfall: 0, windSpeed: 1.2, gustLevel: 0.1, butterflyIntensity: 1 };
   }
   return { condition: 'clear', isDay: true, dayPhase: 'noon', cloudCover: 18, precipitation: 0, rain: 0, snowfall: 0 };

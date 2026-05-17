@@ -4,8 +4,10 @@
     pointerFaceRadius: 170,
     pointerGroundRadius: 96,
     pointerMinSpeed: 0.42,
+    pointerFastMinSpeed: 0.86,
+    pointerTrailFreshMs: 1250,
     pointerHoverDurationMs: 1500,
-    pointerHoverCooldownMs: 2600,
+    pointerHoverCooldownMs: 900,
     pointerTapDurationMs: 1150,
     pointerTapCooldownMs: 2400,
     weatherDurationMs: 2600,
@@ -48,7 +50,7 @@
       return celestial;
     }
 
-    const idleMotion = selectIdleImmersionReaction(scene, timestamp, config);
+    const idleMotion = selectIdleImmersionReaction(scene, safeInput, timestamp, config);
     if (idleMotion) {
       return idleMotion;
     }
@@ -99,11 +101,8 @@
       && now - downAt <= config.pointerTapFreshMs
       && isPointNearMushroomCore(x, y, 'body', config.pointerFaceRadius + 22)
     ) {
-      return buildImmersionCandidate('pointerTap', 'curious', 'input', downAt, config.pointerTapDurationMs, config.pointerTapCooldownMs, 92);
-    }
-
-    if (!inside) {
-      return null;
+      const state = selectPointerLookState(input, 'tap');
+      return buildImmersionCandidate('pointerTap', state, 'input', downAt, config.pointerTapDurationMs, config.pointerTapCooldownMs, 92, 'watch_cursor', 'pointer');
     }
 
     const movedAt = readOptionalCoreNumber(input.lastMoveAt);
@@ -112,15 +111,73 @@
     }
 
     const speed = Math.max(0, Number(input.speed) || 0);
+    if (
+      speed >= config.pointerFastMinSpeed
+      && (isPointNearMushroomCore(x, y, 'body', config.pointerFaceRadius + 70) || isPointerPathNearMushroomCore(input, config.pointerFaceRadius + 44))
+    ) {
+      return buildImmersionCandidate('pointerFollowFast', 'follow_cursor_fast', 'input', movedAt, 980, 520, 86, 'follow_cursor', 'pointer');
+    }
+
+    if (!inside) {
+      if (
+        now - movedAt <= config.pointerTrailFreshMs
+        && (isPointNearMushroomCore(x, y, 'body', config.pointerFaceRadius + 44) || isPointerPathNearMushroomCore(input, config.pointerFaceRadius + 36))
+      ) {
+        return buildImmersionCandidate('pointerFollowAfter', 'follow_cursor_after', 'input', movedAt, 1150, 900, 78, 'follow_cursor', 'pointer');
+      }
+      return null;
+    }
+
     if (isPointNearMushroomCore(x, y, 'face', config.pointerFaceRadius)) {
-      return buildImmersionCandidate('pointerHover', 'curious', 'input', movedAt, config.pointerHoverDurationMs, config.pointerHoverCooldownMs, 80);
+      const state = selectPointerLookState(input, 'hover');
+      return buildImmersionCandidate('pointerHover', state, 'input', movedAt, config.pointerHoverDurationMs, config.pointerHoverCooldownMs, 80, 'watch_cursor', 'pointer');
     }
 
     if (speed >= config.pointerMinSpeed && isPointNearMushroomCore(x, y, 'ground', config.pointerGroundRadius)) {
-      return buildImmersionCandidate('pointerGrass', 'curious', 'input', movedAt, 900, 1800, 74);
+      return buildImmersionCandidate('pointerGrass', 'follow_cursor_after', 'input', movedAt, 980, 900, 74, 'follow_cursor', 'pointer');
     }
 
     return null;
+  }
+
+  function selectPointerLookState(input, mode) {
+    const rawX = readOptionalCoreNumber(input.x);
+    const rawY = readOptionalCoreNumber(input.y);
+    const x = rawX === null ? 256 : rawX;
+    const y = rawY === null ? 256 : rawY;
+    const previousX = readOptionalCoreNumber(input.previousX);
+    const dx = x - 256;
+    const dy = y - 268;
+    const movedRight = previousX !== null ? x >= previousX : dx >= 0;
+    const lookRight = Math.abs(dx) < 18 ? movedRight : dx >= 0;
+    if (mode === 'tap' && dy > 78) {
+      return lookRight ? 'watch_cursor_right' : 'watch_cursor_left';
+    }
+    if (dy < -28) {
+      return lookRight ? 'watch_cursor_up_right' : 'watch_cursor_up_left';
+    }
+    return lookRight ? 'watch_cursor_right' : 'watch_cursor_left';
+  }
+
+  function isPointerPathNearMushroomCore(input, radius) {
+    const x = readOptionalCoreNumber(input.x);
+    const y = readOptionalCoreNumber(input.y);
+    const previousX = readOptionalCoreNumber(input.previousX);
+    const previousY = readOptionalCoreNumber(input.previousY);
+    if (x === null || y === null || previousX === null || previousY === null) {
+      return false;
+    }
+    const center = { x: 256, y: 296 };
+    const vx = x - previousX;
+    const vy = y - previousY;
+    const lenSq = vx * vx + vy * vy;
+    if (lenSq <= 0.001) {
+      return isPointNearMushroomCore(x, y, 'body', radius);
+    }
+    const t = clampNumber(((center.x - previousX) * vx + (center.y - previousY) * vy) / lenSq, 0, 1, 0);
+    const closestX = previousX + vx * t;
+    const closestY = previousY + vy * t;
+    return Math.hypot(closestX - center.x, closestY - center.y) <= radius;
   }
 
   function selectWeatherImmersionReaction(scene, now, config) {
@@ -211,7 +268,7 @@
     return candidate;
   }
 
-  function selectIdleImmersionReaction(scene, now, config) {
+  function selectIdleImmersionReaction(scene, input, now, config) {
     const source = isPlainObject(scene) ? scene : {};
     const condition = source.condition || 'clear';
     const precipitation = Math.max(0, Number(source.precipitation) || 0, Number(source.rain) || 0, Number(source.snowfall) || 0);
@@ -234,22 +291,49 @@
       return null;
     }
 
-    const state = immersionSeededUnit(seed + 17) > 0.48 ? 'ponder' : 'idle_fidget';
+    const usePonder = immersionSeededUnit(seed + 17) > 0.48;
+    const group = usePonder ? 'ponder' : 'idle_fidget';
+    const state = chooseImmersionVariant(group, getImmersionVariants(group), seed + 23, input);
     return buildImmersionCandidate(
-      state === 'ponder' ? 'idlePonder' : 'idleFidget',
+      group === 'ponder' ? 'idlePonder' : 'idleFidget',
       state,
       'idle',
       cycleStart,
       config.idleFidgetDurationMs,
       config.idleFidgetCooldownMs,
-      38
+      38,
+      group,
+      group
     );
   }
 
-  function buildImmersionCandidate(id, state, source, sourceAt, durationMs, cooldownMs, priority) {
+  function getImmersionVariants(group) {
+    const variants = {
+      idle_fidget: ['idle_fidget_sway', 'idle_fidget_shift', 'idle_look_left', 'idle_look_right'],
+      ponder: ['ponder_up', 'ponder_side', 'ponder_breath']
+    };
+    return variants[group] || [];
+  }
+
+  function chooseImmersionVariant(group, variants, seed, input) {
+    if (!variants.length) {
+      return group;
+    }
+    const lastByGroup = isPlainObject(input) && isPlainObject(input.lastVariantByGroup) ? input.lastVariantByGroup : {};
+    const last = lastByGroup[group] || '';
+    let index = Math.floor(immersionSeededUnit(seed) * variants.length) % variants.length;
+    if (variants.length > 1 && variants[index] === last) {
+      index = (index + 1 + Math.floor(immersionSeededUnit(seed + 7) * (variants.length - 1))) % variants.length;
+    }
+    return variants[index];
+  }
+
+  function buildImmersionCandidate(id, state, source, sourceAt, durationMs, cooldownMs, priority, variantGroup, logicalState) {
     return {
       id: id,
       state: state,
+      logicalState: logicalState || state,
+      variantGroup: variantGroup || '',
       source: source,
       sourceAt: sourceAt,
       durationMs: Math.max(300, Number(durationMs) || 1200),
