@@ -36,6 +36,7 @@ def main() -> None:
         reports.append({"label": label, **item})
         height_delta = abs(float(item["height"]) - float(reference["height"]))
         center_delta = distance(item, reference)
+        frame_multiplier = max(1.0, float(item["frame_count"]) / 4)
 
         if height_delta > MAX_BODY_HEIGHT_DELTA:
             failures.append(f"{label}: wysokosc ciala rozni sie od idle o {height_delta:.1f}px")
@@ -43,9 +44,9 @@ def main() -> None:
             failures.append(f"{label}: srodek ciala rozni sie od idle o {center_delta:.1f}px")
         if float(item["drift"]) > MAX_FRAME_DRIFT:
             failures.append(f"{label}: klatki dryfuja o {float(item['drift']):.1f}px")
-        if int(item["magenta_edge"]) > MAX_MAGENTA_EDGE_PIXELS:
+        if int(item["magenta_edge"]) > MAX_MAGENTA_EDGE_PIXELS * frame_multiplier:
             failures.append(f"{label}: podejrzane magentowe piksele krawedziowe {int(item['magenta_edge'])}")
-        if int(item["center_leaf"]) > MAX_CENTER_LEAF_PIXELS:
+        if int(item["center_leaf"]) > MAX_CENTER_LEAF_PIXELS * frame_multiplier:
             failures.append(f"{label}: podejrzane zielone piksele liscia przy glowie {int(item['center_leaf'])}")
 
     print("[spore body audit]")
@@ -53,6 +54,7 @@ def main() -> None:
         print(
             f"{str(item['label']):22s} "
             f"{float(item['width']):6.1f}x{float(item['height']):6.1f} "
+            f"frames={int(item['frame_count']):2d} "
             f"center={float(item['center_x']):6.1f},{float(item['center_y']):6.1f} "
             f"drift={float(item['drift']):4.1f}px "
             f"magenta={int(item['magenta_edge']):3d} "
@@ -101,6 +103,7 @@ def measure_sheet(path: Path, builder) -> dict[str, float | int]:
     first_y = centers_y[0]
 
     return {
+        "frame_count": frame_count,
         "width": sum(widths) / len(widths),
         "height": sum(heights) / len(heights),
         "center_x": sum(centers_x) / len(centers_x),

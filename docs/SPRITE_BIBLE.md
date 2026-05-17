@@ -74,12 +74,12 @@ Te zasady są obowiązkowe dla wszystkich nowych sheetów.
 
 - Każda klatka runtime ma rozmiar `512x512`.
 - Każdy sheet jest układany poziomo.
-- Aktualna paczka używa `4` klatek na sheet.
-- Aktualny rozmiar każdego sheetu w repo to `2048x512`.
+- Większość sheetów w paczce używa `4` klatek, czyli rozmiaru `2048x512`.
+- `rain_sheet.png` jest celowym wyjątkiem: używa `16` klatek, czyli rozmiaru `8192x512`, żeby pokazać narastanie kropli, spływanie po kapeluszu, oderwanie i rozbicie o ziemię.
 - Format pliku: `PNG RGBA` z przezroczystym tłem.
 - Runtime zakłada, że sprite jest już poprawnie wycentrowany. Renderer nie ma korygować pozycji offsetami per klatka.
 
-Wniosek praktyczny: jeśli nowy plik nie ma `2048x512`, to najpierw trzeba wyjaśnić zmianę kontraktu, a nie liczyć, że klient to "łyknie".
+Wniosek praktyczny: jeśli nowy plik nie ma liczby klatek zgodnej z `AnimationConfig.gs`, to najpierw trzeba wyjaśnić zmianę kontraktu i zaktualizować manifest, a nie liczyć, że klient to "łyknie".
 
 ## 3. Styl i paleta
 
@@ -187,7 +187,7 @@ Aktualny kontrakt stage'owy to 16 sheetów na etap:
 | `excellent_sheet.png` | bardzo dobra opieka, połysk, stan nagrody |
 | `curious_sheet.png` | reakcja na obecność kursora, tapnięcie albo szelest przy Pieczarce |
 | `sun_sheet.png` | spokojna reakcja na słoneczne okno pogodowe |
-| `rain_sheet.png` | zwykła reakcja na deszcz/storm foreground; nie używa wariantu `neutral_rain`, parasolki ani miny `:|` |
+| `rain_sheet.png` | zwykła reakcja na deszcz/storm foreground; 16-klatkowy cykl większych kropli spływających po kapeluszu i spadających na ziemię; nie używa wariantu `neutral_rain`, parasolki ani miny `:|` |
 | `stargaze_sheet.png` | nocna reakcja na gwiazdy i konstelacje |
 | `snow_sheet.png` | reakcja na śnieg i chłód |
 | `tired_sheet.png` | senność i opadanie energii |
@@ -273,8 +273,8 @@ Nowy sheet nie powinien trafiać do runtime bez tej listy kontrolnej.
 ### Walidacja techniczna
 
 - plik jest w `PNG RGBA`,
-- rozmiar całego sheetu to `2048x512`,
-- liczba klatek zgadza się z układem `4 x 512x512`,
+- rozmiar całego sheetu zgadza się z manifestem runtime (`frameCount * 512` na `512`),
+- liczba klatek zgadza się z `AnimationConfig.gs` i szerokością pliku,
 - tło jest przezroczyste,
 - nazwa pliku trzyma obowiązujący wzorzec,
 - plik trafia do właściwego katalogu: `assets/stages/<stage>/`, `assets/activities/<stage>/` albo `assets/effects/`.
@@ -342,7 +342,7 @@ Nowy sheet nie powinien trafiać do runtime bez tej listy kontrolnej.
 Dobry sheet Pieczargotchi:
 
 - wygląda jak część tej samej paczki,
-- mieści się w `2048x512`,
+- mieści się w rozmiarze opisanym przez manifest runtime,
 - jest wycentrowany bez ręcznych offsetów w runtime,
 - komunikuje stan albo aktywność bez podpisu,
 - nie robi bałaganu większego niż korzyść z animacji.

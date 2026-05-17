@@ -52,8 +52,8 @@ const PIECZARGOTCHI_STAGE_ANIMATIONS = [
   },
   {
     state: 'rain',
-    frameCount: 4,
-    frameDurationsMs: [180, 220, 260, 360],
+    frameCount: 16,
+    frameDurationsMs: [260, 220, 180, 150, 130, 120, 115, 110, 105, 105, 110, 130, 160, 210, 280, 340],
     loop: true,
     priority: 36
   },

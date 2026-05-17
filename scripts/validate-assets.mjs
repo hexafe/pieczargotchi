@@ -15,7 +15,7 @@ const katalogiSrodowiska = [
   path.join(katalogGlowny, 'assets', 'environment')
 ];
 const rozmiarKlatki = 512;
-const oczekiwanaLiczbaKlatek = 4;
+const domyslnaLiczbaKlatek = 4;
 const przezroczystoscProgu = 8;
 const progOstrzezeniaKrawedzi = 64;
 const progArtefaktowKrawedzi = 384;
@@ -23,6 +23,7 @@ const progArtefaktowKrawedzi = 384;
 const plikiSheetow = katalogiSheetow.flatMap(zbierzPng);
 const plikiSrodowiska = katalogiSrodowiska.flatMap(zbierzPng);
 const manifest = wczytajManifestRuntime();
+const manifestByFile = new Map(manifest.map((asset) => [asset.fileName, asset]));
 const manifestFiles = new Set(manifest.map((asset) => asset.fileName));
 const validatedFiles = new Set(
   plikiSheetow.concat(plikiSrodowiska).map((plik) => path.relative(path.join(katalogGlowny, 'assets'), plik))
@@ -84,6 +85,8 @@ function zbierzPng(katalog) {
 
 function sprawdzSheet(plik) {
   const obraz = wczytajPng(plik);
+  const wzglednaSciezka = path.relative(path.join(katalogGlowny, 'assets'), plik);
+  const oczekiwanaLiczbaKlatek = odczytajOczekiwanaLiczbeKlatek(wzglednaSciezka);
 
   if (obraz.height !== rozmiarKlatki) {
     throw new Error(`wysokość ${obraz.height}px, oczekiwano ${rozmiarKlatki}px`);
@@ -148,6 +151,16 @@ function sprawdzSheet(plik) {
       ostrzezenia.push(`${path.relative(katalogGlowny, plik)} klatka ${indeks + 1} ma miękki drift ${drift.toFixed(1)}px`);
     }
   });
+}
+
+function odczytajOczekiwanaLiczbeKlatek(wzglednaSciezka) {
+  const asset = manifestByFile.get(wzglednaSciezka);
+  const frames = Number(asset && asset.frames);
+  if (Number.isFinite(frames) && frames > 0) {
+    return frames;
+  }
+
+  return domyslnaLiczbaKlatek;
 }
 
 function sprawdzAssetSrodowiska(plik) {

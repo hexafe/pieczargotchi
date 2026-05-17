@@ -182,8 +182,6 @@
       drawPointerCuriosity(ctx, now, active);
     } else if (active.id === 'pointerGrass') {
       drawPointerGrassRustle(ctx, now, active);
-    } else if (active.id === 'rain') {
-      drawImmersionRainDroplets(ctx, now, active);
     } else if (active.id === 'snow') {
       drawImmersionSnowBreath(ctx, now, active);
     } else if (active.id === 'stargaze') {
@@ -289,20 +287,6 @@
       ctx.lineTo(baseX + sway, baseY - 32 - (index % 3) * 4);
       ctx.stroke();
     }
-    ctx.restore();
-  }
-
-  function drawImmersionRainDroplets(ctx, now, active) {
-    const anchor = getStageEffectAnchor();
-    const alpha = getImmersionAlpha(active, now);
-    ctx.save();
-    ctx.globalAlpha = 0.70 * alpha;
-    ctx.fillStyle = '#86cfff';
-    anchor.sparkles.slice(0, 4).forEach(function(point, index) {
-      const y = point[1] + 8 + Math.sin(now / 180 + index) * 3;
-      ctx.fillRect(point[0], y, 5, 14);
-      ctx.fillRect(point[0] - 2, y + 8, 9, 7);
-    });
     ctx.restore();
   }
 
