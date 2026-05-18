@@ -20,12 +20,10 @@
     drawImmersionBackground(ctx, now, wallNow);
 
     const selectedAnimation = selectAnimation(runtime.state, wallNow);
-    runtime.currentAnimationKey = selectedAnimation && selectedAnimation.animation
-      ? selectedAnimation.animation.key
-      : null;
     const drewAnimation = drawSelectedAnimation(ctx, selectedAnimation, wallNow);
+    const drewHeldAnimation = !drewAnimation && drawLastReadyAnimation(ctx, selectedAnimation, wallNow);
 
-    if (!drewAnimation) {
+    if (!drewAnimation && !drewHeldAnimation) {
       drawFallbackMushroom(ctx, runtime.state && runtime.state.mode === 'sleeping' ? 'sleeping' : 'awake');
     }
 
@@ -38,7 +36,7 @@
     if (runtime.state && runtime.state.mode === 'sleeping') {
       drawSleepAmbient(ctx, now);
     } else {
-      drawTemporaryOverlays(ctx, now, wallNow, selectedAnimation, drewAnimation);
+      drawTemporaryOverlays(ctx, now, wallNow, selectedAnimation, drewAnimation || drewHeldAnimation);
     }
 
     drawEffects(ctx, now);
@@ -271,11 +269,32 @@
       runtime.currentAnimationStartedAt = requestedStart;
     }
 
-    const frame = getAnimationFrame(animation, now - runtime.currentAnimationStartedAt);
+    drawAnimationFrame(ctx, animation, image, now, runtime.currentAnimationStartedAt);
+    return true;
+  }
+
+  function drawLastReadyAnimation(ctx, selection, now) {
+    const selectedKey = selection && selection.animation ? selection.animation.key : null;
+    const previousKey = runtime.currentAnimationKey;
+    if (!previousKey || previousKey === selectedKey) {
+      return false;
+    }
+
+    const previousAnimation = animationsByKey.get(previousKey);
+    const previousImage = previousAnimation ? runtime.assets[previousAnimation.key] : null;
+    if (!previousAnimation || !previousImage) {
+      return false;
+    }
+
+    drawAnimationFrame(ctx, previousAnimation, previousImage, now, runtime.currentAnimationStartedAt || now);
+    return true;
+  }
+
+  function drawAnimationFrame(ctx, animation, image, now, startedAt) {
     const frameWidth = animation.frameWidth || canvasSize;
     const frameHeight = animation.frameHeight || canvasSize;
+    const frame = getAnimationFrame(animation, now - startedAt);
     ctx.drawImage(image, frame * frameWidth, 0, frameWidth, frameHeight, 0, 0, canvasSize, canvasSize);
-    return true;
   }
 
   function getAnimationFrame(animation, elapsedMs) {
