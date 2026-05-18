@@ -1,0 +1,13 @@
+{
+  "name": "pieczargotchi",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build-cloudflare-static.mjs",
+    "build:cloudflare": "node scripts/build-cloudflare-static.mjs",
+    "deploy": "npm run build && npx wrangler deploy",
+    "deploy:preview": "npm run build && npx wrangler versions upload",
+    "check:client": "node scripts/check-client-syntax.mjs",
+    "test:core": "node scripts/test-client-core.mjs"
+  }
+}
