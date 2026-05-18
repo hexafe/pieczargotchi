@@ -254,28 +254,43 @@
   }
 
   function drawEffect(ctx, effect, progress) {
-    if (drawEffectAssetFrame(ctx, effect, progress)) {
+    const particleStyle = getEffectParticleStyle(effect.type);
+    if (particleStyle) {
+      drawEffectAssetFrame(ctx, effect, progress, 0.28);
+      drawParticleSet(ctx, effect, progress, particleStyle.color, particleStyle.shape);
       return;
     }
 
-    if (effect.type === 'water') {
-      drawParticleSet(ctx, effect, progress, '#317fb5', 'drop');
-    } else if (effect.type === 'clean') {
-      drawParticleSet(ctx, effect, progress, '#fffdf7', 'spark');
-    } else if (effect.type === 'hearts' || effect.type === 'play') {
-      drawParticleSet(ctx, effect, progress, '#d8646f', 'heart');
-    } else if (effect.type === 'music' || effect.type === 'instrument' || effect.type === 'sing') {
-      drawParticleSet(ctx, effect, progress, '#674ea7', 'note');
-    } else if (effect.type === 'spores') {
-      drawParticleSet(ctx, effect, progress, '#f5e58b', 'spore');
-    } else if (effect.type === 'wake') {
+    if (drawEffectAssetFrame(ctx, effect, progress, 0.72)) {
+      return;
+    }
+
+    if (effect.type === 'wake') {
       drawWakeBurst(ctx, progress);
     } else if (effect.type === 'attention') {
       drawAttentionAlarm(ctx, 1 - progress);
     }
   }
 
-  function drawEffectAssetFrame(ctx, effect, progress) {
+  function getEffectParticleStyle(type) {
+    const mapping = {
+      water: { color: '#317fb5', shape: 'drop' },
+      hydrate: { color: '#317fb5', shape: 'drop' },
+      clean: { color: '#fffdf7', shape: 'spark' },
+      sparkle: { color: '#fffdf7', shape: 'spark' },
+      hearts: { color: '#d8646f', shape: 'heart' },
+      play: { color: '#d8646f', shape: 'heart' },
+      music: { color: '#674ea7', shape: 'note' },
+      instrument: { color: '#674ea7', shape: 'note' },
+      sing: { color: '#674ea7', shape: 'note' },
+      spores: { color: '#f5e58b', shape: 'spore' },
+      harvest: { color: '#f5e58b', shape: 'spore' },
+      sporeCloud: { color: '#f5e58b', shape: 'spore' }
+    };
+    return mapping[type] || null;
+  }
+
+  function drawEffectAssetFrame(ctx, effect, progress, alphaScale) {
     const assetKey = effect.assetKey || getEffectAssetKey(effect.type);
     if (!assetKey) {
       return false;
@@ -288,10 +303,18 @@
     }
 
     const frameCount = 4;
-    const frame = Math.max(0, Math.min(frameCount - 1, Math.floor(progress * frameCount)));
+    const framePosition = clamp(progress * (frameCount - 1), 0, frameCount - 1, 0);
+    const frame = Math.floor(framePosition);
+    const nextFrame = Math.min(frameCount - 1, frame + 1);
+    const blend = framePosition - frame;
+    const fadeAlpha = Math.max(0, Math.min(1, 1 - progress * 0.15)) * clamp(Number(alphaScale), 0, 1, 1);
     ctx.save();
-    ctx.globalAlpha = Math.max(0, Math.min(1, 1 - progress * 0.15));
+    ctx.globalAlpha = fadeAlpha * (1 - blend);
     ctx.drawImage(image, frame * canvasSize, 0, canvasSize, canvasSize, 0, 0, canvasSize, canvasSize);
+    if (nextFrame !== frame && blend > 0.01) {
+      ctx.globalAlpha = fadeAlpha * blend;
+      ctx.drawImage(image, nextFrame * canvasSize, 0, canvasSize, canvasSize, 0, 0, canvasSize, canvasSize);
+    }
     ctx.restore();
     return true;
   }
@@ -315,7 +338,7 @@
 
   function drawParticleSet(ctx, effect, progress, color, shape) {
     ctx.save();
-    ctx.globalAlpha = Math.max(0, 1 - progress);
+    const baseAlpha = Math.max(0, 1 - progress);
     ctx.fillStyle = color;
     ctx.strokeStyle = color;
     ctx.lineWidth = 4;
@@ -324,6 +347,8 @@
       const x = particle.x + particle.dx * progress + Math.sin(progress * 8 + particle.phase) * 8;
       const y = particle.y + particle.dy * progress;
       const size = particle.size;
+      const particleAlpha = baseAlpha * (index % 3 === 0 ? 0.68 : 1);
+      ctx.globalAlpha = particleAlpha;
 
       if (shape === 'drop') {
         ctx.fillRect(x, y, size * 0.55, size);
@@ -341,10 +366,6 @@
         ctx.fillRect(x - 5, y + size * 1.35, size, size * 0.6);
       } else if (shape === 'spore') {
         ctx.fillRect(x, y, size, size);
-      }
-
-      if (index % 3 === 0) {
-        ctx.globalAlpha = Math.max(0, 0.65 - progress);
       }
     });
 

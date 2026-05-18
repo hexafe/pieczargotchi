@@ -59,7 +59,7 @@
     }
 
     const wind = getDynamicWindState(scene, now);
-    const slots = Math.max(2, Math.round(2 + intensity * 4));
+    const slots = Math.max(1, Math.round((foreground ? 1 : 2) + intensity * (foreground ? 3 : 4)));
     const colors = [
       { wing: '#f4c45f', edge: '#8c6731', body: '#3d2c22' },
       { wing: '#d98956', edge: '#7a4a33', body: '#33251e' },
@@ -68,7 +68,7 @@
 
     ctx.save();
     for (let index = 0; index < slots; index += 1) {
-      const seed = 18011 + index * 173;
+      const seed = (foreground ? 18427 : 18011) + index * 173;
       if (intensity < 0.9 && seededUnit(seed + 17) > intensity + 0.28) {
         continue;
       }
@@ -81,7 +81,7 @@
       }
 
       const progress = phase / activeSpan;
-      const path = getButterflyFlightPath(seed, progress, intensity, wind);
+      const path = getButterflyFlightPath(seed, progress, intensity, wind, foreground);
       const size = 4 + Math.round(seededUnit(seed + 6) * 2 + intensity * 1.8);
       const flap = (Math.sin(now / (92 + seededUnit(seed + 7) * 48) + seed) + 1) / 2;
       const alpha = (0.58 + intensity * 0.34) * fadeLifeEdge(progress);
@@ -95,10 +95,10 @@
     ctx.restore();
   }
 
-  function getButterflyFlightPath(seed, progress, intensity, wind) {
+  function getButterflyFlightPath(seed, progress, intensity, wind, foreground) {
     const routeDirection = seededUnit(seed + 2) > 0.5 ? 1 : -1;
-    const point = getButterflyFlightPoint(seed, progress, intensity, wind, routeDirection);
-    const nextPoint = getButterflyFlightPoint(seed, clamp(progress + 0.012, 0, 1, 0), intensity, wind, routeDirection);
+    const point = getButterflyFlightPoint(seed, progress, intensity, wind, routeDirection, foreground);
+    const nextPoint = getButterflyFlightPoint(seed, clamp(progress + 0.012, 0, 1, 0), intensity, wind, routeDirection, foreground);
 
     return {
       x: point.x,
@@ -107,7 +107,7 @@
     };
   }
 
-  function getButterflyFlightPoint(seed, progress, intensity, wind, routeDirection) {
+  function getButterflyFlightPoint(seed, progress, intensity, wind, routeDirection, foreground) {
     const p = clamp(progress, 0, 1, 0);
     const eased = easeLifeProgress(p);
     const startX = routeDirection > 0
@@ -116,7 +116,7 @@
     const endX = routeDirection > 0
       ? 570 + seededUnit(seed + 4) * 70
       : -58 - seededUnit(seed + 4) * 70;
-    const baseY = 154 + seededUnit(seed + 5) * 190;
+    const baseY = (foreground ? 216 : 132) + seededUnit(seed + 5) * (foreground ? 158 : 176);
     const broadNoiseX = smoothLifeNoise(seed + 31, p * (3.2 + seededUnit(seed + 32) * 1.9)) * (42 + intensity * 54);
     const quickNoiseX = smoothLifeNoise(seed + 33, p * (7.5 + seededUnit(seed + 34) * 2.2)) * (10 + intensity * 18);
     const broadNoiseY = smoothLifeNoise(seed + 41, p * (4.1 + seededUnit(seed + 42) * 2.4)) * (34 + intensity * 42);
@@ -127,7 +127,7 @@
 
     return {
       x: clamp(x, -96, 608, x),
-      y: clamp(y, 118, 368, baseY)
+      y: clamp(y, foreground ? 188 : 108, foreground ? 388 : 340, baseY)
     };
   }
 
@@ -155,12 +155,12 @@
     }
 
     const wind = getDynamicWindState(scene, now);
-    const slots = Math.round(2 + intensity * 8);
+    const slots = Math.round((foreground ? 1 : 2) + intensity * (foreground ? 6 : 7));
 
     ctx.save();
     ctx.fillStyle = palette.ground === '#d9e5cf' ? '#6e7e67' : '#2e3a22';
     for (let index = 0; index < slots; index += 1) {
-      const seed = 21017 + index * 149;
+      const seed = (foreground ? 21491 : 21017) + index * 149;
       if (seededUnit(seed + 8) > intensity + 0.38) {
         continue;
       }
@@ -173,7 +173,7 @@
       }
 
       const progress = phase / activeSpan;
-      const path = getSmallFlyingInsectPath(seed, progress, intensity, wind);
+      const path = getSmallFlyingInsectPath(seed, progress, intensity, wind, foreground);
       const twinkle = 0.48 + ((Math.sin(now / 140 + seed) + 1) / 2) * 0.34;
       if (foreground && isMushroomLifeOccluded(path.x, path.y)) {
         continue;
@@ -188,13 +188,13 @@
     ctx.restore();
   }
 
-  function getSmallFlyingInsectPath(seed, progress, intensity, wind) {
+  function getSmallFlyingInsectPath(seed, progress, intensity, wind, foreground) {
     const routeDirection = seededUnit(seed + 2) > 0.5 ? 1 : -1;
     const p = clamp(progress, 0, 1, 0);
     const eased = easeLifeProgress(p);
     const startX = routeDirection > 0 ? -18 - seededUnit(seed + 3) * 26 : 530 + seededUnit(seed + 3) * 26;
     const endX = routeDirection > 0 ? 530 + seededUnit(seed + 4) * 26 : -18 - seededUnit(seed + 4) * 26;
-    const baseY = 226 + seededUnit(seed + 5) * 168;
+    const baseY = (foreground ? 286 : 214) + seededUnit(seed + 5) * (foreground ? 122 : 148);
     const x = startX
       + (endX - startX) * eased
       + smoothLifeNoise(seed + 51, p * (4.6 + seededUnit(seed + 52) * 2.4)) * (18 + intensity * 22)
@@ -210,7 +210,7 @@
 
     return {
       x: clamp(x, -28, 540, x),
-      y: clamp(y, 210, 412, baseY),
+      y: clamp(y, foreground ? 260 : 196, foreground ? 424 : 382, baseY),
       direction: nextX >= x ? 1 : -1
     };
   }
@@ -257,15 +257,55 @@
         + wind.vectorY * wind.level * 4;
       const direction = lane.to >= lane.from ? 1 : -1;
       const size = 5 + Math.round(seededUnit(seed + 2) * 3);
-      const alpha = (0.55 + intensity * 0.34) * grassFade;
+      const decorAvoidance = getCrawlerDecorAvoidance(x, y, size);
+      if (decorAvoidance <= 0.08) {
+        continue;
+      }
+
+      const alpha = (0.55 + intensity * 0.34) * grassFade * decorAvoidance;
 
       ctx.globalAlpha = alpha;
       drawPixelCrawler(ctx, Math.round(x), Math.round(y), direction, size, now, palette, seed);
       if (lane.kind === 'grass') {
-        drawCrawlerGrassCover(ctx, Math.round(x), Math.round(y), size, progress, palette);
+        drawCrawlerGrassCover(ctx, Math.round(x), Math.round(y), size, progress, palette, decorAvoidance);
       }
     }
     ctx.restore();
+  }
+
+  function getCrawlerDecorAvoidance(x, y, size) {
+    const decorations = runtime.state && runtime.state.decorations && Array.isArray(runtime.state.decorations.active)
+      ? runtime.state.decorations.active
+      : [];
+    if (!decorations.length || typeof getDecorationFurnitureLayout !== 'function') {
+      return 1;
+    }
+
+    const furniture = getDecorationFurnitureLayout();
+    const bugLeft = x - 4;
+    const bugRight = x + size + 13;
+    const bugTop = y - 8;
+    const bugBottom = y + size + 5;
+    const blocker = {
+      left: furniture.x - 48,
+      right: furniture.x + furniture.width - 26,
+      top: furniture.y + 2,
+      bottom: furniture.y + furniture.height + 14
+    };
+    const overlaps = bugRight > blocker.left && bugLeft < blocker.right && bugBottom > blocker.top && bugTop < blocker.bottom;
+    if (!overlaps) {
+      return 1;
+    }
+
+    const centerX = x + size * 0.5;
+    const centerY = y;
+    const edgeDistance = Math.min(
+      Math.abs(centerX - blocker.left),
+      Math.abs(centerX - blocker.right),
+      Math.abs(centerY - blocker.top),
+      Math.abs(centerY - blocker.bottom)
+    );
+    return clamp(edgeDistance / 18, 0.18, 0.72, 0.5);
   }
 
   function getCrawlerGrassEmergenceOffset(progress, kind) {
@@ -282,14 +322,14 @@
     return smoothStep(0.04, 0.24, progress) * smoothStep(0.04, 0.24, 1 - progress);
   }
 
-  function drawCrawlerGrassCover(ctx, x, y, size, progress, palette) {
+  function drawCrawlerGrassCover(ctx, x, y, size, progress, palette, visibility) {
     const cover = Math.max(0, 1 - smoothStep(0.12, 0.34, progress), 1 - smoothStep(0.12, 0.34, 1 - progress));
     if (cover <= 0.02) {
       return;
     }
 
     ctx.save();
-    ctx.globalAlpha = cover * 0.78;
+    ctx.globalAlpha = cover * 0.78 * clamp(Number(visibility), 0.45, 1, 1);
     ctx.fillStyle = palette.groundLight || '#83b955';
     for (let blade = 0; blade < 4; blade += 1) {
       const offset = -7 + blade * 5;
@@ -306,6 +346,7 @@
     const legPhase = Math.sin(now / 120 + seed) >= 0 ? 1 : -1;
     const length = size + 7;
     const height = Math.max(4, size);
+    const baseAlpha = ctx.globalAlpha;
 
     ctx.fillStyle = outline;
     ctx.fillRect(x - 1, y - 3, length + 2, height + 2);
@@ -313,9 +354,9 @@
     ctx.fillRect(x, y - 2, length, height);
     ctx.fillRect(x + direction * (length - 1), y - 3, 3, 3);
     ctx.fillStyle = highlight;
-    ctx.globalAlpha *= 0.62;
+    ctx.globalAlpha = baseAlpha * 0.62;
     ctx.fillRect(x + 2, y - 1, 2, 1);
-    ctx.globalAlpha /= 0.62;
+    ctx.globalAlpha = baseAlpha;
     ctx.fillStyle = outline;
     for (let leg = 0; leg < 3; leg += 1) {
       const legX = x + 2 + leg * 3;
@@ -332,50 +373,121 @@
     }
 
     const wind = getDynamicWindState(scene, now);
-    const slots = foreground ? Math.round(3 + intensity * 7) : Math.round(5 + intensity * 10);
-    const yMin = foreground ? 356 : 292;
-    const yRange = foreground ? 94 : 118;
+    const layer = getFireflyLayerProfile(foreground, intensity);
+    const slots = layer.slots;
 
     ctx.save();
+    ctx.globalCompositeOperation = foreground ? 'lighter' : 'source-over';
     for (let index = 0; index < slots; index += 1) {
-      const seed = (foreground ? 29033 : 27031) + index * 131;
-      if (seededUnit(seed + 11) > intensity + 0.44) {
+      const seed = layer.seedBase + index * 131;
+      if (seededUnit(seed + 11) > intensity + layer.presenceBonus) {
         continue;
       }
 
-      const baseX = 36 + seededUnit(seed) * 440;
-      const baseY = yMin + seededUnit(seed + 1) * yRange;
-      const lateralRange = foreground ? 12 + intensity * 12 : 15 + intensity * 14;
-      const verticalRange = foreground ? 10 + intensity * 9 : 12 + intensity * 10;
+      const baseX = layer.xMin + seededUnit(seed) * layer.xRange;
+      const baseY = layer.yMin + seededUnit(seed + 1) * layer.yRange;
+      const lateralRange = layer.lateralBase + intensity * layer.lateralIntensity;
+      const verticalRange = layer.verticalBase + intensity * layer.verticalIntensity;
+      const cycleMs = 9800 + seededUnit(seed + 6) * 7200;
+      const cycle = positiveModulo(now + seededUnit(seed + 7) * cycleMs, cycleMs) / cycleMs;
+      const excursion = getFireflyUpwardExcursion(seed, cycle, intensity, foreground);
       const flutterX = Math.sin(now / (5200 + seededUnit(seed + 2) * 2200) + seed) * lateralRange
         + smoothLifeNoise(seed + 71, now / (9000 + seededUnit(seed + 72) * 2400)) * lateralRange * 0.45;
       const flutterY = Math.sin(now / (4300 + seededUnit(seed + 3) * 2300) + seed * 0.7) * verticalRange
         + Math.sin(now / (7100 + seededUnit(seed + 73) * 1800) + seed * 1.3) * verticalRange * 0.42;
-      const x = clamp(baseX + flutterX + wind.directionX * wind.level * 8, 22, 490, baseX);
-      const y = clamp(baseY + flutterY + wind.vectorY * wind.level * 5, yMin - 8, yMin + yRange + 8, baseY);
+      const x = clamp(baseX + flutterX + wind.directionX * wind.level * layer.windPush, layer.xClampMin, layer.xClampMax, baseX);
+      const y = clamp(baseY + flutterY - excursion + wind.vectorY * wind.level * 5, layer.yClampMin, layer.yClampMax, baseY);
       const pulse = (Math.sin(now / (920 + seededUnit(seed + 4) * 780) + seed) + 1) / 2;
-      const glow = smoothStep(0.34, 0.98, pulse) * (0.48 + intensity * 0.52);
-      const alpha = glow * (foreground ? 0.86 : 0.72);
+      const glow = smoothStep(0.42, 0.98, pulse) * (0.42 + intensity * 0.46);
+      const alpha = glow * layer.alphaScale;
       if (alpha < 0.06) {
         continue;
       }
 
-      drawPixelFirefly(ctx, Math.round(x), Math.round(y), alpha, foreground);
+      drawPixelFirefly(ctx, x, y, alpha, foreground);
     }
     ctx.restore();
   }
 
+  function getFireflyLayerProfile(foreground, intensity) {
+    if (foreground) {
+      return {
+        slots: Math.round(3 + intensity * 6),
+        seedBase: 29179,
+        presenceBonus: 0.32,
+        xMin: 42,
+        xRange: 422,
+        xClampMin: 26,
+        xClampMax: 486,
+        yMin: 404,
+        yRange: 54,
+        yClampMin: 308,
+        yClampMax: 468,
+        lateralBase: 8,
+        lateralIntensity: 12,
+        verticalBase: 5,
+        verticalIntensity: 7,
+        windPush: 7,
+        alphaScale: 0.62
+      };
+    }
+
+    return {
+      slots: Math.round(3 + intensity * 7),
+      seedBase: 27397,
+      presenceBonus: 0.26,
+      xMin: 70,
+      xRange: 368,
+      xClampMin: 34,
+      xClampMax: 470,
+      yMin: 376,
+      yRange: 58,
+      yClampMin: 296,
+      yClampMax: 448,
+      lateralBase: 10,
+      lateralIntensity: 13,
+      verticalBase: 6,
+      verticalIntensity: 8,
+      windPush: 5,
+      alphaScale: 0.46
+    };
+  }
+
+  function getFireflyUpwardExcursion(seed, cycle, intensity, foreground) {
+    if (seededUnit(seed + 21) < 0.84) {
+      return 0;
+    }
+
+    const start = 0.18 + seededUnit(seed + 22) * 0.18;
+    const peak = start + 0.22 + seededUnit(seed + 23) * 0.12;
+    const end = Math.min(0.92, peak + 0.28 + seededUnit(seed + 24) * 0.18);
+    const rise = smoothStep(start, peak, cycle);
+    const settle = 1 - smoothStep(peak, end, cycle);
+    const amplitude = (foreground ? 48 : 40) + seededUnit(seed + 25) * (foreground ? 48 : 38) + intensity * 22;
+    return Math.max(0, rise * settle) * amplitude;
+  }
+
   function drawPixelFirefly(ctx, x, y, alpha, foreground) {
-    const glowSize = foreground ? 9 : 7;
-    ctx.globalAlpha = alpha * 0.22;
-    ctx.fillStyle = '#f1ff9d';
-    ctx.fillRect(x - Math.floor(glowSize / 2), y - Math.floor(glowSize / 2), glowSize, glowSize);
-    ctx.globalAlpha = alpha * 0.62;
-    ctx.fillStyle = '#dfff6d';
-    ctx.fillRect(x - 2, y - 1, 4, 3);
-    ctx.globalAlpha = alpha;
+    const glowRadius = foreground ? 5.5 : 4.5;
+    const dotRadius = foreground ? 1.35 : 1.1;
+    const baseAlpha = ctx.globalAlpha;
+    const gradient = ctx.createRadialGradient(x, y, 0, x, y, glowRadius);
+    gradient.addColorStop(0, 'rgba(255, 247, 178, 0.95)');
+    gradient.addColorStop(0.34, 'rgba(223, 255, 109, 0.30)');
+    gradient.addColorStop(1, 'rgba(223, 255, 109, 0)');
+
+    ctx.globalAlpha = baseAlpha * alpha * 0.78;
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(x, y, glowRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalAlpha = baseAlpha * alpha;
     ctx.fillStyle = '#fff7b2';
-    ctx.fillRect(x, y, 2, 2);
+    ctx.beginPath();
+    ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = baseAlpha;
   }
 
   function drawAmbientLifeFocusCue(ctx, palette, now, scene) {
@@ -384,7 +496,7 @@
       return;
     }
 
-    const alpha = fadeLifeEdge(cue.progress || 0) * (0.76 + clamp(Number(cue.intensity), 0, 1, 0) * 0.24);
+    const alpha = fadeLifeEdge(cue.progress || 0) * (0.48 + clamp(Number(cue.intensity), 0, 1, 0) * 0.18);
     if (alpha <= 0.04) {
       return;
     }
@@ -400,7 +512,7 @@
       for (let index = 0; index < 4; index += 1) {
         const offsetX = Math.round(Math.sin(now / (760 + index * 170) + cue.seed + index) * (10 + index * 3));
         const offsetY = Math.round(Math.sin(now / (940 + index * 130) + cue.seed * 0.7 + index) * (8 + index * 2));
-        drawPixelFirefly(ctx, cue.x + offsetX, cue.y + offsetY, 0.72 + index * 0.06, true);
+        drawPixelFirefly(ctx, cue.x + offsetX, cue.y + offsetY, 0.46 + index * 0.04, true);
       }
     } else if (cue.kind === 'crawler') {
       drawPixelCrawler(ctx, cue.x, cue.y, cue.direction || 1, 8, now, palette, cue.seed || 1);
