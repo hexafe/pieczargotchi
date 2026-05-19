@@ -934,6 +934,90 @@ test('ambient life focus cues trigger mushroom reactions without outranking care
   assert(blocked === null, 'active care need should block ambient cue');
 });
 
+test('night firefly focus cues trigger near-mushroom watch reactions', () => {
+  const rules = {
+    attention: { mildThreshold: 45, criticalThreshold: 25 },
+    needDefinitions: {
+      hydration: { category: 'physical', actionId: 'hydrate' }
+    }
+  };
+  const state = {
+    mode: 'awake',
+    stats: { hydration: 82, nutrients: 82, happiness: 82, cleanliness: 82, energy: 82, health: 100 },
+    patch: { quality: 82 },
+    attention: {}
+  };
+  const fireflyScene = {
+    condition: 'clear',
+    isDay: false,
+    dayPhase: 'night',
+    cloudCover: 10,
+    precipitation: 0,
+    rain: 0,
+    snowfall: 0,
+    temperature: 22,
+    humidity: 82,
+    windLevel: 0.06,
+    latitude: 50.2649
+  };
+  const cueSample = findAmbientCueOfKind(fireflyScene, Date.parse('2026-07-10T20:45:00.000Z'), 'firefly');
+
+  assert(cueSample, 'expected at least one deterministic summer-night firefly cue');
+  assert(core.isAmbientLifeCueNearMushroom(cueSample.cue, 'firefly'), `expected near firefly cue, got ${JSON.stringify(cueSample.cue)}`);
+
+  const reaction = core.selectImmersionReaction(state, fireflyScene, { inside: false }, cueSample.now, rules);
+  assert(reaction && reaction.id === 'ambientFirefly', `expected ambientFirefly reaction, got ${reaction && reaction.id}`);
+  assert(reaction.state === 'watch_firefly', `expected watch_firefly state, got ${reaction.state}`);
+
+  const farCue = { ...cueSample.cue, x: 28, y: 116 };
+  assert(!core.isAmbientLifeCueNearMushroom(farCue, 'firefly'), 'far firefly cue should not count as a near-mushroom reaction');
+});
+
+test('active ambient reactions yield to fresh pointer and weather priority', () => {
+  const now = 4_000_000;
+  const activeFirefly = {
+    id: 'ambientFirefly',
+    state: 'watch_firefly',
+    source: 'ambient',
+    sourceAt: now - 200,
+    until: now + 1200,
+    priority: 56
+  };
+  const pointerTap = {
+    id: 'pointerTap',
+    state: 'watch_cursor_right',
+    source: 'input',
+    sourceAt: now - 40,
+    priority: 92
+  };
+  const rain = {
+    id: 'rain',
+    state: 'rain',
+    source: 'weather',
+    sourceAt: now,
+    priority: 62
+  };
+  const idle = {
+    id: 'idlePonder',
+    state: 'ponder',
+    source: 'idle',
+    sourceAt: now,
+    priority: 38
+  };
+  const lowerAmbient = {
+    id: 'ambientCrawler',
+    state: 'watch_crawler',
+    source: 'ambient',
+    sourceAt: now,
+    priority: 55
+  };
+
+  assert(core.shouldReplaceImmersionReaction(activeFirefly, pointerTap, now), 'fresh pointer should interrupt firefly watch');
+  assert(core.shouldReplaceImmersionReaction(activeFirefly, rain, now), 'weather should interrupt firefly watch');
+  assert(!core.shouldReplaceImmersionReaction(activeFirefly, idle, now), 'idle motion should not interrupt firefly watch');
+  assert(!core.shouldReplaceImmersionReaction(pointerTap, lowerAmbient, now), 'ambient life should not interrupt pointer reaction');
+});
+
 test('quiet neutral scenes can select idle fidget or ponder motion', () => {
   const rules = {
     attention: { mildThreshold: 45, criticalThreshold: 25 },
@@ -1390,10 +1474,24 @@ test('fireflies appear in the right summer evening window', () => {
 });
 
 function findAmbientCue(scene, start) {
+  const firstCycleStart = Math.floor(start / 13500) * 13500;
   for (let step = 0; step < 80; step += 1) {
-    const now = start + step * 13500 + 2200;
+    const now = firstCycleStart + step * 13500 + 2200;
     const cue = core.calculateAmbientLifeFocusCue(scene, new Date(now), now);
     if (cue && cue.visible) {
+      return { cue, now };
+    }
+  }
+
+  return null;
+}
+
+function findAmbientCueOfKind(scene, start, kind) {
+  const firstCycleStart = Math.floor(start / 13500) * 13500;
+  for (let step = 0; step < 160; step += 1) {
+    const now = firstCycleStart + step * 13500 + 2200;
+    const cue = core.calculateAmbientLifeFocusCue(scene, new Date(now), now);
+    if (cue && cue.visible && cue.kind === kind) {
       return { cue, now };
     }
   }

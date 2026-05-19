@@ -634,9 +634,46 @@ async function captureCanvas(cdp, label, options) {
         if (!diagnostics) {
           return null;
         }
+        const summarize = (samples) => {
+          if (!Array.isArray(samples) || samples.length === 0) {
+            return null;
+          }
+          const numbers = (field) => samples
+            .map((sample) => Number(sample[field]))
+            .filter((value) => Number.isFinite(value));
+          const range = (field) => {
+            const values = numbers(field);
+            if (!values.length) {
+              return 0;
+            }
+            return Math.round((Math.max(...values) - Math.min(...values)) * 1000) / 1000;
+          };
+          return {
+            count: samples.length,
+            xRange: range('x'),
+            yRange: range('y'),
+            alphaRange: range('alpha'),
+            glowRange: range('glow'),
+            maxExcursion: Math.max(0, ...numbers('excursion'))
+          };
+        };
+        const sampleForLog = (sample) => ({
+          seed: sample.seed,
+          layer: sample.layer,
+          x: sample.x,
+          y: sample.y,
+          alpha: sample.alpha,
+          glow: sample.glow,
+          progress: sample.progress
+        });
         return {
           butterflies: Array.isArray(diagnostics.butterflies) ? diagnostics.butterflies.length : 0,
           fireflies: Array.isArray(diagnostics.fireflies) ? diagnostics.fireflies.length : 0,
+          butterflySummary: summarize(diagnostics.butterflies),
+          fireflySummary: summarize(diagnostics.fireflies),
+          fireflySamples: Array.isArray(diagnostics.fireflies)
+            ? diagnostics.fireflies.slice(0, 8).map(sampleForLog)
+            : [],
           sleepGlyphs: Array.isArray(diagnostics.sleepGlyphs) ? diagnostics.sleepGlyphs.length : 0,
           sleepBody: diagnostics.sleepBody || null
         };

@@ -16,6 +16,9 @@
     celestialCooldownMs: 10000,
     windDurationMs: 1800,
     windCooldownMs: 6200,
+    ambientButterflyRadius: 198,
+    ambientFireflyRadius: 206,
+    ambientCrawlerRadius: 118,
     ambientLifeDurationMs: 1900,
     ambientLifeCooldownMs: 7200,
     idleFidgetDurationMs: 1700,
@@ -244,6 +247,9 @@
     if (!cue || !cue.visible || !cue.state) {
       return null;
     }
+    if (!isAmbientLifeCueNearMushroom(cue, cue.kind, config)) {
+      return null;
+    }
 
     const idByKind = {
       butterfly: 'ambientButterfly',
@@ -266,6 +272,58 @@
     );
     candidate.cue = cue;
     return candidate;
+  }
+
+  function isAmbientLifeCueNearMushroom(cue, kind, config) {
+    if (!isPlainObject(cue)) {
+      return false;
+    }
+
+    const x = readOptionalCoreNumber(cue.x);
+    const y = readOptionalCoreNumber(cue.y);
+    if (x === null || y === null) {
+      return false;
+    }
+
+    const settings = Object.assign({}, IMMERSION_DEFAULTS, config || {});
+    const cueKind = kind || cue.kind || '';
+    if (cueKind === 'crawler') {
+      return isPointNearMushroomCore(x, y, 'ground', settings.ambientCrawlerRadius);
+    }
+    if (cueKind === 'firefly') {
+      return isPointNearMushroomCore(x, y, 'body', settings.ambientFireflyRadius);
+    }
+
+    return isPointNearMushroomCore(x, y, 'face', settings.ambientButterflyRadius)
+      || isPointNearMushroomCore(x, y, 'body', settings.ambientButterflyRadius);
+  }
+
+  function shouldReplaceImmersionReaction(active, candidate, now) {
+    if (!candidate) {
+      return false;
+    }
+
+    if (!active || Number(active.until) <= Number(now || 0)) {
+      return true;
+    }
+
+    const activePriority = Number(active.priority) || 0;
+    const candidatePriority = Number(candidate.priority) || 0;
+    if (candidatePriority > activePriority) {
+      return true;
+    }
+
+    if (candidatePriority < activePriority) {
+      return false;
+    }
+
+    if (candidate.source === 'input' && active.source === 'input') {
+      const candidateAt = Number(candidate.sourceAt) || 0;
+      const activeAt = Number(active.sourceAt) || 0;
+      return candidateAt >= activeAt && candidate.state !== active.state;
+    }
+
+    return false;
   }
 
   function selectIdleImmersionReaction(scene, input, now, config) {

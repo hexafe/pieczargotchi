@@ -87,18 +87,14 @@
 
     const active = runtime.immersion.active;
     if (active && Number(active.until) > wallNow && !isRuntimeImmersionBlocked(wallNow)) {
-      if (active.source === 'input') {
-        const refreshed = selectRuntimeImmersionCandidate(wallNow);
-        if (
-          refreshed
-          && refreshed.source === 'input'
-          && (!active.sourceAt || Number(refreshed.sourceAt) >= Number(active.sourceAt))
-          && refreshed.state !== active.state
-        ) {
-          runtime.immersion.active = activateImmersionCandidate(refreshed, wallNow);
-          rememberImmersionVariant(refreshed);
-          return runtime.immersion.active;
+      const refreshed = selectRuntimeImmersionCandidate(wallNow);
+      if (shouldRuntimeReplaceImmersion(active, refreshed, wallNow)) {
+        runtime.immersion.active = activateImmersionCandidate(refreshed, wallNow);
+        rememberImmersionVariant(refreshed);
+        if (refreshed.id === 'pointerTap') {
+          runtime.input.consumedDownAt = refreshed.sourceAt || wallNow;
         }
+        return runtime.immersion.active;
       }
       return active;
     }
@@ -131,6 +127,14 @@
     }
 
     return next;
+  }
+
+  function shouldRuntimeReplaceImmersion(active, candidate, wallNow) {
+    if (!window.PieczargotchiCore || typeof window.PieczargotchiCore.shouldReplaceImmersionReaction !== 'function') {
+      return false;
+    }
+
+    return window.PieczargotchiCore.shouldReplaceImmersionReaction(active, candidate, wallNow);
   }
 
   function selectRuntimeImmersionCandidate(wallNow) {

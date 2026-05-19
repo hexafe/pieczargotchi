@@ -472,6 +472,8 @@
       const lateralRange = layer.lateralBase + intensity * layer.lateralIntensity;
       const verticalRange = layer.verticalBase + intensity * layer.verticalIntensity;
       const excursion = getFireflyUpwardExcursion(seed, progress, intensity, foreground);
+      const pathSwayX = Math.sin(progress * Math.PI * (1.15 + seededUnit(seed + 74) * 0.9) + seed * 0.4) * lateralRange * 0.48;
+      const pathSwayY = Math.sin(progress * Math.PI * (1.75 + seededUnit(seed + 75) * 0.8) + seed * 0.6) * verticalRange * 0.55;
       const flutterX = Math.sin(now / (5200 + seededUnit(seed + 2) * 2200) + seed) * lateralRange
         + smoothLifeNoise(seed + 71, now / (9000 + seededUnit(seed + 72) * 2400)) * lateralRange * 0.45;
       const flutterY = Math.sin(now / (4300 + seededUnit(seed + 3) * 2300) + seed * 0.7) * verticalRange
@@ -482,8 +484,8 @@
       const endGrassY = layer.grassYMin + seededUnit(seed + 16) * layer.grassYRange;
       const startGrassX = clamp(baseX + (seededUnit(seed + 17) - 0.5) * 46, layer.xClampMin, layer.xClampMax, baseX);
       const endGrassX = clamp(baseX + (seededUnit(seed + 18) - 0.5) * 86, layer.xClampMin, layer.xClampMax, baseX);
-      let x = baseX + flutterX + wind.directionX * wind.level * layer.windPush;
-      let y = baseY + flutterY - excursion + wind.vectorY * wind.level * 5;
+      let x = baseX + flutterX + pathSwayX + wind.directionX * wind.level * layer.windPush;
+      let y = baseY + flutterY + pathSwayY - excursion + wind.vectorY * wind.level * 5;
       x = lerp(startGrassX, x, emerge);
       y = lerp(startGrassY, y, emerge);
       x = lerp(x, endGrassX, retreat);
@@ -491,9 +493,9 @@
       x = clamp(x, layer.xClampMin, layer.xClampMax, baseX);
       y = clamp(y, layer.yClampMin, layer.yClampMax, baseY);
       const pulse = (Math.sin(now / (920 + seededUnit(seed + 4) * 780) + seed) + 1) / 2;
-      const glow = smoothStep(0.42, 0.98, pulse) * (0.42 + intensity * 0.46);
+      const glow = (0.20 + smoothStep(0.06, 0.96, pulse) * (0.50 + intensity * 0.28));
       const alpha = glow * layer.alphaScale * lifeVisibility;
-      if (alpha < 0.06) {
+      if (alpha < 0.045 || (foreground && isMushroomLifeOccluded(x, y))) {
         continue;
       }
 
@@ -501,10 +503,11 @@
       recordAmbientLifeSample('fireflies', {
         seed: seed,
         layer: foreground ? 'foreground' : 'background',
-        x: Math.round(x),
-        y: Math.round(y),
+        x: Number(x.toFixed(2)),
+        y: Number(y.toFixed(2)),
         progress: Number(progress.toFixed(3)),
         alpha: Number(alpha.toFixed(3)),
+        glow: Number(glow.toFixed(3)),
         visibility: Number(lifeVisibility.toFixed(3)),
         excursion: Number(excursion.toFixed(1))
       });
@@ -575,15 +578,16 @@
   }
 
   function drawPixelFirefly(ctx, x, y, alpha, foreground) {
-    const glowRadius = foreground ? 5.5 : 4.5;
-    const dotRadius = foreground ? 1.35 : 1.1;
+    const glowRadius = foreground ? 6.8 : 5.3;
+    const dotRadius = foreground ? 1.45 : 1.15;
     const baseAlpha = ctx.globalAlpha;
     const gradient = ctx.createRadialGradient(x, y, 0, x, y, glowRadius);
     gradient.addColorStop(0, 'rgba(255, 247, 178, 0.95)');
-    gradient.addColorStop(0.34, 'rgba(223, 255, 109, 0.30)');
+    gradient.addColorStop(0.32, 'rgba(234, 255, 132, 0.34)');
+    gradient.addColorStop(0.68, 'rgba(175, 225, 86, 0.12)');
     gradient.addColorStop(1, 'rgba(223, 255, 109, 0)');
 
-    ctx.globalAlpha = baseAlpha * alpha * 0.78;
+    ctx.globalAlpha = baseAlpha * alpha * 0.86;
     ctx.fillStyle = gradient;
     ctx.beginPath();
     ctx.arc(x, y, glowRadius, 0, Math.PI * 2);

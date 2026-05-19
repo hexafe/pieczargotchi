@@ -35,6 +35,7 @@ const scenarios = [
   {
     name: 'summer-night-fireflies',
     fixedAt: Date.parse('2026-07-10T22:00:00+02:00'),
+    motionCaptureDelaysMs: [700, 1600],
     env: {
       PIECZARGOTCHI_CAPTURE_LIFE_PROFILE: '1',
       PIECZARGOTCHI_CAPTURE_DELAY_MS: '1000',
@@ -103,15 +104,26 @@ try {
 }
 
 async function runScenario(scenario) {
-  const outputPrefix = path.join(outputDir, scenario.name);
-  const env = {
-    ...process.env,
-    ...scenario.env,
-    PIECZARGOTCHI_DEBUG_FIXED_AT: String(scenario.fixedAt)
-  };
-  const result = await runCommand(process.execPath, ['scripts/capture-app-render.mjs', appUrl, outputPrefix], env);
-  assertLifeProfile(scenario, result.stdout);
-  assertMotionDiagnostics(scenario, result.stdout);
+  const captures = Array.isArray(scenario.motionCaptureDelaysMs) && scenario.motionCaptureDelaysMs.length
+    ? scenario.motionCaptureDelaysMs
+    : [null];
+  const stdoutParts = [];
+  for (let index = 0; index < captures.length; index += 1) {
+    const outputPrefix = path.join(outputDir, captures.length > 1 ? `${scenario.name}-frame${index + 1}` : scenario.name);
+    const env = {
+      ...process.env,
+      ...scenario.env,
+      PIECZARGOTCHI_DEBUG_FIXED_AT: String(scenario.fixedAt)
+    };
+    if (captures[index] !== null) {
+      env.PIECZARGOTCHI_CAPTURE_DELAY_MS = String(captures[index]);
+    }
+    const result = await runCommand(process.execPath, ['scripts/capture-app-render.mjs', appUrl, outputPrefix], env);
+    stdoutParts.push(result.stdout);
+  }
+  const stdout = stdoutParts.join('\n');
+  assertLifeProfile(scenario, stdout);
+  assertMotionDiagnostics(scenario, stdout);
 }
 
 function assertLifeProfile(scenario, stdout) {
@@ -160,6 +172,51 @@ function assertMotionDiagnostics(scenario, stdout) {
     if (observed < 1) {
       throw new Error(`${scenario.name}: render diagnostics did not draw any ${field}`);
     }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(scenario.minimums, 'fireflyIntensity')) {
+    assertFireflyMotionDiagnostics(scenario, diagnostics);
+  }
+}
+
+function assertFireflyMotionDiagnostics(scenario, diagnostics) {
+  const fireflyDiagnostics = diagnostics.filter((diagnostic) => {
+    return Number(diagnostic.fireflies) > 0 && diagnostic.fireflySummary;
+  });
+  if (fireflyDiagnostics.length < 2) {
+    throw new Error(`${scenario.name}: expected multiple firefly motion samples`);
+  }
+
+  const alphaRange = Math.max(...fireflyDiagnostics.map((diagnostic) => Number(diagnostic.fireflySummary.alphaRange) || 0));
+  if (alphaRange < 0.035) {
+    throw new Error(`${scenario.name}: firefly glow alpha did not pulse enough, range=${alphaRange}`);
+  }
+
+  const samplesBySeed = new Map();
+  for (const diagnostic of fireflyDiagnostics) {
+    for (const sample of diagnostic.fireflySamples || []) {
+      if (!Number.isFinite(Number(sample.seed))) {
+        continue;
+      }
+      const samples = samplesBySeed.get(sample.seed) || [];
+      samples.push({ x: Number(sample.x), y: Number(sample.y), alpha: Number(sample.alpha) });
+      samplesBySeed.set(sample.seed, samples);
+    }
+  }
+
+  let maxMovement = 0;
+  for (const samples of samplesBySeed.values()) {
+    for (let index = 1; index < samples.length; index += 1) {
+      const first = samples[0];
+      const current = samples[index];
+      if (!Number.isFinite(first.x) || !Number.isFinite(first.y) || !Number.isFinite(current.x) || !Number.isFinite(current.y)) {
+        continue;
+      }
+      maxMovement = Math.max(maxMovement, Math.hypot(current.x - first.x, current.y - first.y));
+    }
+  }
+  if (maxMovement < 0.25) {
+    throw new Error(`${scenario.name}: fireflies did not visibly drift between capture frames, movement=${maxMovement.toFixed(3)}`);
   }
 }
 
