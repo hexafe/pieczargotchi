@@ -191,6 +191,10 @@ function assertFireflyMotionDiagnostics(scenario, diagnostics) {
   if (alphaRange < 0.035) {
     throw new Error(`${scenario.name}: firefly glow alpha did not pulse enough, range=${alphaRange}`);
   }
+  const maxGlowRadius = Math.max(...fireflyDiagnostics.map((diagnostic) => Number(diagnostic.fireflySummary.maxGlowRadius) || 0));
+  if (maxGlowRadius < 5.2) {
+    throw new Error(`${scenario.name}: firefly glow did not render as a visible light source, radius=${maxGlowRadius}`);
+  }
 
   const samplesBySeed = new Map();
   for (const diagnostic of fireflyDiagnostics) {

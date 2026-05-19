@@ -159,11 +159,19 @@
     const anchor = getStageEffectAnchor();
     ctx.save();
     ctx.fillStyle = color;
-    ctx.globalAlpha = 0.55 + Math.sin(now / 350) * 0.25;
     anchor.sparkles.forEach(function(point, index) {
-      const size = 7 + (index % 2) * 3;
-      ctx.fillRect(point[0], point[1], size, 4);
-      ctx.fillRect(point[0] + Math.floor(size / 3), point[1] - Math.floor(size / 3), 4, size);
+      const period = 2400 + index * 260;
+      const local = positiveModulo(now + index * 610, period) / period;
+      const alpha = smoothStep(0.05, 0.18, local) * (1 - smoothStep(0.50, 0.92, local));
+      if (alpha <= 0.03) {
+        return;
+      }
+
+      const driftX = Math.sin(local * Math.PI * 2 + index) * 3;
+      const driftY = -local * (5 + index % 2);
+      const size = 4 + (index % 2);
+      ctx.globalAlpha = alpha * 0.62;
+      drawCareGlint(ctx, point[0] + driftX, point[1] + driftY, size, color);
     });
     ctx.restore();
   }
@@ -358,7 +366,9 @@
     const frame = Math.floor(framePosition);
     const nextFrame = Math.min(frameCount - 1, frame + 1);
     const blend = framePosition - frame;
-    const fadeAlpha = Math.max(0, Math.min(1, 1 - progress * 0.15)) * clamp(Number(alphaScale), 0, 1, 1);
+    const fadeAlpha = smoothStep(0, 0.12, progress)
+      * (1 - smoothStep(0.82, 1, progress))
+      * clamp(Number(alphaScale), 0, 1, 1);
     ctx.save();
     ctx.globalAlpha = fadeAlpha * (1 - blend);
     ctx.drawImage(image, frame * canvasSize, 0, canvasSize, canvasSize, 0, 0, canvasSize, canvasSize);
@@ -389,14 +399,21 @@
 
   function drawParticleSet(ctx, effect, progress, color, shape) {
     ctx.save();
-    const baseAlpha = Math.max(0, 1 - progress);
     ctx.fillStyle = color;
     ctx.strokeStyle = color;
     ctx.lineWidth = 4;
 
     effect.particles.forEach(function(particle, index) {
-      const x = particle.x + particle.dx * progress + Math.sin(progress * 8 + particle.phase) * 8;
-      const y = particle.y + particle.dy * progress;
+      const localProgress = getParticleLocalProgress(progress, particle);
+      if (localProgress <= 0 || localProgress >= 1) {
+        return;
+      }
+
+      const baseAlpha = shape === 'spark'
+        ? fadeSparkLife(localProgress)
+        : Math.max(0, 1 - localProgress);
+      const x = particle.x + particle.dx * localProgress + Math.sin(localProgress * 8 + particle.phase) * 8;
+      const y = particle.y + particle.dy * localProgress;
       const size = particle.size;
       const particleAlpha = baseAlpha * (index % 3 === 0 ? 0.68 : 1);
       ctx.globalAlpha = particleAlpha;
@@ -405,8 +422,7 @@
         ctx.fillRect(x, y, size * 0.55, size);
         ctx.fillRect(x - size * 0.18, y + size * 0.42, size * 0.9, size * 0.55);
       } else if (shape === 'spark') {
-        ctx.fillRect(x, y, size, 4);
-        ctx.fillRect(x + size * 0.35, y - size * 0.35, 4, size);
+        drawCareGlint(ctx, x, y, Math.max(3, size * 0.36), color);
       } else if (shape === 'heart') {
         ctx.fillRect(x, y, size, size);
         ctx.fillRect(x - size * 0.6, y, size, size);
@@ -421,6 +437,33 @@
     });
 
     ctx.restore();
+  }
+
+  function getParticleLocalProgress(progress, particle) {
+    const delay = clamp(Number(particle.delay), 0, 0.42, 0);
+    return clamp((progress - delay) / Math.max(0.01, 1 - delay), 0, 1, 0);
+  }
+
+  function fadeSparkLife(progress) {
+    return smoothStep(0.03, 0.20, progress) * (1 - smoothStep(0.58, 0.96, progress));
+  }
+
+  function drawCareGlint(ctx, x, y, size, color) {
+    const centerX = Math.round(x);
+    const centerY = Math.round(y);
+    const arm = Math.max(1, Math.round(size / 2));
+    const baseAlpha = ctx.globalAlpha;
+    ctx.fillStyle = color;
+    ctx.fillRect(centerX, centerY, 2, 2);
+    ctx.globalAlpha = baseAlpha * 0.56;
+    ctx.fillRect(centerX - arm - 1, centerY, arm, 1);
+    ctx.fillRect(centerX + 2, centerY, arm, 1);
+    ctx.fillRect(centerX, centerY - arm - 1, 1, arm);
+    ctx.fillRect(centerX, centerY + 2, 1, arm);
+    ctx.globalAlpha = baseAlpha * 0.24;
+    ctx.fillRect(centerX - arm - 2, centerY + 1, 1, 1);
+    ctx.fillRect(centerX + arm + 2, centerY + 1, 1, 1);
+    ctx.globalAlpha = baseAlpha;
   }
 
   function drawWakeBurst(ctx, progress) {

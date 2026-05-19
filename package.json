@@ -8,6 +8,7 @@
     "deploy": "npm run build && npx wrangler deploy",
     "deploy:preview": "npm run build && npx wrangler versions upload",
     "check:client": "node scripts/check-client-syntax.mjs",
-    "test:core": "node scripts/test-client-core.mjs"
+    "test:core": "node scripts/test-client-core.mjs",
+    "test:celestial": "node scripts/test-celestial-position.mjs"
   }
 }

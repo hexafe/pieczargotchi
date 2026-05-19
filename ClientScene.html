@@ -2,6 +2,9 @@
     const scene = getCurrentWeatherScene();
     const palette = getScenePalette(scene);
 
+    if (typeof beginAmbientLifeDiagnostics === 'function') {
+      beginAmbientLifeDiagnostics(now);
+    }
     drawSkyBands(ctx, palette);
     drawCelestial(ctx, scene, palette, now);
     drawRainbowLayer(ctx, scene, palette, now);

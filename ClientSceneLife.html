@@ -458,8 +458,8 @@
         continue;
       }
 
-      const cycleMs = 9800 + seededUnit(seed + 6) * 7200;
-      const activeSpan = 0.68 + intensity * 0.18;
+      const cycleMs = 22000 + seededUnit(seed + 6) * 18000;
+      const activeSpan = 0.84 + intensity * 0.12;
       const phase = positiveModulo(now + seededUnit(seed + 7) * cycleMs, cycleMs) / cycleMs;
       if (phase > activeSpan) {
         continue;
@@ -467,49 +467,26 @@
 
       const progress = phase / activeSpan;
       const lifeVisibility = fadeGrassEntry(progress);
-      const baseX = layer.xMin + seededUnit(seed) * layer.xRange;
-      const baseY = layer.yMin + seededUnit(seed + 1) * layer.yRange;
-      const lateralRange = layer.lateralBase + intensity * layer.lateralIntensity;
-      const verticalRange = layer.verticalBase + intensity * layer.verticalIntensity;
-      const excursion = getFireflyUpwardExcursion(seed, progress, intensity, foreground);
-      const pathSwayX = Math.sin(progress * Math.PI * (1.15 + seededUnit(seed + 74) * 0.9) + seed * 0.4) * lateralRange * 0.48;
-      const pathSwayY = Math.sin(progress * Math.PI * (1.75 + seededUnit(seed + 75) * 0.8) + seed * 0.6) * verticalRange * 0.55;
-      const flutterX = Math.sin(now / (5200 + seededUnit(seed + 2) * 2200) + seed) * lateralRange
-        + smoothLifeNoise(seed + 71, now / (9000 + seededUnit(seed + 72) * 2400)) * lateralRange * 0.45;
-      const flutterY = Math.sin(now / (4300 + seededUnit(seed + 3) * 2300) + seed * 0.7) * verticalRange
-        + Math.sin(now / (7100 + seededUnit(seed + 73) * 1800) + seed * 1.3) * verticalRange * 0.42;
-      const emerge = smoothStep(0.04, 0.26, progress);
-      const retreat = smoothStep(0.74, 0.98, progress);
-      const startGrassY = layer.grassYMin + seededUnit(seed + 15) * layer.grassYRange;
-      const endGrassY = layer.grassYMin + seededUnit(seed + 16) * layer.grassYRange;
-      const startGrassX = clamp(baseX + (seededUnit(seed + 17) - 0.5) * 46, layer.xClampMin, layer.xClampMax, baseX);
-      const endGrassX = clamp(baseX + (seededUnit(seed + 18) - 0.5) * 86, layer.xClampMin, layer.xClampMax, baseX);
-      let x = baseX + flutterX + pathSwayX + wind.directionX * wind.level * layer.windPush;
-      let y = baseY + flutterY + pathSwayY - excursion + wind.vectorY * wind.level * 5;
-      x = lerp(startGrassX, x, emerge);
-      y = lerp(startGrassY, y, emerge);
-      x = lerp(x, endGrassX, retreat);
-      y = lerp(y, endGrassY, retreat);
-      x = clamp(x, layer.xClampMin, layer.xClampMax, baseX);
-      y = clamp(y, layer.yClampMin, layer.yClampMax, baseY);
-      const pulse = (Math.sin(now / (920 + seededUnit(seed + 4) * 780) + seed) + 1) / 2;
-      const glow = (0.20 + smoothStep(0.06, 0.96, pulse) * (0.50 + intensity * 0.28));
+      const flight = getFireflyFlightPath(seed, progress, intensity, wind, foreground, layer, now);
+      const pulse = (Math.sin(now / (1500 + seededUnit(seed + 4) * 1900) + seed) + 1) / 2;
+      const glow = 0.12 + smoothStep(0.18, 0.96, pulse) * (0.58 + intensity * 0.22);
       const alpha = glow * layer.alphaScale * lifeVisibility;
-      if (alpha < 0.045 || (foreground && isMushroomLifeOccluded(x, y))) {
+      if (alpha < 0.035 || (foreground && isMushroomLifeOccluded(flight.x, flight.y))) {
         continue;
       }
 
-      drawPixelFirefly(ctx, x, y, alpha, foreground);
+      drawPixelFirefly(ctx, flight.x, flight.y, alpha, foreground);
       recordAmbientLifeSample('fireflies', {
         seed: seed,
         layer: foreground ? 'foreground' : 'background',
-        x: Number(x.toFixed(2)),
-        y: Number(y.toFixed(2)),
+        x: Number(flight.x.toFixed(2)),
+        y: Number(flight.y.toFixed(2)),
         progress: Number(progress.toFixed(3)),
         alpha: Number(alpha.toFixed(3)),
         glow: Number(glow.toFixed(3)),
         visibility: Number(lifeVisibility.toFixed(3)),
-        excursion: Number(excursion.toFixed(1))
+        excursion: Number(flight.excursion.toFixed(1)),
+        glowRadius: Number(getFireflyGlowRadius(alpha, foreground).toFixed(1))
       });
     }
     ctx.restore();
@@ -518,7 +495,7 @@
   function getFireflyLayerProfile(foreground, intensity) {
     if (foreground) {
       return {
-        slots: Math.round(3 + intensity * 6),
+        slots: Math.round(2 + intensity * 4),
         seedBase: 29179,
         presenceBonus: 0.32,
         xMin: 42,
@@ -541,7 +518,7 @@
     }
 
     return {
-      slots: Math.round(3 + intensity * 7),
+      slots: Math.round(2 + intensity * 5),
       seedBase: 27397,
       presenceBonus: 0.26,
       xMin: 70,
@@ -564,7 +541,7 @@
   }
 
   function getFireflyUpwardExcursion(seed, cycle, intensity, foreground) {
-    if (seededUnit(seed + 21) < 0.84) {
+    if (seededUnit(seed + 21) < 0.78) {
       return 0;
     }
 
@@ -573,32 +550,70 @@
     const end = Math.min(0.92, peak + 0.28 + seededUnit(seed + 24) * 0.18);
     const rise = smoothStep(start, peak, cycle);
     const settle = 1 - smoothStep(peak, end, cycle);
-    const amplitude = (foreground ? 48 : 40) + seededUnit(seed + 25) * (foreground ? 48 : 38) + intensity * 22;
+    const amplitude = (foreground ? 42 : 36) + seededUnit(seed + 25) * (foreground ? 54 : 42) + intensity * 26;
     return Math.max(0, rise * settle) * amplitude;
   }
 
+  function getFireflyFlightPath(seed, progress, intensity, wind, foreground, layer, now) {
+    const direction = seededUnit(seed + 31) > 0.5 ? 1 : -1;
+    const eased = easeLifeProgress(progress);
+    const startX = direction > 0
+      ? -28 - seededUnit(seed + 32) * 54
+      : 540 + seededUnit(seed + 32) * 54;
+    const endX = direction > 0
+      ? 540 + seededUnit(seed + 33) * 54
+      : -28 - seededUnit(seed + 33) * 54;
+    const startGrassY = layer.grassYMin + seededUnit(seed + 15) * layer.grassYRange;
+    const endGrassY = layer.grassYMin + seededUnit(seed + 16) * layer.grassYRange;
+    const cruiseY = layer.yMin + seededUnit(seed + 1) * layer.yRange;
+    const lateralRange = layer.lateralBase + intensity * layer.lateralIntensity;
+    const verticalRange = layer.verticalBase + intensity * layer.verticalIntensity;
+    const excursion = getFireflyUpwardExcursion(seed, progress, intensity, foreground);
+    const pathSwayX = Math.sin(progress * Math.PI * (1.2 + seededUnit(seed + 74) * 0.9) + seed * 0.4) * lateralRange;
+    const pathSwayY = Math.sin(progress * Math.PI * (1.6 + seededUnit(seed + 75) * 0.85) + seed * 0.6) * verticalRange;
+    const flutterX = smoothLifeNoise(seed + 71, now / (11000 + seededUnit(seed + 72) * 4200)) * lateralRange * 0.55;
+    const flutterY = Math.sin(now / (5400 + seededUnit(seed + 3) * 3200) + seed * 0.7) * verticalRange * 0.72
+      + smoothLifeNoise(seed + 81, now / (10000 + seededUnit(seed + 82) * 3600)) * verticalRange * 0.38;
+    const emerge = smoothStep(0.03, 0.22, progress);
+    const retreat = smoothStep(0.78, 0.98, progress);
+    let x = lerp(startX, endX, eased) + pathSwayX + flutterX + wind.directionX * wind.level * layer.windPush;
+    let y = lerp(startGrassY, cruiseY + pathSwayY + flutterY - excursion, emerge);
+    y = lerp(y, endGrassY, retreat);
+    y = clamp(y + wind.vectorY * wind.level * 5, layer.yClampMin, layer.yClampMax, cruiseY);
+    return {
+      x: x,
+      y: y,
+      excursion: excursion,
+      direction: direction
+    };
+  }
+
   function drawPixelFirefly(ctx, x, y, alpha, foreground) {
-    const glowRadius = foreground ? 6.8 : 5.3;
-    const dotRadius = foreground ? 1.45 : 1.15;
+    const glowRadius = getFireflyGlowRadius(alpha, foreground);
+    const px = Math.round(x);
+    const py = Math.round(y);
+    const outer = Math.round(glowRadius);
+    const middle = Math.max(3, Math.round(glowRadius * 0.58));
+    const inner = Math.max(2, Math.round(glowRadius * 0.28));
     const baseAlpha = ctx.globalAlpha;
-    const gradient = ctx.createRadialGradient(x, y, 0, x, y, glowRadius);
-    gradient.addColorStop(0, 'rgba(255, 247, 178, 0.95)');
-    gradient.addColorStop(0.32, 'rgba(234, 255, 132, 0.34)');
-    gradient.addColorStop(0.68, 'rgba(175, 225, 86, 0.12)');
-    gradient.addColorStop(1, 'rgba(223, 255, 109, 0)');
 
-    ctx.globalAlpha = baseAlpha * alpha * 0.86;
-    ctx.fillStyle = gradient;
-    ctx.beginPath();
-    ctx.arc(x, y, glowRadius, 0, Math.PI * 2);
-    ctx.fill();
-
+    ctx.globalAlpha = baseAlpha * alpha * 0.12;
+    ctx.fillStyle = '#e8ff76';
+    ctx.fillRect(px - outer, py - Math.floor(outer * 0.55), outer * 2 + 1, Math.max(2, Math.round(outer * 1.1)));
+    ctx.globalAlpha = baseAlpha * alpha * 0.20;
+    ctx.fillStyle = '#c6ee58';
+    ctx.fillRect(px - middle, py - Math.floor(middle * 0.65), middle * 2 + 1, Math.max(2, Math.round(middle * 1.3)));
+    ctx.globalAlpha = baseAlpha * alpha * 0.42;
+    ctx.fillStyle = '#fff2a5';
+    ctx.fillRect(px - inner, py - inner, inner * 2 + 1, inner * 2 + 1);
     ctx.globalAlpha = baseAlpha * alpha;
     ctx.fillStyle = '#fff7b2';
-    ctx.beginPath();
-    ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.fillRect(px, py, foreground ? 2 : 1, foreground ? 2 : 1);
     ctx.globalAlpha = baseAlpha;
+  }
+
+  function getFireflyGlowRadius(alpha, foreground) {
+    return (foreground ? 5.8 : 4.8) + clamp(Number(alpha), 0, 1, 0) * (foreground ? 5.6 : 4.2);
   }
 
   function drawAmbientLifeFocusCue(ctx, palette, now, scene) {
@@ -618,12 +633,13 @@
       const flap = (Math.sin(now / 82 + cue.seed) + 1) / 2;
       const colors = { wing: '#f4c45f', edge: '#8c6731', body: '#3d2c22' };
       drawPixelButterfly(ctx, cue.x, cue.y, cue.direction || 1, 7, flap, colors);
-      drawFocusSpark(ctx, cue.x - (cue.direction || 1) * 18, cue.y - 14, '#fff6b8');
+      drawFocusGlint(ctx, cue.x - (cue.direction || 1) * 18, cue.y - 14, '#fff6b8', cue.progress || 0);
     } else if (cue.kind === 'firefly') {
-      for (let index = 0; index < 4; index += 1) {
-        const offsetX = Math.round(Math.sin(now / (760 + index * 170) + cue.seed + index) * (10 + index * 3));
-        const offsetY = Math.round(Math.sin(now / (940 + index * 130) + cue.seed * 0.7 + index) * (8 + index * 2));
-        drawPixelFirefly(ctx, cue.x + offsetX, cue.y + offsetY, 0.46 + index * 0.04, true);
+      const tail = 1 - smoothStep(0.18, 0.72, cue.progress || 0);
+      const glowPulse = (Math.sin(now / 1400 + cue.seed) + 1) / 2;
+      drawPixelFirefly(ctx, cue.x, cue.y, 0.36 + glowPulse * 0.26, true);
+      if (tail > 0.08) {
+        drawPixelFirefly(ctx, cue.x - (cue.direction || 1) * 18, cue.y + 6, tail * 0.26, false);
       }
     } else if (cue.kind === 'crawler') {
       drawPixelCrawler(ctx, cue.x, cue.y, cue.direction || 1, 8, now, palette, cue.seed || 1);
@@ -641,10 +657,19 @@
     return core.calculateAmbientLifeFocusCue(scene, getRuntimeDate(), getRuntimeNow());
   }
 
-  function drawFocusSpark(ctx, x, y, color) {
+  function drawFocusGlint(ctx, x, y, color, progress) {
+    const alpha = fadeLifeEdge(progress || 0);
+    if (alpha <= 0.02) {
+      return;
+    }
+
     ctx.fillStyle = color;
-    ctx.fillRect(Math.round(x), Math.round(y), 8, 2);
-    ctx.fillRect(Math.round(x + 3), Math.round(y - 3), 2, 8);
+    ctx.globalAlpha *= alpha * 0.72;
+    ctx.fillRect(Math.round(x), Math.round(y), 3, 3);
+    ctx.fillRect(Math.round(x - 3), Math.round(y + 1), 2, 1);
+    ctx.fillRect(Math.round(x + 4), Math.round(y + 1), 2, 1);
+    ctx.fillRect(Math.round(x + 1), Math.round(y - 3), 1, 2);
+    ctx.fillRect(Math.round(x + 1), Math.round(y + 4), 1, 2);
   }
 
   function fadeLifeEdge(progress) {
@@ -678,7 +703,10 @@
       fireflies: [],
       sleepGlyphs: [],
       sleepBody: null,
-      activityBody: null
+      activityBody: null,
+      celestial: runtime.motionDiagnostics && runtime.motionDiagnostics.celestial
+        ? runtime.motionDiagnostics.celestial
+        : null
     };
   }
 

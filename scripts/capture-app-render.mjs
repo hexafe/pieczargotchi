@@ -654,6 +654,8 @@ async function captureCanvas(cdp, label, options) {
             yRange: range('y'),
             alphaRange: range('alpha'),
             glowRange: range('glow'),
+            glowRadiusRange: range('glowRadius'),
+            maxGlowRadius: Math.max(0, ...numbers('glowRadius')),
             maxExcursion: Math.max(0, ...numbers('excursion'))
           };
         };
@@ -664,6 +666,7 @@ async function captureCanvas(cdp, label, options) {
           y: sample.y,
           alpha: sample.alpha,
           glow: sample.glow,
+          glowRadius: sample.glowRadius,
           progress: sample.progress
         });
         return {
@@ -676,7 +679,8 @@ async function captureCanvas(cdp, label, options) {
             : [],
           sleepGlyphs: Array.isArray(diagnostics.sleepGlyphs) ? diagnostics.sleepGlyphs.length : 0,
           sleepBody: diagnostics.sleepBody || null,
-          activityBody: diagnostics.activityBody || null
+          activityBody: diagnostics.activityBody || null,
+          celestial: diagnostics.celestial || null
         };
       })()`,
       returnByValue: true

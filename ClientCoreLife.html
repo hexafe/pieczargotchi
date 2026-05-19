@@ -121,10 +121,14 @@
     }
 
     if (kind === 'firefly') {
-      const anchorX = 150 + ambientLifeSeededUnit(seed + 6) * 220;
-      const anchorY = 328 + ambientLifeSeededUnit(seed + 7) * 76;
-      const x = anchorX + Math.sin(progress * Math.PI * 2.4 + seed) * (18 + intensity * 14);
-      const y = anchorY + Math.sin(progress * Math.PI * 3.4 + seed * 0.7) * (12 + intensity * 8);
+      const startX = direction > 0 ? -34 : 546;
+      const endX = direction > 0 ? 336 + ambientLifeSeededUnit(seed + 6) * 206 : 176 - ambientLifeSeededUnit(seed + 6) * 206;
+      const cruiseY = 342 + ambientLifeSeededUnit(seed + 7) * 96;
+      const x = startX + (endX - startX) * eased + Math.sin(progress * Math.PI * 2.1 + seed) * (10 + intensity * 12);
+      const y = cruiseY
+        + Math.sin(progress * Math.PI * 3.1 + seed * 0.7) * (15 + intensity * 16)
+        + Math.sin(progress * Math.PI * 5.4 + seed * 1.3) * (4 + intensity * 6)
+        - Math.sin(progress * Math.PI) * (24 + ambientLifeSeededUnit(seed + 8) * 42);
       return buildAmbientLifeCueResult(kind, 'watch_firefly', x, y, direction, progress, seed, startedAt, durationMs, intensity);
     }
 

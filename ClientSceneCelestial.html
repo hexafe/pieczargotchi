@@ -2,6 +2,7 @@
     const date = getRuntimeDate();
     ctx.save();
     const sun = getSunPosition(scene, date);
+    let sunDiagnostics = null;
     if (sun) {
       const sunVisibility = getCelestialCloudVisibility(scene, now, 'sun');
       const weatherAlpha = scene.condition === 'rain' || scene.condition === 'storm' ? 0.22 : 0.72;
@@ -13,9 +14,18 @@
         ctx.fillStyle = palette.sunCore || '#fff3b8';
         ctx.fillRect(sun.x + sun.coreInset, sun.y + sun.coreInset, sun.coreSize, sun.coreSize);
       }
+      sunDiagnostics = {
+        x: sun.x,
+        y: sun.y,
+        size: sun.size,
+        altitude: Number(sun.altitude.toFixed(2)),
+        azimuth: Number(sun.azimuth.toFixed(2)),
+        alpha: Number((sun.alpha * sunVisibility).toFixed(3))
+      };
     }
 
     const moon = getMoonPosition(scene, date);
+    let moonDiagnostics = null;
     if (moon) {
       const moonVisibility = getCelestialCloudVisibility(scene, now, 'moon');
       const weatherAlpha = scene.condition === 'rain' || scene.condition === 'storm' ? 0.34 : 0.78;
@@ -24,6 +34,14 @@
       if (ctx.globalAlpha > 0.015) {
         drawPixelMoon(ctx, moon);
       }
+      moonDiagnostics = {
+        x: moon.x,
+        y: moon.y,
+        size: moon.size,
+        altitude: Number(moon.altitude.toFixed(2)),
+        azimuth: Number(moon.azimuth.toFixed(2)),
+        alpha: Number((moon.alpha * moonVisibility).toFixed(3))
+      };
     }
 
     const starVisibility = getCelestialCloudVisibility(scene, now, 'stars');
@@ -39,7 +57,23 @@
         ctx.fillRect(x, y, 3, 3);
       }
     }
+    recordCelestialDiagnostics(scene, date, sunDiagnostics, moonDiagnostics);
     ctx.restore();
+  }
+
+  function recordCelestialDiagnostics(scene, date, sun, moon) {
+    if (!runtime || !runtime.motionDiagnostics) {
+      return;
+    }
+
+    runtime.motionDiagnostics.celestial = {
+      dayPhase: scene && scene.dayPhase ? scene.dayPhase : null,
+      latitude: scene && Number.isFinite(Number(scene.latitude)) ? Number(Number(scene.latitude).toFixed(4)) : null,
+      longitude: scene && Number.isFinite(Number(scene.longitude)) ? Number(Number(scene.longitude).toFixed(4)) : null,
+      month: date.getMonth() + 1,
+      sun: sun,
+      moon: moon
+    };
   }
 
   function getCelestialCloudVisibility(scene, now, type) {

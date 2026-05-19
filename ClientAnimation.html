@@ -297,27 +297,57 @@
     const frame = getAnimationFrame(animation, now - startedAt);
     const sleepMotion = getAnimationSleepMotion(animation, now);
     if (sleepMotion) {
-      ctx.save();
-      ctx.translate(canvasSize / 2 + sleepMotion.x, canvasSize / 2 + sleepMotion.y);
-      ctx.scale(sleepMotion.scaleX, sleepMotion.scaleY);
-      ctx.drawImage(image, frame * frameWidth, 0, frameWidth, frameHeight, -canvasSize / 2, -canvasSize / 2, canvasSize, canvasSize);
-      ctx.restore();
+      drawGrassAnchoredMotionFrame(ctx, image, frame, frameWidth, frameHeight, animation, sleepMotion);
       recordSleepBodyMotion(sleepMotion);
       return;
     }
 
     const activityMotion = getAnimationActivityMotion(animation, now, startedAt);
     if (activityMotion) {
-      ctx.save();
-      ctx.translate(canvasSize / 2 + activityMotion.x, canvasSize / 2 + activityMotion.y);
-      ctx.scale(activityMotion.scaleX, activityMotion.scaleY);
-      ctx.drawImage(image, frame * frameWidth, 0, frameWidth, frameHeight, -canvasSize / 2, -canvasSize / 2, canvasSize, canvasSize);
-      ctx.restore();
+      drawGrassAnchoredMotionFrame(ctx, image, frame, frameWidth, frameHeight, animation, activityMotion);
       recordActivityBodyMotion(activityMotion);
       return;
     }
 
     ctx.drawImage(image, frame * frameWidth, 0, frameWidth, frameHeight, 0, 0, canvasSize, canvasSize);
+  }
+
+  function drawGrassAnchoredMotionFrame(ctx, image, frame, frameWidth, frameHeight, animation, motion) {
+    const grassTop = getAnimationGrassAnchorTop(animation);
+    const sourceX = frame * frameWidth;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, canvasSize, grassTop);
+    ctx.clip();
+    ctx.translate(canvasSize / 2 + motion.x, canvasSize / 2 + motion.y);
+    ctx.scale(motion.scaleX, motion.scaleY);
+    ctx.drawImage(image, sourceX, 0, frameWidth, frameHeight, -canvasSize / 2, -canvasSize / 2, canvasSize, canvasSize);
+    ctx.restore();
+
+    ctx.drawImage(
+      image,
+      sourceX,
+      Math.round(grassTop / canvasSize * frameHeight),
+      frameWidth,
+      frameHeight - Math.round(grassTop / canvasSize * frameHeight),
+      0,
+      grassTop,
+      canvasSize,
+      canvasSize - grassTop
+    );
+  }
+
+  function getAnimationGrassAnchorTop(animation) {
+    const key = animation && animation.key ? String(animation.key) : '';
+    const stage = key.split('.')[0] || 'adult';
+    const tops = {
+      spore: 382,
+      baby: 372,
+      young: 360,
+      adult: 354,
+      legendary: 354
+    };
+    return tops[stage] || tops.adult;
   }
 
   function updateSleepVisualStart(now) {
