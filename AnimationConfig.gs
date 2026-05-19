@@ -253,7 +253,7 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
     fileName: 'activities/hydrate_sheet.png',
     frameCount: 4,
     frameDurationsMs: [80, 120, 180, 260],
-    loop: false,
+    loop: true,
     priority: 100
   },
   {
@@ -262,7 +262,7 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
     fileName: 'activities/feed_sheet.png',
     frameCount: 4,
     frameDurationsMs: [80, 120, 180, 260],
-    loop: false,
+    loop: true,
     priority: 100
   },
   {
@@ -271,7 +271,7 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
     fileName: 'activities/clean_sheet.png',
     frameCount: 4,
     frameDurationsMs: [80, 120, 180, 260],
-    loop: false,
+    loop: true,
     priority: 100
   },
   {
@@ -280,7 +280,7 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
     fileName: 'activities/play_sheet.png',
     frameCount: 4,
     frameDurationsMs: [80, 120, 180, 260],
-    loop: false,
+    loop: true,
     priority: 100
   },
   {
@@ -289,7 +289,7 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
     fileName: 'activities/instrument_sheet.png',
     frameCount: 4,
     frameDurationsMs: [100, 140, 180, 300],
-    loop: false,
+    loop: true,
     priority: 100
   },
   {
@@ -298,7 +298,7 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
     fileName: 'activities/sing_sheet.png',
     frameCount: 4,
     frameDurationsMs: [100, 140, 180, 300],
-    loop: false,
+    loop: true,
     priority: 100
   },
   {
@@ -307,7 +307,7 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
     fileName: 'activities/spores_sheet.png',
     frameCount: 4,
     frameDurationsMs: [100, 160, 220, 360],
-    loop: false,
+    loop: true,
     priority: 100,
     minStage: 'adult'
   },
@@ -317,7 +317,7 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
     fileName: 'activities/harvest_sheet.png',
     frameCount: 4,
     frameDurationsMs: [100, 160, 220, 360],
-    loop: false,
+    loop: true,
     priority: 100
   }
 ];

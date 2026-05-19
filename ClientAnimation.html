@@ -306,6 +306,17 @@
       return;
     }
 
+    const activityMotion = getAnimationActivityMotion(animation, now, startedAt);
+    if (activityMotion) {
+      ctx.save();
+      ctx.translate(canvasSize / 2 + activityMotion.x, canvasSize / 2 + activityMotion.y);
+      ctx.scale(activityMotion.scaleX, activityMotion.scaleY);
+      ctx.drawImage(image, frame * frameWidth, 0, frameWidth, frameHeight, -canvasSize / 2, -canvasSize / 2, canvasSize, canvasSize);
+      ctx.restore();
+      recordActivityBodyMotion(activityMotion);
+      return;
+    }
+
     ctx.drawImage(image, frame * frameWidth, 0, frameWidth, frameHeight, 0, 0, canvasSize, canvasSize);
   }
 
@@ -345,19 +356,82 @@
 
   function getSleepBodyMotion(now, startedAt) {
     const elapsed = Math.max(0, now - startedAt);
-    const breathWave = (Math.sin(elapsed / 1850 - Math.PI / 2) + 1) / 2;
+    const breathCycle = positiveModulo(elapsed, 4200) / 4200;
+    const breathWave = (Math.sin(breathCycle * Math.PI * 2 - Math.PI / 2) + 1) / 2;
     const breath = smoothStep(0, 1, breathWave);
+    const sighCycle = positiveModulo(elapsed + 6900, 23000) / 23000;
+    const sighWindow = smoothStep(0.06, 0.16, sighCycle) * (1 - smoothStep(0.30, 0.48, sighCycle));
+    const sigh = Math.sin(sighCycle * Math.PI) * sighWindow;
     const wriggleCycle = positiveModulo(elapsed + 2300, 17500) / 17500;
     const wriggleWindow = smoothStep(0.05, 0.13, wriggleCycle) * (1 - smoothStep(0.27, 0.42, wriggleCycle));
     const wriggle = Math.sin(wriggleCycle * Math.PI * 7) * wriggleWindow;
+    const breathY = -1 - breath * 3 - sigh * 3;
+    const wriggleY = Math.sin(wriggleCycle * Math.PI * 4) * wriggleWindow * 0.8;
 
     return {
       x: Math.round(wriggle * 3),
-      y: Math.round(-breath * 2 + Math.sin(wriggleCycle * Math.PI * 4) * wriggleWindow),
-      scaleX: 1 - breath * 0.003 + Math.abs(wriggle) * 0.003,
-      scaleY: 1 + breath * 0.006,
+      y: Math.round(breathY + wriggleY),
+      scaleX: 1 - breath * 0.004 - sigh * 0.002 + Math.abs(wriggle) * 0.003,
+      scaleY: 1 + breath * 0.009 + sigh * 0.006,
       breath: Number(breath.toFixed(3)),
+      breathY: Number(breathY.toFixed(3)),
+      sigh: Number(sigh.toFixed(3)),
       wriggle: Number(wriggle.toFixed(3))
+    };
+  }
+
+  function getAnimationActivityMotion(animation, now, startedAt) {
+    if (!animation || animation.kind !== 'activity') {
+      return null;
+    }
+
+    const activity = animation.activity || animation.state || 'activity';
+    const elapsed = Math.max(0, now - (startedAt || now));
+    const phase = positiveModulo(elapsed, 2400) / 2400;
+    const wave = Math.sin(phase * Math.PI * 2);
+    const wave2 = Math.sin(phase * Math.PI * 4 + 0.35);
+    const lift = smoothStep(0, 1, (Math.sin(phase * Math.PI * 2 - Math.PI / 2) + 1) / 2);
+    let x = wave * 1.1;
+    let y = -lift * 1.5;
+    let scaleX = 1;
+    let scaleY = 1;
+
+    if (activity === 'hydrate') {
+      x = wave * 1.2;
+      y = -1 - lift * 2.2;
+      scaleY += lift * 0.006;
+    } else if (activity === 'feed') {
+      x = wave * 2.1;
+      y = -Math.max(0, wave) * 2;
+      scaleX += Math.abs(wave) * 0.004;
+    } else if (activity === 'clean') {
+      x = wave2 * 2.2;
+      y = -0.5 - lift * 1.2;
+      scaleX += Math.abs(wave2) * 0.003;
+    } else if (activity === 'play') {
+      x = wave * 2.2;
+      y = -Math.sin(phase * Math.PI) * 4;
+      scaleY += Math.max(0, Math.sin(phase * Math.PI)) * 0.008;
+    } else if (activity === 'instrument' || activity === 'sing') {
+      x = Math.sin(phase * Math.PI * 2 + 0.5) * 2;
+      y = Math.sin(phase * Math.PI * 2 - 0.25) * 0.9;
+      scaleX += Math.abs(wave) * 0.004;
+      scaleY += lift * 0.004;
+    } else if (activity === 'spores' || activity === 'harvest') {
+      x = wave * 1.4;
+      y = -lift * 3;
+      scaleX += lift * 0.003;
+      scaleY += lift * 0.007;
+    }
+
+    return {
+      activity: activity,
+      x: Math.round(x),
+      y: Math.round(y),
+      scaleX: scaleX,
+      scaleY: scaleY,
+      phase: Number(phase.toFixed(3)),
+      lift: Number(lift.toFixed(3))
     };
   }
 
@@ -371,7 +445,24 @@
       scaleX: Number(motion.scaleX.toFixed(4)),
       scaleY: Number(motion.scaleY.toFixed(4)),
       breath: motion.breath,
+      breathY: motion.breathY,
+      sigh: motion.sigh,
       wriggle: motion.wriggle
+    };
+  }
+
+  function recordActivityBodyMotion(motion) {
+    if (!runtime.motionDiagnostics) {
+      return;
+    }
+    runtime.motionDiagnostics.activityBody = {
+      activity: motion.activity,
+      x: motion.x,
+      y: motion.y,
+      scaleX: Number(motion.scaleX.toFixed(4)),
+      scaleY: Number(motion.scaleY.toFixed(4)),
+      phase: motion.phase,
+      lift: motion.lift
     };
   }
 

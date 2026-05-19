@@ -296,7 +296,7 @@ async function captureActivity(cdp, stage, growth, activity) {
   await captureCanvas(cdp, `activity-${stage}-${activity}`, {
     mode: 'awake',
     growth,
-    activity: `{ type: ${JSON.stringify(activity)}, label: ${JSON.stringify(activity)}, startedAt: runtimeNow, until: runtimeNow + 2400 }`,
+    activity: `{ type: ${JSON.stringify(activity)}, label: ${JSON.stringify(activity)}, startedAt: runtimeNow - 850, until: runtimeNow + 2400 }`,
     expectedAnimationKey: `${stage}.activity.${activity}`
   });
 }
@@ -675,7 +675,8 @@ async function captureCanvas(cdp, label, options) {
             ? diagnostics.fireflies.slice(0, 8).map(sampleForLog)
             : [],
           sleepGlyphs: Array.isArray(diagnostics.sleepGlyphs) ? diagnostics.sleepGlyphs.length : 0,
-          sleepBody: diagnostics.sleepBody || null
+          sleepBody: diagnostics.sleepBody || null,
+          activityBody: diagnostics.activityBody || null
         };
       })()`,
       returnByValue: true

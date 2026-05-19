@@ -208,6 +208,11 @@
     sky.addColorStop(1, palette.skyLow);
     ctx.fillStyle = sky;
     ctx.fillRect(0, 0, 512, 512);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
-    ctx.fillRect(0, 0, 512, 54);
+
+    const skyGlow = ctx.createLinearGradient(0, 0, 0, 210);
+    skyGlow.addColorStop(0, 'rgba(255, 255, 255, 0.10)');
+    skyGlow.addColorStop(0.36, 'rgba(255, 255, 255, 0.045)');
+    skyGlow.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = skyGlow;
+    ctx.fillRect(0, 0, 512, 210);
   }
