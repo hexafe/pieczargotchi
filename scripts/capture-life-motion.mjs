@@ -111,6 +111,7 @@ async function runScenario(scenario) {
   };
   const result = await runCommand(process.execPath, ['scripts/capture-app-render.mjs', appUrl, outputPrefix], env);
   assertLifeProfile(scenario, result.stdout);
+  assertMotionDiagnostics(scenario, result.stdout);
 }
 
 function assertLifeProfile(scenario, stdout) {
@@ -128,6 +129,36 @@ function assertLifeProfile(scenario, stdout) {
     const observed = Math.max(...profiles.map((profile) => Number(profile[field]) || 0));
     if (observed < minimum) {
       throw new Error(`${scenario.name}: ${field}=${observed} below ${minimum}`);
+    }
+  }
+}
+
+function assertMotionDiagnostics(scenario, stdout) {
+  const expectedFields = [];
+  if (Object.prototype.hasOwnProperty.call(scenario.minimums, 'butterflyIntensity')) {
+    expectedFields.push('butterflies');
+  }
+  if (Object.prototype.hasOwnProperty.call(scenario.minimums, 'fireflyIntensity')) {
+    expectedFields.push('fireflies');
+  }
+  if (expectedFields.length === 0) {
+    return;
+  }
+
+  const diagnostics = stdout
+    .split(/\r?\n/)
+    .map((line) => line.match(/ motion: (\{.*\})$/))
+    .filter(Boolean)
+    .map((match) => JSON.parse(match[1]))
+    .filter(Boolean);
+  if (diagnostics.length === 0) {
+    throw new Error(`${scenario.name}: capture did not report render motion diagnostics`);
+  }
+
+  for (const field of expectedFields) {
+    const observed = Math.max(...diagnostics.map((diagnostic) => Number(diagnostic[field]) || 0));
+    if (observed < 1) {
+      throw new Error(`${scenario.name}: render diagnostics did not draw any ${field}`);
     }
   }
 }

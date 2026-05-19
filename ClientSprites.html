@@ -224,17 +224,68 @@
 
   function drawSleepAmbient(ctx, now) {
     const anchor = getStageEffectAnchor();
-    const cycle = (now / 1000) % 2;
-    ctx.font = 'bold 26px sans-serif';
-    ctx.fillStyle = 'rgba(255, 253, 247, 0.62)';
-    ctx.fillText('Z', anchor.sleepZ[0] + cycle * 10 + 2, anchor.sleepZ[1] - cycle * (anchor.sleepLargeRise || 12) + 2);
-    ctx.fillStyle = '#2f4f35';
-    ctx.fillText('Z', anchor.sleepZ[0] + cycle * 10, anchor.sleepZ[1] - cycle * (anchor.sleepLargeRise || 12));
-    ctx.font = 'bold 18px sans-serif';
-    ctx.fillStyle = 'rgba(255, 253, 247, 0.62)';
-    ctx.fillText('z', anchor.sleepSmallZ[0] + cycle * 8 + 2, anchor.sleepSmallZ[1] - cycle * (anchor.sleepSmallRise || 10) + 2);
-    ctx.fillStyle = '#2f4f35';
-    ctx.fillText('z', anchor.sleepSmallZ[0] + cycle * 8, anchor.sleepSmallZ[1] - cycle * (anchor.sleepSmallRise || 10));
+    const startedAt = runtime.sleepVisualStartedAt || now;
+    const glyphs = getSleepGlyphs(anchor, now, startedAt);
+    ctx.save();
+    ctx.textBaseline = 'alphabetic';
+    glyphs.forEach(function(glyph) {
+      if (glyph.alpha <= 0.02) {
+        return;
+      }
+
+      ctx.font = 'bold ' + Math.round(glyph.size) + 'px sans-serif';
+      ctx.globalAlpha = glyph.alpha * 0.68;
+      ctx.fillStyle = 'rgba(255, 253, 247, 0.82)';
+      ctx.fillText(glyph.char, Math.round(glyph.x + 2), Math.round(glyph.y + 2));
+      ctx.globalAlpha = glyph.alpha;
+      ctx.fillStyle = '#2f4f35';
+      ctx.fillText(glyph.char, Math.round(glyph.x), Math.round(glyph.y));
+    });
+    ctx.restore();
+    recordSleepGlyphDiagnostics(glyphs);
+  }
+
+  function getSleepGlyphs(anchor, now, startedAt) {
+    const period = 2700;
+    const large = anchor.sleepZ || [326, 292];
+    const small = anchor.sleepSmallZ || [large[0] + 32, large[1] - 18];
+    const entries = [
+      { char: 'Z', delay: 0, x: large[0], y: large[1], size: 30, lift: 20, drift: 11 },
+      { char: 'z', delay: 430, x: lerp(large[0], small[0], 0.48), y: lerp(large[1], small[1], 0.52), size: 22, lift: 24, drift: 13 },
+      { char: 'z', delay: 860, x: small[0], y: small[1], size: 16, lift: 27, drift: 15 }
+    ];
+    const elapsed = Math.max(0, now - startedAt);
+
+    return entries.map(function(entry, index) {
+      const local = positiveModulo(elapsed - entry.delay, period) / period;
+      const fadeIn = smoothStep(0.02, 0.13, local);
+      const fadeOut = 1 - smoothStep(0.66, 0.98, local);
+      const alpha = fadeIn * fadeOut;
+      const scale = 1 - local * 0.42;
+      const wave = Math.sin(local * Math.PI * 2.2 + index * 0.8);
+      return {
+        char: entry.char,
+        x: entry.x + local * entry.drift + wave * 4,
+        y: entry.y - local * entry.lift + Math.sin(local * Math.PI * 3 + index) * 3,
+        size: Math.max(10, entry.size * scale),
+        alpha: alpha
+      };
+    });
+  }
+
+  function recordSleepGlyphDiagnostics(glyphs) {
+    if (!runtime.motionDiagnostics) {
+      return;
+    }
+    runtime.motionDiagnostics.sleepGlyphs = glyphs.map(function(glyph) {
+      return {
+        char: glyph.char,
+        x: Math.round(glyph.x),
+        y: Math.round(glyph.y),
+        size: Number(glyph.size.toFixed(1)),
+        alpha: Number(glyph.alpha.toFixed(3))
+      };
+    });
   }
 
   function drawEffects(ctx, now) {

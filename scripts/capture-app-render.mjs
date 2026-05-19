@@ -628,6 +628,22 @@ async function captureCanvas(cdp, label, options) {
       returnByValue: true
     });
     console.log(`${label} life: ${JSON.stringify(profile.result.value)}`);
+    const motionDiagnostics = await cdp.send('Runtime.evaluate', {
+      expression: `(() => {
+        const diagnostics = window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.motionDiagnostics;
+        if (!diagnostics) {
+          return null;
+        }
+        return {
+          butterflies: Array.isArray(diagnostics.butterflies) ? diagnostics.butterflies.length : 0,
+          fireflies: Array.isArray(diagnostics.fireflies) ? diagnostics.fireflies.length : 0,
+          sleepGlyphs: Array.isArray(diagnostics.sleepGlyphs) ? diagnostics.sleepGlyphs.length : 0,
+          sleepBody: diagnostics.sleepBody || null
+        };
+      })()`,
+      returnByValue: true
+    });
+    console.log(`${label} motion: ${JSON.stringify(motionDiagnostics.result.value)}`);
     const sceneSummary = await cdp.send('Runtime.evaluate', {
       expression: `(() => {
         const scene = window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.weatherScene;

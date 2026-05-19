@@ -1,6 +1,7 @@
   function drawFrame(now) {
     const ctx = runtime.ctx;
     const wallNow = getRuntimeNow();
+    updateSleepVisualStart(wallNow);
 
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, canvasSize, canvasSize);
@@ -34,7 +35,7 @@
     drawImmersionForeground(ctx, now, wallNow);
 
     if (runtime.state && runtime.state.mode === 'sleeping') {
-      drawSleepAmbient(ctx, now);
+      drawSleepAmbient(ctx, wallNow);
     } else {
       drawTemporaryOverlays(ctx, now, wallNow, selectedAnimation, drewAnimation || drewHeldAnimation);
     }
@@ -294,7 +295,84 @@
     const frameWidth = animation.frameWidth || canvasSize;
     const frameHeight = animation.frameHeight || canvasSize;
     const frame = getAnimationFrame(animation, now - startedAt);
+    const sleepMotion = getAnimationSleepMotion(animation, now);
+    if (sleepMotion) {
+      ctx.save();
+      ctx.translate(canvasSize / 2 + sleepMotion.x, canvasSize / 2 + sleepMotion.y);
+      ctx.scale(sleepMotion.scaleX, sleepMotion.scaleY);
+      ctx.drawImage(image, frame * frameWidth, 0, frameWidth, frameHeight, -canvasSize / 2, -canvasSize / 2, canvasSize, canvasSize);
+      ctx.restore();
+      recordSleepBodyMotion(sleepMotion);
+      return;
+    }
+
     ctx.drawImage(image, frame * frameWidth, 0, frameWidth, frameHeight, 0, 0, canvasSize, canvasSize);
+  }
+
+  function updateSleepVisualStart(now) {
+    const state = runtime.state;
+    const normalSleep = state
+      && state.mode === 'sleeping'
+      && !(state.recovery && state.recovery.active)
+      && !(state.gameOver && state.gameOver.active);
+    if (!normalSleep) {
+      runtime.sleepVisualStartedAt = 0;
+      return;
+    }
+
+    if (!runtime.sleepVisualStartedAt) {
+      runtime.sleepVisualStartedAt = now;
+    }
+  }
+
+  function getAnimationSleepMotion(animation, now) {
+    const state = runtime.state;
+    if (
+      !state
+      || state.mode !== 'sleeping'
+      || !runtime.sleepVisualStartedAt
+      || (state.recovery && state.recovery.active)
+      || (state.gameOver && state.gameOver.active)
+      || !animation
+      || animation.kind !== 'stage'
+      || animation.state !== 'sleep'
+    ) {
+      return null;
+    }
+
+    return getSleepBodyMotion(now, runtime.sleepVisualStartedAt);
+  }
+
+  function getSleepBodyMotion(now, startedAt) {
+    const elapsed = Math.max(0, now - startedAt);
+    const breathWave = (Math.sin(elapsed / 1850 - Math.PI / 2) + 1) / 2;
+    const breath = smoothStep(0, 1, breathWave);
+    const wriggleCycle = positiveModulo(elapsed + 2300, 17500) / 17500;
+    const wriggleWindow = smoothStep(0.05, 0.13, wriggleCycle) * (1 - smoothStep(0.27, 0.42, wriggleCycle));
+    const wriggle = Math.sin(wriggleCycle * Math.PI * 7) * wriggleWindow;
+
+    return {
+      x: Math.round(wriggle * 3),
+      y: Math.round(-breath * 2 + Math.sin(wriggleCycle * Math.PI * 4) * wriggleWindow),
+      scaleX: 1 - breath * 0.003 + Math.abs(wriggle) * 0.003,
+      scaleY: 1 + breath * 0.006,
+      breath: Number(breath.toFixed(3)),
+      wriggle: Number(wriggle.toFixed(3))
+    };
+  }
+
+  function recordSleepBodyMotion(motion) {
+    if (!runtime.motionDiagnostics) {
+      return;
+    }
+    runtime.motionDiagnostics.sleepBody = {
+      x: motion.x,
+      y: motion.y,
+      scaleX: Number(motion.scaleX.toFixed(4)),
+      scaleY: Number(motion.scaleY.toFixed(4)),
+      breath: motion.breath,
+      wriggle: motion.wriggle
+    };
   }
 
   function getAnimationFrame(animation, elapsedMs) {

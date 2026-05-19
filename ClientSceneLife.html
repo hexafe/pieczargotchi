@@ -1,5 +1,6 @@
   function drawAmbientLifeBackground(ctx, palette, now, scene) {
     const profile = getAmbientLifeProfile(scene);
+    beginAmbientLifeDiagnostics(now);
     if (!hasAmbientLife(profile)) {
       return;
     }
@@ -84,38 +85,90 @@
       const path = getButterflyFlightPath(seed, progress, intensity, wind, foreground);
       const size = 4 + Math.round(seededUnit(seed + 6) * 2 + intensity * 1.8);
       const flap = (Math.sin(now / (92 + seededUnit(seed + 7) * 48) + seed) + 1) / 2;
-      const alpha = (0.58 + intensity * 0.34) * fadeLifeEdge(progress);
+      const alpha = (0.58 + intensity * 0.34) * path.visibility;
       if (foreground && isMushroomLifeOccluded(path.x, path.y)) {
         continue;
       }
 
       ctx.globalAlpha = foreground ? Math.min(1, alpha * 1.08) : alpha;
       drawPixelButterfly(ctx, Math.round(path.x), Math.round(path.y), path.direction, size, flap, colors[index % colors.length]);
+      if (path.grassCover > 0.02) {
+        drawButterflyGrassCover(ctx, Math.round(path.x), Math.round(path.y), size, path.grassCover, colors[index % colors.length]);
+      }
+      recordAmbientLifeSample('butterflies', {
+        seed: seed,
+        layer: foreground ? 'foreground' : 'background',
+        route: path.route,
+        x: Math.round(path.x),
+        y: Math.round(path.y),
+        progress: Number(progress.toFixed(3)),
+        alpha: Number(alpha.toFixed(3)),
+        visibility: Number(path.visibility.toFixed(3))
+      });
     }
     ctx.restore();
   }
 
   function getButterflyFlightPath(seed, progress, intensity, wind, foreground) {
     const routeDirection = seededUnit(seed + 2) > 0.5 ? 1 : -1;
-    const point = getButterflyFlightPoint(seed, progress, intensity, wind, routeDirection, foreground);
-    const nextPoint = getButterflyFlightPoint(seed, clamp(progress + 0.012, 0, 1, 0), intensity, wind, routeDirection, foreground);
+    const route = getButterflyRoute(seed, foreground);
+    const point = getButterflyFlightPoint(seed, progress, intensity, wind, routeDirection, foreground, route);
+    const nextPoint = getButterflyFlightPoint(seed, clamp(progress + 0.012, 0, 1, 0), intensity, wind, routeDirection, foreground, route);
+    const visibility = route.kind === 'grass'
+      ? fadeGrassEntry(progress)
+      : fadeLifeEdge(progress);
+    const grassCover = route.kind === 'grass'
+      ? Math.max(0, 1 - smoothStep(0.14, 0.34, progress), 1 - smoothStep(0.14, 0.34, 1 - progress))
+      : 0;
 
     return {
       x: point.x,
       y: point.y,
-      direction: nextPoint.x >= point.x ? 1 : -1
+      direction: nextPoint.x >= point.x ? 1 : -1,
+      route: route.kind,
+      visibility: visibility,
+      grassCover: grassCover
     };
   }
 
-  function getButterflyFlightPoint(seed, progress, intensity, wind, routeDirection, foreground) {
+  function getButterflyRoute(seed, foreground) {
+    const grassChance = foreground ? 0.62 : 0.24;
+    const useGrass = seededUnit(seed + 8) < grassChance;
+    if (!useGrass) {
+      return {
+        kind: 'offscreen',
+        startInGrass: false,
+        endInGrass: false
+      };
+    }
+
+    const startInGrass = seededUnit(seed + 9) < 0.74;
+    const endInGrass = seededUnit(seed + 10) < 0.74;
+
+    return {
+      kind: 'grass',
+      startInGrass: startInGrass || !endInGrass,
+      endInGrass: endInGrass
+    };
+  }
+
+  function getButterflyFlightPoint(seed, progress, intensity, wind, routeDirection, foreground, route) {
     const p = clamp(progress, 0, 1, 0);
     const eased = easeLifeProgress(p);
-    const startX = routeDirection > 0
+    const routeInfo = route || getButterflyRoute(seed, foreground);
+    const offscreenStartX = routeDirection > 0
       ? -58 - seededUnit(seed + 3) * 70
       : 570 + seededUnit(seed + 3) * 70;
-    const endX = routeDirection > 0
+    const offscreenEndX = routeDirection > 0
       ? 570 + seededUnit(seed + 4) * 70
       : -58 - seededUnit(seed + 4) * 70;
+    const grassY = (foreground ? 444 : 418) + seededUnit(seed + 13) * (foreground ? 34 : 26);
+    const startX = routeInfo.startInGrass
+      ? 34 + seededUnit(seed + 11) * 444
+      : offscreenStartX;
+    const endX = routeInfo.endInGrass
+      ? 34 + seededUnit(seed + 12) * 444
+      : offscreenEndX;
     const baseY = (foreground ? 216 : 132) + seededUnit(seed + 5) * (foreground ? 158 : 176);
     const broadNoiseX = smoothLifeNoise(seed + 31, p * (3.2 + seededUnit(seed + 32) * 1.9)) * (42 + intensity * 54);
     const quickNoiseX = smoothLifeNoise(seed + 33, p * (7.5 + seededUnit(seed + 34) * 2.2)) * (10 + intensity * 18);
@@ -123,12 +176,33 @@
     const waveY = Math.sin(p * Math.PI * (2.2 + seededUnit(seed + 43) * 1.8) + seed) * (8 + intensity * 14);
     const windPush = wind.directionX * wind.level * (12 + 24 * Math.sin(p * Math.PI));
     const x = startX + (endX - startX) * eased + broadNoiseX + quickNoiseX + windPush;
-    const y = baseY + broadNoiseY + waveY + wind.vectorY * wind.level * 18;
+    let y = baseY + broadNoiseY + waveY + wind.vectorY * wind.level * 18;
+    if (routeInfo.kind === 'grass') {
+      if (routeInfo.startInGrass) {
+        y = lerp(grassY, y, smoothStep(0.02, 0.28, p));
+      }
+      if (routeInfo.endInGrass) {
+        const exitGrassY = (foreground ? 446 : 420) + seededUnit(seed + 14) * (foreground ? 32 : 24);
+        y = lerp(y, exitGrassY, smoothStep(0.72, 0.98, p));
+      }
+    }
 
     return {
       x: clamp(x, -96, 608, x),
-      y: clamp(y, foreground ? 188 : 108, foreground ? 388 : 340, baseY)
+      y: clamp(y, foreground ? 188 : 108, routeInfo.kind === 'grass' ? (foreground ? 478 : 452) : (foreground ? 388 : 340), baseY)
     };
+  }
+
+  function drawButterflyGrassCover(ctx, x, y, size, cover, colors) {
+    ctx.save();
+    ctx.globalAlpha = cover * 0.82;
+    ctx.fillStyle = colors.edge;
+    for (let blade = 0; blade < 5; blade += 1) {
+      const offset = -10 + blade * 5;
+      const height = 12 + ((blade + size) % 4) * 4;
+      ctx.fillRect(x + offset, y - height + 8, 2, height);
+    }
+    ctx.restore();
   }
 
   function drawPixelButterfly(ctx, x, y, direction, size, flap, colors) {
@@ -384,27 +458,56 @@
         continue;
       }
 
+      const cycleMs = 9800 + seededUnit(seed + 6) * 7200;
+      const activeSpan = 0.68 + intensity * 0.18;
+      const phase = positiveModulo(now + seededUnit(seed + 7) * cycleMs, cycleMs) / cycleMs;
+      if (phase > activeSpan) {
+        continue;
+      }
+
+      const progress = phase / activeSpan;
+      const lifeVisibility = fadeGrassEntry(progress);
       const baseX = layer.xMin + seededUnit(seed) * layer.xRange;
       const baseY = layer.yMin + seededUnit(seed + 1) * layer.yRange;
       const lateralRange = layer.lateralBase + intensity * layer.lateralIntensity;
       const verticalRange = layer.verticalBase + intensity * layer.verticalIntensity;
-      const cycleMs = 9800 + seededUnit(seed + 6) * 7200;
-      const cycle = positiveModulo(now + seededUnit(seed + 7) * cycleMs, cycleMs) / cycleMs;
-      const excursion = getFireflyUpwardExcursion(seed, cycle, intensity, foreground);
+      const excursion = getFireflyUpwardExcursion(seed, progress, intensity, foreground);
       const flutterX = Math.sin(now / (5200 + seededUnit(seed + 2) * 2200) + seed) * lateralRange
         + smoothLifeNoise(seed + 71, now / (9000 + seededUnit(seed + 72) * 2400)) * lateralRange * 0.45;
       const flutterY = Math.sin(now / (4300 + seededUnit(seed + 3) * 2300) + seed * 0.7) * verticalRange
         + Math.sin(now / (7100 + seededUnit(seed + 73) * 1800) + seed * 1.3) * verticalRange * 0.42;
-      const x = clamp(baseX + flutterX + wind.directionX * wind.level * layer.windPush, layer.xClampMin, layer.xClampMax, baseX);
-      const y = clamp(baseY + flutterY - excursion + wind.vectorY * wind.level * 5, layer.yClampMin, layer.yClampMax, baseY);
+      const emerge = smoothStep(0.04, 0.26, progress);
+      const retreat = smoothStep(0.74, 0.98, progress);
+      const startGrassY = layer.grassYMin + seededUnit(seed + 15) * layer.grassYRange;
+      const endGrassY = layer.grassYMin + seededUnit(seed + 16) * layer.grassYRange;
+      const startGrassX = clamp(baseX + (seededUnit(seed + 17) - 0.5) * 46, layer.xClampMin, layer.xClampMax, baseX);
+      const endGrassX = clamp(baseX + (seededUnit(seed + 18) - 0.5) * 86, layer.xClampMin, layer.xClampMax, baseX);
+      let x = baseX + flutterX + wind.directionX * wind.level * layer.windPush;
+      let y = baseY + flutterY - excursion + wind.vectorY * wind.level * 5;
+      x = lerp(startGrassX, x, emerge);
+      y = lerp(startGrassY, y, emerge);
+      x = lerp(x, endGrassX, retreat);
+      y = lerp(y, endGrassY, retreat);
+      x = clamp(x, layer.xClampMin, layer.xClampMax, baseX);
+      y = clamp(y, layer.yClampMin, layer.yClampMax, baseY);
       const pulse = (Math.sin(now / (920 + seededUnit(seed + 4) * 780) + seed) + 1) / 2;
       const glow = smoothStep(0.42, 0.98, pulse) * (0.42 + intensity * 0.46);
-      const alpha = glow * layer.alphaScale;
+      const alpha = glow * layer.alphaScale * lifeVisibility;
       if (alpha < 0.06) {
         continue;
       }
 
       drawPixelFirefly(ctx, x, y, alpha, foreground);
+      recordAmbientLifeSample('fireflies', {
+        seed: seed,
+        layer: foreground ? 'foreground' : 'background',
+        x: Math.round(x),
+        y: Math.round(y),
+        progress: Number(progress.toFixed(3)),
+        alpha: Number(alpha.toFixed(3)),
+        visibility: Number(lifeVisibility.toFixed(3)),
+        excursion: Number(excursion.toFixed(1))
+      });
     }
     ctx.restore();
   }
@@ -423,6 +526,8 @@
         yRange: 54,
         yClampMin: 308,
         yClampMax: 468,
+        grassYMin: 444,
+        grassYRange: 28,
         lateralBase: 8,
         lateralIntensity: 12,
         verticalBase: 5,
@@ -444,6 +549,8 @@
       yRange: 58,
       yClampMin: 296,
       yClampMax: 448,
+      grassYMin: 418,
+      grassYRange: 26,
       lateralBase: 10,
       lateralIntensity: 13,
       verticalBase: 6,
@@ -551,6 +658,33 @@
     const start = seededUnit(seed + left * 101) * 2 - 1;
     const end = seededUnit(seed + (left + 1) * 101) * 2 - 1;
     return start + (end - start) * eased;
+  }
+
+  function lerp(from, to, amount) {
+    return from + (to - from) * clamp(amount, 0, 1, 0);
+  }
+
+  function beginAmbientLifeDiagnostics(now) {
+    if (!runtime) {
+      return;
+    }
+    runtime.motionDiagnostics = {
+      now: Math.round(now),
+      butterflies: [],
+      fireflies: [],
+      sleepGlyphs: [],
+      sleepBody: null
+    };
+  }
+
+  function recordAmbientLifeSample(kind, sample) {
+    if (!runtime || !runtime.motionDiagnostics || !Array.isArray(runtime.motionDiagnostics[kind])) {
+      return;
+    }
+    if (runtime.motionDiagnostics[kind].length >= 24) {
+      return;
+    }
+    runtime.motionDiagnostics[kind].push(sample);
   }
 
   function isMushroomLifeOccluded(x, y) {
