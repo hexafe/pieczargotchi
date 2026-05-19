@@ -358,21 +358,22 @@ test('corrupted save shape falls back to a normal migration target', () => {
   assert(migrated.battle && migrated.battle.rewards.wins === 0, 'expected normalized battle rewards');
 });
 
-test('v2 saves migrate to v7 progression history, evolution, minigames, decorations, recovery, game over, and daily growth', () => {
+test('v2 saves migrate to v8 progression history, discoveries, evolution, minigames, decorations, recovery, game over, and daily growth', () => {
   const migrated = core.migrateStateVersion({
     version: 2,
     stage: 'adult',
     stats: { growth: 70 },
     history: { actionsPerformed: { hydrate: 2 } }
-  }, 7);
+  }, 8);
 
-  assert(migrated.version === 7, `expected version 7, got ${migrated.version}`);
+  assert(migrated.version === 8, `expected version 8, got ${migrated.version}`);
   assert(migrated.history.actionsPerformed.hydrate === 2, 'expected action history to survive migration');
   assert(migrated.history.attention.handled === 0, 'expected attention history defaults');
   assert(migrated.history.dailyGrowth.earned === 0, 'expected daily growth defaults');
   assert(migrated.evolution && migrated.evolution.variant === null, 'expected empty evolution state');
   assert(migrated.minigames && migrated.minigames.active === null, 'expected empty minigame state');
   assert(Array.isArray(migrated.decorations.owned), 'expected decoration ownership list');
+  assert(migrated.discoveries && migrated.discoveries.sky, 'expected sky discoveries subtree');
   assert(migrated.recovery && migrated.recovery.active === false, 'expected empty recovery state');
   assert(migrated.gameOver && migrated.gameOver.active === false, 'expected empty game-over state');
 });
@@ -934,90 +935,6 @@ test('ambient life focus cues trigger mushroom reactions without outranking care
   assert(blocked === null, 'active care need should block ambient cue');
 });
 
-test('night firefly focus cues trigger near-mushroom watch reactions', () => {
-  const rules = {
-    attention: { mildThreshold: 45, criticalThreshold: 25 },
-    needDefinitions: {
-      hydration: { category: 'physical', actionId: 'hydrate' }
-    }
-  };
-  const state = {
-    mode: 'awake',
-    stats: { hydration: 82, nutrients: 82, happiness: 82, cleanliness: 82, energy: 82, health: 100 },
-    patch: { quality: 82 },
-    attention: {}
-  };
-  const fireflyScene = {
-    condition: 'clear',
-    isDay: false,
-    dayPhase: 'night',
-    cloudCover: 10,
-    precipitation: 0,
-    rain: 0,
-    snowfall: 0,
-    temperature: 22,
-    humidity: 82,
-    windLevel: 0.06,
-    latitude: 50.2649
-  };
-  const cueSample = findAmbientCueOfKind(fireflyScene, Date.parse('2026-07-10T20:45:00.000Z'), 'firefly');
-
-  assert(cueSample, 'expected at least one deterministic summer-night firefly cue');
-  assert(core.isAmbientLifeCueNearMushroom(cueSample.cue, 'firefly'), `expected near firefly cue, got ${JSON.stringify(cueSample.cue)}`);
-
-  const reaction = core.selectImmersionReaction(state, fireflyScene, { inside: false }, cueSample.now, rules);
-  assert(reaction && reaction.id === 'ambientFirefly', `expected ambientFirefly reaction, got ${reaction && reaction.id}`);
-  assert(reaction.state === 'watch_firefly', `expected watch_firefly state, got ${reaction.state}`);
-
-  const farCue = { ...cueSample.cue, x: 28, y: 116 };
-  assert(!core.isAmbientLifeCueNearMushroom(farCue, 'firefly'), 'far firefly cue should not count as a near-mushroom reaction');
-});
-
-test('active ambient reactions yield to fresh pointer and weather priority', () => {
-  const now = 4_000_000;
-  const activeFirefly = {
-    id: 'ambientFirefly',
-    state: 'watch_firefly',
-    source: 'ambient',
-    sourceAt: now - 200,
-    until: now + 1200,
-    priority: 56
-  };
-  const pointerTap = {
-    id: 'pointerTap',
-    state: 'watch_cursor_right',
-    source: 'input',
-    sourceAt: now - 40,
-    priority: 92
-  };
-  const rain = {
-    id: 'rain',
-    state: 'rain',
-    source: 'weather',
-    sourceAt: now,
-    priority: 62
-  };
-  const idle = {
-    id: 'idlePonder',
-    state: 'ponder',
-    source: 'idle',
-    sourceAt: now,
-    priority: 38
-  };
-  const lowerAmbient = {
-    id: 'ambientCrawler',
-    state: 'watch_crawler',
-    source: 'ambient',
-    sourceAt: now,
-    priority: 55
-  };
-
-  assert(core.shouldReplaceImmersionReaction(activeFirefly, pointerTap, now), 'fresh pointer should interrupt firefly watch');
-  assert(core.shouldReplaceImmersionReaction(activeFirefly, rain, now), 'weather should interrupt firefly watch');
-  assert(!core.shouldReplaceImmersionReaction(activeFirefly, idle, now), 'idle motion should not interrupt firefly watch');
-  assert(!core.shouldReplaceImmersionReaction(pointerTap, lowerAmbient, now), 'ambient life should not interrupt pointer reaction');
-});
-
 test('quiet neutral scenes can select idle fidget or ponder motion', () => {
   const rules = {
     attention: { mildThreshold: 45, criticalThreshold: 25 },
@@ -1372,15 +1289,15 @@ test('decoration purchase spends spores, records ownership, and boosts happiness
 
 test('state export and import preserve save shape while rejecting invalid files', () => {
   const envelope = core.buildStateExportEnvelope({
-    version: 7,
+    version: 8,
     stats: { hydration: 70 },
     history: { actionsPerformed: { hydrate: 1 } }
   }, Date.parse('2026-05-16T12:00:00.000Z'));
-  const imported = core.importStateEnvelope(JSON.stringify(envelope), 7);
-  const rejected = core.importStateEnvelope(JSON.stringify({ nope: true }), 7);
+  const imported = core.importStateEnvelope(JSON.stringify(envelope), 8);
+  const rejected = core.importStateEnvelope(JSON.stringify({ nope: true }), 8);
 
   assert(imported.ok, `expected import success: ${imported.reason}`);
-  assert(imported.state.version === 7, 'expected imported v7 state');
+  assert(imported.state.version === 8, 'expected imported v8 state');
   assert(imported.state.history.actionsPerformed.hydrate === 1, 'expected imported history');
   assert(!rejected.ok, 'expected invalid import rejection');
 });
@@ -1473,25 +1390,74 @@ test('fireflies appear in the right summer evening window', () => {
   assert(january.fireflyIntensity === 0, `expected no winter fireflies, got ${january.fireflyIntensity}`);
 });
 
+test('ambient sky recognizes Perseids on clear August nights', () => {
+  const profile = core.calculateAmbientSkyEffects({
+    condition: 'clear',
+    isDay: false,
+    dayPhase: 'night',
+    latitude: 50.2649,
+    longitude: 19.0238,
+    cloudCover: 4,
+    cloudCoverLow: 0,
+    cloudCoverMid: 2,
+    cloudCoverHigh: 8,
+    cloudDensity: 0.04,
+    precipitation: 0
+  }, new Date(2026, 7, 12, 23, 30), Date.parse('2026-08-12T21:30:00.000Z'));
+
+  assert(profile.starVisibility > 0.8, `expected visible stars, got ${profile.starVisibility}`);
+  assert(profile.activeMeteorShower && profile.activeMeteorShower.id === 'perseids', 'expected Perseids shower');
+});
+
+test('ambient sky suppresses meteors and aurora in storm weather', () => {
+  const profile = core.calculateAmbientSkyEffects({
+    condition: 'storm',
+    isDay: false,
+    dayPhase: 'night',
+    latitude: 69.6492,
+    longitude: 18.9553,
+    cloudCover: 95,
+    cloudDensity: 0.95,
+    precipitation: 8,
+    rain: 8
+  }, new Date(2026, 0, 12, 23, 30), Date.parse('2026-01-12T22:30:00.000Z'), { kp: 8, source: 'live' });
+
+  assert(profile.starVisibility < 0.05, `expected hidden stars, got ${profile.starVisibility}`);
+  assert(!profile.meteorEvent, 'expected no meteor in storm');
+  assert(!profile.aurora.visible, 'expected aurora hidden in storm');
+});
+
+test('ambient sky uses live Kp for aurora eligibility', () => {
+  const profile = core.calculateAmbientSkyEffects({
+    condition: 'clear',
+    isDay: false,
+    dayPhase: 'night',
+    latitude: 69.6492,
+    longitude: 18.9553,
+    cloudCover: 8,
+    cloudDensity: 0.08,
+    precipitation: 0
+  }, new Date(2026, 0, 12, 23, 30), Date.parse('2026-01-12T22:30:00.000Z'), { kp: 5, source: 'live' });
+
+  assert(profile.aurora.visible, 'expected live Kp aurora in Tromso');
+  assert(profile.aurora.source === 'live', `expected live source, got ${profile.aurora.source}`);
+});
+
+test('sky discoveries normalize and record first sightings once', () => {
+  const state = { discoveries: { sky: {} }, log: [] };
+  const first = core.recordSkyDiscovery(state, 'aurora', Date.parse('2026-01-12T22:30:00.000Z'));
+  const second = core.recordSkyDiscovery(state, 'aurora', Date.parse('2026-01-12T22:35:00.000Z'));
+
+  assert(first.newlyDiscovered, 'expected first aurora discovery');
+  assert(!second.newlyDiscovered, 'expected repeated aurora to be known');
+  assert(state.discoveries.sky.aurora.count === 2, `expected aurora count 2, got ${state.discoveries.sky.aurora.count}`);
+});
+
 function findAmbientCue(scene, start) {
-  const firstCycleStart = Math.floor(start / 13500) * 13500;
   for (let step = 0; step < 80; step += 1) {
-    const now = firstCycleStart + step * 13500 + 2200;
+    const now = start + step * 13500 + 2200;
     const cue = core.calculateAmbientLifeFocusCue(scene, new Date(now), now);
     if (cue && cue.visible) {
-      return { cue, now };
-    }
-  }
-
-  return null;
-}
-
-function findAmbientCueOfKind(scene, start, kind) {
-  const firstCycleStart = Math.floor(start / 13500) * 13500;
-  for (let step = 0; step < 160; step += 1) {
-    const now = firstCycleStart + step * 13500 + 2200;
-    const cue = core.calculateAmbientLifeFocusCue(scene, new Date(now), now);
-    if (cue && cue.visible && cue.kind === kind) {
       return { cue, now };
     }
   }

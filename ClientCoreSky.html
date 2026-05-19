@@ -1,0 +1,387 @@
+  const skyDiscoveryCatalog = [
+    { id: 'shootingStar', label: 'Spadająca gwiazda', kind: 'meteor' },
+    { id: 'comet', label: 'Kometa', kind: 'meteor' },
+    { id: 'aurora', label: 'Zorza polarna', kind: 'aurora' },
+    { id: 'perseids', label: 'Perseidy', kind: 'shower' },
+    { id: 'geminids', label: 'Geminidy', kind: 'shower' },
+    { id: 'quadrantids', label: 'Kwadrantydy', kind: 'shower' },
+    { id: 'orionids', label: 'Orionidy', kind: 'shower' },
+    { id: 'leonids', label: 'Leonidy', kind: 'shower' }
+  ];
+
+  const meteorShowerCatalog = [
+    { id: 'quadrantids', label: 'Kwadrantydy', start: 1, peak: 3, end: 5 },
+    { id: 'perseids', label: 'Perseidy', start: 198, peak: 224, end: 237 },
+    { id: 'orionids', label: 'Orionidy', start: 275, peak: 294, end: 311 },
+    { id: 'leonids', label: 'Leonidy', start: 310, peak: 321, end: 334 },
+    { id: 'geminids', label: 'Geminidy', start: 338, peak: 348, end: 352 }
+  ];
+
+  function calculateAmbientSkyEffects(scene, dateInput, nowInput, spaceWeather) {
+    const source = isPlainObject(scene) ? scene : {};
+    const date = normalizeDate(dateInput);
+    const now = Number.isFinite(Number(nowInput)) ? Number(nowInput) : date.getTime();
+    const override = typeof source.skyEffectOverride === 'string' ? source.skyEffectOverride : 'auto';
+    const starVisibility = getAmbientStarVisibility(source, date);
+    const activeMeteorShower = getActiveMeteorShower(date);
+    const meteorEvent = getAmbientMeteorEvent(source, date, now, starVisibility, activeMeteorShower, override);
+    const aurora = getAmbientAuroraProfile(source, date, now, starVisibility, spaceWeather, override);
+    const discoveries = [];
+
+    if (meteorEvent && meteorEvent.visible) {
+      discoveries.push(meteorEvent.discoveryId);
+    }
+    if (aurora.visible) {
+      discoveries.push('aurora');
+    }
+
+    return {
+      starVisibility: roundSkyValue(starVisibility),
+      activeMeteorShower: activeMeteorShower,
+      meteorEvent: meteorEvent,
+      aurora: aurora,
+      discoveries: discoveries
+    };
+  }
+
+  function getSkyDiscoveryCatalog() {
+    return skyDiscoveryCatalog.map(function(item) {
+      return Object.assign({}, item);
+    });
+  }
+
+  function normalizeDiscoveriesState(discoveries) {
+    const source = isPlainObject(discoveries) ? discoveries : {};
+    return {
+      sky: normalizeSkyDiscoveryMap(source.sky)
+    };
+  }
+
+  function recordSkyDiscovery(rawState, discoveryId, nowInput) {
+    const state = isPlainObject(rawState) ? rawState : {};
+    const item = getSkyDiscoveryDefinition(discoveryId);
+    if (!item) {
+      return { state: state, ok: false, newlyDiscovered: false, label: '', message: '' };
+    }
+
+    const now = normalizeDate(nowInput || Date.now()).toISOString();
+    state.discoveries = normalizeDiscoveriesState(state.discoveries);
+    const existing = state.discoveries.sky[item.id];
+    state.discoveries.sky[item.id] = {
+      id: item.id,
+      label: item.label,
+      firstSeenAt: existing && existing.firstSeenAt ? existing.firstSeenAt : now,
+      lastSeenAt: now,
+      count: clampInteger(existing && existing.count ? existing.count + 1 : 1, 1, 999999, 1)
+    };
+
+    return {
+      state: state,
+      ok: true,
+      newlyDiscovered: !existing,
+      label: item.label,
+      message: 'Nowe odkrycie: ' + item.label + '.'
+    };
+  }
+
+  function normalizeSkyDiscoveryMap(source) {
+    const result = {};
+    if (!isPlainObject(source)) {
+      return result;
+    }
+
+    Object.keys(source).forEach(function(id) {
+      const definition = getSkyDiscoveryDefinition(id);
+      const item = isPlainObject(source[id]) ? source[id] : {};
+      if (!definition) {
+        return;
+      }
+      result[definition.id] = {
+        id: definition.id,
+        label: definition.label,
+        firstSeenAt: item.firstSeenAt || null,
+        lastSeenAt: item.lastSeenAt || item.firstSeenAt || null,
+        count: clampInteger(item.count, 1, 999999, 1)
+      };
+    });
+
+    return result;
+  }
+
+  function getSkyDiscoveryDefinition(discoveryId) {
+    return skyDiscoveryCatalog.find(function(item) {
+      return item.id === discoveryId;
+    }) || null;
+  }
+
+  function getAmbientStarVisibility(scene, date) {
+    const nightFactor = getSkyNightFactor(scene, date);
+    const cloud = getSkyCloudOcclusionCore(scene);
+    const cloudVisibility = clampNumber(1 - (cloud - 0.32) / 0.38, 0, 1, 1);
+    const precipitation = Math.max(0, Number(scene.precipitation) || 0, Number(scene.rain) || 0, Number(scene.snowfall) || 0);
+    const precipFactor = clampNumber(1 - precipitation / 0.75, 0, 1, 1);
+    const condition = scene.condition || 'clear';
+    const conditionFactor = condition === 'storm' ? 0.08 : condition === 'snow' || condition === 'rain' ? 0.22 : condition === 'fog' ? 0.16 : 1;
+    return clampNumber(nightFactor * cloudVisibility * precipFactor * conditionFactor, 0, 1, 0);
+  }
+
+  function getAmbientMeteorEvent(scene, date, now, starVisibility, activeMeteorShower, override) {
+    if (override && override !== 'auto' && override !== 'aurora') {
+      return buildForcedMeteorEvent(override, date, now, activeMeteorShower);
+    }
+    if (starVisibility < 0.18) {
+      return null;
+    }
+
+    const showerIntensity = activeMeteorShower ? activeMeteorShower.intensity : 0;
+    const showerEvent = getMeteorSlotEvent('meteorShower', date, now, 210000, 2200, starVisibility, 0.18 + showerIntensity * 0.34, activeMeteorShower);
+    if (showerEvent) {
+      return showerEvent;
+    }
+
+    const shootingStar = getMeteorSlotEvent('shootingStar', date, now, 740000, 1700, starVisibility, 0.055, null);
+    if (shootingStar) {
+      return shootingStar;
+    }
+
+    return getCometEvent(date, now, starVisibility);
+  }
+
+  function buildForcedMeteorEvent(override, date, now, activeMeteorShower) {
+    const shower = override === 'perseids'
+      ? { id: 'perseids', label: 'Perseidy', intensity: 1, peakIntensity: 1 }
+      : activeMeteorShower;
+    const kind = override === 'comet' ? 'comet' : override === 'shootingStar' ? 'shootingStar' : 'meteorShower';
+    return buildMeteorEvent(kind, getSkyDaySeed(date) * 1009 + Math.floor(now / 1000), now - 850, kind === 'comet' ? 9200 : 2200, 0.42, shower, true);
+  }
+
+  function getMeteorSlotEvent(kind, date, now, slotMs, durationMs, starVisibility, chance, shower) {
+    if (kind === 'meteorShower' && !shower) {
+      return null;
+    }
+
+    const daySeed = getSkyDaySeed(date);
+    const slot = Math.floor(now / slotMs);
+    const seed = daySeed * 1109 + slot * 613 + (kind === 'meteorShower' ? 4109 : 2609);
+    const eventChance = clampNumber(chance * starVisibility, 0, 0.62, 0);
+    if (skySeededUnit(seed + 7) > eventChance) {
+      return null;
+    }
+
+    const startOffset = Math.floor(skySeededUnit(seed + 11) * Math.max(1, slotMs - durationMs));
+    const startedAt = slot * slotMs + startOffset;
+    if (now < startedAt || now > startedAt + durationMs) {
+      return null;
+    }
+
+    const progress = clampNumber((now - startedAt) / durationMs, 0, 1, 0);
+    return buildMeteorEvent(kind, seed, startedAt, durationMs, progress, shower, false);
+  }
+
+  function getCometEvent(date, now, starVisibility) {
+    const daySeed = getSkyDaySeed(date);
+    const seed = daySeed * 1777 + 909;
+    const eventChance = clampNumber(0.018 * starVisibility, 0, 0.035, 0);
+    if (skySeededUnit(seed + 5) > eventChance) {
+      return null;
+    }
+
+    const localDayStart = new Date(date);
+    localDayStart.setHours(0, 0, 0, 0);
+    const nightStart = localDayStart.getTime() + (21 * 60 + Math.floor(skySeededUnit(seed + 9) * 210)) * 60000;
+    const durationMs = 9000 + Math.floor(skySeededUnit(seed + 13) * 4200);
+    if (now < nightStart || now > nightStart + durationMs) {
+      return null;
+    }
+
+    return buildMeteorEvent('comet', seed, nightStart, durationMs, clampNumber((now - nightStart) / durationMs, 0, 1, 0), null, false);
+  }
+
+  function buildMeteorEvent(kind, seed, startedAt, durationMs, progress, shower, forced) {
+    const direction = skySeededUnit(seed + 21) > 0.5 ? 1 : -1;
+    const startX = direction > 0 ? 36 + skySeededUnit(seed + 22) * 160 : 476 - skySeededUnit(seed + 22) * 160;
+    const startY = 38 + skySeededUnit(seed + 23) * 118;
+    const travelX = (kind === 'comet' ? 245 : 190) + skySeededUnit(seed + 24) * 92;
+    const travelY = (kind === 'comet' ? 70 : 92) + skySeededUnit(seed + 25) * 66;
+    const fade = Math.min(smoothSkyStep(0.02, 0.18, progress), smoothSkyStep(0.08, 0.26, 1 - progress));
+    return {
+      kind: kind,
+      discoveryId: kind === 'meteorShower' && shower ? shower.id : kind === 'comet' ? 'comet' : 'shootingStar',
+      showerId: shower ? shower.id : null,
+      label: shower ? shower.label : kind === 'comet' ? 'Kometa' : 'Spadająca gwiazda',
+      seed: seed,
+      startedAt: startedAt,
+      durationMs: durationMs,
+      progress: roundSkyValue(progress),
+      x0: Math.round(startX),
+      y0: Math.round(startY),
+      x1: Math.round(startX + travelX * direction),
+      y1: Math.round(startY + travelY),
+      alpha: roundSkyValue((kind === 'comet' ? 0.72 : 0.86) * fade),
+      visible: forced || fade > 0.04
+    };
+  }
+
+  function getAmbientAuroraProfile(scene, date, now, starVisibility, spaceWeather, override) {
+    const snapshot = getSpaceWeatherValues(scene, spaceWeather);
+    const latitude = Math.abs(Number(scene.latitude) || 50.2649);
+    const seasonFactor = getAuroraSeasonFactor(date, Number(scene.latitude) || 50.2649);
+    const weatherFactor = getAuroraWeatherFactor(scene, starVisibility);
+    const threshold = getAuroraKpThreshold(latitude);
+    const liveKp = Number.isFinite(snapshot.kp) ? snapshot.kp : null;
+    const fallbackSeed = getSkyDaySeed(date) * 811 + Math.floor(now / 1800000) * 37;
+    const fallbackPotential = latitude >= 66
+      ? 0.34 + seasonFactor * 0.34
+      : latitude >= 60
+        ? 0.16 + seasonFactor * 0.22
+        : latitude >= 55
+          ? 0.035 + seasonFactor * 0.08
+          : 0;
+    const fallbackActive = liveKp === null && skySeededUnit(fallbackSeed + 19) < fallbackPotential;
+    const livePower = liveKp === null ? 0 : clampNumber((liveKp - threshold + 0.35) / 2.7, 0, 1, 0);
+    const fallbackPower = fallbackActive ? clampNumber((latitude - 54) / 18, 0.08, 0.72, 0.08) * seasonFactor : 0;
+    const forced = override === 'aurora';
+    const intensity = forced ? 0.78 : clampNumber(Math.max(livePower, fallbackPower) * weatherFactor, 0, 1, 0);
+
+    return {
+      visible: forced || intensity > 0.08,
+      potential: roundSkyValue(Math.max(livePower, fallbackPower)),
+      intensity: roundSkyValue(intensity),
+      kp: liveKp,
+      source: liveKp !== null ? 'live' : fallbackActive ? 'fallback' : 'none',
+      threshold: roundSkyValue(threshold),
+      bandCount: 2 + Math.round(intensity * 3),
+      hueShift: roundSkyValue(skySeededUnit(fallbackSeed + 31)),
+      seed: fallbackSeed
+    };
+  }
+
+  function getSpaceWeatherValues(scene, spaceWeather) {
+    const sceneKp = Number(scene.spaceWeatherKp);
+    if (Number.isFinite(sceneKp)) {
+      return { kp: clampNumber(sceneKp, 0, 9, 0), source: scene.spaceWeatherSource || 'live' };
+    }
+    const snapshot = isPlainObject(spaceWeather) ? spaceWeather : {};
+    const kp = Number(snapshot.kp);
+    return {
+      kp: Number.isFinite(kp) ? clampNumber(kp, 0, 9, 0) : null,
+      source: snapshot.source || 'none'
+    };
+  }
+
+  function getAuroraWeatherFactor(scene, starVisibility) {
+    const precipitation = Math.max(0, Number(scene.precipitation) || 0, Number(scene.rain) || 0, Number(scene.snowfall) || 0);
+    if ((scene.condition || 'clear') === 'storm' || precipitation > 0.2) {
+      return 0;
+    }
+    return clampNumber(starVisibility * (1 - precipitation / 0.22), 0, 1, 0);
+  }
+
+  function getAuroraKpThreshold(latitude) {
+    if (latitude >= 66) {
+      return 3;
+    }
+    if (latitude >= 60) {
+      return 4.2;
+    }
+    if (latitude >= 55) {
+      return 5.6;
+    }
+    if (latitude >= 50) {
+      return 7.2;
+    }
+    return 8.6;
+  }
+
+  function getAuroraSeasonFactor(date, latitude) {
+    const month = date.getMonth();
+    const northern = latitude >= 0;
+    const winterMonths = northern ? [8, 9, 10, 11, 0, 1, 2] : [2, 3, 4, 5, 6, 7, 8];
+    return winterMonths.indexOf(month) !== -1 ? 1 : 0.42;
+  }
+
+  function getActiveMeteorShower(date) {
+    const day = getSkyDayOfYear(date);
+    let best = null;
+    meteorShowerCatalog.forEach(function(shower) {
+      if (!isSkyDayInRange(day, shower.start, shower.end)) {
+        return;
+      }
+      const distance = Math.abs(day - shower.peak);
+      const width = Math.max(1, Math.max(Math.abs(shower.peak - shower.start), Math.abs(shower.end - shower.peak)));
+      const intensity = clampNumber(1 - distance / width, 0.16, 1, 0.16);
+      if (!best || intensity > best.intensity) {
+        best = {
+          id: shower.id,
+          label: shower.label,
+          intensity: roundSkyValue(intensity),
+          peakIntensity: roundSkyValue(intensity)
+        };
+      }
+    });
+    return best;
+  }
+
+  function getSkyNightFactor(scene, date) {
+    if (scene.dayPhase === 'night' || scene.isDay === false) {
+      return 1;
+    }
+    if (scene.dayPhase === 'sunset') {
+      return 0.42;
+    }
+    if (scene.dayPhase === 'evening') {
+      return 0.24;
+    }
+
+    const hour = date.getHours() + date.getMinutes() / 60;
+    if (hour >= 21 || hour < 4.5) {
+      return 1;
+    }
+    if (hour >= 19.5 && hour < 21) {
+      return clampNumber((hour - 19.5) / 1.5, 0, 1, 0);
+    }
+    if (hour >= 4.5 && hour < 5.7) {
+      return clampNumber(1 - (hour - 4.5) / 1.2, 0, 1, 0);
+    }
+    return 0;
+  }
+
+  function getSkyCloudOcclusionCore(scene) {
+    const cloudDensity = clampNumber(Number(scene.cloudDensity), 0, 1, 0);
+    const cloudCover = clampNumber(Number(scene.cloudCover), 0, 100, cloudDensity * 100);
+    const low = clampNumber(Number(scene.cloudCoverLow), 0, 100, cloudCover);
+    const mid = clampNumber(Number(scene.cloudCoverMid), 0, 100, cloudCover);
+    const high = clampNumber(Number(scene.cloudCoverHigh), 0, 100, cloudCover);
+    const weightedCover = (cloudCover * 0.42 + low * 0.23 + mid * 0.21 + high * 0.14) / 100;
+    return clampNumber(Math.max(cloudDensity, weightedCover), 0, 1, 0);
+  }
+
+  function getSkyDayOfYear(date) {
+    const start = new Date(date.getFullYear(), 0, 0);
+    return Math.floor((date - start) / 86400000);
+  }
+
+  function getSkyDaySeed(date) {
+    return date.getFullYear() * 372 + (date.getMonth() + 1) * 31 + date.getDate();
+  }
+
+  function isSkyDayInRange(day, start, end) {
+    return start <= end ? day >= start && day <= end : day >= start || day <= end;
+  }
+
+  function skySeededUnit(seed) {
+    let value = Math.imul(Math.floor(seed) ^ 0x9e3779b9, 0x85ebca6b);
+    value ^= value >>> 13;
+    value = Math.imul(value, 0xc2b2ae35);
+    value ^= value >>> 16;
+    return (value >>> 0) / 4294967295;
+  }
+
+  function smoothSkyStep(edge0, edge1, value) {
+    const t = clampNumber((value - edge0) / Math.max(0.0001, edge1 - edge0), 0, 1, 0);
+    return t * t * (3 - 2 * t);
+  }
+
+  function roundSkyValue(value) {
+    return Math.round(clampNumber(value, 0, 999, 0) * 1000) / 1000;
+  }

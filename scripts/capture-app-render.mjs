@@ -63,6 +63,7 @@ function createCaptureDebugSettings() {
   const location = process.env.PIECZARGOTCHI_DEBUG_LOCATION || 'auto';
   const moonPhase = process.env.PIECZARGOTCHI_DEBUG_MOON_PHASE || 'auto';
   const constellation = process.env.PIECZARGOTCHI_DEBUG_CONSTELLATION || 'auto';
+  const skyEffect = process.env.PIECZARGOTCHI_DEBUG_SKY_EFFECT || 'auto';
   const rainbow = process.env.PIECZARGOTCHI_DEBUG_RAINBOW || 'auto';
   const hasDebugWeather = deterministicBaseline
     || weather !== 'auto'
@@ -75,6 +76,7 @@ function createCaptureDebugSettings() {
     || location !== 'auto'
     || moonPhase !== 'auto'
     || constellation !== 'auto'
+    || skyEffect !== 'auto'
     || rainbow !== 'auto';
 
   if (!hasDebugWeather) {
@@ -95,6 +97,7 @@ function createCaptureDebugSettings() {
     moonPhaseOverride: moonPhase,
     rainbowOverride: rainbow,
     forcedConstellation: constellation,
+    skyEffectOverride: skyEffect,
     forcedAnimation: 'auto',
     forcedAnimationStartedAt: 0,
     neutralEasterEggOverride: easterEgg,
@@ -799,7 +802,7 @@ function getCaptureImmersionDebugOverrides(id) {
     return { fixedAt: Date.parse('2026-01-14T12:00:00.000Z'), weather: 'snow', cloudCoverOverride: 82, precipitationOverride: 1.6 };
   }
   if (id === 'stargaze') {
-    return { fixedAt: Date.parse('2026-01-14T23:00:00.000Z'), weather: 'clear', cloudCoverOverride: 8, precipitationOverride: 0 };
+    return { fixedAt: Date.parse('2026-01-14T23:00:00.000Z'), weather: 'clear', cloudCoverOverride: 8, precipitationOverride: 0, skyEffectOverride: 'shootingStar' };
   }
   if (id === 'ambientFirefly') {
     return { fixedAt: Date.parse('2026-07-14T22:30:00.000Z'), weather: 'clear', cloudCoverOverride: 10, precipitationOverride: 0, windOverride: 0.8 };

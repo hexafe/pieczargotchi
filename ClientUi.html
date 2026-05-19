@@ -20,6 +20,7 @@
     renderDecorations();
     renderCareHistory();
     renderInventory();
+    renderSkyDiscoveries();
     renderLog();
     renderBattleUi();
     renderMessage();
@@ -483,6 +484,53 @@
     patchRows.forEach(function(row) {
       appendInventoryItem(row.label, row.value);
     });
+  }
+
+  function renderSkyDiscoveries() {
+    if (!dom.skyDiscoveries) {
+      return;
+    }
+
+    const core = window.PieczargotchiCore;
+    const catalog = core && typeof core.getSkyDiscoveryCatalog === 'function'
+      ? core.getSkyDiscoveryCatalog()
+      : [];
+    const discoveries = runtime.state.discoveries && runtime.state.discoveries.sky
+      ? runtime.state.discoveries.sky
+      : {};
+    const unlocked = catalog.filter(function(item) {
+      return discoveries[item.id];
+    }).length;
+
+    if (dom.skyDiscoveryCount) {
+      dom.skyDiscoveryCount.textContent = unlocked + '/' + catalog.length;
+    }
+
+    dom.skyDiscoveries.innerHTML = '';
+    catalog.forEach(function(item) {
+      const entry = discoveries[item.id];
+      const row = document.createElement('div');
+      const label = document.createElement('strong');
+      const meta = document.createElement('span');
+      row.className = 'discovery-item' + (entry ? '' : ' discovery-item--locked');
+      label.textContent = entry ? item.label : '???';
+      meta.textContent = entry
+        ? (entry.count > 1 ? entry.count + ' razy' : 'Odkryte')
+        : getSkyDiscoveryHint(item.kind);
+      row.appendChild(label);
+      row.appendChild(meta);
+      dom.skyDiscoveries.appendChild(row);
+    });
+  }
+
+  function getSkyDiscoveryHint(kind) {
+    if (kind === 'aurora') {
+      return 'mroźne niebo';
+    }
+    if (kind === 'shower') {
+      return 'sezon gwiazd';
+    }
+    return 'ciemna noc';
   }
 
   function appendInventoryItem(label, value) {

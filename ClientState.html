@@ -57,6 +57,7 @@
     result.evolution = Object.assign({}, base.evolution, override.evolution || {});
     result.minigames = Object.assign({}, base.minigames, override.minigames || {});
     result.decorations = Object.assign({}, base.decorations, override.decorations || {});
+    result.discoveries = Object.assign({}, base.discoveries, override.discoveries || {});
     result.cooldowns = Object.assign({}, base.cooldowns, override.cooldowns || {});
     result.flags = Object.assign({}, base.flags, override.flags || {});
     result.log = Array.isArray(override.log) ? override.log.slice(0, rules.maxLogEntries || 8) : base.log;
@@ -77,6 +78,7 @@
     state.careMistakes = normalizeCareMistakes(state.careMistakes || {});
     state.battle = normalizeBattleForRuntime(state.battle || {});
     state = normalizeProgressionForRuntime(state);
+    state.discoveries = normalizeDiscoveriesForRuntime(state.discoveries || {});
     state.cooldowns = state.cooldowns || {};
     state.flags = state.flags || {};
     state.log = Array.isArray(state.log) ? state.log.slice(0, rules.maxLogEntries || 8) : [];
@@ -94,6 +96,7 @@
       state.evolution = state.evolution || { variant: null, decidedAt: null, reason: null };
       state.minigames = state.minigames || { active: null, lastResult: null };
       state.decorations = state.decorations || { owned: [], active: [] };
+      state.discoveries = normalizeDiscoveriesForRuntime(state.discoveries || {});
       return state;
     }
 
@@ -102,6 +105,7 @@
     state.evolution = normalized.evolution;
     state.minigames = normalized.minigames;
     state.decorations = normalized.decorations;
+    state.discoveries = normalized.discoveries || normalizeDiscoveriesForRuntime(state.discoveries || {});
     state.recovery = normalized.recovery || normalizeRecovery(state.recovery || {});
     state.gameOver = normalized.gameOver || normalizeGameOver(state.gameOver || {});
     return state;
@@ -167,6 +171,17 @@
     }
 
     return battle || {};
+  }
+
+  function normalizeDiscoveriesForRuntime(discoveries) {
+    const core = window.PieczargotchiCore;
+    if (core && typeof core.normalizeDiscoveriesState === 'function') {
+      return core.normalizeDiscoveriesState(discoveries);
+    }
+
+    return {
+      sky: discoveries && discoveries.sky && typeof discoveries.sky === 'object' ? discoveries.sky : {}
+    };
   }
 
   function updateArenaUnlock(state) {

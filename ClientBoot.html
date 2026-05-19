@@ -199,6 +199,7 @@
     wakeSurpriseUntil: 0,
     weatherLocation: null,
     weatherScene: createLocalWeatherScene(defaultWeatherLocation),
+    spaceWeather: null,
     precipitationMotion: null,
     actionButtons: new Map(),
     minigame: null,
@@ -318,6 +319,8 @@
     dom.actionsGrid = document.querySelector('[data-actions-grid]');
     dom.cooldownLabel = document.querySelector('[data-cooldown-label]');
     dom.inventoryRow = document.querySelector('[data-inventory-row]');
+    dom.skyDiscoveries = document.querySelector('[data-sky-discoveries]');
+    dom.skyDiscoveryCount = document.querySelector('[data-sky-discovery-count]');
     dom.coinsLabel = document.querySelector('[data-coins-label]');
     dom.eventLog = document.querySelector('[data-event-log]');
     dom.assetStatus = document.querySelector('[data-asset-status]');
@@ -330,6 +333,7 @@
     dom.debugLocation = document.querySelector('[data-debug-location]');
     dom.debugMoonPhase = document.querySelector('[data-debug-moon-phase]');
     dom.debugConstellation = document.querySelector('[data-debug-constellation]');
+    dom.debugSkyEffect = document.querySelector('[data-debug-sky-effect]');
     dom.debugCloud = document.querySelector('[data-debug-cloud]');
     dom.debugCloudValue = document.querySelector('[data-debug-cloud-value]');
     dom.debugPrecipitation = document.querySelector('[data-debug-precipitation]');

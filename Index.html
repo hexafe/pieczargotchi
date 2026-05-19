@@ -121,6 +121,14 @@
             <div class="inventory-row" data-inventory-row></div>
           </section>
 
+          <section class="panel-block panel-block--discoveries" data-care-panel>
+            <div class="block-heading">
+              <h2>Odkrycia</h2>
+              <span data-sky-discovery-count>0/0</span>
+            </div>
+            <div class="discovery-grid" data-sky-discoveries></div>
+          </section>
+
           <section class="panel-block panel-block--decorations" data-care-panel>
             <div class="block-heading">
               <h2>Dekoracje</h2>
@@ -249,6 +257,17 @@
                     <option value="cassiopeia">Kasjopeja</option>
                     <option value="orion">Orion</option>
                     <option value="cygnus">Łabędź</option>
+                  </select>
+                </label>
+
+                <label>
+                  Zjawisko nieba
+                  <select data-debug-sky-effect>
+                    <option value="auto">Auto</option>
+                    <option value="shootingStar">Spadająca gwiazda</option>
+                    <option value="comet">Kometa</option>
+                    <option value="perseids">Perseidy</option>
+                    <option value="aurora">Zorza</option>
                   </select>
                 </label>
 

@@ -10,6 +10,7 @@
       locationOverride: 'auto',
       moonPhaseOverride: 'auto',
       forcedConstellation: 'auto',
+      skyEffectOverride: 'auto',
       forcedAnimation: 'auto',
       forcedAnimationStartedAt: 0,
       neutralEasterEggOverride: 'auto',
@@ -57,6 +58,9 @@
       : 'auto';
     result.forcedConstellation = ['auto', 'bigDipper', 'cassiopeia', 'orion', 'cygnus'].includes(result.forcedConstellation)
       ? result.forcedConstellation
+      : 'auto';
+    result.skyEffectOverride = ['auto', 'shootingStar', 'comet', 'perseids', 'aurora'].includes(result.skyEffectOverride)
+      ? result.skyEffectOverride
       : 'auto';
     result.forcedAnimation = debugAnimationOptions.some(function(option) {
       return option.id === result.forcedAnimation;
@@ -128,6 +132,9 @@
     }
     if (dom.debugConstellation) {
       dom.debugConstellation.value = debug.forcedConstellation || 'auto';
+    }
+    if (dom.debugSkyEffect) {
+      dom.debugSkyEffect.value = debug.skyEffectOverride || 'auto';
     }
     renderDebugWeatherMeters();
     dom.debugMode.value = runtime.state && runtime.state.mode === 'sleeping' ? 'sleeping' : 'awake';
@@ -284,6 +291,15 @@
       dom.debugConstellation.addEventListener('change', function() {
         enableDebugMode();
         runtime.debug.forcedConstellation = dom.debugConstellation.value;
+        resetDebugSceneMotion();
+        commitDebugChanges(false);
+      });
+    }
+
+    if (dom.debugSkyEffect) {
+      dom.debugSkyEffect.addEventListener('change', function() {
+        enableDebugMode();
+        runtime.debug.skyEffectOverride = dom.debugSkyEffect.value;
         resetDebugSceneMotion();
         commitDebugChanges(false);
       });

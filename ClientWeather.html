@@ -1,6 +1,8 @@
   function initWeatherScene() {
     const initialWeather = updateWeatherScene();
     window.setInterval(updateWeatherScene, weatherRefreshMs);
+    updateSpaceWeather();
+    window.setInterval(updateSpaceWeather, weatherRefreshMs);
     return initialWeather;
   }
 
@@ -21,6 +23,69 @@
         runtime.weatherScene = createLocalWeatherScene(defaultWeatherLocation, getRuntimeDate(), runtime.weatherScene);
         return runtime.weatherScene;
       });
+  }
+
+  function updateSpaceWeather() {
+    return fetchSpaceWeatherSnapshot()
+      .then(function(snapshot) {
+        runtime.spaceWeather = snapshot;
+        return snapshot;
+      })
+      .catch(function() {
+        runtime.spaceWeather = { kp: null, source: 'none', updatedAt: getRuntimeNow() };
+        return runtime.spaceWeather;
+      });
+  }
+
+  function fetchSpaceWeatherSnapshot() {
+    if (!window.fetch) {
+      return Promise.resolve({ kp: null, source: 'none', updatedAt: getRuntimeNow() });
+    }
+
+    return window.fetch('https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json', {
+      cache: 'no-store'
+    }).then(function(response) {
+      if (!response.ok) {
+        throw new Error('Nie udało się pobrać Kp.');
+      }
+      return response.json();
+    }).then(function(rows) {
+      const kp = parseNoaaPlanetaryKp(rows);
+      return {
+        kp: kp,
+        source: kp === null ? 'none' : 'live',
+        updatedAt: getRuntimeNow()
+      };
+    });
+  }
+
+  function parseNoaaPlanetaryKp(rows) {
+    if (!Array.isArray(rows) || rows.length < 2 || !Array.isArray(rows[0])) {
+      return null;
+    }
+
+    const header = rows[0].map(function(item) {
+      return String(item).toLowerCase();
+    });
+    const kpIndex = header.findIndex(function(item) {
+      return item === 'kp' || item.indexOf('kp_index') !== -1 || item.indexOf('planetary_k') !== -1;
+    });
+    if (kpIndex < 0) {
+      return null;
+    }
+
+    for (let index = rows.length - 1; index >= 1; index -= 1) {
+      const row = rows[index];
+      if (!Array.isArray(row)) {
+        continue;
+      }
+      const kp = Number(row[kpIndex]);
+      if (Number.isFinite(kp)) {
+        return clamp(kp, 0, 9, 0);
+      }
+    }
+
+    return null;
   }
 
   function resolveWeatherLocation() {

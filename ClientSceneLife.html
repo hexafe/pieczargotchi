@@ -471,11 +471,12 @@
       const pulse = (Math.sin(now / (1500 + seededUnit(seed + 4) * 1900) + seed) + 1) / 2;
       const glow = 0.12 + smoothStep(0.18, 0.96, pulse) * (0.58 + intensity * 0.22);
       const alpha = glow * layer.alphaScale * lifeVisibility;
-      if (alpha < 0.035 || (foreground && isMushroomLifeOccluded(flight.x, flight.y))) {
-        continue;
+      const occluded = foreground && isMushroomLifeOccluded(flight.x, flight.y);
+      const emitting = alpha >= 0.035 && !occluded;
+      if (emitting) {
+        drawPixelFirefly(ctx, flight.x, flight.y, alpha, foreground);
       }
 
-      drawPixelFirefly(ctx, flight.x, flight.y, alpha, foreground);
       recordAmbientLifeSample('fireflies', {
         seed: seed,
         layer: foreground ? 'foreground' : 'background',
@@ -484,6 +485,9 @@
         progress: Number(progress.toFixed(3)),
         alpha: Number(alpha.toFixed(3)),
         glow: Number(glow.toFixed(3)),
+        emitting: emitting,
+        occluded: occluded,
+        direction: flight.direction,
         visibility: Number(lifeVisibility.toFixed(3)),
         excursion: Number(flight.excursion.toFixed(1)),
         glowRadius: Number(getFireflyGlowRadius(alpha, foreground).toFixed(1))
@@ -504,14 +508,14 @@
         xClampMax: 486,
         yMin: 404,
         yRange: 54,
-        yClampMin: 308,
+        yClampMin: 276,
         yClampMax: 468,
         grassYMin: 444,
         grassYRange: 28,
-        lateralBase: 8,
-        lateralIntensity: 12,
-        verticalBase: 5,
-        verticalIntensity: 7,
+        lateralBase: 12,
+        lateralIntensity: 16,
+        verticalBase: 7,
+        verticalIntensity: 9,
         windPush: 7,
         alphaScale: 0.62
       };
@@ -527,21 +531,21 @@
       xClampMax: 470,
       yMin: 376,
       yRange: 58,
-      yClampMin: 296,
+      yClampMin: 258,
       yClampMax: 448,
       grassYMin: 418,
       grassYRange: 26,
-      lateralBase: 10,
-      lateralIntensity: 13,
-      verticalBase: 6,
-      verticalIntensity: 8,
+      lateralBase: 14,
+      lateralIntensity: 17,
+      verticalBase: 8,
+      verticalIntensity: 10,
       windPush: 5,
       alphaScale: 0.46
     };
   }
 
   function getFireflyUpwardExcursion(seed, cycle, intensity, foreground) {
-    if (seededUnit(seed + 21) < 0.78) {
+    if (seededUnit(seed + 21) < 0.66) {
       return 0;
     }
 
@@ -636,6 +640,7 @@
     } else if (cue.kind === 'firefly') {
       const tail = 1 - smoothStep(0.18, 0.72, cue.progress || 0);
       const glowPulse = (Math.sin(now / 1400 + cue.seed) + 1) / 2;
+      ctx.globalCompositeOperation = 'lighter';
       drawPixelFirefly(ctx, cue.x, cue.y, 0.36 + glowPulse * 0.26, true);
       if (tail > 0.08) {
         drawPixelFirefly(ctx, cue.x - (cue.direction || 1) * 18, cue.y + 6, tail * 0.26, false);

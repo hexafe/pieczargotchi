@@ -233,6 +233,28 @@ const scenarios = [
     }
   },
   {
+    id: 'perseids-clear-night',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
+      PIECZARGOTCHI_DEBUG_CLOUD: '2',
+      PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
+      PIECZARGOTCHI_DEBUG_MOON_PHASE: 'new',
+      PIECZARGOTCHI_DEBUG_SKY_EFFECT: 'perseids',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-08-12T23:15:00')
+    }
+  },
+  {
+    id: 'aurora-tromso-clear-night',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
+      PIECZARGOTCHI_DEBUG_CLOUD: '8',
+      PIECZARGOTCHI_DEBUG_LOCATION: 'tromso',
+      PIECZARGOTCHI_DEBUG_MOON_PHASE: 'crescent',
+      PIECZARGOTCHI_DEBUG_SKY_EFFECT: 'aurora',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-01-18T23:40:00')
+    }
+  },
+  {
     id: 'crescent-cygnus-windy',
     env: {
       PIECZARGOTCHI_DEBUG_WEATHER: 'clear',

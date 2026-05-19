@@ -1,5 +1,9 @@
   function drawCelestial(ctx, scene, palette, now) {
     const date = getRuntimeDate();
+    const skyScene = Object.assign({}, scene || {}, {
+      skyEffectOverride: getDebugSkyEffectOverride()
+    });
+    const skyEffects = getAmbientSkyEffects(skyScene, date, getRuntimeNow());
     ctx.save();
     const sun = getSunPosition(scene, date);
     let sunDiagnostics = null;
@@ -44,7 +48,9 @@
       };
     }
 
-    const starVisibility = getCelestialCloudVisibility(scene, now, 'stars');
+    drawAurora(ctx, skyEffects.aurora, now);
+
+    const starVisibility = Math.min(getCelestialCloudVisibility(scene, now, 'stars'), skyEffects.starVisibility);
     if (!scene.isDay && starVisibility > 0.02) {
       drawVisibleConstellation(ctx, scene, date, now, starVisibility);
       ctx.globalAlpha = 0.72 * starVisibility;
@@ -57,11 +63,136 @@
         ctx.fillRect(x, y, 3, 3);
       }
     }
-    recordCelestialDiagnostics(scene, date, sunDiagnostics, moonDiagnostics);
+    drawMeteorEvent(ctx, skyEffects.meteorEvent, starVisibility, now);
+    recordCelestialDiagnostics(scene, date, sunDiagnostics, moonDiagnostics, skyEffects);
+    syncSkyDiscoveries(skyEffects, now);
     ctx.restore();
   }
 
-  function recordCelestialDiagnostics(scene, date, sun, moon) {
+  function getAmbientSkyEffects(scene, date, now) {
+    const core = window.PieczargotchiCore;
+    if (core && typeof core.calculateAmbientSkyEffects === 'function') {
+      return core.calculateAmbientSkyEffects(scene, date, now, getSpaceWeatherSnapshot());
+    }
+
+    return {
+      starVisibility: scene && scene.isDay === false ? 0.7 : 0,
+      activeMeteorShower: null,
+      meteorEvent: null,
+      aurora: { visible: false, intensity: 0, source: 'none', kp: null, bandCount: 0, hueShift: 0, seed: 0 },
+      discoveries: []
+    };
+  }
+
+  function getSpaceWeatherSnapshot() {
+    return runtime && runtime.spaceWeather ? runtime.spaceWeather : null;
+  }
+
+  function getDebugSkyEffectOverride() {
+    return runtime.debug && runtime.debug.enabled
+      ? runtime.debug.skyEffectOverride || 'auto'
+      : 'auto';
+  }
+
+  function drawAurora(ctx, aurora, now) {
+    if (!aurora || !aurora.visible || Number(aurora.intensity) <= 0.02) {
+      return;
+    }
+
+    const intensity = clamp(Number(aurora.intensity), 0, 1, 0);
+    const seed = Number(aurora.seed) || 0;
+    const bandCount = Math.max(2, Math.min(5, Math.round(Number(aurora.bandCount) || 3)));
+    const colors = ['#78f2b3', '#9fffc7', '#7cc8ff', '#caa6ff'];
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let band = 0; band < bandCount; band += 1) {
+      const bandSeed = seed + band * 97;
+      const baseY = 66 + band * 18 + seededUnit(bandSeed + 3) * 20;
+      const wave = Math.sin(now / (4200 + band * 430) + bandSeed) * (8 + intensity * 10);
+      const height = 12 + Math.round(intensity * 14) + band * 2;
+      const color = colors[(band + Math.round(Number(aurora.hueShift) * 3)) % colors.length];
+      for (let segment = 0; segment < 12; segment += 1) {
+        const x = -28 + segment * 48 + Math.round(Math.sin(now / 5600 + segment + band) * 7);
+        const curtain = 0.44 + seededUnit(bandSeed + segment * 11) * 0.72;
+        const y = Math.round(baseY + wave + Math.sin(segment * 0.92 + now / 3500 + bandSeed) * 7);
+        const segmentHeight = Math.round(height * curtain);
+        ctx.globalAlpha = intensity * (0.045 + band * 0.008) * curtain;
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, 42, Math.max(2, segmentHeight));
+        ctx.globalAlpha = intensity * 0.03 * curtain;
+        ctx.fillRect(x + 8, y + segmentHeight, 26, Math.max(4, Math.round(segmentHeight * 0.85)));
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawMeteorEvent(ctx, event, starVisibility, now) {
+    if (!event || !event.visible || Number(event.alpha) <= 0.02 || starVisibility <= 0.05) {
+      return;
+    }
+
+    const progress = clamp(Number(event.progress), 0, 1, 0);
+    const alpha = clamp(Number(event.alpha) * Math.max(starVisibility, 0.22), 0, 1, 0);
+    const headX = lerp(Number(event.x0), Number(event.x1), progress);
+    const headY = lerp(Number(event.y0), Number(event.y1), progress);
+    const dx = Number(event.x1) - Number(event.x0);
+    const dy = Number(event.y1) - Number(event.y0);
+    const length = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+    const tail = event.kind === 'comet' ? 88 : 42;
+    const unitX = dx / length;
+    const unitY = dy / length;
+    const color = event.kind === 'comet' ? '#bff5ff' : '#fff5bf';
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let step = 0; step < 7; step += 1) {
+      const t = step / 6;
+      const x = Math.round(headX - unitX * tail * t);
+      const y = Math.round(headY - unitY * tail * t);
+      const size = step === 0 ? (event.kind === 'comet' ? 4 : 3) : Math.max(1, 3 - Math.floor(step / 2));
+      ctx.globalAlpha = alpha * (1 - t) * (step === 0 ? 1 : 0.54);
+      ctx.fillStyle = step < 2 ? '#fffdf2' : color;
+      ctx.fillRect(x, y, size, size);
+      if (event.kind === 'comet' && step > 1) {
+        ctx.globalAlpha = alpha * (1 - t) * 0.16;
+        ctx.fillStyle = '#7cc8ff';
+        ctx.fillRect(x - 1, y + 2, size + 1, 1);
+      }
+    }
+    ctx.restore();
+  }
+
+  function syncSkyDiscoveries(skyEffects, now) {
+    if (!runtime || !runtime.state || !skyEffects || !Array.isArray(skyEffects.discoveries) || !skyEffects.discoveries.length) {
+      return;
+    }
+
+    const core = window.PieczargotchiCore;
+    if (!core || typeof core.recordSkyDiscovery !== 'function') {
+      return;
+    }
+
+    let changed = false;
+    const known = runtime.state.discoveries && runtime.state.discoveries.sky ? runtime.state.discoveries.sky : {};
+    skyEffects.discoveries.forEach(function(discoveryId) {
+      if (known[discoveryId]) {
+        return;
+      }
+      const result = core.recordSkyDiscovery(runtime.state, discoveryId, now);
+      if (result && result.newlyDiscovered) {
+        addLog(runtime.state, result.message, now);
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      saveState(runtime.state);
+      renderUi();
+    }
+  }
+
+  function recordCelestialDiagnostics(scene, date, sun, moon, skyEffects) {
     if (!runtime || !runtime.motionDiagnostics) {
       return;
     }
@@ -72,7 +203,14 @@
       longitude: scene && Number.isFinite(Number(scene.longitude)) ? Number(Number(scene.longitude).toFixed(4)) : null,
       month: date.getMonth() + 1,
       sun: sun,
-      moon: moon
+      moon: moon,
+      skyEffects: {
+        starVisibility: skyEffects ? skyEffects.starVisibility : null,
+        activeMeteorShower: skyEffects ? skyEffects.activeMeteorShower : null,
+        meteorEvent: skyEffects ? skyEffects.meteorEvent : null,
+        aurora: skyEffects ? skyEffects.aurora : null,
+        discoveries: skyEffects ? skyEffects.discoveries : []
+      }
     };
   }
 

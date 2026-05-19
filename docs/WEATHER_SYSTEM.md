@@ -39,6 +39,7 @@ Glowne zasady:
 | Mokrosc podloza | deszcz, wilgotnosc, mgla, temperatura, VPD, ET0 | mokra trawa, krawedzie wody, kaluze, pozniejsze wysychanie |
 | Tecza | krople, niedawny deszcz, okno slonca, niska pozycja slonca | pierwotny luk, czasem wtorny luk i ciemniejszy pas miedzy nimi |
 | Zycie sceny | sezon, pora dnia, temperatura, wiatr, opad, wilgotnosc | motyle, male owady latajace, robaczki naziemne, swietliki |
+| Zjawiska nieba | data, lokalizacja, noc, zachmurzenie, opad, Kp NOAA/fallback | meteory, roje meteorow, komety, zorza, odkrycia w kolekcji |
 
 ## Wplyw Na Gameplay
 
@@ -77,6 +78,11 @@ Pogoda nie tworzy obecnie care mistakes sama z siebie. Moze pogorszyc lub popraw
 - Podloze pamieta mokrosc i snieg jako stan renderera, dzieki czemu kaluze i snieg nie przeskakuja natychmiast po zmianie pogody.
 - Trawa ugina sie od wiatru, deszczu, burzy i sniegu; w sniegu jest nizsza i mniej widoczna.
 - Robaczki naziemne wchodza z krawedzi albo z wysokiej trawy i znikaja przez krawedz/trawy, bez naglego despawnu na oczach gracza.
+- Swietliki maja stale liczony tor lotu rowniez wtedy, gdy aktualnie nie swieca; renderuje sie tylko emisja swiatla, ale pozycja nie resetuje sie przy przygaszeniu.
+- Meteory i komety sa rzadkimi zdarzeniami nocnymi, wygaszanymi przez chmury, opad i dzien; wymuszanie debug sluzy tylko do QA.
+- Roje meteorow maja okna sezonowe: Perseidy, Geminidy, Kwadrantydy, Orionidy i Leonidy.
+- Zorza korzysta z live Kp NOAA, kiedy fetch jest dostepny; bez live danych dziala deterministyczny fallback dla wysokich szerokosci geograficznych, nocy i przejrzystego nieba.
+- Pierwsze zaobserwowanie specjalnego zjawiska zapisuje kolekcje odkryc w stanie gry.
 
 ## Zycie Sceny
 
@@ -88,6 +94,17 @@ Zycie sceny jest proceduralne i zalezne od pogody, ale nie jest zapisywane w sta
 | Male latajace owady | cieple warunki, dzien lub okolice aktywnosci swietlikow | opad, zimno, wiatr, snieg | krotkie przeloty z lekkim jitterem i wiatrem |
 | Robaczki naziemne | cieplo, sezon, brak ostrego opadu | snieg, burza, silny deszcz, zimno | przechadzanie z krawedzi albo z trawy, z fade-in/fade-out |
 | Swietliki | cieple, wilgotne wieczory/noce, okolice wysokiej trawy | opad, snieg, burza, zimno, bardzo slaba wilgotnosc | spokojny dryf gora-dol i na boki, pulsowanie swiatla |
+
+## Zjawiska Nieba
+
+`ClientCoreSky.html` i `src/core/sky.ts` licza profil zjawisk bez losowosci runtime zalegajacej w rendererze. Ten sam czas, lokalizacja i pogoda daja ten sam wynik, a renderer tylko rysuje canvasowe warstwy.
+
+- Spadajace gwiazdy sa krotkimi, pojedynczymi smugami. Poza rojami sa bardzo rzadkie.
+- Kometa jest jeszcze rzadsza, wolniejsza i ma dluzszy ogon.
+- Roje meteorow zwiekszaja szanse na meteory w znanych oknach sezonowych, ale nadal nie robia ciaglego deszczu gwiazd.
+- Zorza jest niska, pasmowa i rysowana za gwiazdami/chmurami jako segmenty pixel-art, nie jako gladki gradient.
+- `discoveries.sky` przechowuje pierwsze odkrycie, ostatni czas i licznik; migracja stanu to v8.
+- Debug ma `Zjawisko nieba`, a capture wspiera `PIECZARGOTCHI_DEBUG_SKY_EFFECT`.
 
 ## Tecza
 
@@ -113,6 +130,8 @@ Renderer ustawia srodek luku po stronie przeciwnej do slonca w ekranowej projekc
 - Motyle realnie zaleza od temperatury, promieniowania slonecznego i wiatru; deszcz jest dla nich niekorzystny.
 - Swietliki lubia cieple, wilgotne siedliska i wysoka trawe, a ich aktywnosc jest nocna lub zmierzchowa.
 - Tecza wymaga kropli wody przed obserwatorem i slonca za obserwatorem; wysoka pozycja slonca zmniejsza widoczny luk.
+- Widocznosc zorzy zalezy od geomagnetycznej aktywnosci Kp, szerokosci geograficznej, ciemnosci i zachmurzenia.
+- Perseidy i inne roje meteorow maja sezonowe okna aktywnosci, a nie rowna czestotliwosc przez caly rok.
 
 ## Uproszczenia Gry
 
@@ -133,6 +152,7 @@ Renderer ustawia srodek luku po stronie przeciwnej do slonca w ekranowej projekc
 - Delikatne promienie slonca przez dziury w chmurach, szczegolnie rano i wieczorem.
 - Oddalony blysk/grzmot jako efekt atmosferyczny burzy, bez fizyki trafien.
 - Opcjonalny komunikat gameplayowy o nadchodzacej zmianie pogody na bazie trendu cisnienia i forecast hours.
+- Rozszerzyc katalog odkryc o halo ksiezycowe, fogbow, szron/rose i migracje ptakow/owadow jako bardzo rzadkie scenki sezonowe.
 
 ## Czego Nie Warto Symulowac Teraz
 
@@ -155,3 +175,6 @@ Renderer ustawia srodek luku po stronie przeciwnej do slonca w ekranowej projekc
 - PubMed, butterfly activity and weather: https://pubmed.ncbi.nlm.nih.gov/28308692/
 - Firefly.org, firefly habitat: https://www.firefly.org/firefly-habitat.html
 - Washington State University, butterflies and rain: https://askdruniverse.wsu.edu/2017/12/18/butterflies-go-rains/
+- NOAA SWPC, Planetary K-index: https://www.swpc.noaa.gov/products/planetary-k-index
+- NOAA SWPC, tips for viewing aurora: https://www.swpc.noaa.gov/content/tips-viewing-aurora
+- NASA, Perseids: https://science.nasa.gov/solar-system/meteors-meteorites/perseids

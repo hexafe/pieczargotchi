@@ -137,6 +137,9 @@ function createDefaultStateTemplate() {
       owned: [],
       active: []
     },
+    discoveries: {
+      sky: {}
+    },
     coins: 0,
     cooldowns: {
       hydrate: 0,
