@@ -565,10 +565,6 @@
       drawAwakeIdleDetails(ctx, now);
     }
 
-    if (!need && runtime.state.patch.quality > 82 && runtime.state.stats.happiness > 72) {
-      drawSparkles(ctx, now, '#fff6b8');
-    }
-
     if (need && need.severity === 'critical') {
       const pulse = 0.5 + Math.sin(now / 220) * 0.5;
       drawAttentionAlarm(ctx, pulse);

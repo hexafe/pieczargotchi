@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
@@ -261,13 +262,24 @@ def zbuduj_stany(grass: Image.Image, body_bottom_targets: dict[str, int]) -> Non
         for stage, cutout in zip(STAGES, cutouts):
             if stage == "spore" and state in SPORE_DETACHED_STRIP_STATES:
                 cutout = usun_odklejone_paski_zarodnika(cutout)
+            if state == "excellent":
+                cutout = usun_odklejone_blyski(cutout)
             zapisz_cutout("states", state, stage, cutout)
             offsets = STATE_OFFSETS[state]
             if stage == "spore" and state == "wake":
                 offsets = [(x, y - 7) for x, y in offsets]
             frames = [
-                zloz_klatke_z_trawa(cutout, grass, stage, offset, None, body_bottom_targets)
-                for offset in offsets
+                zloz_klatke_z_trawa(
+                    cutout,
+                    grass,
+                    stage,
+                    offset,
+                    None,
+                    body_bottom_targets,
+                    state,
+                    frame_index,
+                )
+                for frame_index, offset in enumerate(offsets)
             ]
             zapisz_sheet(ASSETS / "stages" / stage / f"{state}_sheet.png", frames)
 
@@ -474,12 +486,135 @@ def zloz_klatke_z_trawa(
     offset: tuple[int, int],
     activity: str | None = None,
     body_bottom_targets: dict[str, int] | None = None,
+    state: str | None = None,
+    frame_index: int = 0,
 ) -> Image.Image:
     frame = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
     character = dopasuj_do_etapu(cutout, stage, get_activity_layout_override(stage, activity))
     x, y = policz_pozycje_postaci(character, stage, offset, get_body_bottom_target(stage, body_bottom_targets))
-    frame, _x, _y = zloz_postac_i_trawe(character, grass, stage, x, y, get_body_bottom_target(stage, body_bottom_targets))
+    frame, x, y = zloz_postac_i_trawe(character, grass, stage, x, y, get_body_bottom_target(stage, body_bottom_targets))
+    if state == "excellent":
+        narysuj_animowane_blyski_excellent(frame, stage, character, x, y, frame_index)
     return frame
+
+
+def usun_odklejone_blyski(cutout: Image.Image) -> Image.Image:
+    alpha = cutout.getchannel("A")
+    pixels = alpha.load()
+    points: set[tuple[int, int]] = set()
+    for y in range(cutout.height):
+        for x in range(cutout.width):
+            if pixels[x, y] > 8:
+                points.add((x, y))
+
+    components = [component for component in znajdz_skladowe(points, cutout.width, cutout.height) if len(component) >= 24]
+    if not components:
+        return cutout
+
+    center_x = cutout.width / 2
+    center_y = cutout.height / 2
+
+    def component_score(component: list[tuple[int, int]]) -> float:
+        xs = [point[0] for point in component]
+        ys = [point[1] for point in component]
+        width = max(xs) - min(xs) + 1
+        height = max(ys) - min(ys) + 1
+        component_center_x = (min(xs) + max(xs) + 1) / 2
+        component_center_y = (min(ys) + max(ys) + 1) / 2
+        distance_penalty = abs(component_center_x - center_x) * 12 + abs(component_center_y - center_y) * 3
+        return len(component) + width * height * 0.08 + height * 10 - distance_penalty
+
+    body = max(components, key=component_score)
+    mask = Image.new("L", cutout.size, 0)
+    mask_pixels = mask.load()
+    for x, y in body:
+        mask_pixels[x, y] = alpha.getpixel((x, y))
+
+    transparent = Image.new("RGBA", cutout.size, (0, 0, 0, 0))
+    return Image.composite(cutout, transparent, mask)
+
+
+def narysuj_animowane_blyski_excellent(
+    frame: Image.Image,
+    stage: str,
+    character: Image.Image,
+    character_x: int,
+    character_y: int,
+    frame_index: int,
+) -> None:
+    body_bbox = znajdz_bbox_korpusu_postaci(character, stage) or character.getchannel("A").getbbox()
+    if body_bbox is None:
+        return
+
+    left = character_x + body_bbox[0]
+    top = character_y + body_bbox[1]
+    right = character_x + body_bbox[2]
+    bottom = character_y + body_bbox[3]
+    width = right - left
+    height = bottom - top
+    anchors = [
+        (left - width * 0.10, top + height * 0.20, 7),
+        (right + width * 0.07, top + height * 0.27, 6),
+        (left - width * 0.08, top + height * 0.58, 5),
+        (right + width * 0.05, top + height * 0.64, 5),
+        (left + width * 0.16, top + height * 0.08, 4),
+        (right - width * 0.12, top + height * 0.12, 4),
+        (left + width * 0.08, bottom - height * 0.12, 3),
+        (right - width * 0.05, bottom - height * 0.18, 3),
+    ]
+
+    overlay = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    for index, (raw_x, raw_y, base_size) in enumerate(anchors):
+        phase = (frame_index / 4 + index * 0.19) % 1
+        alpha = math.sin(phase * math.pi)
+        if alpha <= 0.22:
+            continue
+
+        wobble_x = math.sin((frame_index + index * 0.73) * 1.4) * (1.3 + index % 2)
+        wobble_y = math.cos((frame_index + index * 0.61) * 1.2) * 1.4
+        size = max(2, round(base_size * (0.55 + alpha * 0.45)))
+        x = int(round(clamp(raw_x + wobble_x, 16, FRAME - 18, raw_x)))
+        y = int(round(clamp(raw_y + wobble_y, 20, 418, raw_y)))
+        narysuj_pixelowy_blysk(draw, x, y, size, alpha)
+
+    frame.alpha_composite(overlay)
+
+
+def narysuj_pixelowy_blysk(draw: ImageDraw.ImageDraw, x: int, y: int, size: int, alpha: float) -> None:
+    alpha_byte = int(clamp(alpha, 0, 1, 0) * 255)
+    warm_alpha = int(alpha_byte * 0.78)
+    dim_alpha = int(alpha_byte * 0.42)
+    far_alpha = int(alpha_byte * 0.24)
+    core = (255, 252, 214, alpha_byte)
+    warm = (255, 211, 92, warm_alpha)
+    amber = (255, 163, 65, dim_alpha)
+    halo = (255, 237, 150, far_alpha)
+    draw.rectangle((x, y, x + 1, y + 1), fill=core)
+    draw.point((x - 2, y - 2), fill=warm)
+    draw.point((x + 3, y - 2), fill=warm)
+    draw.point((x - 2, y + 3), fill=warm)
+    draw.point((x + 3, y + 3), fill=warm)
+    if size >= 4:
+        draw.rectangle((x - 4, y - 4, x - 3, y - 3), fill=amber)
+        draw.rectangle((x + 4, y - 4, x + 5, y - 3), fill=amber)
+        draw.rectangle((x - 4, y + 4, x - 3, y + 5), fill=amber)
+        draw.rectangle((x + 4, y + 4, x + 5, y + 5), fill=amber)
+    if size >= 6:
+        draw.point((x - 7, y - 6), fill=halo)
+        draw.point((x + 8, y - 5), fill=halo)
+        draw.point((x - 6, y + 8), fill=halo)
+        draw.point((x + 7, y + 7), fill=halo)
+
+
+def clamp(value: float, minimum: float, maximum: float, fallback: float) -> float:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        numeric = fallback
+    if not math.isfinite(numeric):
+        numeric = fallback
+    return min(maximum, max(minimum, numeric))
 
 
 def zloz_klatke_podlania(

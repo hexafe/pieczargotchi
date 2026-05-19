@@ -86,6 +86,8 @@ Skrypt tworzy:
 - `assets/environment/grass_patch.png`
 - pomocnicze wycinki w `assets/source/imagegen/cutouts/`
 
+Stan `excellent` jest czyszczony z odklejonych, statycznych gwiazdek z atlasu zrodlowego. Builder zachowuje sama postac, a potem doklada deterministyczne, klatkowane mikro-blyski w gotowym sheecie. Dzieki temu promienienie Pieczarki jest animowane w PNG, bez canvasowych plusow skaczacych wokol postaci.
+
 Reakcje immersyjne (`curious`, warianty bezczynnosci i zamyslenia, reakcje kursora, `sun`, `rain`, `stargaze`, `snow`, `watch_butterfly`, `watch_firefly`, `watch_crawler`) sa generowane z istniejacych sheetow przez:
 
 ```sh
@@ -100,6 +102,7 @@ Stary `scripts/generate-pixel-assets.py` deleguje do tego buildera, jezeli wykry
 python3 -m py_compile scripts/build-imagegen-sprites.py scripts/generate-pixel-assets.py scripts/generate-immersion-assets.py
 python3 scripts/build-imagegen-sprites.py
 node scripts/validate-assets.mjs
+python3 scripts/audit-glint-sprites.py
 python3 scripts/audit-sprite-consistency.py
 PIECZARGOTCHI_CAPTURE_STAGES=1 PIECZARGOTCHI_CAPTURE_ACTIVITIES=1 node scripts/capture-app-render.mjs http://127.0.0.1:8092/ /tmp/pieczargotchi-imagegen-final
 PIECZARGOTCHI_CAPTURE_VIEWPORT=1 PIECZARGOTCHI_CAPTURE_STAGES=1 PIECZARGOTCHI_CAPTURE_ACTIVITIES=1 PIECZARGOTCHI_CAPTURE_IMMERSION=1 node scripts/capture-app-render.mjs http://127.0.0.1:8092/ /tmp/pieczargotchi-ui-final

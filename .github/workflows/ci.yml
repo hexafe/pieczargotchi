@@ -59,13 +59,16 @@ jobs:
           node -e "const fs=require('fs'); for (const f of ['Code.gs','Config.gs','AnimationConfig.gs','AssetService.gs','StateModel.gs','GameRules.gs','MinigamesConfig.gs','EvolutionRules.gs','DecorationStore.gs','SyncService.gs','Actions.gs']) { new Function(fs.readFileSync(f,'utf8')); console.log(f + ' syntax ok'); }"
 
       - name: Check Python helper syntax
-        run: python -m py_compile scripts/build-imagegen-sprites.py scripts/generate-pixel-assets.py scripts/audit-spore-sprites.py scripts/audit-sprite-consistency.py
+        run: python -m py_compile scripts/build-imagegen-sprites.py scripts/generate-pixel-assets.py scripts/audit-spore-sprites.py scripts/audit-sprite-consistency.py scripts/audit-glint-sprites.py
 
       - name: Validate assets
         run: node scripts/validate-assets.mjs
 
       - name: Audit sprite consistency
         run: python scripts/audit-sprite-consistency.py
+
+      - name: Audit glint sprites
+        run: python scripts/audit-glint-sprites.py
 
       - name: Audit spore sprites
         run: python scripts/audit-spore-sprites.py

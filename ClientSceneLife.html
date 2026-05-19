@@ -633,7 +633,6 @@
       const flap = (Math.sin(now / 82 + cue.seed) + 1) / 2;
       const colors = { wing: '#f4c45f', edge: '#8c6731', body: '#3d2c22' };
       drawPixelButterfly(ctx, cue.x, cue.y, cue.direction || 1, 7, flap, colors);
-      drawFocusGlint(ctx, cue.x - (cue.direction || 1) * 18, cue.y - 14, '#fff6b8', cue.progress || 0);
     } else if (cue.kind === 'firefly') {
       const tail = 1 - smoothStep(0.18, 0.72, cue.progress || 0);
       const glowPulse = (Math.sin(now / 1400 + cue.seed) + 1) / 2;
@@ -655,21 +654,6 @@
     }
 
     return core.calculateAmbientLifeFocusCue(scene, getRuntimeDate(), getRuntimeNow());
-  }
-
-  function drawFocusGlint(ctx, x, y, color, progress) {
-    const alpha = fadeLifeEdge(progress || 0);
-    if (alpha <= 0.02) {
-      return;
-    }
-
-    ctx.fillStyle = color;
-    ctx.globalAlpha *= alpha * 0.72;
-    ctx.fillRect(Math.round(x), Math.round(y), 3, 3);
-    ctx.fillRect(Math.round(x - 3), Math.round(y + 1), 2, 1);
-    ctx.fillRect(Math.round(x + 4), Math.round(y + 1), 2, 1);
-    ctx.fillRect(Math.round(x + 1), Math.round(y - 3), 1, 2);
-    ctx.fillRect(Math.round(x + 1), Math.round(y + 4), 1, 2);
   }
 
   function fadeLifeEdge(progress) {

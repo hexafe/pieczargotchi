@@ -241,7 +241,7 @@ Aktualny kontrakt stage'owy to 34 sheety na etap:
 - `idle` ma być najspokojniejszy i najczystszy wizualnie.
 - `sleep` oraz `wake` mają czytać się bez tekstu i bez ikon interfejsu.
 - `happy` podnosi energię, ale nie rozwala sylwetki.
-- `excellent` jest mocniejsze niż `happy`, ale nie może zasłonić twarzy błyskami.
+- `excellent` jest mocniejsze niż `happy`, ale nie może zasłonić twarzy błyskami; połysk ma pochodzić z animowanego PNG, bez statycznych gwiazdek z atlasu i bez canvasowych plusów.
 - `curious`, warianty `idle_fidget`, warianty `idle_look`, warianty `ponder`, reakcje kursora, `sun`, `rain`, `stargaze`, `snow`, `watch_butterfly`, `watch_firefly` i `watch_crawler` są reakcjami immersyjnymi. Nie zmieniają statystyk, nie zastępują potrzeb i nie mogą maskować `critical`, `sick`, kuracji ani game over.
 - `rain` jest normalną reakcją pogodową Pieczargotchi. Deszczowa Iwoniasta Pieczarka z parasolką pozostaje wyłącznie easter eggiem `assets/easter-eggs/<stage>/neutral_rain_sheet.png`.
 - `tired`, `dry`, `hungry`, `dirty`, `sick` muszą różnić się od siebie charakterem, nie tylko kolorem.

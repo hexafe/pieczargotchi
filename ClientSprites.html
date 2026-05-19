@@ -46,9 +46,6 @@
     const pulse = 0.5 + Math.sin(now / 220) * 0.5;
 
     if (!need) {
-      if (runtime.state.patch.quality > 82 && runtime.state.stats.happiness > 72) {
-        drawSparkles(ctx, now, '#fff6b8');
-      }
       return;
     }
 
@@ -152,27 +149,6 @@
     ctx.fillStyle = '#2f4f35';
     ctx.font = 'bold 18px sans-serif';
     ctx.fillText(label, x + (label.length > 2 ? 18 : 32), y + 44);
-    ctx.restore();
-  }
-
-  function drawSparkles(ctx, now, color) {
-    const anchor = getStageEffectAnchor();
-    ctx.save();
-    ctx.fillStyle = color;
-    anchor.sparkles.forEach(function(point, index) {
-      const period = 2400 + index * 260;
-      const local = positiveModulo(now + index * 610, period) / period;
-      const alpha = smoothStep(0.05, 0.18, local) * (1 - smoothStep(0.50, 0.92, local));
-      if (alpha <= 0.03) {
-        return;
-      }
-
-      const driftX = Math.sin(local * Math.PI * 2 + index) * 3;
-      const driftY = -local * (5 + index % 2);
-      const size = 4 + (index % 2);
-      ctx.globalAlpha = alpha * 0.62;
-      drawCareGlint(ctx, point[0] + driftX, point[1] + driftY, size, color);
-    });
     ctx.restore();
   }
 
@@ -455,14 +431,16 @@
     const baseAlpha = ctx.globalAlpha;
     ctx.fillStyle = color;
     ctx.fillRect(centerX, centerY, 2, 2);
-    ctx.globalAlpha = baseAlpha * 0.56;
-    ctx.fillRect(centerX - arm - 1, centerY, arm, 1);
-    ctx.fillRect(centerX + 2, centerY, arm, 1);
-    ctx.fillRect(centerX, centerY - arm - 1, 1, arm);
-    ctx.fillRect(centerX, centerY + 2, 1, arm);
-    ctx.globalAlpha = baseAlpha * 0.24;
-    ctx.fillRect(centerX - arm - 2, centerY + 1, 1, 1);
-    ctx.fillRect(centerX + arm + 2, centerY + 1, 1, 1);
+    ctx.globalAlpha = baseAlpha * 0.52;
+    ctx.fillRect(centerX - arm, centerY - arm, 1, 1);
+    ctx.fillRect(centerX + arm + 1, centerY - arm, 1, 1);
+    ctx.fillRect(centerX - arm, centerY + arm + 1, 1, 1);
+    ctx.fillRect(centerX + arm + 1, centerY + arm + 1, 1, 1);
+    ctx.globalAlpha = baseAlpha * 0.22;
+    ctx.fillRect(centerX - arm - 2, centerY - arm - 1, 1, 1);
+    ctx.fillRect(centerX + arm + 3, centerY - arm, 1, 1);
+    ctx.fillRect(centerX - arm - 1, centerY + arm + 3, 1, 1);
+    ctx.fillRect(centerX + arm + 2, centerY + arm + 2, 1, 1);
     ctx.globalAlpha = baseAlpha;
   }
 

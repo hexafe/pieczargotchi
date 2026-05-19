@@ -402,8 +402,14 @@ def bubble_anchor(stage: str) -> tuple[int, int]:
 
 
 def add_pixel_sparkle(draw: ImageDraw.ImageDraw, x: int, y: int, color: tuple[int, int, int, int]) -> None:
-    draw.rectangle((x, y, x + 16, y + 4), fill=color)
-    draw.rectangle((x + 6, y - 6, x + 10, y + 10), fill=color)
+    r, g, b, a = color
+    soft = (r, g, b, round(a * 0.58))
+    dim = (255, 184, 74, round(a * 0.38))
+    draw.rectangle((x + 7, y + 1, x + 9, y + 3), fill=color)
+    draw.rectangle((x + 4, y - 2, x + 5, y - 1), fill=soft)
+    draw.rectangle((x + 11, y + 5, x + 12, y + 6), fill=soft)
+    draw.rectangle((x + 11, y - 2, x + 12, y - 1), fill=dim)
+    draw.rectangle((x + 4, y + 5, x + 5, y + 6), fill=dim)
 
 
 def rain_drop_specs(stage: str) -> list[dict[str, object]]:
