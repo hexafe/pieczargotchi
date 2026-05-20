@@ -1,41 +1,68 @@
 import { copyFile, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 
-const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const scriptPath = fileURLToPath(import.meta.url);
+const rootDir = path.dirname(path.dirname(scriptPath));
 const distDir = path.join(rootDir, 'dist');
 const assetOutputDir = path.join(distDir, 'assets');
 
-await main();
+if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
+  await main();
+}
 
 async function main() {
   await rm(distDir, { recursive: true, force: true });
   await mkdir(distDir, { recursive: true });
 
-  const config = buildClientConfig();
-  const indexHtml = renderCloudflareHtml();
+  const artifacts = buildCloudflareStaticArtifacts();
 
-  await writeFile(path.join(distDir, 'index.html'), indexHtml, 'utf8');
-  await writeFile(path.join(distDir, 'config.js'), renderConfigBundle(config), 'utf8');
-  await writeFile(path.join(distDir, 'core.js'), renderScriptBundle('ClientCore.html'), 'utf8');
-  await writeFile(path.join(distDir, 'client.js'), renderScriptBundle('Client.html'), 'utf8');
-  await copyRuntimeAssets(config.assets || []);
+  await writeFile(path.join(distDir, 'index.html'), artifacts.indexHtml, 'utf8');
+  await writeFile(path.join(distDir, 'config.js'), artifacts.configBundle, 'utf8');
+  await writeFile(path.join(distDir, 'core.js'), artifacts.coreBundle, 'utf8');
+  await writeFile(path.join(distDir, 'client.js'), artifacts.clientBundle, 'utf8');
+  await copyRuntimeAssets(artifacts.config.assets || []);
 
   console.log(`Cloudflare static build complete: ${path.relative(rootDir, distDir)}`);
 }
 
-function renderCloudflareHtml() {
-  return addCloudflarePreloads(renderTemplate('Index.html')
-    .replace(/^\s*<base target="_top">\s*$/m, '')
-    .replace(/<script src="\?bundle=config"><\/script>/g, '<script src="config.js"></script>')
-    .replace(/<script src="\?bundle=core"><\/script>/g, '<script src="core.js"></script>')
-    .replace(/<script src="\?bundle=client"><\/script>/g, '<script src="client.js"></script>'));
+function buildCloudflareStaticArtifacts() {
+  const config = buildClientConfig();
+  config.assetVersions = buildAssetVersionMap();
+  const configBundle = renderConfigBundle(config);
+  const coreBundle = renderScriptBundle('ClientCore.html');
+  const clientBundle = renderScriptBundle('Client.html');
+  const versions = {
+    config: getBundleVersion(configBundle),
+    core: getBundleVersion(coreBundle),
+    client: getBundleVersion(clientBundle)
+  };
+  const indexHtml = renderCloudflareHtml(versions, config.assetVersions);
+  return {
+    config,
+    configBundle,
+    coreBundle,
+    clientBundle,
+    indexHtml,
+    versions
+  };
 }
 
-function addCloudflarePreloads(html) {
-  const preload = '    <link rel="preload" href="assets/environment/grass_patch.png" as="image" type="image/png" fetchpriority="high">\n';
+function renderCloudflareHtml(versions, assetVersions) {
+  return addCloudflarePreloads(renderTemplate('Index.html')
+    .replace(/^\s*<base target="_top">\s*$/m, '')
+    .replace(/<script src="\?bundle=config"><\/script>/g, `<script src="config.js?v=${versions.config}"></script>`)
+    .replace(/<script src="\?bundle=core"><\/script>/g, `<script src="core.js?v=${versions.core}"></script>`)
+    .replace(/<script src="\?bundle=client"><\/script>/g, `<script src="client.js?v=${versions.client}"></script>`), assetVersions);
+}
+
+function addCloudflarePreloads(html, assetVersions) {
+  const grassVersion = assetVersions && assetVersions['environment/grass_patch.png'];
+  const grassHref = `assets/environment/grass_patch.png${grassVersion ? `?v=${grassVersion}` : ''}`;
+  const preload = `    <link rel="preload" href="${grassHref}" as="image" type="image/png" fetchpriority="high">\n`;
   if (html.includes('assets/environment/grass_patch.png') || !html.includes('</head>')) {
     return html;
   }
@@ -58,6 +85,55 @@ function renderScriptBundle(fileName) {
 function renderConfigBundle(config) {
   const clientConfigJson = JSON.stringify(config).replace(/<\/script/gi, '<\\/script');
   return `window.PIECZARGOTCHI_CONFIG = ${clientConfigJson};\n`;
+}
+
+function getBundleVersion(content) {
+  return createHash('sha256').update(String(content || '')).digest('hex').slice(0, 12);
+}
+
+function buildAssetVersionMap() {
+  const versions = {};
+  for (const fileName of collectStaticAssetFiles()) {
+    versions[fileName] = getFileVersion(path.join(rootDir, 'assets', fileName));
+  }
+  return versions;
+}
+
+function collectStaticAssetFiles() {
+  const sourceAssetsDir = path.join(rootDir, 'assets');
+  if (!existsSync(sourceAssetsDir)) {
+    return [];
+  }
+
+  const files = [];
+  collectStaticAssetFilesInto(sourceAssetsDir, sourceAssetsDir, files);
+  return files.sort();
+}
+
+function collectStaticAssetFilesInto(baseDir, sourceDir, files) {
+  const entries = readdirSync(sourceDir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    if (entry.name === 'source' || entry.name === 'reference') {
+      continue;
+    }
+
+    const sourcePath = path.join(sourceDir, entry.name);
+    if (entry.isDirectory()) {
+      collectStaticAssetFilesInto(baseDir, sourcePath, files);
+      continue;
+    }
+
+    if (!/\.(png|json|webp|jpg|jpeg|gif|svg)$/i.test(entry.name)) {
+      continue;
+    }
+
+    files.push(path.relative(baseDir, sourcePath).split(path.sep).join('/'));
+  }
+}
+
+function getFileVersion(filePath) {
+  return createHash('sha256').update(readFileSync(filePath)).digest('hex').slice(0, 12);
 }
 
 function stripScriptTag(content) {
@@ -174,3 +250,10 @@ async function copyStaticTree(sourceDir, targetDir) {
 function readTextSync(fileName) {
   return readFileSync(path.join(rootDir, fileName), 'utf8');
 }
+
+export {
+  buildAssetVersionMap,
+  buildCloudflareStaticArtifacts,
+  collectStaticAssetFiles,
+  getBundleVersion
+};

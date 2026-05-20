@@ -199,8 +199,16 @@
       });
     }
 
-    candidates.push('assets/' + asset.fileName);
+    candidates.push(getStaticAssetUrl(asset.fileName));
     return Promise.resolve(candidates);
+  }
+
+  function getStaticAssetUrl(fileName) {
+    const normalizedFileName = String(fileName || '').replace(/^assets\//, '');
+    const versions = config.assetVersions || {};
+    const version = versions[normalizedFileName];
+    const url = 'assets/' + normalizedFileName;
+    return version ? url + '?v=' + encodeURIComponent(version) : url;
   }
 
   function loadImageFromCandidates(candidates) {

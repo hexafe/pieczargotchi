@@ -423,7 +423,7 @@ function checkAssetFallbackContract() {
   const sprites = readText('ClientSprites.html');
   const assetService = readText('AssetService.gs');
 
-  if (!runtime.includes("candidates.push('assets/' + asset.fileName)")) {
+  if (!runtime.includes('function getStaticAssetUrl(fileName)') || !runtime.includes('candidates.push(getStaticAssetUrl(asset.fileName))')) {
     fail('ClientRuntime.html no longer tries local assets as a browser fallback candidate.');
   }
   if (!runtime.includes('Aktywne grafiki zapasowe')) {

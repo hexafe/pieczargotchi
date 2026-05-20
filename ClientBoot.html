@@ -102,6 +102,7 @@
   };
 
   const weatherRefreshMs = 30 * 60 * 1000;
+  const resetConfirmWindowMs = 4200;
   const constellationCatalog = [
     {
       id: 'bigDipper',
@@ -193,6 +194,7 @@
     assetLoadedAt: {},
     assetPromises: {},
     assetFailures: {},
+    pendingAnimationStarts: {},
     assetStatus: 'Ładowanie grafik',
     effects: [],
     input: createDefaultInputState(),
@@ -211,7 +213,9 @@
     bootError: null,
     renderError: null,
     renderStarted: false,
-    booted: false
+    booted: false,
+    resetConfirmUntil: 0,
+    resetConfirmTimer: null
   };
 
   document.addEventListener('DOMContentLoaded', function() {
@@ -407,17 +411,7 @@
   }
 
   function bindControls() {
-    dom.resetButton.addEventListener('click', function() {
-      if (!window.confirm('Zresetować Pieczargotchi i wyczyścić zapis gry?')) {
-        return;
-      }
-
-      runtime.state = createDefaultState();
-      addLog(runtime.state, 'Nowa grzybnia jest gotowa.', getRuntimeNow());
-      saveState(runtime.state);
-      renderUi();
-      triggerEffect('clean');
-    });
+    dom.resetButton.addEventListener('click', handleResetButtonClick);
 
     dom.viewCare.addEventListener('click', function() {
       setViewMode('care');
@@ -454,6 +448,58 @@
       dom.importInput.addEventListener('change', handleImportFile);
     }
     bindDebugControls();
+  }
+
+  function handleResetButtonClick() {
+    const now = getRuntimeNow();
+    if (Number(runtime.resetConfirmUntil) > now) {
+      performGameReset();
+      return;
+    }
+
+    armResetConfirmation(now);
+  }
+
+  function armResetConfirmation(now) {
+    runtime.resetConfirmUntil = now + resetConfirmWindowMs;
+    if (runtime.resetConfirmTimer) {
+      window.clearTimeout(runtime.resetConfirmTimer);
+    }
+    runtime.resetConfirmTimer = window.setTimeout(clearResetConfirmation, resetConfirmWindowMs);
+    setResetButtonPending(true);
+  }
+
+  function clearResetConfirmation() {
+    runtime.resetConfirmUntil = 0;
+    if (runtime.resetConfirmTimer) {
+      window.clearTimeout(runtime.resetConfirmTimer);
+      runtime.resetConfirmTimer = null;
+    }
+    setResetButtonPending(false);
+  }
+
+  function setResetButtonPending(pending) {
+    if (!dom.resetButton) {
+      return;
+    }
+
+    dom.resetButton.textContent = pending ? 'Potwierdź' : 'Od nowa';
+    dom.resetButton.title = pending
+      ? 'Kliknij jeszcze raz, żeby wyczyścić zapis gry'
+      : 'Wyczyść zapis gry';
+    dom.resetButton.setAttribute('aria-label', pending
+      ? 'Potwierdź rozpoczęcie od nowa'
+      : 'Rozpocznij od nowa');
+    dom.resetButton.classList.toggle('is-reset-pending', Boolean(pending));
+  }
+
+  function performGameReset() {
+    clearResetConfirmation();
+    runtime.state = createDefaultState();
+    addLog(runtime.state, 'Nowa grzybnia jest gotowa.', getRuntimeNow());
+    saveState(runtime.state);
+    renderUi();
+    triggerEffect('clean');
   }
 
   function bindKeyboardShortcuts() {
