@@ -10,8 +10,10 @@ const chromiumPath = process.env.CHROMIUM_BIN || '/usr/bin/chromium';
 const viewportWidth = Number(process.env.PIECZARGOTCHI_VIEWPORT_WIDTH) || 1194;
 const viewportHeight = Number(process.env.PIECZARGOTCHI_VIEWPORT_HEIGHT) || 891;
 const emulateMobile = process.env.PIECZARGOTCHI_EMULATE_MOBILE === '1';
-const captureDelayMs = Number(process.env.PIECZARGOTCHI_CAPTURE_DELAY_MS) || 350;
+const captureDelayOverride = Number(process.env.PIECZARGOTCHI_CAPTURE_DELAY_MS);
+const captureDelayMs = Number.isFinite(captureDelayOverride) ? Math.max(0, captureDelayOverride) : 350;
 const captureAppsScriptNoAssets = process.env.PIECZARGOTCHI_CAPTURE_APPS_SCRIPT_NO_ASSETS === '1';
+const captureBeforeAssets = process.env.PIECZARGOTCHI_CAPTURE_BEFORE_ASSETS === '1';
 const port = 9237 + Math.floor(Math.random() * 400);
 const userDataDir = path.join(tmpdir(), `pieczargotchi-cdp-${Date.now()}`);
 const captureDebugSettings = createCaptureDebugSettings();
@@ -591,7 +593,9 @@ async function captureCanvas(cdp, label, options) {
 
   await cdp.send('Runtime.evaluate', { expression: stateExpression, awaitPromise: true });
   await waitForLoad(cdp, () => cdp.send('Page.reload', { ignoreCache: true }));
-  await waitForExpression(cdp, getAssetStatusReadyExpression(), 6000);
+  if (!captureBeforeAssets) {
+    await waitForExpression(cdp, getAssetStatusReadyExpression(), 6000);
+  }
   await applyCaptureSceneOverrides(cdp);
   if (options.immersion) {
     await forceCaptureImmersion(cdp, options.immersion);
@@ -683,6 +687,7 @@ async function captureCanvas(cdp, label, options) {
           sleepGlyphs: Array.isArray(diagnostics.sleepGlyphs) ? diagnostics.sleepGlyphs.length : 0,
           sleepBody: diagnostics.sleepBody || null,
           activityBody: diagnostics.activityBody || null,
+          ground: diagnostics.ground || null,
           celestial: diagnostics.celestial || null
         };
       })()`,

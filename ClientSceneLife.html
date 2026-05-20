@@ -693,6 +693,9 @@
       sleepGlyphs: [],
       sleepBody: null,
       activityBody: null,
+      ground: runtime.motionDiagnostics && runtime.motionDiagnostics.ground
+        ? runtime.motionDiagnostics.ground
+        : null,
       celestial: runtime.motionDiagnostics && runtime.motionDiagnostics.celestial
         ? runtime.motionDiagnostics.celestial
         : null

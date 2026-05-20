@@ -7,6 +7,7 @@ import vm from 'node:vm';
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const port = Number.parseInt(process.env.PORT || process.argv[2] || '8080', 10);
+const grassPatchDelayMs = Math.max(0, Number.parseInt(process.env.PIECZARGOTCHI_GRASS_PATCH_DELAY_MS || '0', 10) || 0);
 
 const contentTypes = {
   '.css': 'text/css; charset=utf-8',
@@ -156,6 +157,10 @@ async function serveStatic(urlPathname, response) {
     return;
   }
 
+  if (requestedPath === path.join('assets', 'environment', 'grass_patch.png') && grassPatchDelayMs > 0) {
+    await delay(grassPatchDelayMs);
+  }
+
   const data = await readFile(filePath);
   send(response, 200, data, contentTypes[path.extname(filePath).toLowerCase()] || 'application/octet-stream');
 }
@@ -170,4 +175,8 @@ function send(response, status, body, contentType) {
     'Cache-Control': 'no-store'
   });
   response.end(body);
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

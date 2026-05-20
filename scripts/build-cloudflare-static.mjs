@@ -27,11 +27,20 @@ async function main() {
 }
 
 function renderCloudflareHtml() {
-  return renderTemplate('Index.html')
+  return addCloudflarePreloads(renderTemplate('Index.html')
     .replace(/^\s*<base target="_top">\s*$/m, '')
     .replace(/<script src="\?bundle=config"><\/script>/g, '<script src="config.js"></script>')
     .replace(/<script src="\?bundle=core"><\/script>/g, '<script src="core.js"></script>')
-    .replace(/<script src="\?bundle=client"><\/script>/g, '<script src="client.js"></script>');
+    .replace(/<script src="\?bundle=client"><\/script>/g, '<script src="client.js"></script>'));
+}
+
+function addCloudflarePreloads(html) {
+  const preload = '    <link rel="preload" href="assets/environment/grass_patch.png" as="image" type="image/png" fetchpriority="high">\n';
+  if (html.includes('assets/environment/grass_patch.png') || !html.includes('</head>')) {
+    return html;
+  }
+
+  return html.replace('</head>', `${preload}  </head>`);
 }
 
 function renderTemplate(fileName) {

@@ -148,15 +148,37 @@
   }
 
   function loadAsset(asset) {
-    const promise = getAssetImageCandidates(asset).then(loadImageFromCandidates).then(function(image) {
+    const promise = getAssetImageCandidates(asset).then(loadImageFromCandidates).then(decodeLoadedImage).then(function(image) {
       runtime.assets[asset.key] = image;
+      runtime.assetLoadedAt[asset.key] = getRenderClockNow();
       delete runtime.assetFailures[asset.key];
     }).catch(function() {
       runtime.assets[asset.key] = null;
+      delete runtime.assetLoadedAt[asset.key];
       runtime.assetFailures[asset.key] = true;
     });
     runtime.assetPromises[asset.key] = promise;
     return promise;
+  }
+
+  function decodeLoadedImage(image) {
+    if (image && typeof image.decode === 'function') {
+      return image.decode().catch(function() {
+        return null;
+      }).then(function() {
+        return image;
+      });
+    }
+
+    return Promise.resolve(image);
+  }
+
+  function getRenderClockNow() {
+    if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+      return performance.now();
+    }
+
+    return Date.now();
   }
 
   function getAssetImageCandidates(asset) {
