@@ -53,7 +53,8 @@
   function normalizeDiscoveriesState(discoveries) {
     const source = isPlainObject(discoveries) ? discoveries : {};
     return {
-      sky: normalizeSkyDiscoveryMap(source.sky)
+      sky: normalizeSkyDiscoveryMap(source.sky),
+      environment: normalizeEnvironmentDiscoveryMap(source.environment)
     };
   }
 
@@ -105,6 +106,31 @@
       };
     });
 
+    return result;
+  }
+
+  function normalizeEnvironmentDiscoveryMap(source) {
+    const result = {};
+    if (!isPlainObject(source)) {
+      return result;
+    }
+
+    Object.keys(source).forEach(function(id) {
+      const definition = typeof getEnvironmentDiscoveryDefinition === 'function'
+        ? getEnvironmentDiscoveryDefinition(id)
+        : null;
+      const item = isPlainObject(source[id]) ? source[id] : {};
+      if (!definition) {
+        return;
+      }
+      result[definition.id] = {
+        id: definition.id,
+        label: definition.label,
+        firstSeenAt: item.firstSeenAt || null,
+        lastSeenAt: item.lastSeenAt || item.firstSeenAt || null,
+        count: clampInteger(item.count, 1, 999999, 1)
+      };
+    });
     return result;
   }
 

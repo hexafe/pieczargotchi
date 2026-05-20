@@ -1,6 +1,6 @@
 # System Pogody
 
-Stan na 2026-05-15. Dokument jest praktyczna sciagawka dla implementacji i balansu pogody w Pieczargotchi. Nie jest planem refaktoru.
+Stan na 2026-05-20. Dokument jest praktyczna sciagawka dla implementacji i balansu pogody w Pieczargotchi. Nie jest planem refaktoru.
 
 ## Cel Systemu
 
@@ -40,6 +40,7 @@ Glowne zasady:
 | Tecza | krople, niedawny deszcz, okno slonca, niska pozycja slonca | pierwotny luk, czasem wtorny luk i ciemniejszy pas miedzy nimi |
 | Zycie sceny | sezon, pora dnia, temperatura, wiatr, opad, wilgotnosc | motyle, male owady latajace, robaczki naziemne, swietliki |
 | Zjawiska nieba | data, lokalizacja, noc, zachmurzenie, opad, Kp NOAA/fallback | meteory, roje meteorow, komety, zorza, odkrycia w kolekcji |
+| Zjawiska srodowiskowe | pora dnia, wilgotnosc, temperatura, wiatr, mokrosc, zachmurzenie, mgla | rosa, szron, fogbow, halo, promienie, parowanie, drzenie powietrza |
 
 ## Wplyw Na Gameplay
 
@@ -82,6 +83,7 @@ Pogoda nie tworzy obecnie care mistakes sama z siebie. Moze pogorszyc lub popraw
 - Meteory i komety sa rzadkimi zdarzeniami nocnymi, wygaszanymi przez chmury, opad i dzien; wymuszanie debug sluzy tylko do QA.
 - Roje meteorow maja okna sezonowe: Perseidy, Geminidy, Kwadrantydy, Orionidy i Leonidy.
 - Zorza korzysta z live Kp NOAA, kiedy fetch jest dostepny; bez live danych dziala deterministyczny fallback dla wysokich szerokosci geograficznych, nocy i przejrzystego nieba.
+- Rosa, szron, fogbow, halo ksiezycowe, promienie przez chmury, parowanie po deszczu, drzenie powietrza i przejasnienie po deszczu sa liczone deterministycznie z profilu sceny, a renderer tylko rysuje warstwy.
 - Pierwsze zaobserwowanie specjalnego zjawiska zapisuje kolekcje odkryc w stanie gry.
 
 ## Zycie Sceny
@@ -103,8 +105,23 @@ Zycie sceny jest proceduralne i zalezne od pogody, ale nie jest zapisywane w sta
 - Kometa jest jeszcze rzadsza, wolniejsza i ma dluzszy ogon.
 - Roje meteorow zwiekszaja szanse na meteory w znanych oknach sezonowych, ale nadal nie robia ciaglego deszczu gwiazd.
 - Zorza jest niska, pasmowa i rysowana za gwiazdami/chmurami jako segmenty pixel-art, nie jako gladki gradient.
-- `discoveries.sky` przechowuje pierwsze odkrycie, ostatni czas i licznik; migracja stanu to v8.
+- `discoveries.sky` przechowuje pierwsze odkrycie, ostatni czas i licznik nieba; `discoveries.environment` robi to samo dla efektow srodowiskowych. Migracja stanu to v9.
 - Debug ma `Zjawisko nieba`, a capture wspiera `PIECZARGOTCHI_DEBUG_SKY_EFFECT`.
+
+## Zjawiska Srodowiskowe
+
+`ClientCorePhenomena.html` liczy profil efektow srodowiskowych bez runtime losowosci renderera. Ten sam czas, pogoda i lokalizacja daja ten sam zestaw efektow oraz odkryc.
+
+- Rosa pojawia sie glownie rano przy wysokiej wilgotnosci, slabym wietrze, braku opadu i wilgotnym podlozu.
+- Szron jest porannym wariantem zimna, wilgoci i ciszy; nie powinien wygladac jak zwykla rosa.
+- Fogbow jest bladym lukiem przy mgle, niskim sloncu i bez ciezkiego opadu.
+- Halo ksiezycowe wymaga nocy, chmur wysokich/cienkich i braku opadu.
+- Promienie slonca pojawiaja sie przy niskim sloncu, przerwach w chmurach i bez ciezkiego opadu.
+- Parowanie po deszczu wymaga mokrego podloza, ciepla i spokojniejszego powietrza.
+- Drzenie powietrza jest subtelne i dotyczy suchego, goracego poludnia.
+- Przejasnienie po deszczu dodaje drobne blyski w trawie, kiedy podloze jest jeszcze mokre, a niebo zaczyna sie otwierac.
+
+Capture wspiera scenariusze `phenomena-*` oraz dodatkowe override'y warstw chmur: `PIECZARGOTCHI_DEBUG_CLOUD_LOW`, `PIECZARGOTCHI_DEBUG_CLOUD_MID` i `PIECZARGOTCHI_DEBUG_CLOUD_HIGH`.
 
 ## Tecza
 
@@ -144,15 +161,11 @@ Renderer ustawia srodek luku po stronie przeciwnej do slonca w ekranowej projekc
 
 ## Co Warto Dodac Pozniej
 
-- Rosa i szron jako nocne/poranne efekty przy wysokiej wilgotnosci, niskiej temperaturze i slabym wietrze.
 - Lepsze wysychanie podloza przez ET0, VPD, wiatr, temperature i naslonecznienie, z wolniejszym powrotem po deszczu.
-- Czytelniejszy stan "po deszczu, przejasnia sie" jako najlepszy moment dla teczy.
-- Fogbow jako bardzo blady, rzadki wariant przy mgle i niskim sloncu.
 - Sezonowa kondycja trawy: bardziej soczysta po wilgotnych dniach, przygaszona przy suszy/upale, przygnieciona sniegiem.
-- Delikatne promienie slonca przez dziury w chmurach, szczegolnie rano i wieczorem.
 - Oddalony blysk/grzmot jako efekt atmosferyczny burzy, bez fizyki trafien.
 - Opcjonalny komunikat gameplayowy o nadchodzacej zmianie pogody na bazie trendu cisnienia i forecast hours.
-- Rozszerzyc katalog odkryc o halo ksiezycowe, fogbow, szron/rose i migracje ptakow/owadow jako bardzo rzadkie scenki sezonowe.
+- Rozszerzyc katalog odkryc o migracje ptakow/owadow jako bardzo rzadkie scenki sezonowe.
 
 ## Czego Nie Warto Symulowac Teraz
 

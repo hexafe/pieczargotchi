@@ -1,0 +1,266 @@
+  function drawAmbientPhenomenaSky(ctx, scene, palette, now) {
+    const profile = getAmbientPhenomenaProfile(scene, now);
+    if (!profile) {
+      return;
+    }
+
+    drawSunbeamPhenomenon(ctx, scene, profile.sunbeams, now);
+    drawFogbowPhenomenon(ctx, scene, profile.fogbow, now);
+    drawMoonHaloPhenomenon(ctx, scene, profile.moonHalo, now);
+    drawHeatHazePhenomenon(ctx, profile.heatHaze, now);
+    syncEnvironmentDiscoveries(profile, now);
+  }
+
+  function drawAmbientPhenomenaGround(ctx, scene, palette, now) {
+    const profile = getAmbientPhenomenaProfile(scene, now);
+    if (!profile) {
+      return;
+    }
+
+    drawGroundDewOrFrost(ctx, palette, profile.dew, now, false);
+    drawGroundDewOrFrost(ctx, palette, profile.frost, now, true);
+    drawPostRainClearingGlints(ctx, palette, profile.clearingAfterRain, now);
+    drawSteamPhenomenon(ctx, palette, profile.steam, now);
+  }
+
+  function getAmbientPhenomenaProfile(scene, now) {
+    const core = window.PieczargotchiCore;
+    if (!core || typeof core.calculateAmbientPhenomena !== 'function') {
+      return null;
+    }
+
+    return core.calculateAmbientPhenomena(scene, getRuntimeDate(), getRuntimeNow());
+  }
+
+  function drawSunbeamPhenomenon(ctx, scene, phenomenon, now) {
+    if (!phenomenon || !phenomenon.visible) {
+      return;
+    }
+
+    const sun = typeof getSunPosition === 'function' ? getSunPosition(scene, getRuntimeDate()) : null;
+    if (!sun) {
+      return;
+    }
+
+    const intensity = clamp(Number(phenomenon.intensity), 0, 1, 0);
+    const sunX = sun.x + sun.size / 2;
+    const sunY = sun.y + sun.size / 2;
+    const direction = sunX < 256 ? 1 : -1;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let beam = 0; beam < 4; beam += 1) {
+      const seed = phenomenon.seed + beam * 37;
+      const width = 32 + seededUnit(seed + 1) * 42;
+      const drift = Math.sin(now / (6200 + beam * 720) + seed) * 8;
+      const startX = sunX + direction * (beam * 11 + drift);
+      const endX = startX + direction * (72 + beam * 34 + seededUnit(seed + 2) * 38);
+      const endY = 340 + beam * 20 + seededUnit(seed + 3) * 42;
+      ctx.globalAlpha = intensity * (0.045 + beam * 0.008);
+      ctx.fillStyle = '#ffe0a1';
+      ctx.beginPath();
+      ctx.moveTo(Math.round(startX), Math.round(sunY));
+      ctx.lineTo(Math.round(startX + direction * 10), Math.round(sunY + 8));
+      ctx.lineTo(Math.round(endX + direction * width), Math.round(endY));
+      ctx.lineTo(Math.round(endX), Math.round(endY));
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = intensity * 0.04;
+      const glintWidth = Math.round(width * 0.5);
+      const glintX = direction > 0 ? endX - 8 : endX - glintWidth + 8;
+      ctx.fillRect(Math.round(glintX), Math.round(endY), glintWidth, 2);
+    }
+    ctx.restore();
+  }
+
+  function drawFogbowPhenomenon(ctx, scene, phenomenon, now) {
+    if (!phenomenon || !phenomenon.visible) {
+      return;
+    }
+
+    const sun = typeof getSunPosition === 'function' ? getSunPosition(scene, getRuntimeDate()) : null;
+    if (!sun) {
+      return;
+    }
+
+    const intensity = clamp(Number(phenomenon.intensity), 0, 1, 0);
+    const centerX = 512 - (sun.x + sun.size / 2);
+    const centerY = 438 + clamp(Number(sun.altitude), 0, 42, 8) * 4.4;
+    const radius = 196;
+    ctx.save();
+    for (let band = 0; band < 4; band += 1) {
+      ctx.fillStyle = band % 2 === 0 ? '#fffdf0' : '#dfeee8';
+      ctx.globalAlpha = intensity * (0.12 - band * 0.018);
+      for (let angle = Math.PI + 0.08; angle <= Math.PI * 2 - 0.08; angle += 0.018) {
+        const wave = Math.sin(now / 5200 + angle * 4 + band) * 1.4;
+        const x = centerX + Math.cos(angle) * (radius - band * 5 + wave);
+        const y = centerY + Math.sin(angle) * (radius - band * 5 + wave);
+        if (x < -20 || x > 532 || y < 22 || y > 430) {
+          continue;
+        }
+        ctx.fillRect(Math.round(x), Math.round(y), 3, 3);
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawMoonHaloPhenomenon(ctx, scene, phenomenon, now) {
+    if (!phenomenon || !phenomenon.visible) {
+      return;
+    }
+
+    const moon = typeof getMoonPosition === 'function' ? getMoonPosition(scene, getRuntimeDate()) : null;
+    if (!moon) {
+      return;
+    }
+
+    const intensity = clamp(Number(phenomenon.intensity), 0, 1, 0);
+    const cx = moon.x + moon.size / 2;
+    const cy = moon.y + moon.size / 2;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let ring = 0; ring < 3; ring += 1) {
+      const radius = 25 + ring * 10;
+      ctx.fillStyle = ring === 0 ? '#f8f0c4' : '#cdd8eb';
+      ctx.globalAlpha = intensity * (0.11 - ring * 0.022);
+      for (let step = 0; step < 42; step += 1) {
+        const angle = step / 42 * Math.PI * 2 + Math.sin(now / 9000 + ring) * 0.025;
+        const sparkle = 0.76 + seededUnit(phenomenon.seed + ring * 71 + step) * 0.24;
+        if (sparkle < 0.82 && ring > 0) {
+          continue;
+        }
+        const x = cx + Math.cos(angle) * radius;
+        const y = cy + Math.sin(angle) * radius;
+        ctx.fillRect(Math.round(x), Math.round(y), ring === 0 ? 2 : 1, ring === 0 ? 2 : 1);
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawHeatHazePhenomenon(ctx, phenomenon, now) {
+    if (!phenomenon || !phenomenon.visible) {
+      return;
+    }
+
+    const intensity = clamp(Number(phenomenon.intensity), 0, 1, 0);
+    ctx.save();
+    ctx.fillStyle = '#fff1b8';
+    for (let band = 0; band < 9; band += 1) {
+      const y = 198 + band * 20;
+      const drift = Math.sin(now / (2100 + band * 230) + phenomenon.seed + band) * (8 + intensity * 12);
+      const width = 48 + seededUnit(phenomenon.seed + band * 17) * 72;
+      const x = 40 + band * 51 + drift;
+      ctx.globalAlpha = intensity * (0.018 + band % 3 * 0.006);
+      ctx.fillRect(Math.round(x % 560) - 40, y, Math.round(width), 2);
+    }
+    ctx.restore();
+  }
+
+  function drawGroundDewOrFrost(ctx, palette, phenomenon, now, frost) {
+    if (!phenomenon || !phenomenon.visible) {
+      return;
+    }
+
+    const intensity = clamp(Number(phenomenon.intensity), 0, 1, 0);
+    const count = Math.round(18 + intensity * 28);
+    ctx.save();
+    ctx.globalCompositeOperation = frost ? 'source-over' : 'lighter';
+    for (let index = 0; index < count; index += 1) {
+      const seed = phenomenon.seed + index * 43;
+      const x = 16 + seededUnit(seed + 1) * 484;
+      const y = 378 + seededUnit(seed + 2) * 92;
+      const twinkle = frost
+        ? 0.66 + seededUnit(seed + 3) * 0.26
+        : 0.48 + (Math.sin(now / (1500 + seededUnit(seed + 4) * 1800) + seed) + 1) * 0.24;
+      ctx.globalAlpha = intensity * twinkle * (frost ? 0.34 : 0.28);
+      ctx.fillStyle = frost ? '#f2fbff' : '#eaffcf';
+      ctx.fillRect(Math.round(x), Math.round(y), frost ? 3 : 2, 1);
+      if (seededUnit(seed + 5) > 0.66) {
+        ctx.globalAlpha *= 0.58;
+        ctx.fillStyle = frost ? '#cce6f1' : (palette && palette.sunCore || '#fff7b2');
+        ctx.fillRect(Math.round(x + 1), Math.round(y - 1), 1, 1);
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawPostRainClearingGlints(ctx, palette, phenomenon, now) {
+    if (!phenomenon || !phenomenon.visible) {
+      return;
+    }
+
+    const intensity = clamp(Number(phenomenon.intensity), 0, 1, 0);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let index = 0; index < 12; index += 1) {
+      const seed = phenomenon.seed + index * 59;
+      const pulse = (Math.sin(now / (900 + seededUnit(seed + 2) * 1400) + seed) + 1) / 2;
+      if (pulse < 0.58) {
+        continue;
+      }
+      const x = 22 + seededUnit(seed + 3) * 468;
+      const y = 392 + seededUnit(seed + 4) * 82;
+      ctx.globalAlpha = intensity * (pulse - 0.42) * 0.26;
+      ctx.fillStyle = palette && palette.sunCore || '#fff4b8';
+      ctx.fillRect(Math.round(x), Math.round(y), 3, 1);
+      ctx.fillRect(Math.round(x + 1), Math.round(y - 1), 1, 1);
+    }
+    ctx.restore();
+  }
+
+  function drawSteamPhenomenon(ctx, palette, phenomenon, now) {
+    if (!phenomenon || !phenomenon.visible) {
+      return;
+    }
+
+    const intensity = clamp(Number(phenomenon.intensity), 0, 1, 0);
+    const count = Math.round(4 + intensity * 8);
+    ctx.save();
+    ctx.fillStyle = '#eef7e7';
+    for (let index = 0; index < count; index += 1) {
+      const seed = phenomenon.seed + index * 83;
+      const x = 34 + seededUnit(seed + 1) * 444 + Math.sin(now / 3600 + seed) * 8;
+      const baseY = 420 + seededUnit(seed + 2) * 42;
+      const height = 26 + seededUnit(seed + 3) * 34;
+      const local = (now / (5200 + seededUnit(seed + 4) * 2400) + seededUnit(seed + 5)) % 1;
+      const rise = smoothStep(0.02, 0.92, local);
+      const alpha = intensity * Math.min(smoothStep(0.04, 0.22, local), smoothStep(0.08, 0.3, 1 - local)) * 0.18;
+      ctx.globalAlpha = alpha;
+      for (let part = 0; part < 4; part += 1) {
+        const y = baseY - rise * height - part * 7;
+        const sway = Math.sin(now / 2400 + seed + part) * (2 + part);
+        ctx.fillRect(Math.round(x + sway), Math.round(y), 10 - part * 2, 2);
+      }
+    }
+    ctx.restore();
+  }
+
+  function syncEnvironmentDiscoveries(profile, now) {
+    if (!runtime || !runtime.state || !profile || !Array.isArray(profile.discoveries) || !profile.discoveries.length) {
+      return;
+    }
+
+    const core = window.PieczargotchiCore;
+    if (!core || typeof core.recordEnvironmentDiscovery !== 'function') {
+      return;
+    }
+
+    let changed = false;
+    const known = runtime.state.discoveries && runtime.state.discoveries.environment
+      ? runtime.state.discoveries.environment
+      : {};
+    profile.discoveries.forEach(function(discoveryId) {
+      if (known[discoveryId]) {
+        return;
+      }
+      const result = core.recordEnvironmentDiscovery(runtime.state, discoveryId, now);
+      if (result && result.newlyDiscovered) {
+        addLog(runtime.state, result.message, now);
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      saveState(runtime.state);
+      renderUi();
+    }
+  }

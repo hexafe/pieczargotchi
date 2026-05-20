@@ -26,6 +26,8 @@ const requiredSourceFiles = [
   'ClientCore.html',
   'ClientCoreWeather.html',
   'ClientCoreLife.html',
+  'ClientCoreSky.html',
+  'ClientCorePhenomena.html',
   'ClientCoreCare.html',
   'ClientCoreBattle.html',
   'ClientCoreShared.html',
@@ -50,6 +52,7 @@ const requiredSourceFiles = [
   'ClientScenePalette.html',
   'ClientSceneCelestial.html',
   'ClientSceneRainbow.html',
+  'ClientScenePhenomena.html',
   'ClientSceneWeather.html',
   'ClientSceneWeatherClouds.html',
   'ClientSceneWeatherPrecip.html',
@@ -64,6 +67,8 @@ const requiredSourceFiles = [
 const expectedCoreIncludes = [
   'ClientCoreWeather',
   'ClientCoreLife',
+  'ClientCoreSky',
+  'ClientCorePhenomena',
   'ClientCoreCare',
   'ClientCoreBattle',
   'ClientCoreShared',
@@ -91,6 +96,7 @@ const expectedClientIncludes = [
   'ClientScenePalette',
   'ClientSceneCelestial',
   'ClientSceneRainbow',
+  'ClientScenePhenomena',
   'ClientSceneWeather',
   'ClientSceneLife',
   'ClientSceneGround',
@@ -265,7 +271,7 @@ function checkStaticConfig() {
   if (config.storageKey !== 'pieczargotchi_state_v2') {
     fail(`Unexpected storage key: ${config.storageKey}`);
   }
-  if (config.stateVersion !== 8) {
+  if (config.stateVersion !== 9) {
     fail(`Unexpected state version: ${config.stateVersion}`);
   }
   if (!config.runtime || config.runtime.debugEnabled !== false) {

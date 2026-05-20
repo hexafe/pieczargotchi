@@ -138,7 +138,8 @@ function createDefaultStateTemplate() {
       active: []
     },
     discoveries: {
-      sky: {}
+      sky: {},
+      environment: {}
     },
     coins: 0,
     cooldowns: {

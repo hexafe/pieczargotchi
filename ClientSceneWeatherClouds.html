@@ -273,10 +273,10 @@
     }
 
     drawFogBandLayer(ctx, scene, now, 'sky', [
-      { y: 186, height: 13, width: 390, alpha: 0.08, densityAlpha: 0.16, speed: 0.54, windResponse: 0.16, float: 2, color: '#f3f8e6' },
-      { y: 222, height: 17, width: 444, alpha: 0.10, densityAlpha: 0.18, speed: 0.66, windResponse: 0.20, float: 3, color: '#eef7e7' },
-      { y: 258, height: 20, width: 484, alpha: 0.10, densityAlpha: 0.20, speed: 0.78, windResponse: 0.22, float: 3, color: '#f7fbef' },
-      { y: 300, height: 22, width: 430, alpha: 0.08, densityAlpha: 0.16, speed: 0.50, windResponse: 0.18, float: 2, color: '#eef7e7' }
+      { y: 186, height: 13, width: 390, alpha: 0.04, densityAlpha: 0.09, speed: 0.54, windResponse: 0.16, float: 2, color: '#f3f8e6' },
+      { y: 222, height: 17, width: 444, alpha: 0.05, densityAlpha: 0.10, speed: 0.66, windResponse: 0.20, float: 3, color: '#eef7e7' },
+      { y: 258, height: 20, width: 484, alpha: 0.05, densityAlpha: 0.12, speed: 0.78, windResponse: 0.22, float: 3, color: '#f7fbef' },
+      { y: 300, height: 22, width: 430, alpha: 0.04, densityAlpha: 0.09, speed: 0.50, windResponse: 0.18, float: 2, color: '#eef7e7' }
     ], density);
   }
 
@@ -306,16 +306,46 @@
           + slot.yOffset
           + flow.y
           + Math.sin(now / (4200 + index * 360) + slot.phase) * band.float);
-        ctx.globalAlpha = alpha;
-        ctx.fillStyle = band.color;
-        ctx.fillRect(Math.round(slot.x), y, width, band.height);
-        ctx.globalAlpha = alpha * 0.54;
-        ctx.fillRect(Math.round(slot.x - width * 0.36), y + Math.round(band.height * 0.38), Math.round(width * 0.70), Math.max(6, band.height - 9));
-        ctx.globalAlpha = alpha * 0.38;
-        ctx.fillRect(Math.round(slot.x + width * 0.24), y - 6, Math.round(width * 0.46), Math.max(4, Math.round(band.height * 0.44)));
+        drawFogWisp(ctx, Math.round(slot.x), y, width, band.height, alpha, band.color, slot.seed + index * 101, now);
       });
     });
     ctx.restore();
+  }
+
+  function drawFogWisp(ctx, x, y, width, height, alpha, color, seed, now) {
+    const count = Math.max(5, Math.min(9, Math.round(width / 82)));
+    const lane = width / count;
+    ctx.fillStyle = color;
+
+    for (let segment = 0; segment < count; segment += 1) {
+      const localSeed = seed + segment * 41;
+      const drift = Math.sin(now / (5200 + seededUnit(localSeed + 1) * 2600) + localSeed * 0.017) * 5;
+      const left = x
+        + segment * lane
+        + (seededUnit(localSeed + 2) - 0.5) * lane * 0.46
+        + drift;
+      const segmentWidth = Math.max(18, Math.round(lane * (0.50 + seededUnit(localSeed + 3) * 0.58)));
+      const segmentHeight = Math.max(3, Math.round(height * (0.32 + seededUnit(localSeed + 4) * 0.30)));
+      const segmentY = y + Math.round((seededUnit(localSeed + 5) - 0.5) * height * 0.48);
+      const localAlpha = alpha * (0.42 + seededUnit(localSeed + 6) * 0.38);
+
+      ctx.globalAlpha = localAlpha;
+      ctx.fillRect(Math.round(left), segmentY, segmentWidth, segmentHeight);
+      ctx.globalAlpha = localAlpha * 0.52;
+      ctx.fillRect(
+        Math.round(left + segmentWidth * 0.18),
+        segmentY - Math.max(2, Math.round(segmentHeight * 0.42)),
+        Math.max(8, Math.round(segmentWidth * 0.54)),
+        Math.max(2, Math.round(segmentHeight * 0.44))
+      );
+      ctx.globalAlpha = localAlpha * 0.36;
+      ctx.fillRect(
+        Math.round(left - segmentWidth * 0.18),
+        segmentY + Math.max(2, Math.round(segmentHeight * 0.62)),
+        Math.max(10, Math.round(segmentWidth * 0.62)),
+        Math.max(2, Math.round(segmentHeight * 0.38))
+      );
+    }
   }
 
   function updateFogBandFlow(scene, now, band, bandIndex, group, density) {

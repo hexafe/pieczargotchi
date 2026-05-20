@@ -130,6 +130,9 @@ function createCaptureSceneOverrides() {
   const dewPoint = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_DEW_POINT');
   const pressure = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_PRESSURE');
   const visibility = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_VISIBILITY');
+  const cloudCoverLow = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_CLOUD_LOW');
+  const cloudCoverMid = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_CLOUD_MID');
+  const cloudCoverHigh = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_CLOUD_HIGH');
   const vaporPressureDeficit = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_VPD');
   const evapotranspiration = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_ET0');
   const snowDepth = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_SNOW_DEPTH');
@@ -141,6 +144,9 @@ function createCaptureSceneOverrides() {
     && dewPoint === null
     && pressure === null
     && visibility === null
+    && cloudCoverLow === null
+    && cloudCoverMid === null
+    && cloudCoverHigh === null
     && vaporPressureDeficit === null
     && evapotranspiration === null
     && snowDepth === null
@@ -156,6 +162,9 @@ function createCaptureSceneOverrides() {
     dewPoint,
     pressure,
     visibility,
+    cloudCoverLow,
+    cloudCoverMid,
+    cloudCoverHigh,
     vaporPressureDeficit,
     evapotranspiration,
     snowDepth,
@@ -893,6 +902,9 @@ async function applyCaptureSceneOverrides(cdp) {
         ['dewPoint', 'dewPoint'],
         ['pressure', 'pressure'],
         ['visibility', 'visibility'],
+        ['cloudCoverLow', 'cloudCoverLow'],
+        ['cloudCoverMid', 'cloudCoverMid'],
+        ['cloudCoverHigh', 'cloudCoverHigh'],
         ['vaporPressureDeficit', 'vaporPressureDeficit'],
         ['evapotranspiration', 'evapotranspiration'],
         ['snowDepth', 'snowDepth']

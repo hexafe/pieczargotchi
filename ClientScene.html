@@ -7,9 +7,11 @@
     }
     drawSkyBands(ctx, palette);
     drawCelestial(ctx, scene, palette, now);
+    drawAmbientPhenomenaSky(ctx, scene, palette, now);
     drawRainbowLayer(ctx, scene, palette, now);
     drawCloudLayer(ctx, scene, palette, now);
     drawWeatherLayer(ctx, scene, now);
     drawLowGround(ctx, palette, now, scene);
+    drawAmbientPhenomenaGround(ctx, scene, palette, now);
     drawAmbientLifeBackground(ctx, palette, now, scene);
   }

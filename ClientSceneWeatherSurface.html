@@ -6,8 +6,9 @@
     }
 
     const fogDensity = getFogVisualDensity(scene);
-    if (fogDensity > 0.08) {
-      drawFogForeground(ctx, scene, now, fogDensity);
+    const foregroundFogDensity = scene && scene.condition === 'fog' ? fogDensity : 0;
+    if (foregroundFogDensity > 0.08) {
+      drawFogForeground(ctx, scene, now, foregroundFogDensity);
     }
   }
 
@@ -121,10 +122,10 @@
 
   function drawFogForeground(ctx, scene, now, density) {
     drawFogBandLayer(ctx, scene, now, 'foreground', [
-      { y: 156, height: 24, alpha: 0.09, densityAlpha: 0.18, width: 430, speed: 0.55, windResponse: 0.26, float: 3, color: '#eef7e7' },
-      { y: 214, height: 34, alpha: 0.12, densityAlpha: 0.20, width: 520, speed: 0.82, windResponse: 0.30, float: 4, color: '#f7fbef' },
-      { y: 286, height: 42, alpha: 0.13, densityAlpha: 0.22, width: 560, speed: 1.00, windResponse: 0.34, float: 5, color: '#eef7e7' },
-      { y: 366, height: 38, alpha: 0.10, densityAlpha: 0.18, width: 470, speed: 0.68, windResponse: 0.28, float: 3, color: '#f7fbef' }
+      { y: 156, height: 24, alpha: 0.065, densityAlpha: 0.14, width: 430, speed: 0.55, windResponse: 0.26, float: 3, color: '#eef7e7' },
+      { y: 214, height: 34, alpha: 0.08, densityAlpha: 0.15, width: 520, speed: 0.82, windResponse: 0.30, float: 4, color: '#f7fbef' },
+      { y: 286, height: 42, alpha: 0.085, densityAlpha: 0.16, width: 560, speed: 1.00, windResponse: 0.34, float: 5, color: '#eef7e7' },
+      { y: 366, height: 38, alpha: 0.07, densityAlpha: 0.13, width: 470, speed: 0.68, windResponse: 0.28, float: 3, color: '#f7fbef' }
     ], density);
 
     const veilAlpha = scene && scene.condition === 'fog'

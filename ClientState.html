@@ -180,7 +180,8 @@
     }
 
     return {
-      sky: discoveries && discoveries.sky && typeof discoveries.sky === 'object' ? discoveries.sky : {}
+      sky: discoveries && discoveries.sky && typeof discoveries.sky === 'object' ? discoveries.sky : {},
+      environment: discoveries && discoveries.environment && typeof discoveries.environment === 'object' ? discoveries.environment : {}
     };
   }
 

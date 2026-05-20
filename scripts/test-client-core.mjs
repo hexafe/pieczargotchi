@@ -216,10 +216,21 @@ test('weather immersion snow cover responds to snowfall, depth, wind, and melt',
     windSpeed: 8,
     humidity: 58
   }, [], null, Date.parse('2026-02-14T12:00:00.000Z'));
+  const dryColdClear = core.deriveWeatherImmersionFields({
+    condition: 'clear',
+    cloudCover: 8,
+    precipitation: 0,
+    snowfall: 0,
+    snowDepth: 0,
+    temperature: -4,
+    windSpeed: 5,
+    humidity: 72
+  }, [], null, Date.parse('2026-01-14T08:00:00.000Z'));
 
   assert(coldSnow.snowCoverTarget > 0.75, `expected accumulated snow, got ${coldSnow.snowCoverTarget}`);
   assert(coldSnow.snowStyle === 'powder', `expected powder snow, got ${coldSnow.snowStyle}`);
   assert(warmOldSnow.snowCoverTarget < coldSnow.snowCoverTarget, 'warm old snow should melt compared with active snowfall');
+  assert(dryColdClear.snowCoverTarget === 0, `cold clear weather without snow should not create snow cover, got ${dryColdClear.snowCoverTarget}`);
 });
 
 test('weather immersion exposes rainbow potential for low-cloud light rain with sun window', () => {
@@ -358,15 +369,15 @@ test('corrupted save shape falls back to a normal migration target', () => {
   assert(migrated.battle && migrated.battle.rewards.wins === 0, 'expected normalized battle rewards');
 });
 
-test('v2 saves migrate to v8 progression history, discoveries, evolution, minigames, decorations, recovery, game over, and daily growth', () => {
+test('v2 saves migrate to v9 progression history, discoveries, evolution, minigames, decorations, recovery, game over, and daily growth', () => {
   const migrated = core.migrateStateVersion({
     version: 2,
     stage: 'adult',
     stats: { growth: 70 },
     history: { actionsPerformed: { hydrate: 2 } }
-  }, 8);
+  }, 9);
 
-  assert(migrated.version === 8, `expected version 8, got ${migrated.version}`);
+  assert(migrated.version === 9, `expected version 9, got ${migrated.version}`);
   assert(migrated.history.actionsPerformed.hydrate === 2, 'expected action history to survive migration');
   assert(migrated.history.attention.handled === 0, 'expected attention history defaults');
   assert(migrated.history.dailyGrowth.earned === 0, 'expected daily growth defaults');
@@ -374,6 +385,7 @@ test('v2 saves migrate to v8 progression history, discoveries, evolution, miniga
   assert(migrated.minigames && migrated.minigames.active === null, 'expected empty minigame state');
   assert(Array.isArray(migrated.decorations.owned), 'expected decoration ownership list');
   assert(migrated.discoveries && migrated.discoveries.sky, 'expected sky discoveries subtree');
+  assert(migrated.discoveries && migrated.discoveries.environment, 'expected environment discoveries subtree');
   assert(migrated.recovery && migrated.recovery.active === false, 'expected empty recovery state');
   assert(migrated.gameOver && migrated.gameOver.active === false, 'expected empty game-over state');
 });
@@ -1293,12 +1305,13 @@ test('state export and import preserve save shape while rejecting invalid files'
     stats: { hydration: 70 },
     history: { actionsPerformed: { hydrate: 1 } }
   }, Date.parse('2026-05-16T12:00:00.000Z'));
-  const imported = core.importStateEnvelope(JSON.stringify(envelope), 8);
-  const rejected = core.importStateEnvelope(JSON.stringify({ nope: true }), 8);
+  const imported = core.importStateEnvelope(JSON.stringify(envelope), 9);
+  const rejected = core.importStateEnvelope(JSON.stringify({ nope: true }), 9);
 
   assert(imported.ok, `expected import success: ${imported.reason}`);
-  assert(imported.state.version === 8, 'expected imported v8 state');
+  assert(imported.state.version === 9, 'expected imported state migrated to v9');
   assert(imported.state.history.actionsPerformed.hydrate === 1, 'expected imported history');
+  assert(imported.state.discoveries.environment, 'expected imported state to include environment discoveries');
   assert(!rejected.ok, 'expected invalid import rejection');
 });
 
@@ -1443,6 +1456,133 @@ test('ambient sky uses live Kp for aurora eligibility', () => {
   assert(profile.aurora.source === 'live', `expected live source, got ${profile.aurora.source}`);
 });
 
+test('ambient environment phenomena detect moisture, optics, light, and heat windows', () => {
+  const dewDate = new Date(2026, 5, 21, 6, 10);
+  const dew = core.calculateAmbientPhenomena({
+    condition: 'clear',
+    isDay: true,
+    dayPhase: 'sunrise',
+    dayTone: 'dawnGold',
+    temperature: 9,
+    humidity: 96,
+    windLevel: 0.03,
+    gustLevel: 0.02,
+    precipitation: 0,
+    surfaceWetnessTarget: 0.72,
+    cloudCover: 8,
+    cloudCoverLow: 4,
+    cloudCoverHigh: 10
+  }, dewDate, dewDate.getTime());
+  assert(dew.dew.visible, `expected visible dew, got ${dew.dew.intensity}`);
+  assert(dew.discoveries.includes('dew'), 'expected dew discovery');
+
+  const frostDate = new Date(2026, 0, 18, 7, 10);
+  const frost = core.calculateAmbientPhenomena({
+    condition: 'clear',
+    isDay: true,
+    dayPhase: 'sunrise',
+    temperature: -3,
+    humidity: 93,
+    windLevel: 0.04,
+    precipitation: 0,
+    surfaceWetnessTarget: 0.65,
+    cloudCover: 10,
+    cloudCoverLow: 4,
+    cloudCoverHigh: 14
+  }, frostDate, frostDate.getTime());
+  assert(frost.frost.visible, `expected visible frost, got ${frost.frost.intensity}`);
+  assert(!frost.dew.visible, `frost morning should not also read as strong dew, got ${frost.dew.intensity}`);
+
+  const fogbowDate = new Date(2026, 9, 8, 7, 0);
+  const fogbow = core.calculateAmbientPhenomena({
+    condition: 'fog',
+    isDay: true,
+    dayPhase: 'sunrise',
+    temperature: 7,
+    humidity: 98,
+    windLevel: 0.03,
+    precipitation: 0,
+    fogPotential: 0.95,
+    cloudCover: 42,
+    cloudCoverLow: 28,
+    cloudCoverHigh: 32
+  }, fogbowDate, fogbowDate.getTime());
+  assert(fogbow.fogbow.visible, `expected visible fogbow, got ${fogbow.fogbow.intensity}`);
+
+  const haloDate = new Date(2026, 10, 22, 23, 30);
+  const halo = core.calculateAmbientPhenomena({
+    condition: 'cloudy',
+    isDay: false,
+    dayPhase: 'night',
+    precipitation: 0,
+    cloudCover: 58,
+    cloudCoverLow: 12,
+    cloudCoverHigh: 84
+  }, haloDate, haloDate.getTime());
+  assert(halo.moonHalo.visible, `expected visible moon halo, got ${halo.moonHalo.intensity}`);
+
+  const steamDate = new Date(2026, 8, 12, 9, 20);
+  const steam = core.calculateAmbientPhenomena({
+    condition: 'clear',
+    isDay: true,
+    dayPhase: 'morning',
+    temperature: 23,
+    humidity: 88,
+    windLevel: 0.05,
+    precipitation: 0,
+    surfaceWetnessTarget: 0.96,
+    rainbowRecentRainScore: 0.88,
+    cloudCover: 24,
+    cloudCoverLow: 12,
+    cloudCoverHigh: 26
+  }, steamDate, steamDate.getTime());
+  assert(steam.steam.visible, `expected visible post-rain steam, got ${steam.steam.intensity}`);
+  assert(steam.clearingAfterRain.visible, `expected visible clearing glints, got ${steam.clearingAfterRain.intensity}`);
+
+  const heatDate = new Date(2026, 6, 20, 13, 30);
+  const heat = core.calculateAmbientPhenomena({
+    condition: 'clear',
+    isDay: true,
+    dayPhase: 'noon',
+    temperature: 35,
+    humidity: 28,
+    windLevel: 0.04,
+    precipitation: 0,
+    surfaceWetnessTarget: 0.01,
+    cloudCover: 8,
+    cloudCoverLow: 4,
+    cloudCoverHigh: 10
+  }, heatDate, heatDate.getTime());
+  assert(heat.heatHaze.visible, `expected visible heat haze, got ${heat.heatHaze.intensity}`);
+});
+
+test('ambient environment phenomena suppress delicate effects during heavy precipitation', () => {
+  const stormDate = new Date(2026, 6, 20, 18, 30);
+  const storm = core.calculateAmbientPhenomena({
+    condition: 'storm',
+    isDay: true,
+    dayPhase: 'sunset',
+    temperature: 25,
+    humidity: 96,
+    windLevel: 0.8,
+    gustLevel: 0.9,
+    precipitation: 6,
+    rain: 6,
+    fogPotential: 0.7,
+    surfaceWetnessTarget: 1,
+    rainbowRecentRainScore: 1,
+    cloudCover: 100,
+    cloudCoverLow: 98,
+    cloudCoverHigh: 84
+  }, stormDate, stormDate.getTime());
+
+  assert(!storm.dew.visible, `expected storm dew suppression, got ${storm.dew.intensity}`);
+  assert(!storm.fogbow.visible, `expected storm fogbow suppression, got ${storm.fogbow.intensity}`);
+  assert(!storm.sunbeams.visible, `expected storm sunbeam suppression, got ${storm.sunbeams.intensity}`);
+  assert(!storm.steam.visible, `expected storm steam suppression, got ${storm.steam.intensity}`);
+  assert(storm.discoveries.length === 0, `expected no delicate storm discoveries, got ${storm.discoveries.join(',')}`);
+});
+
 test('sky discoveries normalize and record first sightings once', () => {
   const state = { discoveries: { sky: {} }, log: [] };
   const first = core.recordSkyDiscovery(state, 'aurora', Date.parse('2026-01-12T22:30:00.000Z'));
@@ -1451,6 +1591,27 @@ test('sky discoveries normalize and record first sightings once', () => {
   assert(first.newlyDiscovered, 'expected first aurora discovery');
   assert(!second.newlyDiscovered, 'expected repeated aurora to be known');
   assert(state.discoveries.sky.aurora.count === 2, `expected aurora count 2, got ${state.discoveries.sky.aurora.count}`);
+});
+
+test('environment discoveries normalize and record first sightings once', () => {
+  const state = { discoveries: { sky: {}, environment: {} }, log: [] };
+  const first = core.recordEnvironmentDiscovery(state, 'dew', Date.parse('2026-06-21T04:20:00.000Z'));
+  const second = core.recordEnvironmentDiscovery(state, 'dew', Date.parse('2026-06-21T04:25:00.000Z'));
+  const unknown = core.recordEnvironmentDiscovery(state, 'impossibleThing', Date.parse('2026-06-21T04:30:00.000Z'));
+  const normalized = core.normalizeDiscoveriesState({
+    sky: { aurora: { firstSeenAt: '2026-01-12T22:30:00.000Z', count: 1 } },
+    environment: {
+      dew: { firstSeenAt: '2026-06-21T04:20:00.000Z', count: 2 },
+      bogus: { firstSeenAt: '2026-06-21T04:20:00.000Z', count: 1 }
+    }
+  });
+
+  assert(first.newlyDiscovered, 'expected first dew discovery');
+  assert(!second.newlyDiscovered, 'expected repeated dew to be known');
+  assert(!unknown.ok, 'unknown environment discovery should be rejected');
+  assert(state.discoveries.environment.dew.count === 2, `expected dew count 2, got ${state.discoveries.environment.dew.count}`);
+  assert(normalized.environment.dew.count === 2, 'expected normalized dew discovery');
+  assert(!normalized.environment.bogus, 'expected unknown environment discovery to be dropped');
 });
 
 function findAmbientCue(scene, start) {

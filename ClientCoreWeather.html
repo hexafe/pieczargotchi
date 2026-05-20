@@ -304,6 +304,10 @@
     const snowDepth = readOptionalCoreNumber(scene.snowDepth);
     const depthScore = snowDepth === null ? 0 : clampNumber(snowDepth * 18, 0, 1, 0);
     const snowfallScore = clampNumber(Math.max(factors.snowfall, scene.condition === 'snow' ? factors.precipitation : 0) / 4, 0, 1, 0);
+    const hasSnowSignal = depthScore > 0 || snowfallScore > 0 || scene.condition === 'snow';
+    if (!hasSnowSignal) {
+      return 0;
+    }
     const coldBonus = factors.temperature === null ? 0.16 : clampNumber((3 - factors.temperature) / 7, 0, 0.38, 0);
     const warmMelt = factors.temperature === null ? 0 : clampNumber((factors.temperature - 1.5) / 6, 0, 0.74, 0);
     return roundWeatherUnit(clampNumber(Math.max(depthScore, snowfallScore + coldBonus) - warmMelt, 0, 1, 0));
