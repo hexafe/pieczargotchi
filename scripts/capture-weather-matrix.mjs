@@ -16,6 +16,33 @@ const scenarios = [
     }
   },
   {
+    id: 'transition-dawn-blue-hour',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
+      PIECZARGOTCHI_DEBUG_CLOUD: '4',
+      PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T03:52:00')
+    }
+  },
+  {
+    id: 'transition-sunrise-gold',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
+      PIECZARGOTCHI_DEBUG_CLOUD: '8',
+      PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T04:42:00')
+    }
+  },
+  {
+    id: 'transition-morning-soft',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
+      PIECZARGOTCHI_DEBUG_CLOUD: '12',
+      PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T05:50:00')
+    }
+  },
+  {
     id: 'cloudy-sunset-cloud100-wind40',
     env: {
       PIECZARGOTCHI_DEBUG_WEATHER: 'cloudy',
@@ -23,6 +50,33 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_WIND: '40',
       PIECZARGOTCHI_DEBUG_WIND_DIRECTION: '90',
       PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T20:00:00')
+    }
+  },
+  {
+    id: 'transition-sunset-gold',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
+      PIECZARGOTCHI_DEBUG_CLOUD: '16',
+      PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T20:05:00')
+    }
+  },
+  {
+    id: 'transition-dusk-blue-hour',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
+      PIECZARGOTCHI_DEBUG_CLOUD: '10',
+      PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T21:04:00')
+    }
+  },
+  {
+    id: 'transition-night-settled',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
+      PIECZARGOTCHI_DEBUG_CLOUD: '4',
+      PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T22:10:00')
     }
   },
   {

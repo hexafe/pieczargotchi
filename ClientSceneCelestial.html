@@ -1,5 +1,9 @@
   function drawCelestial(ctx, scene, palette, now) {
     const date = getRuntimeDate();
+    const lighting = palette && palette.lighting
+      ? palette.lighting
+      : (typeof getSceneLightingProfile === 'function' ? getSceneLightingProfile(scene || {}, date) : null);
+    const visualNightFactor = lighting ? clamp(Number(lighting.nightFactor), 0, 1, 0) : 0;
     const skyScene = Object.assign({}, scene || {}, {
       skyEffectOverride: getDebugSkyEffectOverride()
     });
@@ -50,8 +54,13 @@
 
     drawAurora(ctx, skyEffects.aurora, now);
 
-    const starVisibility = Math.min(getCelestialCloudVisibility(scene, now, 'stars'), skyEffects.starVisibility);
-    if (!scene.isDay && starVisibility > 0.02) {
+    const cloudStarVisibility = getCelestialCloudVisibility(scene, now, 'stars');
+    const eventStarVisibility = Math.min(cloudStarVisibility, skyEffects.starVisibility);
+    const starVisibility = Math.min(
+      cloudStarVisibility,
+      Math.max(skyEffects.starVisibility, visualNightFactor * 0.84)
+    );
+    if (starVisibility > 0.02) {
       drawVisibleConstellation(ctx, scene, date, now, starVisibility);
       ctx.globalAlpha = 0.72 * starVisibility;
       for (let index = 0; index < 11; index += 1) {
@@ -63,7 +72,7 @@
         ctx.fillRect(x, y, 3, 3);
       }
     }
-    drawMeteorEvent(ctx, skyEffects.meteorEvent, starVisibility, now);
+    drawMeteorEvent(ctx, skyEffects.meteorEvent, eventStarVisibility, now);
     recordCelestialDiagnostics(scene, date, sunDiagnostics, moonDiagnostics, skyEffects);
     syncSkyDiscoveries(skyEffects, now);
     ctx.restore();

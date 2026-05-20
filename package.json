@@ -9,6 +9,7 @@
     "deploy:preview": "npm run build && npx wrangler versions upload",
     "check:client": "node scripts/check-client-syntax.mjs",
     "test:core": "node scripts/test-client-core.mjs",
-    "test:celestial": "node scripts/test-celestial-position.mjs"
+    "test:celestial": "node scripts/test-celestial-position.mjs",
+    "test:palette": "node scripts/test-scene-palette.mjs"
   }
 }

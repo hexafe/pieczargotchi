@@ -1,98 +1,115 @@
-  function getScenePalette(scene) {
-    const phase = scene.dayPhase || (scene.isDay ? 'noon' : 'night');
-    const tone = scene.dayTone || 'neutral';
-    const base = getDayPhasePalette(phase, tone);
-    return applyWeatherPalette(base, scene);
-  }
-  function getDayPhasePalette(phase, tone) {
-    const palettes = {
-      sunrise: {
-        skyTop: '#738bb2',
-        skyMid: '#efa172',
-        skyLow: '#f2cf83',
-        cloud: 'rgba(255, 218, 166, 0.56)',
-        cloudLight: 'rgba(255, 247, 207, 0.54)',
-        ground: '#5f873d',
-        groundLight: '#83a94e',
-        blade: '#9abd5f',
-        sun: '#ffd36f',
-        sunCore: '#fff0ad'
-      },
-      morning: {
-        skyTop: '#cfe9cf',
-        skyMid: '#dcefb9',
-        skyLow: '#c8e99a',
-        cloud: 'rgba(255, 253, 230, 0.55)',
-        cloudLight: 'rgba(255, 255, 247, 0.50)',
-        ground: '#69a344',
-        groundLight: '#83b955',
-        blade: '#91ca60',
-        sun: '#ffe596',
-        sunCore: '#fff3b8'
-      },
-      noon: {
-        skyTop: '#dff0c6',
-        skyMid: '#d8edb8',
-        skyLow: '#c8e99a',
-        cloud: 'rgba(255, 253, 230, 0.55)',
-        cloudLight: 'rgba(255, 255, 247, 0.50)',
-        ground: '#69a344',
-        groundLight: '#83b955',
-        blade: '#91ca60',
-        sun: '#ffe596',
-        sunCore: '#fff3b8'
-      },
-      afternoon: {
-        skyTop: '#d8e7bd',
-        skyMid: '#d9e7a6',
-        skyLow: '#bddf8e',
-        cloud: 'rgba(255, 244, 214, 0.50)',
-        cloudLight: 'rgba(255, 255, 239, 0.46)',
-        ground: '#649b41',
-        groundLight: '#7fb24e',
-        blade: '#8dc25b',
-        sun: '#ffd77f',
-        sunCore: '#fff1b2'
-      },
-      evening: {
-        skyTop: '#a9b6bd',
-        skyMid: '#c9c88f',
-        skyLow: '#b5d17d',
-        cloud: 'rgba(205, 196, 151, 0.56)',
-        cloudLight: 'rgba(255, 235, 189, 0.42)',
-        ground: '#537f39',
-        groundLight: '#719845',
-        blade: '#86a850',
-        sun: '#ffc46e',
-        sunCore: '#ffe7a0'
-      },
-      sunset: {
-        skyTop: '#6f7a9c',
-        skyMid: '#ce7e72',
-        skyLow: '#eca65e',
-        cloud: 'rgba(154, 103, 103, 0.58)',
-        cloudLight: 'rgba(255, 199, 151, 0.44)',
-        ground: '#456b35',
-        groundLight: '#637f3d',
-        blade: '#7a944b',
-        sun: '#ffb35f',
-        sunCore: '#ffe39a'
-      },
-      night: {
-        skyTop: '#172743',
-        skyMid: '#243b52',
-        skyLow: '#3e5846',
-        cloud: 'rgba(91, 107, 129, 0.55)',
-        cloudLight: 'rgba(142, 153, 170, 0.36)',
-        ground: '#365f38',
-        groundLight: '#4b7942',
-        blade: '#638b47',
-        sun: '#f5f0c8',
-        sunCore: '#fff7d1'
-      }
-    };
+  const sceneDayPhasePalettes = {
+    sunrise: {
+      skyTop: '#738bb2',
+      skyMid: '#efa172',
+      skyLow: '#f2cf83',
+      cloud: 'rgba(255, 218, 166, 0.56)',
+      cloudLight: 'rgba(255, 247, 207, 0.54)',
+      ground: '#5f873d',
+      groundLight: '#83a94e',
+      blade: '#9abd5f',
+      sun: '#ffd36f',
+      sunCore: '#fff0ad'
+    },
+    morning: {
+      skyTop: '#cfe9cf',
+      skyMid: '#dcefb9',
+      skyLow: '#c8e99a',
+      cloud: 'rgba(255, 253, 230, 0.55)',
+      cloudLight: 'rgba(255, 255, 247, 0.50)',
+      ground: '#69a344',
+      groundLight: '#83b955',
+      blade: '#91ca60',
+      sun: '#ffe596',
+      sunCore: '#fff3b8'
+    },
+    noon: {
+      skyTop: '#dff0c6',
+      skyMid: '#d8edb8',
+      skyLow: '#c8e99a',
+      cloud: 'rgba(255, 253, 230, 0.55)',
+      cloudLight: 'rgba(255, 255, 247, 0.50)',
+      ground: '#69a344',
+      groundLight: '#83b955',
+      blade: '#91ca60',
+      sun: '#ffe596',
+      sunCore: '#fff3b8'
+    },
+    afternoon: {
+      skyTop: '#d8e7bd',
+      skyMid: '#d9e7a6',
+      skyLow: '#bddf8e',
+      cloud: 'rgba(255, 244, 214, 0.50)',
+      cloudLight: 'rgba(255, 255, 239, 0.46)',
+      ground: '#649b41',
+      groundLight: '#7fb24e',
+      blade: '#8dc25b',
+      sun: '#ffd77f',
+      sunCore: '#fff1b2'
+    },
+    evening: {
+      skyTop: '#a9b6bd',
+      skyMid: '#c9c88f',
+      skyLow: '#b5d17d',
+      cloud: 'rgba(205, 196, 151, 0.56)',
+      cloudLight: 'rgba(255, 235, 189, 0.42)',
+      ground: '#537f39',
+      groundLight: '#719845',
+      blade: '#86a850',
+      sun: '#ffc46e',
+      sunCore: '#ffe7a0'
+    },
+    sunset: {
+      skyTop: '#6f7a9c',
+      skyMid: '#ce7e72',
+      skyLow: '#eca65e',
+      cloud: 'rgba(154, 103, 103, 0.58)',
+      cloudLight: 'rgba(255, 199, 151, 0.44)',
+      ground: '#456b35',
+      groundLight: '#637f3d',
+      blade: '#7a944b',
+      sun: '#ffb35f',
+      sunCore: '#ffe39a'
+    },
+    night: {
+      skyTop: '#172743',
+      skyMid: '#243b52',
+      skyLow: '#3e5846',
+      cloud: 'rgba(91, 107, 129, 0.55)',
+      cloudLight: 'rgba(142, 153, 170, 0.36)',
+      ground: '#365f38',
+      groundLight: '#4b7942',
+      blade: '#638b47',
+      sun: '#f5f0c8',
+      sunCore: '#fff7d1'
+    }
+  };
 
-    return applyDayTonePalette(palettes[phase] || palettes.noon, tone);
+  const scenePaletteColorFields = [
+    'skyTop',
+    'skyMid',
+    'skyLow',
+    'cloud',
+    'cloudLight',
+    'ground',
+    'groundLight',
+    'blade',
+    'sun',
+    'sunCore'
+  ];
+
+  function getScenePalette(scene) {
+    const source = scene || {};
+    const phase = source.dayPhase || (source.isDay ? 'noon' : 'night');
+    const tone = source.dayTone || 'neutral';
+    const lighting = getSceneLightingProfile(source, getScenePaletteDate(source));
+    const base = getLightingPalette(lighting, phase, tone);
+    return applyWeatherPalette(base, source);
+  }
+
+  function getDayPhasePalette(phase, tone) {
+    const base = sceneDayPhasePalettes[phase] || sceneDayPhasePalettes.noon;
+    return applyDayTonePalette(Object.assign({}, base), tone);
   }
 
   function applyDayTonePalette(base, tone) {
@@ -144,27 +161,35 @@
       });
     }
 
-    return base;
+    return Object.assign({}, base);
   }
 
   function applyWeatherPalette(base, scene) {
-    const condition = scene.condition;
+    const condition = scene && scene.condition ? scene.condition : 'clear';
     const cloudDensity = Number(scene.cloudDensity) || 0;
     if (condition === 'rain' || condition === 'storm') {
-      return Object.assign({}, base, {
+      const nightFactor = clampScenePaletteValue(Number(base.nightFactor), 0, 1, 0);
+      const rainIntensity = clampScenePaletteValue(Number(scene.rainIntensity), 0, 1, 0);
+      const stormIntensity = clampScenePaletteValue(Number(scene.stormIntensity), 0, 1, 0);
+      const target = Object.assign({}, base, {
         skyTop: condition === 'storm' ? '#52616e' : base.skyTop,
         skyMid: '#9fb79f',
         skyLow: condition === 'storm' ? '#8ea18f' : '#aebf98',
         cloud: condition === 'storm' ? 'rgba(61, 72, 77, 0.82)' : 'rgba(91, 111, 103, 0.74)',
         cloudLight: condition === 'storm' ? 'rgba(157, 170, 164, 0.46)' : 'rgba(176, 193, 169, 0.50)',
-        ground: base.ground === '#365f38' ? '#315a36' : '#5f8f43',
-        groundLight: base.ground === '#365f38' ? '#426c3c' : '#77aa4e',
-        blade: base.ground === '#365f38' ? '#567f42' : '#84ba54'
+        ground: blendSceneColor('#5f8f43', '#315a36', nightFactor),
+        groundLight: blendSceneColor('#77aa4e', '#426c3c', nightFactor),
+        blade: blendSceneColor('#84ba54', '#567f42', nightFactor)
       });
+      const strength = condition === 'storm'
+        ? clampScenePaletteValue(0.68 + stormIntensity * 0.24 + cloudDensity * 0.08, 0.68, 0.94, 0.82)
+        : clampScenePaletteValue(0.46 + rainIntensity * 0.26 + cloudDensity * 0.14, 0.46, 0.82, 0.58);
+      return blendScenePalettes(base, target, strength);
     }
 
     if (condition === 'snow') {
-      return Object.assign({}, base, {
+      const snowIntensity = clampScenePaletteValue(Number(scene.snowIntensity), 0, 1, 0);
+      const target = Object.assign({}, base, {
         skyTop: '#d5e5d4',
         skyMid: '#daeac7',
         skyLow: '#d3e8bb',
@@ -174,10 +199,12 @@
         groundLight: '#f4fbec',
         blade: '#c6d7ae'
       });
+      return blendScenePalettes(base, target, clampScenePaletteValue(0.58 + snowIntensity * 0.26 + cloudDensity * 0.1, 0.58, 0.9, 0.68));
     }
 
     if (condition === 'fog') {
-      return Object.assign({}, base, {
+      const fogPotential = clampScenePaletteValue(Number(scene.fogPotential), 0, 1, 0.52);
+      const target = Object.assign({}, base, {
         skyTop: '#d5e5d4',
         skyMid: '#daeac7',
         skyLow: '#d3e8bb',
@@ -187,18 +214,310 @@
         groundLight: '#a3bd78',
         blade: '#b5c98b'
       });
+      return blendScenePalettes(base, target, clampScenePaletteValue(0.5 + fogPotential * 0.24 + cloudDensity * 0.12, 0.5, 0.86, 0.62));
     }
 
     if (condition === 'cloudy') {
       const cloudAlpha = (0.44 + cloudDensity * 0.22).toFixed(2);
       const cloudLightAlpha = (0.32 + cloudDensity * 0.16).toFixed(2);
-      return Object.assign({}, base, {
+      const target = Object.assign({}, base, {
+        skyTop: blendSceneColor(base.skyTop, '#c3d2bb', cloudDensity * 0.18),
+        skyMid: blendSceneColor(base.skyMid, '#ccdcae', cloudDensity * 0.16),
         cloud: 'rgba(154, 169, 145, ' + cloudAlpha + ')',
         cloudLight: 'rgba(238, 244, 213, ' + cloudLightAlpha + ')'
       });
+      return blendScenePalettes(base, target, clampScenePaletteValue(0.24 + cloudDensity * 0.32, 0.24, 0.56, 0.34));
     }
 
     return base;
+  }
+
+  function getLightingPalette(lighting, phase, tone) {
+    if (!lighting || !lighting.from || !lighting.to) {
+      const fallback = getDayPhasePalette(phase, tone);
+      return attachLightingPaletteFields(fallback, createLightingProfileFallback(phase, tone));
+    }
+
+    const palette = blendScenePalettes(lighting.from.palette, lighting.to.palette, lighting.progress);
+    return attachLightingPaletteFields(palette, lighting);
+  }
+
+  function attachLightingPaletteFields(palette, lighting) {
+    return Object.assign({}, palette, {
+      lighting: lighting,
+      nightFactor: lighting.nightFactor,
+      goldenFactor: lighting.goldenFactor,
+      blueHourFactor: lighting.blueHourFactor
+    });
+  }
+
+  function getSceneLightingProfile(scene, dateInput) {
+    const date = getScenePaletteDateFromValue(dateInput);
+    const sunTimes = getScenePaletteSunTimes(scene || {}, date);
+    const anchors = sunTimes
+      ? buildSunLightingAnchors(sunTimes.sunrise, sunTimes.sunset)
+      : buildLocalLightingAnchors();
+    return sampleLightingAnchors(anchors, getScenePaletteMinutesOfDay(date), sunTimes ? 'sun' : 'local');
+  }
+
+  function getScenePaletteDate(scene) {
+    if (scene && scene.visualDate) {
+      return getScenePaletteDateFromValue(scene.visualDate);
+    }
+    if (typeof getRuntimeDate === 'function') {
+      return getRuntimeDate();
+    }
+    return new Date();
+  }
+
+  function getScenePaletteDateFromValue(value) {
+    const date = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(date.getTime()) ? new Date() : date;
+  }
+
+  function getScenePaletteSunTimes(scene, date) {
+    const sunrise = parseScenePaletteDate(scene.sunriseAt);
+    const sunset = parseScenePaletteDate(scene.sunsetAt);
+    if (sunrise && sunset && isSameScenePaletteDate(date, sunrise)) {
+      return validateScenePaletteSunTimes(sunrise, sunset);
+    }
+
+    if (typeof calculateSunTimes === 'function') {
+      const calculated = calculateSunTimes(date, Number(scene.latitude), Number(scene.longitude));
+      if (calculated && calculated.sunrise && calculated.sunset) {
+        return validateScenePaletteSunTimes(calculated.sunrise, calculated.sunset);
+      }
+    }
+
+    return null;
+  }
+
+  function validateScenePaletteSunTimes(sunrise, sunset) {
+    const sunriseMinute = getScenePaletteMinutesOfDay(sunrise);
+    const sunsetMinute = getScenePaletteMinutesOfDay(sunset);
+    const dayLength = sunsetMinute - sunriseMinute;
+    if (!Number.isFinite(dayLength) || dayLength < 240 || dayLength > 1200) {
+      return null;
+    }
+    return { sunrise: sunrise, sunset: sunset };
+  }
+
+  function parseScenePaletteDate(value) {
+    if (!value) {
+      return null;
+    }
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function isSameScenePaletteDate(left, right) {
+    return left.getFullYear() === right.getFullYear()
+      && left.getMonth() === right.getMonth()
+      && left.getDate() === right.getDate();
+  }
+
+  function buildSunLightingAnchors(sunrise, sunset) {
+    const sunriseMinute = getScenePaletteMinutesOfDay(sunrise);
+    const sunsetMinute = getScenePaletteMinutesOfDay(sunset);
+    const dayLength = Math.max(240, sunsetMinute - sunriseMinute);
+    return normalizeLightingAnchors([
+      createLightingAnchor(0, 'night', 'neutral', { nightFactor: 1, blueHourFactor: 0.2 }),
+      createLightingAnchor(sunriseMinute - 90, 'night', 'neutral', { nightFactor: 1, blueHourFactor: 0.25 }),
+      createLightingAnchor(sunriseMinute - 42, 'sunrise', 'dawnBlue', { nightFactor: 0.68, blueHourFactor: 1 }),
+      createLightingAnchor(sunriseMinute + 12, 'sunrise', 'dawnGold', { nightFactor: 0.18, goldenFactor: 0.95, blueHourFactor: 0.18 }),
+      createLightingAnchor(sunriseMinute + Math.min(105, dayLength * 0.18), 'morning', 'neutral', { goldenFactor: 0.32 }),
+      createLightingAnchor(sunriseMinute + dayLength * 0.38, 'noon', 'neutral', {}),
+      createLightingAnchor(sunriseMinute + dayLength * 0.58, 'noon', 'neutral', {}),
+      createLightingAnchor(sunriseMinute + dayLength * 0.72, 'afternoon', 'neutral', { goldenFactor: 0.08 }),
+      createLightingAnchor(sunriseMinute + dayLength * 0.84, 'evening', 'neutral', { goldenFactor: 0.28 }),
+      createLightingAnchor(sunsetMinute - 42, 'sunset', 'duskGold', { nightFactor: 0.12, goldenFactor: 1, blueHourFactor: 0.08 }),
+      createLightingAnchor(sunsetMinute + 24, 'sunset', 'duskBlue', { nightFactor: 0.66, goldenFactor: 0.16, blueHourFactor: 0.88 }),
+      createLightingAnchor(sunsetMinute + 88, 'night', 'neutral', { nightFactor: 1, blueHourFactor: 0.24 }),
+      createLightingAnchor(1440, 'night', 'neutral', { nightFactor: 1, blueHourFactor: 0.2 })
+    ]);
+  }
+
+  function buildLocalLightingAnchors() {
+    return normalizeLightingAnchors([
+      createLightingAnchor(0, 'night', 'neutral', { nightFactor: 1, blueHourFactor: 0.2 }),
+      createLightingAnchor(270, 'night', 'neutral', { nightFactor: 1, blueHourFactor: 0.26 }),
+      createLightingAnchor(305, 'sunrise', 'dawnBlue', { nightFactor: 0.72, blueHourFactor: 1 }),
+      createLightingAnchor(350, 'sunrise', 'dawnGold', { nightFactor: 0.2, goldenFactor: 0.95, blueHourFactor: 0.18 }),
+      createLightingAnchor(420, 'morning', 'neutral', { goldenFactor: 0.32 }),
+      createLightingAnchor(630, 'noon', 'neutral', {}),
+      createLightingAnchor(840, 'afternoon', 'neutral', { goldenFactor: 0.08 }),
+      createLightingAnchor(1020, 'evening', 'neutral', { goldenFactor: 0.28 }),
+      createLightingAnchor(1125, 'sunset', 'duskGold', { nightFactor: 0.12, goldenFactor: 1, blueHourFactor: 0.08 }),
+      createLightingAnchor(1215, 'sunset', 'duskBlue', { nightFactor: 0.66, goldenFactor: 0.16, blueHourFactor: 0.88 }),
+      createLightingAnchor(1260, 'night', 'neutral', { nightFactor: 1, blueHourFactor: 0.24 }),
+      createLightingAnchor(1440, 'night', 'neutral', { nightFactor: 1, blueHourFactor: 0.2 })
+    ]);
+  }
+
+  function createLightingAnchor(minute, phase, tone, factors) {
+    const source = factors || {};
+    return {
+      minute: clampScenePaletteValue(minute, 0, 1440, 0),
+      phase: phase,
+      tone: tone || 'neutral',
+      palette: getDayPhasePalette(phase, tone || 'neutral'),
+      nightFactor: clampScenePaletteValue(source.nightFactor, 0, 1, 0),
+      goldenFactor: clampScenePaletteValue(source.goldenFactor, 0, 1, 0),
+      blueHourFactor: clampScenePaletteValue(source.blueHourFactor, 0, 1, 0)
+    };
+  }
+
+  function normalizeLightingAnchors(anchors) {
+    const sorted = anchors.slice().sort(function(left, right) {
+      return left.minute - right.minute;
+    });
+    return sorted.filter(function(anchor, index) {
+      return index === 0 || anchor.minute > sorted[index - 1].minute + 0.5;
+    });
+  }
+
+  function sampleLightingAnchors(anchors, minute, source) {
+    if (!anchors.length) {
+      return createLightingProfileFallback('noon', 'neutral');
+    }
+
+    const current = clampScenePaletteValue(minute, 0, 1440, 720);
+    for (let index = 0; index < anchors.length - 1; index += 1) {
+      const from = anchors[index];
+      const to = anchors[index + 1];
+      if (current >= from.minute && current <= to.minute) {
+        const rawProgress = (current - from.minute) / Math.max(1, to.minute - from.minute);
+        const progress = smoothScenePaletteStep(rawProgress);
+        return {
+          source: source,
+          from: from,
+          to: to,
+          progress: progress,
+          nightFactor: blendSceneNumber(from.nightFactor, to.nightFactor, progress),
+          goldenFactor: blendSceneNumber(from.goldenFactor, to.goldenFactor, progress),
+          blueHourFactor: blendSceneNumber(from.blueHourFactor, to.blueHourFactor, progress)
+        };
+      }
+    }
+
+    const last = current < anchors[0].minute ? anchors[0] : anchors[anchors.length - 1];
+    return {
+      source: source,
+      from: last,
+      to: last,
+      progress: 0,
+      nightFactor: last.nightFactor,
+      goldenFactor: last.goldenFactor,
+      blueHourFactor: last.blueHourFactor
+    };
+  }
+
+  function createLightingProfileFallback(phase, tone) {
+    const anchor = createLightingAnchor(720, phase, tone, {
+      nightFactor: phase === 'night' ? 1 : 0,
+      goldenFactor: tone === 'dawnGold' || tone === 'duskGold' ? 1 : 0,
+      blueHourFactor: tone === 'dawnBlue' || tone === 'duskBlue' ? 1 : 0
+    });
+    return {
+      source: 'fallback',
+      from: anchor,
+      to: anchor,
+      progress: 0,
+      nightFactor: anchor.nightFactor,
+      goldenFactor: anchor.goldenFactor,
+      blueHourFactor: anchor.blueHourFactor
+    };
+  }
+
+  function getScenePaletteMinutesOfDay(date) {
+    return date.getHours() * 60 + date.getMinutes() + date.getSeconds() / 60;
+  }
+
+  function blendScenePalettes(from, to, progress) {
+    const amount = clampScenePaletteValue(progress, 0, 1, 0);
+    const result = Object.assign({}, from);
+    scenePaletteColorFields.forEach(function(field) {
+      if (from[field] && to[field]) {
+        result[field] = blendSceneColor(from[field], to[field], amount);
+      }
+    });
+    return result;
+  }
+
+  function blendSceneColor(from, to, progress) {
+    const left = parseSceneColor(from);
+    const right = parseSceneColor(to);
+    const amount = clampScenePaletteValue(progress, 0, 1, 0);
+    if (!left || !right) {
+      return amount < 0.5 ? from : to;
+    }
+
+    const color = {
+      r: Math.round(blendSceneNumber(left.r, right.r, amount)),
+      g: Math.round(blendSceneNumber(left.g, right.g, amount)),
+      b: Math.round(blendSceneNumber(left.b, right.b, amount)),
+      a: blendSceneNumber(left.a, right.a, amount)
+    };
+    return formatSceneColor(color, left.format === 'rgba' || right.format === 'rgba');
+  }
+
+  function parseSceneColor(value) {
+    const text = String(value || '').trim();
+    const hex = /^#([0-9a-f]{6})$/i.exec(text);
+    if (hex) {
+      return {
+        r: parseInt(hex[1].slice(0, 2), 16),
+        g: parseInt(hex[1].slice(2, 4), 16),
+        b: parseInt(hex[1].slice(4, 6), 16),
+        a: 1,
+        format: 'hex'
+      };
+    }
+
+    const rgba = /^rgba?\(([^)]+)\)$/i.exec(text);
+    if (!rgba) {
+      return null;
+    }
+    const parts = rgba[1].split(',').map(function(part) {
+      return Number(part.trim());
+    });
+    if (parts.length < 3 || parts.some(function(part, index) {
+      return index < 3 && !Number.isFinite(part);
+    })) {
+      return null;
+    }
+    return {
+      r: clampScenePaletteValue(parts[0], 0, 255, 0),
+      g: clampScenePaletteValue(parts[1], 0, 255, 0),
+      b: clampScenePaletteValue(parts[2], 0, 255, 0),
+      a: clampScenePaletteValue(parts.length > 3 ? parts[3] : 1, 0, 1, 1),
+      format: 'rgba'
+    };
+  }
+
+  function formatSceneColor(color, rgba) {
+    if (rgba || color.a < 0.995) {
+      return 'rgba(' + color.r + ', ' + color.g + ', ' + color.b + ', ' + color.a.toFixed(2) + ')';
+    }
+
+    return '#' + [color.r, color.g, color.b].map(function(channel) {
+      return Math.round(clampScenePaletteValue(channel, 0, 255, 0)).toString(16).padStart(2, '0');
+    }).join('');
+  }
+
+  function blendSceneNumber(from, to, progress) {
+    return from + (to - from) * clampScenePaletteValue(progress, 0, 1, 0);
+  }
+
+  function smoothScenePaletteStep(value) {
+    const amount = clampScenePaletteValue(value, 0, 1, 0);
+    return amount * amount * (3 - 2 * amount);
+  }
+
+  function clampScenePaletteValue(value, min, max, fallback) {
+    const number = Number(value);
+    const next = Number.isFinite(number) ? number : fallback;
+    return Math.min(max, Math.max(min, next));
   }
 
   function drawSkyBands(ctx, palette) {
@@ -215,4 +534,34 @@
     skyGlow.addColorStop(1, 'rgba(255, 255, 255, 0)');
     ctx.fillStyle = skyGlow;
     ctx.fillRect(0, 0, 512, 210);
+
+    const blueHour = clampScenePaletteValue(palette.blueHourFactor, 0, 1, 0);
+    if (blueHour > 0.02) {
+      const blueWash = ctx.createLinearGradient(0, 0, 0, 300);
+      blueWash.addColorStop(0, 'rgba(60, 86, 129, ' + (0.16 * blueHour).toFixed(3) + ')');
+      blueWash.addColorStop(0.5, 'rgba(74, 89, 128, ' + (0.075 * blueHour).toFixed(3) + ')');
+      blueWash.addColorStop(1, 'rgba(74, 89, 128, 0)');
+      ctx.fillStyle = blueWash;
+      ctx.fillRect(0, 0, 512, 300);
+    }
+
+    const golden = clampScenePaletteValue(palette.goldenFactor, 0, 1, 0);
+    if (golden > 0.02) {
+      const horizonGlow = ctx.createLinearGradient(0, 94, 0, 392);
+      horizonGlow.addColorStop(0, 'rgba(255, 220, 139, 0)');
+      horizonGlow.addColorStop(0.5, 'rgba(255, 190, 102, ' + (0.16 * golden).toFixed(3) + ')');
+      horizonGlow.addColorStop(1, 'rgba(255, 173, 88, 0)');
+      ctx.fillStyle = horizonGlow;
+      ctx.fillRect(0, 84, 512, 320);
+    }
+
+    const night = clampScenePaletteValue(palette.nightFactor, 0, 1, 0);
+    if (night > 0.05) {
+      const nightWash = ctx.createLinearGradient(0, 0, 0, 512);
+      nightWash.addColorStop(0, 'rgba(13, 24, 49, ' + (0.18 * night).toFixed(3) + ')');
+      nightWash.addColorStop(0.58, 'rgba(24, 34, 60, ' + (0.07 * night).toFixed(3) + ')');
+      nightWash.addColorStop(1, 'rgba(24, 34, 60, 0)');
+      ctx.fillStyle = nightWash;
+      ctx.fillRect(0, 0, 512, 512);
+    }
   }
