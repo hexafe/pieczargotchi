@@ -1,6 +1,7 @@
 const PIECZARGOTCHI_APP_TITLE = 'Pieczargotchi';
+const PIECZARGOTCHI_APP_VERSION = '0.1.0';
 const PIECZARGOTCHI_STORAGE_KEY = 'pieczargotchi_state_v2';
-const PIECZARGOTCHI_STATE_VERSION = 9;
+const PIECZARGOTCHI_STATE_VERSION = 12;
 const PIECZARGOTCHI_CANVAS_SIZE = 512;
 
 const PIECZARGOTCHI_RUNTIME_OPTIONS = {
@@ -48,6 +49,12 @@ function getStaticAppConfig() {
 
   return {
     appTitle: PIECZARGOTCHI_APP_TITLE,
+    appVersion: PIECZARGOTCHI_APP_VERSION,
+    build: {
+      version: PIECZARGOTCHI_APP_VERSION,
+      id: 'apps-script',
+      label: 'v' + PIECZARGOTCHI_APP_VERSION
+    },
     storageKey: PIECZARGOTCHI_STORAGE_KEY,
     stateVersion: PIECZARGOTCHI_STATE_VERSION,
     canvasSize: PIECZARGOTCHI_CANVAS_SIZE,

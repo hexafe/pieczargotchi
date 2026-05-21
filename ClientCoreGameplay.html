@@ -1,0 +1,1064 @@
+  function normalizeDailyPlanCore(dailyPlan, now) {
+    const source = isPlainObject(dailyPlan) ? dailyPlan : {};
+    const completedSource = isPlainObject(source.completed) ? source.completed : {};
+    const completed = {};
+
+    Object.keys(completedSource).forEach(function(goalId) {
+      const entry = completedSource[goalId];
+      if (entry === true) {
+        completed[goalId] = { at: null, title: goalId };
+      } else if (isPlainObject(entry)) {
+        completed[goalId] = {
+          at: entry.at || null,
+          title: String(entry.title || goalId).slice(0, 80)
+        };
+      }
+    });
+
+    return {
+      dateKey: source.dateKey || getGameplayDateKeyCore(now),
+      activeIds: uniqueStringList(source.activeIds).slice(0, 3),
+      completed: completed
+    };
+  }
+
+  function normalizeDailyRhythmCore(dailyRhythm, now) {
+    const source = isPlainObject(dailyRhythm) ? dailyRhythm : {};
+    const options = uniqueStringList(source.options).slice(0, 3);
+    const selectedId = source.selectedId ? String(source.selectedId).slice(0, 32) : null;
+    return {
+      dateKey: source.dateKey || getGameplayDateKeyCore(now),
+      selectedId: selectedId,
+      options: options
+    };
+  }
+
+  function normalizeRelationshipCore(relationship) {
+    const source = isPlainObject(relationship) ? relationship : {};
+    const entries = Array.isArray(source.entries) ? source.entries : [];
+    return {
+      entries: entries.map(function(entry) {
+        const item = isPlainObject(entry) ? entry : {};
+        return {
+          at: item.at || null,
+          title: String(item.title || 'Ślad opieki').slice(0, 80),
+          body: String(item.body || '').slice(0, 180),
+          tone: String(item.tone || 'neutral').slice(0, 24),
+          tag: String(item.tag || '').slice(0, 32)
+        };
+      }).filter(function(entry) {
+        return Boolean(entry.title || entry.body);
+      }).slice(0, 8)
+    };
+  }
+
+  function normalizeWorldJournalCore(journal) {
+    const source = isPlainObject(journal) ? journal : {};
+    const entries = Array.isArray(source.entries) ? source.entries : [];
+    return {
+      entries: entries.map(function(entry) {
+        return normalizeJournalEntryCore(entry);
+      }).filter(Boolean).slice(0, 24)
+    };
+  }
+
+  function normalizeJournalEntryCore(entry) {
+    const source = isPlainObject(entry) ? entry : {};
+    const id = source.id ? String(source.id).slice(0, 48) : '';
+    const type = source.type === 'sky' || source.type === 'environment' || source.type === 'instrument' || source.type === 'habitat'
+      ? source.type
+      : 'environment';
+    const label = String(source.label || source.title || '').slice(0, 80);
+    if (!id || !label) {
+      return null;
+    }
+
+    return {
+      id: id,
+      type: type,
+      label: label,
+      at: source.at || source.firstSeenAt || null,
+      body: String(source.body || '').slice(0, 180),
+      category: String(source.category || '').slice(0, 32)
+    };
+  }
+
+  function normalizeReturnRecapCore(returnRecap) {
+    const source = isPlainObject(returnRecap) ? returnRecap : {};
+    const entries = Array.isArray(source.entries) ? source.entries : [];
+    return {
+      lastSeenAt: source.lastSeenAt || null,
+      lastDigestAt: source.lastDigestAt || null,
+      entries: entries.map(function(entry) {
+        const item = isPlainObject(entry) ? entry : {};
+        return {
+          at: item.at || null,
+          title: String(item.title || 'Powrót do grzybni').slice(0, 80),
+          body: String(item.body || '').slice(0, 220),
+          elapsedMs: Math.max(0, Math.floor(Number(item.elapsedMs) || 0))
+        };
+      }).filter(function(entry) {
+        return Boolean(entry.title || entry.body);
+      }).slice(0, 5)
+    };
+  }
+
+  function ensureDailyPlanCore(rawState, rules, now, scene) {
+    const timestamp = Number(now) || Date.now();
+    const dateKey = getGameplayDateKeyCore(timestamp);
+    const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    const rhythmState = ensureDailyRhythmCore(state, rules, timestamp, scene);
+    state.dailyRhythm = rhythmState.dailyRhythm;
+    state.dailyPlan = normalizeDailyPlanCore(state.dailyPlan, timestamp);
+    if (state.dailyPlan.dateKey !== dateKey || !state.dailyPlan.activeIds.length) {
+      state.dailyPlan = {
+        dateKey: dateKey,
+        activeIds: selectDailyGoalIdsCore(state, rules, timestamp, scene),
+        completed: {}
+      };
+    }
+    return state;
+  }
+
+  function getDailyCarePlanCore(rawState, rules, now, scene) {
+    const timestamp = Number(now) || Date.now();
+    const state = ensureDailyPlanCore(rawState, rules, timestamp, scene);
+    const goals = state.dailyPlan.activeIds.map(function(goalId) {
+      const goal = resolveDailyGoalDefinitionCore(goalId, state, rules, timestamp, scene);
+      if (!goal) {
+        return null;
+      }
+      const completed = state.dailyPlan.completed && state.dailyPlan.completed[goal.id];
+      return Object.assign({}, goal, {
+        completed: Boolean(completed),
+        completedAt: completed && completed.at ? completed.at : null
+      });
+    }).filter(Boolean);
+
+    return {
+      dateKey: state.dailyPlan.dateKey,
+      goals: goals,
+      completedCount: goals.filter(function(goal) {
+        return goal.completed;
+      }).length
+    };
+  }
+
+  function updateDailyPlanProgressCore(rawState, event, rules, now, scene) {
+    const timestamp = Number(now) || Date.now();
+    const state = ensureDailyPlanCore(rawState, rules, timestamp, scene);
+    const sourceEvent = isPlainObject(event) ? event : {};
+    const completed = [];
+
+    state.dailyPlan.activeIds.forEach(function(goalId) {
+      if (state.dailyPlan.completed[goalId]) {
+        return;
+      }
+      const goal = resolveDailyGoalDefinitionCore(goalId, state, rules, timestamp, scene);
+      if (!goal || !doesDailyGoalMatchEventCore(goal, sourceEvent)) {
+        return;
+      }
+
+      state.dailyPlan.completed[goal.id] = {
+        at: new Date(timestamp).toISOString(),
+        title: goal.title
+      };
+      applyDailyGoalRewardCore(state, goal.reward);
+      completed.push(goal);
+    });
+
+    return { state: state, completed: completed };
+  }
+
+  function addRelationshipEntryCore(rawState, entry, now, limit) {
+    const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    const timestamp = Number(now) || Date.now();
+    const source = isPlainObject(entry) ? entry : {};
+    const relationship = normalizeRelationshipCore(state.relationship);
+    const nextEntry = {
+      at: source.at || new Date(timestamp).toISOString(),
+      title: String(source.title || 'Ślad opieki').slice(0, 80),
+      body: String(source.body || '').slice(0, 180),
+      tone: String(source.tone || 'neutral').slice(0, 24),
+      tag: String(source.tag || '').slice(0, 32)
+    };
+
+    relationship.entries = [nextEntry].concat(relationship.entries || []).slice(0, Math.max(1, Number(limit) || 8));
+    state.relationship = relationship;
+    return state;
+  }
+
+  function ensureDailyRhythmCore(rawState, rules, now, scene) {
+    const timestamp = Number(now) || Date.now();
+    const dateKey = getGameplayDateKeyCore(timestamp);
+    const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    const rhythm = normalizeDailyRhythmCore(state.dailyRhythm, timestamp);
+    const options = selectDailyRhythmOptionIdsCore(state, rules, timestamp, scene);
+    const selectedId = rhythm.dateKey === dateKey && options.indexOf(rhythm.selectedId) !== -1
+      ? rhythm.selectedId
+      : null;
+
+    state.dailyRhythm = {
+      dateKey: dateKey,
+      selectedId: selectedId,
+      options: options
+    };
+    return state;
+  }
+
+  function getDailyRhythmOptionsCore(rawState, rules, now, scene) {
+    const timestamp = Number(now) || Date.now();
+    const state = ensureDailyRhythmCore(rawState, rules, timestamp, scene);
+    const selectedId = state.dailyRhythm.selectedId || null;
+    const options = state.dailyRhythm.options.map(function(rhythmId) {
+      const definition = getDailyRhythmDefinitionCore(rhythmId);
+      if (!definition) {
+        return null;
+      }
+      return Object.assign({}, definition, {
+        selected: definition.id === selectedId,
+        recommended: !selectedId && definition.id === state.dailyRhythm.options[0]
+      });
+    }).filter(Boolean);
+
+    return {
+      dateKey: state.dailyRhythm.dateKey,
+      selectedId: selectedId,
+      options: options
+    };
+  }
+
+  function selectDailyRhythmCore(rawState, rhythmId, rules, now, scene) {
+    const timestamp = Number(now) || Date.now();
+    let state = ensureDailyRhythmCore(rawState, rules, timestamp, scene);
+    const selectedId = String(rhythmId || '');
+    const definition = getDailyRhythmDefinitionCore(selectedId);
+    const hasOption = state.dailyRhythm.options.indexOf(selectedId) !== -1;
+
+    if (!definition || !hasOption) {
+      return {
+        ok: false,
+        reason: 'Ten rytm nie pasuje do dzisiejszej grzybni.',
+        state: state
+      };
+    }
+
+    if (state.dailyRhythm.selectedId && state.dailyRhythm.selectedId !== selectedId) {
+      return {
+        ok: false,
+        reason: 'Dzisiejszy rytm jest już ustalony.',
+        state: state
+      };
+    }
+
+    state.dailyRhythm.selectedId = selectedId;
+    state.dailyPlan = { dateKey: null, activeIds: [], completed: {} };
+    state = ensureDailyPlanCore(state, rules, timestamp, scene);
+
+    return {
+      ok: true,
+      state: state,
+      rhythm: definition
+    };
+  }
+
+  function getWorldJournalCore(rawState, rules) {
+    const state = isPlainObject(rawState) ? rawState : {};
+    const discoveries = normalizeDiscoveriesState(state.discoveries);
+    const journal = normalizeWorldJournalCore(state.journal);
+    const skyCatalog = typeof getSkyDiscoveryCatalog === 'function' ? getSkyDiscoveryCatalog() : [];
+    const environmentCatalog = typeof getEnvironmentDiscoveryCatalog === 'function' ? getEnvironmentDiscoveryCatalog() : [];
+    const instrumentCatalog = getRareInstrumentDiscoveryCatalogCore(rules);
+    const groups = [
+      buildWorldJournalGroupCore('sky', 'Niebo', skyCatalog, discoveries.sky),
+      buildWorldJournalGroupCore('environment', 'Siedlisko', environmentCatalog, discoveries.environment),
+      buildWorldJournalGroupCore('instrument', 'Instrumenty', instrumentCatalog, discoveries.instruments)
+    ];
+    const discoveredCount = groups.reduce(function(total, group) {
+      return total + group.items.filter(function(item) {
+        return item.discovered;
+      }).length;
+    }, 0);
+    const totalCount = groups.reduce(function(total, group) {
+      return total + group.items.length;
+    }, 0);
+
+    return {
+      groups: groups,
+      entries: journal.entries,
+      discoveredCount: discoveredCount,
+      totalCount: totalCount
+    };
+  }
+
+  function addWorldJournalDiscoveryEntryCore(rawState, type, item, nowInput) {
+    const state = isPlainObject(rawState) ? rawState : {};
+    const timestamp = Number(nowInput) || Date.now();
+    const source = isPlainObject(item) ? item : {};
+    const journal = normalizeWorldJournalCore(state.journal);
+    const entryId = type + ':' + source.id;
+    const alreadyLogged = journal.entries.some(function(entry) {
+      return entry.id === entryId;
+    });
+
+    if (alreadyLogged || !source.id || !source.label) {
+      state.journal = journal;
+      return state;
+    }
+
+    const typeLabel = type === 'sky' ? 'Niebo' : type === 'instrument' ? 'Instrumenty' : 'Siedlisko';
+    journal.entries = [{
+      id: entryId,
+      type: type === 'sky' ? 'sky' : type === 'instrument' ? 'instrument' : 'environment',
+      label: source.label,
+      at: new Date(timestamp).toISOString(),
+      body: typeLabel + ' dopisało nowe odkrycie do dziennika.',
+      category: source.kind || typeLabel
+    }].concat(journal.entries).slice(0, 24);
+    state.journal = journal;
+    return state;
+  }
+
+  function recordInstrumentDiscoveryCore(rawState, instrument, nowInput) {
+    const state = isPlainObject(rawState) ? rawState : {};
+    const item = isPlainObject(instrument) ? instrument : {};
+    const discoveryId = item.discoveryId || item.id;
+    if (!discoveryId || !item.label) {
+      return { state: state, ok: false, newlyDiscovered: false, label: '', message: '' };
+    }
+
+    const timestamp = Number(nowInput) || Date.now();
+    const now = new Date(timestamp).toISOString();
+    state.discoveries = normalizeDiscoveriesState(state.discoveries);
+    const existing = state.discoveries.instruments[discoveryId];
+    state.discoveries.instruments[discoveryId] = {
+      id: String(discoveryId).slice(0, 64),
+      label: String(item.label).slice(0, 80),
+      stage: String(item.stage || '').slice(0, 24),
+      firstSeenAt: existing && existing.firstSeenAt ? existing.firstSeenAt : now,
+      lastSeenAt: now,
+      count: clampInteger(existing && existing.count ? existing.count + 1 : 1, 1, 999999, 1)
+    };
+    if (!existing) {
+      addWorldJournalDiscoveryEntryCore(state, 'instrument', {
+        id: discoveryId,
+        label: item.label,
+        kind: 'rare'
+      }, timestamp);
+    }
+
+    const logLabel = item.logLabel || item.label;
+    return {
+      state: state,
+      ok: true,
+      newlyDiscovered: !existing,
+      label: item.label,
+      message: existing
+        ? 'Pieczarka zagrała na ' + logLabel + '.'
+        : 'Pieczarka zagrała na ' + logLabel + '. Nowe odkrycie: ' + item.label + '.'
+    };
+  }
+
+  function getReturnRecapCore(rawState, rules, fromInput, toInput, timePlan, scene) {
+    const state = isPlainObject(rawState) ? rawState : {};
+    const from = Number(fromInput) || Date.parse(state.lastUpdatedAt) || 0;
+    const to = Number(toInput) || Date.now();
+    const elapsedMs = Math.max(0, to - from);
+    const recap = normalizeReturnRecapCore(state.returnRecap);
+    const lastDigest = Date.parse(recap.lastDigestAt || '');
+
+    if (elapsedMs < 45 * 60 * 1000 || Number.isFinite(lastDigest) && lastDigest >= from) {
+      return { title: '', body: '', entries: [] };
+    }
+
+    const elapsedLabel = formatReturnElapsedCore(elapsedMs);
+    const stats = state.stats || {};
+    const patch = state.patch || {};
+    const discoveries = normalizeDiscoveriesState(state.discoveries);
+    const discoveryCount = Object.keys(discoveries.sky).length
+      + Object.keys(discoveries.environment).length
+      + Object.keys(discoveries.instruments || {}).length;
+    const habitat = getDecorationHabitatSummaryCore(state, rules);
+    const lowestStat = getLowestReturnStatCore(stats);
+    const entries = [];
+    const bodyParts = [];
+
+    bodyParts.push('Przez ' + elapsedLabel + ' świat spokojnie szedł dalej.');
+    if (lowestStat && lowestStat.value < 55) {
+      bodyParts.push(lowestStat.label + ' prosi teraz o uwagę.');
+    } else if (Number(patch.mycelium) >= 70) {
+      bodyParts.push('Grzybnia zebrała siłę na plon.');
+    } else {
+      bodyParts.push('Mech utrzymał równy rytm.');
+    }
+    if (discoveryCount > 0) {
+      bodyParts.push('Dziennik pamięta już ' + discoveryCount + ' odkryć.');
+    }
+    if (habitat.tags && habitat.tags.length) {
+      bodyParts.push(habitat.title + '.');
+    }
+
+    entries.push({
+      at: new Date(to).toISOString(),
+      title: 'Powrót po ' + elapsedLabel,
+      body: bodyParts.join(' '),
+      elapsedMs: elapsedMs
+    });
+
+    return {
+      title: 'Powrót do grzybni',
+      body: entries[0].body,
+      entries: entries,
+      scene: scene || null,
+      timePlan: timePlan || null
+    };
+  }
+
+  function ackReturnRecapCore(rawState, recapInput, nowInput) {
+    let state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    const timestamp = Number(nowInput) || Date.now();
+    const recap = isPlainObject(recapInput) ? recapInput : {};
+    const entry = Array.isArray(recap.entries) && recap.entries[0] ? recap.entries[0] : null;
+    state.returnRecap = normalizeReturnRecapCore(state.returnRecap);
+    state.returnRecap.lastSeenAt = new Date(timestamp).toISOString();
+
+    if (!entry) {
+      return { state: state, entry: null };
+    }
+
+    state.returnRecap.lastDigestAt = new Date(timestamp).toISOString();
+    state.returnRecap.entries = [{
+      at: entry.at || new Date(timestamp).toISOString(),
+      title: String(entry.title || 'Powrót do grzybni').slice(0, 80),
+      body: String(entry.body || '').slice(0, 220),
+      elapsedMs: Math.max(0, Math.floor(Number(entry.elapsedMs) || 0))
+    }].concat(state.returnRecap.entries).slice(0, 5);
+
+    state.relationship = normalizeRelationshipCore(state.relationship);
+    state = addRelationshipEntryCore(state, {
+      title: 'Powrót do grzybni',
+      body: entry.body,
+      tone: 'return',
+      tag: 'recap'
+    }, timestamp, 8);
+
+    return { state: state, entry: entry };
+  }
+
+  function getEvolutionCompassCore(rawState, rules) {
+    const state = isPlainObject(rawState) ? rawState : {};
+    const decidedVariant = state.evolution && state.evolution.variant;
+    const variantResult = decidedVariant
+      ? { variant: decidedVariant, reason: state.evolution.reason || 'charakter już się ukształtował' }
+      : getEvolutionVariantCore(state.history || {}, state, rules);
+    const label = getEvolutionLabelCore(variantResult.variant, rules);
+    const trait = getEvolutionTraitCore(variantResult.variant, rules) || {};
+    const actions = state.history && state.history.actionsPerformed ? state.history.actionsPerformed : {};
+    const mistakes = state.careMistakes || {};
+    const totalActions = ['hydrate', 'feed', 'clean', 'play', 'instrument', 'sing'].reduce(function(total, actionId) {
+      return total + (Number(actions[actionId]) || 0);
+    }, 0);
+    const totalMistakes = Object.keys(mistakes).reduce(function(total, key) {
+      return total + (Number(mistakes[key]) || 0);
+    }, 0);
+    const cues = [];
+
+    if (totalActions < 3) {
+      cues.push('Pierwsze dni dopiero zapisują rytm opieki.');
+    } else {
+      cues.push('Najmocniej działa: ' + getDominantCareCueCore(actions) + '.');
+    }
+    if (totalMistakes > 0) {
+      cues.push('Pominięte potrzeby też zostają w charakterze.');
+    } else {
+      cues.push('Spokojna reakcja buduje zaufanie grzybni.');
+    }
+
+    return {
+      variant: variantResult.variant,
+      label: label,
+      title: decidedVariant ? label : 'Skłania się ku: ' + label,
+      body: trait.message || variantResult.reason || 'Charakter rośnie z codziennej opieki.',
+      favoriteAction: trait.favoriteAction || null,
+      decided: Boolean(decidedVariant),
+      cues: cues.slice(0, 2)
+    };
+  }
+
+  function getMinigameOpportunitiesCore(rawState, rules, scene, now) {
+    const timestamp = Number(now) || Date.now();
+    const state = isPlainObject(rawState) ? rawState : {};
+    const date = new Date(timestamp);
+    const hour = date.getHours() + date.getMinutes() / 60;
+    const stats = state.stats || {};
+    const opportunities = [];
+    const habitat = getHabitatInfluenceCore(state, rules);
+    const rain = Number(scene && (scene.rain || scene.precipitation)) || 0;
+    const humidity = Number(scene && scene.humidity) || 0;
+    const dayPhase = scene && scene.dayPhase ? scene.dayPhase : '';
+    const isMorning = hour >= 5 && hour <= 10.5 || dayPhase === 'sunrise' || dayPhase === 'morning';
+    const moistureBonus = Math.min(2, Number(habitat.tags.moisture) || 0);
+    const dewFriendly = isMorning || rain > 0 || humidity >= 78 - moistureBonus * 14 || Number(stats.hydration) < 58 + moistureBonus * 10;
+
+    if (dewFriendly) {
+      opportunities.push({
+        id: 'dewCatch',
+        label: 'Łapanie rosy',
+        reason: rain > 0
+          ? 'Deszcz zostawił krople przy mchu.'
+          : moistureBonus
+          ? 'Wilgotne dekoracje przyciągają rosę bliżej trawy.'
+          : isMorning ? 'Poranek sprzyja rosie.' : 'Wilgoć zbiera się nisko przy trawie.',
+        tone: 'water',
+        minigameId: 'dewCatch',
+        recommended: true
+      });
+    }
+
+    if (
+      isGameplayStageAtLeastCore(state.stage, 'adult')
+      || Number(state.patch && state.patch.mycelium) >= 72
+      || Number(state.inventory && state.inventory.spores) > 0
+      || Number(habitat.tags.spores) > 0 && isGameplayStageAtLeastCore(state.stage, 'young')
+    ) {
+      opportunities.push({
+        id: 'sporePop',
+        label: 'Pękanie zarodników',
+        reason: Number(habitat.tags.spores) > 0
+          ? 'Zarodnikowe światło budzi drobne pęknięcia w grzybni.'
+          : 'Grzybnia ma energię na mały zarodnikowy moment.',
+        tone: 'spores',
+        minigameId: 'sporePop',
+        recommended: opportunities.length === 0
+      });
+    }
+
+    return opportunities.slice(0, 2).map(function(item) {
+      const cooldownUntil = Number(state.cooldowns && state.cooldowns['minigame.' + item.minigameId]) || 0;
+      return Object.assign({}, item, {
+        available: !cooldownUntil || cooldownUntil <= timestamp,
+        cooldownUntil: cooldownUntil || null
+      });
+    });
+  }
+
+  function getDecorationHabitatSummaryCore(rawState, rules) {
+    const state = isPlainObject(rawState) ? rawState : {};
+    const catalog = Array.isArray(rules && rules.decorations) ? rules.decorations : [];
+    const active = state.decorations && Array.isArray(state.decorations.active) ? state.decorations.active : [];
+    const tags = {};
+    const labels = [];
+
+    active.forEach(function(decorationId) {
+      const item = catalog.find(function(candidate) {
+        return candidate.id === decorationId;
+      });
+      if (!item) {
+        return;
+      }
+      labels.push(item.label);
+      (Array.isArray(item.tags) ? item.tags : []).forEach(function(tag) {
+        tags[tag] = (tags[tag] || 0) + 1;
+      });
+    });
+
+    const dominant = Object.keys(tags).sort(function(a, b) {
+      return tags[b] - tags[a] || a.localeCompare(b);
+    })[0] || null;
+
+    return {
+      title: dominant ? 'Siedlisko: ' + getHabitatTagLabelCore(dominant) : 'Siedlisko: naturalne',
+      body: labels.length
+        ? labels.join(', ') + ' zmieniają nastrój grzybni.'
+        : 'Dekoracje później nadadzą grzybni własny rytm.',
+      effects: getHabitatEffectLabelsCore(tags),
+      tags: Object.keys(tags).map(function(tag) {
+        return { id: tag, label: getHabitatTagLabelCore(tag), count: tags[tag] };
+      })
+    };
+  }
+
+  function getHabitatInfluenceCore(rawState, rules) {
+    const summary = getDecorationHabitatSummaryCore(rawState, rules);
+    const tags = {};
+    (summary.tags || []).forEach(function(tag) {
+      tags[tag.id] = Number(tag.count) || 0;
+    });
+    return {
+      tags: tags,
+      effects: summary.effects || []
+    };
+  }
+
+  function getHabitatEffectLabelsCore(tags) {
+    const effects = [];
+    if (Number(tags.moisture) > 0) {
+      effects.push('Rosa pojawia się łatwiej.');
+    }
+    if (Number(tags.music) > 0) {
+      effects.push('Muzyka częściej trafia do planu dnia.');
+    }
+    if (Number(tags.night) > 0 || Number(tags.spores) > 0) {
+      effects.push('Nocne i zarodnikowe chwile są bardziej widoczne.');
+    }
+    if (Number(tags.wild) > 0 || Number(tags.flowers) > 0 || Number(tags.insects) > 0) {
+      effects.push('Goście mają więcej powodów, żeby zajrzeć do trawy.');
+    }
+    if (Number(tags.wind) > 0) {
+      effects.push('Wiatr mocniej zapisuje się w siedlisku.');
+    }
+    return effects.slice(0, 3);
+  }
+
+  function selectDailyGoalIdsCore(state, rules, now, scene) {
+    const candidates = [];
+    const usedKeys = {};
+    const attention = state.attention || {};
+    const stats = state.stats || {};
+    const patch = state.patch || {};
+    const inventory = state.inventory || {};
+    const definitions = rules && rules.needDefinitions ? rules.needDefinitions : {};
+
+    function push(id, matchKey) {
+      if (!id || usedKeys[matchKey || id]) {
+        return;
+      }
+      usedKeys[matchKey || id] = true;
+      candidates.push(id);
+    }
+
+    if (attention.activeNeed && definitions[attention.activeNeed]) {
+      push('attention-' + attention.activeNeed, 'action:' + definitions[attention.activeNeed].actionId);
+    }
+    if (Number(stats.hydration) < 68) {
+      push('action-hydrate', 'action:hydrate');
+    }
+    if (Number(stats.nutrients) < 68) {
+      push('action-feed', 'action:feed');
+    }
+    if (Number(stats.cleanliness) < 72) {
+      push('action-clean', 'action:clean');
+    }
+    if (Number(stats.happiness) < 66) {
+      push('action-play', 'action:play');
+    }
+    if (state.mode === 'awake' && Number(stats.energy) < 42) {
+      push('action-sleepWake', 'action:sleepWake');
+    }
+
+    getSelectedRhythmGoalIdsCore(state).forEach(function(goalId) {
+      const goal = resolveDailyGoalDefinitionCore(goalId, state, rules, now, scene);
+      if (!goal) {
+        return;
+      }
+      const key = goal.match ? Object.keys(goal.match).map(function(matchKey) {
+        return matchKey + ':' + goal.match[matchKey];
+      }).join('|') : goalId;
+      push(goalId, key);
+    });
+
+    getMinigameOpportunitiesCore(state, rules, scene, now).forEach(function(opportunity) {
+      push('minigame-' + opportunity.minigameId, 'minigame:' + opportunity.minigameId);
+    });
+
+    if (Number(patch.mycelium) >= 72) {
+      push('harvest', 'harvest');
+    }
+    if (canBuyAnyDecorationCore(state, rules)) {
+      push('decoration', 'decoration');
+    }
+
+    const fillers = rotateDailyFillersCore(state, now);
+    fillers.forEach(function(id) {
+      const goal = resolveDailyGoalDefinitionCore(id, state, rules, now, scene);
+      if (goal) {
+        const key = goal.match ? Object.keys(goal.match).map(function(matchKey) {
+          return matchKey + ':' + goal.match[matchKey];
+        }).join('|') : id;
+        push(id, key);
+      }
+    });
+
+    return candidates.slice(0, 3);
+  }
+
+  function getDailyRhythmCatalogCore() {
+    return [
+      {
+        id: 'dew',
+        label: 'Rytm rosy',
+        body: 'Wilgoć, poranek i drobne krople przy trawie.',
+        tone: 'water',
+        goals: ['action-hydrate', 'minigame-dewCatch'],
+        tags: ['moisture']
+      },
+      {
+        id: 'music',
+        label: 'Rytm muzyki',
+        body: 'Ciche dźwięki wzmacniają relację z Pieczarką.',
+        tone: 'music',
+        goals: ['action-instrument', 'action-sing'],
+        tags: ['music']
+      },
+      {
+        id: 'habitat',
+        label: 'Rytm siedliska',
+        body: 'Mech, czystość i dekoracje prowadzą dzisiejszy plan.',
+        tone: 'habitat',
+        goals: ['action-clean', 'decoration'],
+        tags: ['comfort']
+      },
+      {
+        id: 'wild',
+        label: 'Rytm gości',
+        body: 'Zabawa, trawa i małe stworzenia ożywiają patch.',
+        tone: 'wild',
+        goals: ['action-play', 'minigame-sporePop'],
+        tags: ['wild', 'insects']
+      },
+      {
+        id: 'night',
+        label: 'Rytm nocy',
+        body: 'Śpiew, zarodniki i nocne zjawiska zostają w dzienniku.',
+        tone: 'night',
+        goals: ['action-sing', 'minigame-sporePop'],
+        tags: ['night', 'spores']
+      }
+    ];
+  }
+
+  function getDailyRhythmDefinitionCore(rhythmId) {
+    return getDailyRhythmCatalogCore().find(function(item) {
+      return item.id === rhythmId;
+    }) || null;
+  }
+
+  function selectDailyRhythmOptionIdsCore(rawState, rules, now, scene) {
+    const state = isPlainObject(rawState) ? rawState : {};
+    const timestamp = Number(now) || Date.now();
+    const date = new Date(timestamp);
+    const hour = date.getHours() + date.getMinutes() / 60;
+    const stats = state.stats || {};
+    const habitat = getHabitatInfluenceCore(state, rules);
+    const candidates = getDailyRhythmCatalogCore().map(function(rhythm) {
+      let score = hashStringCore((state.playerId || 'player') + ':' + getGameplayDateKeyCore(timestamp) + ':' + rhythm.id) % 100 / 1000;
+      const dayPhase = scene && scene.dayPhase ? scene.dayPhase : '';
+
+      if (rhythm.id === 'dew') {
+        score += 0.28;
+        score += (hour >= 5 && hour <= 10.5 || dayPhase === 'morning' || dayPhase === 'sunrise') ? 0.28 : 0;
+        score += (Number(scene && scene.humidity) >= 76 || Number(stats.hydration) < 68) ? 0.18 : 0;
+        score += (Number(habitat.tags.moisture) || 0) * 0.1;
+      } else if (rhythm.id === 'music') {
+        score += 0.18 + (Number(habitat.tags.music) || 0) * 0.24;
+        score += Number(stats.happiness) < 68 ? 0.16 : 0;
+      } else if (rhythm.id === 'habitat') {
+        score += 0.2 + (canBuyAnyDecorationCore(state, rules) ? 0.2 : 0);
+        score += Number(stats.cleanliness) < 74 ? 0.16 : 0;
+        score += (Number(habitat.tags.comfort) || 0) * 0.08;
+      } else if (rhythm.id === 'wild') {
+        score += 0.18 + (Number(habitat.tags.wild) || 0) * 0.16 + (Number(habitat.tags.flowers) || 0) * 0.12;
+        score += isGameplayStageAtLeastCore(state.stage, 'baby') ? 0.08 : 0;
+      } else if (rhythm.id === 'night') {
+        score += (hour >= 19 || hour <= 5 || dayPhase === 'night') ? 0.38 : 0.06;
+        score += (Number(habitat.tags.night) || 0) * 0.22 + (Number(habitat.tags.spores) || 0) * 0.12;
+      }
+
+      return { id: rhythm.id, score: score };
+    });
+
+    candidates.sort(function(a, b) {
+      return b.score - a.score || a.id.localeCompare(b.id);
+    });
+    return candidates.slice(0, 3).map(function(item) {
+      return item.id;
+    });
+  }
+
+  function getSelectedRhythmGoalIdsCore(state) {
+    const rhythmId = state && state.dailyRhythm && state.dailyRhythm.selectedId;
+    const definition = rhythmId ? getDailyRhythmDefinitionCore(rhythmId) : null;
+    return definition && Array.isArray(definition.goals) ? definition.goals : [];
+  }
+
+  function rotateDailyFillersCore(state, now) {
+    const fillers = ['action-hydrate', 'action-feed', 'action-clean', 'action-play', 'action-instrument', 'action-sing'];
+    const dateKey = getGameplayDateKeyCore(now);
+    const seed = hashStringCore((state.playerId || 'player') + ':' + dateKey);
+    const start = positiveModulo(seed, fillers.length);
+    return fillers.slice(start).concat(fillers.slice(0, start));
+  }
+
+  function resolveDailyGoalDefinitionCore(goalId, state, rules, now, scene) {
+    const definitions = rules && rules.needDefinitions ? rules.needDefinitions : {};
+    if (goalId.indexOf('attention-') === 0) {
+      const needId = goalId.slice('attention-'.length);
+      const definition = definitions[needId];
+      if (!definition) {
+        return null;
+      }
+      return makeDailyGoalCore(goalId, 'Zaopiekuj potrzebę', definition.title, definition.mildMessage, {
+        actionId: definition.actionId
+      }, { patchQuality: 1.2, mycelium: 1.4, happiness: 1 }, 'Potrzeba');
+    }
+
+    const actionId = goalId.indexOf('action-') === 0 ? goalId.slice('action-'.length) : null;
+    if (actionId) {
+      return getActionDailyGoalCore(goalId, actionId);
+    }
+
+    if (goalId.indexOf('minigame-') === 0) {
+      const minigameId = goalId.slice('minigame-'.length);
+      const opportunities = getMinigameOpportunitiesCore(state, rules, scene, now);
+      const opportunity = opportunities.find(function(item) {
+        return item.minigameId === minigameId;
+      }) || {};
+      const title = minigameId === 'sporePop' ? 'Rozrusz zarodniki' : 'Złap trochę rosy';
+      return makeDailyGoalCore(goalId, 'Mała gra', title, opportunity.reason || 'Krótka gra dobrze rozrusza grzybnię.', {
+        minigameId: minigameId
+      }, { patchQuality: 0.8, happiness: 1, mycelium: 0.8 }, minigameId === 'sporePop' ? 'Zarodniki' : 'Rosa');
+    }
+
+    if (goalId === 'decoration') {
+      return makeDailyGoalCore(goalId, 'Siedlisko', 'Dodaj akcent do grzybni', 'Jedna dekoracja zmienia nastrój patcha.', {
+        decoration: true
+      }, { happiness: 1, patchQuality: 0.8 }, 'Dekoracje');
+    }
+
+    if (goalId === 'harvest') {
+      return makeDailyGoalCore(goalId, 'Plon', 'Dopilnuj dojrzałej grzybni', 'Gdy mycelium dojrzeje, plon zasili zarodniki.', {
+        harvest: true
+      }, { patchQuality: 1, happiness: 1 }, 'Plon');
+    }
+
+    return null;
+  }
+
+  function getActionDailyGoalCore(goalId, actionId) {
+    const actionGoals = {
+      hydrate: ['Wilgoć', 'Zroś grzybnię', 'Równy rytm rosy utrzymuje zdrowy mech.', { patchQuality: 0.8, mycelium: 1.1 }],
+      feed: ['Podłoże', 'Nakarm podłoże', 'Dobry kompost daje grzybni spokojny wzrost.', { patchQuality: 0.7, mycelium: 1.2 }],
+      clean: ['Czystość', 'Oczyść mech', 'Czysty patch lepiej oddycha i wolniej słabnie.', { patchQuality: 1.2, mycelium: 0.7 }],
+      play: ['Radość', 'Pobaw się chwilę', 'Krótka zabawa buduje dziki, żywy charakter.', { happiness: 1, patchQuality: 0.5 }],
+      instrument: ['Muzyka', 'Zagraj miękko', 'Instrument wzmacnia muzyczny ślad w grzybni.', { happiness: 1, mycelium: 0.7 }],
+      sing: ['Śpiew', 'Zaśpiewaj do mchu', 'Cichy śpiew zostaje w relacji z Pieczarką.', { happiness: 1, mycelium: 0.7 }],
+      sleepWake: ['Rytm', 'Daj odpocząć', 'Spokojny rytm dnia chroni energię Pieczarki.', { patchQuality: 0.5, happiness: 0.5 }]
+    };
+    const data = actionGoals[actionId];
+    if (!data) {
+      return null;
+    }
+    return makeDailyGoalCore(goalId, data[0], data[1], data[2], { actionId: actionId }, data[3], data[0]);
+  }
+
+  function makeDailyGoalCore(id, eyebrow, title, body, match, reward, tag) {
+    return {
+      id: id,
+      eyebrow: eyebrow,
+      title: title,
+      body: body,
+      match: match || {},
+      reward: reward || {},
+      tag: tag || eyebrow
+    };
+  }
+
+  function doesDailyGoalMatchEventCore(goal, event) {
+    const match = goal.match || {};
+    if (event.type === 'action' && match.actionId) {
+      return match.actionId === event.actionId;
+    }
+    if (event.type === 'minigame' && match.minigameId) {
+      return match.minigameId === event.minigameId;
+    }
+    if (event.type === 'decoration' && match.decoration) {
+      return true;
+    }
+    if (event.type === 'harvest' && match.harvest) {
+      return true;
+    }
+    return false;
+  }
+
+  function applyDailyGoalRewardCore(state, reward) {
+    const source = isPlainObject(reward) ? reward : {};
+    state.stats = Object.assign({}, state.stats || {});
+    state.patch = Object.assign({ quality: 72, mycelium: 0 }, state.patch || {});
+    if (source.happiness) {
+      state.stats.happiness = clampNumber(Number(state.stats.happiness) + Number(source.happiness), 0, 100, 60);
+    }
+    if (source.patchQuality) {
+      state.patch.quality = clampNumber(Number(state.patch.quality) + Number(source.patchQuality), 0, 100, 72);
+    }
+    if (source.mycelium) {
+      state.patch.mycelium = clampNumber(Number(state.patch.mycelium) + Number(source.mycelium), 0, 100, 0);
+    }
+    if (source.spores) {
+      state.inventory = Object.assign({ spores: 0 }, state.inventory || {});
+      state.inventory.spores = Math.max(0, Number(state.inventory.spores) || 0) + Number(source.spores);
+      state.coins = Math.max(0, Number(state.coins) || 0) + Number(source.spores);
+    }
+  }
+
+  function buildWorldJournalGroupCore(type, title, catalog, discoveries) {
+    const map = isPlainObject(discoveries) ? discoveries : {};
+    return {
+      id: type,
+      title: title,
+      items: (Array.isArray(catalog) ? catalog : []).map(function(item) {
+        const entry = map[item.id] || null;
+        return {
+          id: item.id,
+          label: item.label,
+          kind: item.kind || '',
+          discovered: Boolean(entry),
+          count: entry ? Number(entry.count) || 1 : 0,
+          firstSeenAt: entry ? entry.firstSeenAt || null : null,
+          lastSeenAt: entry ? entry.lastSeenAt || entry.firstSeenAt || null : null,
+          hint: getWorldJournalHintCore(type, item)
+        };
+      })
+    };
+  }
+
+  function getWorldJournalHintCore(type, item) {
+    const kind = item && item.kind;
+    if (type === 'instrument') {
+      return item && item.hint ? item.hint : 'rzadkie granie';
+    }
+    if (type === 'sky') {
+      if (kind === 'aurora') {
+        return 'mroźna ciemna noc';
+      }
+      if (kind === 'shower') {
+        return 'sezon gwiazd';
+      }
+      return 'ciemne niebo';
+    }
+
+    if (kind === 'moisture') {
+      return 'poranek i wilgoć';
+    }
+    if (kind === 'optics') {
+      return 'światło i mgła';
+    }
+    if (kind === 'light') {
+      return 'niskie słońce';
+    }
+    if (kind === 'heat') {
+      return 'upał i suche powietrze';
+    }
+    return 'zmiana pogody';
+  }
+
+  function getRareInstrumentDiscoveryCatalogCore(rules) {
+    const catalog = rules && rules.instrumentCatalog && rules.instrumentCatalog.stages
+      ? rules.instrumentCatalog.stages
+      : {};
+    return Object.keys(catalog).reduce(function(result, stage) {
+      (Array.isArray(catalog[stage]) ? catalog[stage] : []).forEach(function(item) {
+        if (!item || !item.rare) {
+          return;
+        }
+        result.push({
+          id: item.discoveryId || item.id,
+          label: item.label,
+          kind: 'rare',
+          stage: stage,
+          hint: item.hint || 'rzadkie granie'
+        });
+      });
+      return result;
+    }, []);
+  }
+
+  function formatReturnElapsedCore(elapsedMs) {
+    const minutes = Math.max(1, Math.round(Number(elapsedMs) / 60000));
+    if (minutes < 90) {
+      return minutes + ' min';
+    }
+    const hours = minutes / 60;
+    if (hours < 24) {
+      return Math.round(hours * 10) / 10 + ' h';
+    }
+    return Math.round(hours / 24 * 10) / 10 + ' dnia';
+  }
+
+  function getLowestReturnStatCore(stats) {
+    const labels = {
+      hydration: 'Wilgoć',
+      nutrients: 'Podłoże',
+      energy: 'Energia',
+      happiness: 'Radość',
+      cleanliness: 'Czystość',
+      health: 'Zdrowie'
+    };
+    return Object.keys(labels).map(function(stat) {
+      return {
+        id: stat,
+        label: labels[stat],
+        value: Number(stats && stats[stat]) || 0
+      };
+    }).sort(function(a, b) {
+      return a.value - b.value;
+    })[0] || null;
+  }
+
+  function getDominantCareCueCore(actions) {
+    const groups = [
+      { label: 'wilgoć', value: Number(actions.hydrate) || 0 },
+      { label: 'podłoże', value: (Number(actions.feed) || 0) + (Number(actions.clean) || 0) },
+      { label: 'muzyka', value: (Number(actions.instrument) || 0) + (Number(actions.sing) || 0) },
+      { label: 'zabawa', value: Number(actions.play) || 0 }
+    ];
+    groups.sort(function(a, b) {
+      return b.value - a.value;
+    });
+    return groups[0] && groups[0].value > 0 ? groups[0].label : 'spokojna obecność';
+  }
+
+  function canBuyAnyDecorationCore(state, rules) {
+    const catalog = Array.isArray(rules && rules.decorations) ? rules.decorations : [];
+    const owned = state.decorations && Array.isArray(state.decorations.owned) ? state.decorations.owned : [];
+    const spores = Number(state.inventory && state.inventory.spores) || Number(state.coins) || 0;
+    return catalog.some(function(item) {
+      return owned.indexOf(item.id) === -1 && spores >= Number(item.cost);
+    });
+  }
+
+  function getHabitatTagLabelCore(tag) {
+    const labels = {
+      moisture: 'wilgotne',
+      music: 'muzyczne',
+      night: 'nocne',
+      comfort: 'przytulne',
+      spores: 'zarodnikowe',
+      wind: 'wietrzne',
+      wild: 'dzikie',
+      flowers: 'kwitnące',
+      insects: 'pełne gości',
+      shelter: 'osłonięte'
+    };
+    return labels[tag] || tag;
+  }
+
+  function isGameplayStageAtLeastCore(stage, target) {
+    const order = ['spore', 'baby', 'young', 'adult', 'legendary'];
+    return order.indexOf(stage) >= order.indexOf(target);
+  }
+
+  function getGameplayDateKeyCore(now) {
+    const date = new Date(Number(now) || Date.now());
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return date.getFullYear() + '-' + month + '-' + day;
+  }
+
+  function hashStringCore(value) {
+    const text = String(value || '');
+    let hash = 0;
+    for (let index = 0; index < text.length; index += 1) {
+      hash = ((hash << 5) - hash + text.charCodeAt(index)) | 0;
+    }
+    return hash;
+  }

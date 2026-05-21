@@ -2,8 +2,8 @@
     const now = getRuntimeNow();
     runtime.state.currentActivity = {
       type: 'notice',
-      label: title,
-      body: body,
+      label: formatMushroomText(title),
+      body: formatMushroomText(body),
       startedAt: now,
       until: now + 1500
     };
@@ -11,16 +11,23 @@
 
   function renderUi() {
     normalizeViewMode();
+    renderNameGate();
     renderViewSwitch();
     renderIdentity();
     renderStats();
     renderActionStates();
     renderAttentionChip();
+    renderDailyRhythm();
+    renderDayPlan();
+    renderMinigameOpportunities();
     renderMinigames();
+    renderHabitatSummary();
     renderDecorations();
+    renderCharacterCompass();
     renderCareHistory();
+    renderRelationshipHistory();
     renderInventory();
-    renderSkyDiscoveries();
+    renderWorldJournal();
     renderLog();
     renderBattleUi();
     renderMessage();
@@ -28,14 +35,31 @@
     renderDebugControls();
   }
 
+  function renderNameGate() {
+    if (!dom.nameGate) {
+      document.documentElement.classList.remove('is-name-gated');
+      document.body.classList.remove('is-name-gated');
+      return;
+    }
+
+    const named = hasNamedMushroom(runtime.state);
+    dom.nameGate.hidden = named;
+    document.documentElement.classList.toggle('is-name-gated', !named);
+    document.body.classList.toggle('is-name-gated', !named);
+    if (!named && dom.nameInput && !dom.nameInput.value) {
+      dom.nameInput.value = normalizeMushroomNameValue(runtime.state && runtime.state.mushroomName);
+    }
+  }
+
   function renderViewSwitch() {
     const unlocked = isArenaUnlockedForRuntime();
     const gameOver = isGameOverUiState();
+    const unnamed = !hasNamedMushroom(runtime.state);
     if (dom.viewSwitch) {
-      dom.viewSwitch.hidden = !unlocked || gameOver;
+      dom.viewSwitch.hidden = unnamed || !unlocked || gameOver;
     }
 
-    if (!unlocked || gameOver) {
+    if (unnamed || !unlocked || gameOver) {
       runtime.viewMode = 'care';
     }
 
@@ -74,7 +98,7 @@
     dom.modePill.dataset.mode = state.gameOver && state.gameOver.active
       ? 'game-over'
       : state.recovery && state.recovery.active ? 'recovery' : state.mode;
-    dom.mushroomName.textContent = state.mushroomName;
+    dom.mushroomName.textContent = hasNamedMushroom(state) ? getMushroomName(state) : 'Bez imienia';
     dom.stageLabel.textContent = getStageLabel(state.stage);
     if (dom.evolutionLabel) {
       const variant = state.evolution && state.evolution.variant;
@@ -166,14 +190,17 @@
         return;
       }
 
-      const check = gameOver
+      const unnamed = !hasNamedMushroom(runtime.state);
+      const check = unnamed
+        ? { ok: false, reason: 'Najpierw nadaj imię.' }
+        : gameOver
         ? { ok: false, reason: 'Gra zakończona. Zacznij od nowa.' }
         : canRunAction(action, now);
       const cooldownUntil = Number(runtime.state.cooldowns[action.id]) || 0;
       const remainingMs = Math.max(0, cooldownUntil - now);
 
       button.disabled = !check.ok;
-      button.title = check.ok ? action.label + ' (' + action.shortcut + ')' : check.reason;
+      button.title = check.ok ? action.label + ' (' + action.shortcut + ')' : formatMushroomText(check.reason);
 
       const oldChip = button.querySelector('.cooldown-chip');
       if (oldChip) {
@@ -189,7 +216,9 @@
       }
     });
 
-    dom.cooldownLabel.textContent = soonestRemaining ? 'Za ' + formatRemainingLabel(soonestRemaining) : 'Gotowe';
+    dom.cooldownLabel.textContent = !hasNamedMushroom(runtime.state)
+      ? 'Najpierw imię'
+      : soonestRemaining ? 'Za ' + formatRemainingLabel(soonestRemaining) : 'Gotowe';
   }
 
   function renderAttentionChip() {
@@ -211,6 +240,124 @@
     dom.attentionChip.textContent = (attention.severity === 'critical' ? 'Pilne: ' : 'Potrzeba: ') + definition.title;
   }
 
+  function renderDayPlan() {
+    if (!dom.dayPlan) {
+      return;
+    }
+
+    const core = window.PieczargotchiCore;
+    if (!core || !core.getDailyCarePlan || isGameOverUiState()) {
+      dom.dayPlan.innerHTML = '';
+      dom.dayPlan.hidden = true;
+      return;
+    }
+
+    const plan = core.getDailyCarePlan(runtime.state, rules, getRuntimeNow(), getCurrentWeatherScene());
+    dom.dayPlan.innerHTML = '';
+    dom.dayPlan.hidden = !plan.goals.length;
+
+    plan.goals.forEach(function(goal) {
+      const item = document.createElement('div');
+      const eyebrow = document.createElement('span');
+      const title = document.createElement('strong');
+      const body = document.createElement('span');
+
+      item.className = 'daily-goal' + (goal.completed ? ' daily-goal--done' : '');
+      eyebrow.textContent = goal.completed ? 'Zrobione' : goal.eyebrow;
+      title.textContent = goal.title;
+      body.textContent = formatMushroomText(goal.completed ? 'Grzybnia zapamiętała ten rytm.' : goal.body);
+
+      item.appendChild(eyebrow);
+      item.appendChild(title);
+      item.appendChild(body);
+      dom.dayPlan.appendChild(item);
+    });
+  }
+
+  function renderDailyRhythm() {
+    if (!dom.dailyRhythm) {
+      return;
+    }
+
+    const core = window.PieczargotchiCore;
+    if (!core || typeof core.getDailyRhythmOptions !== 'function') {
+      dom.dailyRhythm.innerHTML = '';
+      dom.dailyRhythm.hidden = true;
+      return;
+    }
+
+    const rhythm = core.getDailyRhythmOptions(runtime.state, rules, getRuntimeNow(), getCurrentWeatherScene());
+    dom.dailyRhythm.innerHTML = '';
+    dom.dailyRhythm.hidden = !rhythm.options.length;
+
+    rhythm.options.forEach(function(option) {
+      const button = document.createElement('button');
+      const label = document.createElement('strong');
+      const body = document.createElement('span');
+      const lockedByChoice = rhythm.selectedId && rhythm.selectedId !== option.id;
+
+      button.className = 'daily-rhythm-button' + (option.selected ? ' daily-rhythm-button--selected' : '');
+      button.type = 'button';
+      button.disabled = !hasNamedMushroom(runtime.state) || isGameOverUiState() || Boolean(lockedByChoice);
+      button.setAttribute('aria-pressed', option.selected ? 'true' : 'false');
+      label.textContent = option.label;
+      body.textContent = formatMushroomText(option.selected ? 'Dzisiejszy rytm' : option.body);
+      button.addEventListener('click', function() {
+        handleDailyRhythmSelect(option.id);
+      });
+
+      button.appendChild(label);
+      button.appendChild(body);
+      dom.dailyRhythm.appendChild(button);
+    });
+  }
+
+  function renderMinigameOpportunities() {
+    if (!dom.minigameOpportunities) {
+      return;
+    }
+
+    const core = window.PieczargotchiCore;
+    const now = getRuntimeNow();
+    const active = runtime.state.minigames && runtime.state.minigames.active;
+    if (!core || !core.getMinigameOpportunities || isGameOverUiState()) {
+      dom.minigameOpportunities.innerHTML = '';
+      dom.minigameOpportunities.hidden = true;
+      return;
+    }
+
+    const opportunities = core.getMinigameOpportunities(runtime.state, rules, getCurrentWeatherScene(), now);
+    dom.minigameOpportunities.innerHTML = '';
+    dom.minigameOpportunities.hidden = !opportunities.length;
+
+    opportunities.forEach(function(opportunity) {
+      const item = document.createElement('div');
+      const text = document.createElement('div');
+      const title = document.createElement('strong');
+      const reason = document.createElement('span');
+      const button = document.createElement('button');
+      const remaining = opportunity.cooldownUntil ? Math.max(0, opportunity.cooldownUntil - now) : 0;
+
+      item.className = 'opportunity-card';
+      text.className = 'opportunity-card__text';
+      title.textContent = opportunity.label;
+      reason.textContent = formatMushroomText(opportunity.reason);
+      button.className = 'ghost-button';
+      button.type = 'button';
+      button.textContent = remaining ? formatCooldownLabel(remaining) : 'Start';
+      button.disabled = !hasNamedMushroom(runtime.state) || Boolean(active) || runtime.state.mode !== 'awake' || remaining > 0;
+      button.addEventListener('click', function() {
+        handleMinigameStart(opportunity.minigameId);
+      });
+
+      text.appendChild(title);
+      text.appendChild(reason);
+      item.appendChild(text);
+      item.appendChild(button);
+      dom.minigameOpportunities.appendChild(item);
+    });
+  }
+
   function renderMinigames() {
     if (!dom.minigameStatus) {
       return;
@@ -225,7 +372,10 @@
       return Math.max(0, cooldownUntil - now);
     }).filter(Boolean);
     const remaining = cooldowns.length ? Math.min.apply(null, cooldowns) : 0;
-    if (gameOver) {
+    const unnamed = !hasNamedMushroom(runtime.state);
+    if (unnamed) {
+      dom.minigameStatus.textContent = 'Najpierw imię';
+    } else if (gameOver) {
       dom.minigameStatus.textContent = 'Koniec gry';
     } else if (active) {
       dom.minigameStatus.textContent = active.label || (minigameRules[active.id] && minigameRules[active.id].label) || 'Trwa';
@@ -246,8 +396,8 @@
       const minigameId = button.dataset.minigameStart;
       const cooldownUntil = Number(runtime.state.cooldowns[getMinigameCooldownKey(minigameId)]) || 0;
       const ownRemaining = Math.max(0, cooldownUntil - now);
-      button.disabled = gameOver || Boolean(active) || ownRemaining > 0 || runtime.state.mode !== 'awake';
-      button.textContent = gameOver ? 'Koniec' : ownRemaining ? formatCooldownLabel(ownRemaining) : 'Start';
+      button.disabled = unnamed || gameOver || Boolean(active) || ownRemaining > 0 || runtime.state.mode !== 'awake';
+      button.textContent = unnamed ? 'Imię' : gameOver ? 'Koniec' : ownRemaining ? formatCooldownLabel(ownRemaining) : 'Start';
     });
     updateMinigameHud(now);
   }
@@ -299,7 +449,7 @@
       button.className = 'ghost-button';
       button.type = 'button';
       button.textContent = isOwned ? 'Masz' : 'Kup';
-      button.disabled = isGameOverUiState() || isOwned || availableSpores < Number(item.cost);
+      button.disabled = !hasNamedMushroom(runtime.state) || isGameOverUiState() || isOwned || availableSpores < Number(item.cost);
       button.addEventListener('click', function() {
         handleDecorationBuy(item.id);
       });
@@ -310,6 +460,79 @@
       row.appendChild(button);
       dom.decorationList.appendChild(row);
     });
+  }
+
+  function renderHabitatSummary() {
+    if (!dom.habitatSummary) {
+      return;
+    }
+
+    const core = window.PieczargotchiCore;
+    if (!core || !core.getDecorationHabitatSummary) {
+      dom.habitatSummary.innerHTML = '';
+      dom.habitatSummary.hidden = true;
+      return;
+    }
+
+    const summary = core.getDecorationHabitatSummary(runtime.state, rules);
+    dom.habitatSummary.innerHTML = '';
+    dom.habitatSummary.hidden = false;
+
+    const title = document.createElement('strong');
+    const body = document.createElement('span');
+    const tags = document.createElement('div');
+    title.textContent = formatMushroomText(summary.title);
+    body.textContent = formatMushroomText(summary.body);
+    tags.className = 'habitat-tags';
+    (summary.tags || []).forEach(function(tag) {
+      const chip = document.createElement('span');
+      chip.textContent = tag.label + ' x' + tag.count;
+      tags.appendChild(chip);
+    });
+
+    dom.habitatSummary.appendChild(title);
+    dom.habitatSummary.appendChild(body);
+    (summary.effects || []).forEach(function(effect) {
+      const effectNode = document.createElement('span');
+      effectNode.textContent = formatMushroomText(effect);
+      dom.habitatSummary.appendChild(effectNode);
+    });
+    if (tags.childNodes.length) {
+      dom.habitatSummary.appendChild(tags);
+    }
+  }
+
+  function renderCharacterCompass() {
+    if (!dom.characterCompass) {
+      return;
+    }
+
+    const core = window.PieczargotchiCore;
+    if (!core || !core.getEvolutionCompass) {
+      dom.characterCompass.innerHTML = '';
+      dom.characterCompass.hidden = true;
+      return;
+    }
+
+    const compass = core.getEvolutionCompass(runtime.state, rules);
+    dom.characterCompass.innerHTML = '';
+    dom.characterCompass.hidden = false;
+
+    const title = document.createElement('strong');
+    const body = document.createElement('span');
+    const cues = document.createElement('div');
+    title.textContent = formatMushroomText(compass.title);
+    body.textContent = formatMushroomText(compass.body);
+    cues.className = 'compass-cues';
+    (compass.cues || []).forEach(function(cue) {
+      const item = document.createElement('span');
+      item.textContent = formatMushroomText(cue);
+      cues.appendChild(item);
+    });
+
+    dom.characterCompass.appendChild(title);
+    dom.characterCompass.appendChild(body);
+    dom.characterCompass.appendChild(cues);
   }
 
   function renderCareHistory() {
@@ -346,6 +569,31 @@
     appendHistoryItem('Czuwa', awakeLabel);
     appendHistoryItem('Sen', sleepLabel);
     appendHistoryItem('Ewolucja', evolutionLabel);
+  }
+
+  function renderRelationshipHistory() {
+    if (!dom.relationshipList) {
+      return;
+    }
+
+    const entries = runtime.state.relationship && Array.isArray(runtime.state.relationship.entries)
+      ? runtime.state.relationship.entries
+      : [];
+    dom.relationshipList.innerHTML = '';
+    dom.relationshipList.hidden = !entries.length;
+
+    entries.slice(0, 3).forEach(function(entry) {
+      const item = document.createElement('div');
+      const title = document.createElement('strong');
+      const body = document.createElement('span');
+      item.className = 'relationship-entry';
+      item.dataset.tone = entry.tone || 'neutral';
+      title.textContent = formatMushroomText(entry.title);
+      body.textContent = formatMushroomText(entry.body);
+      item.appendChild(title);
+      item.appendChild(body);
+      dom.relationshipList.appendChild(item);
+    });
   }
 
   function appendHistoryItem(label, value) {
@@ -486,51 +734,55 @@
     });
   }
 
-  function renderSkyDiscoveries() {
+  function renderWorldJournal() {
     if (!dom.skyDiscoveries) {
       return;
     }
 
     const core = window.PieczargotchiCore;
-    const catalog = core && typeof core.getSkyDiscoveryCatalog === 'function'
-      ? core.getSkyDiscoveryCatalog()
-      : [];
-    const discoveries = runtime.state.discoveries && runtime.state.discoveries.sky
-      ? runtime.state.discoveries.sky
-      : {};
-    const unlocked = catalog.filter(function(item) {
-      return discoveries[item.id];
-    }).length;
+    const journal = core && typeof core.getWorldJournal === 'function'
+      ? core.getWorldJournal(runtime.state, rules)
+      : null;
+
+    if (!journal) {
+      dom.skyDiscoveries.innerHTML = '';
+      dom.skyDiscoveries.hidden = true;
+      return;
+    }
 
     if (dom.skyDiscoveryCount) {
-      dom.skyDiscoveryCount.textContent = unlocked + '/' + catalog.length;
+      dom.skyDiscoveryCount.textContent = journal.discoveredCount + '/' + journal.totalCount;
     }
 
     dom.skyDiscoveries.innerHTML = '';
-    catalog.forEach(function(item) {
-      const entry = discoveries[item.id];
-      const row = document.createElement('div');
-      const label = document.createElement('strong');
-      const meta = document.createElement('span');
-      row.className = 'discovery-item' + (entry ? '' : ' discovery-item--locked');
-      label.textContent = entry ? item.label : '???';
-      meta.textContent = entry
-        ? (entry.count > 1 ? entry.count + ' razy' : 'Odkryte')
-        : getSkyDiscoveryHint(item.kind);
-      row.appendChild(label);
-      row.appendChild(meta);
-      dom.skyDiscoveries.appendChild(row);
-    });
-  }
+    dom.skyDiscoveries.hidden = false;
 
-  function getSkyDiscoveryHint(kind) {
-    if (kind === 'aurora') {
-      return 'mroźne niebo';
-    }
-    if (kind === 'shower') {
-      return 'sezon gwiazd';
-    }
-    return 'ciemna noc';
+    (journal.groups || []).forEach(function(group) {
+      const section = document.createElement('div');
+      const heading = document.createElement('h3');
+      const items = document.createElement('div');
+      section.className = 'discovery-group';
+      heading.textContent = formatMushroomText(group.title);
+      items.className = 'discovery-group__items';
+      section.appendChild(heading);
+      section.appendChild(items);
+
+      group.items.forEach(function(item) {
+        const row = document.createElement('div');
+        const label = document.createElement('strong');
+        const meta = document.createElement('span');
+        row.className = 'discovery-item' + (item.discovered ? '' : ' discovery-item--locked');
+        label.textContent = item.discovered ? formatMushroomText(item.label) : '???';
+        meta.textContent = item.discovered
+          ? (item.count > 1 ? item.count + ' razy' : 'Odkryte')
+          : formatMushroomText(item.hint);
+        row.appendChild(label);
+        row.appendChild(meta);
+        items.appendChild(row);
+      });
+
+      dom.skyDiscoveries.appendChild(section);
+    });
   }
 
   function appendInventoryItem(label, value) {
@@ -561,14 +813,16 @@
 
     if (!entries.length) {
       const item = document.createElement('li');
-      item.textContent = 'Pieczarka czeka w grzybni.';
+      item.textContent = hasNamedMushroom(runtime.state)
+        ? getMushroomName(runtime.state) + ' czeka w grzybni.'
+        : 'Grzybnia czeka na imię.';
       dom.eventLog.appendChild(item);
       return;
     }
 
     entries.forEach(function(entry) {
       const item = document.createElement('li');
-      item.textContent = formatLogTime(entry.at) + ' - ' + entry.text;
+      item.textContent = formatLogTime(entry.at) + ' - ' + formatMushroomText(entry.text);
       dom.eventLog.appendChild(item);
     });
   }
@@ -590,6 +844,9 @@
 
     renderBattleCombatant(dom.battlePlayerHp, dom.battlePlayerStamina, active && active.player);
     renderBattleCombatant(dom.battleOpponentHp, dom.battleOpponentStamina, active && active.opponent);
+    if (dom.battlePlayerName) {
+      dom.battlePlayerName.textContent = getMushroomName(runtime.state);
+    }
 
     dom.battleStart.disabled = gameOver || Boolean(activeRunning);
     dom.battleStart.textContent = gameOver ? 'Koniec gry' : activeRunning ? 'Walka trwa' : 'Start walki';
@@ -710,7 +967,7 @@
 
     entries.forEach(function(entry) {
       const item = document.createElement('li');
-      item.textContent = formatLogTime(entry.at) + ' - ' + entry.text;
+      item.textContent = formatLogTime(entry.at) + ' - ' + formatMushroomText(entry.text);
       dom.battleLog.appendChild(item);
     });
   }
@@ -726,8 +983,8 @@
 
   function renderMessage() {
     const message = getMushroomMessage(runtime.state);
-    dom.messageTitle.textContent = message.title;
-    dom.messageBody.textContent = message.body;
+    dom.messageTitle.textContent = formatMushroomText(message.title);
+    dom.messageBody.textContent = formatMushroomText(message.body);
   }
 
   function renderAssetStatus() {
@@ -741,6 +998,13 @@
   function getMushroomMessage(state) {
     const now = getRuntimeNow();
 
+    if (!hasNamedMushroom(state)) {
+      return {
+        title: 'Pierwszy krok',
+        body: 'Nadaj imię, żeby grzybnia zaczęła żyć.'
+      };
+    }
+
     if (runtime.viewMode === 'arena') {
       return getBattleMessage(state, now);
     }
@@ -752,8 +1016,8 @@
     if (state.currentActivity && Number(state.currentActivity.until) > now) {
       if (state.currentActivity.type === 'notice') {
         return {
-          title: state.currentActivity.label,
-          body: state.currentActivity.body
+          title: formatMushroomText(state.currentActivity.label, state),
+          body: formatMushroomText(state.currentActivity.body, state)
         };
       }
 
@@ -838,9 +1102,9 @@
 
     const active = state.battle && state.battle.activeBattle;
     if (!active) {
-      return {
-        title: 'Arena',
-        body: 'Mech areny cicho sprężynuje.'
+        return {
+          title: 'Arena',
+          body: 'Mech areny cicho sprężynuje.'
       };
     }
     if (active.mode === 'victory') {

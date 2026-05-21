@@ -1,13 +1,40 @@
   function normalizeProgressionState(rawState, rules, actions) {
     const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    state.mushroomName = normalizeMushroomNameCore(state.mushroomName);
+    state.flags = normalizeFlagsCore(state.flags, state.mushroomName);
     state.history = normalizeHistoryCore(state.history, actions);
     state.evolution = normalizeEvolutionCore(state.evolution);
     state.minigames = normalizeMinigamesCore(state.minigames);
+    state.dailyPlan = normalizeDailyPlanCore(state.dailyPlan);
+    state.dailyRhythm = normalizeDailyRhythmCore(state.dailyRhythm);
+    state.relationship = normalizeRelationshipCore(state.relationship);
+    state.journal = normalizeWorldJournalCore(state.journal);
     state.decorations = normalizeDecorationsCore(state.decorations);
     state.discoveries = normalizeDiscoveriesState(state.discoveries);
+    state.returnRecap = normalizeReturnRecapCore(state.returnRecap);
     state.recovery = normalizeRecoveryCore(state.recovery);
     state.gameOver = normalizeGameOverCore(state.gameOver);
     return state;
+  }
+
+  function normalizeMushroomNameCore(value) {
+    return String(value || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 24);
+  }
+
+  function normalizeFlagsCore(flags, mushroomName) {
+    const source = isPlainObject(flags) ? flags : {};
+    const hasCustomLegacyName = Boolean(mushroomName && mushroomName !== 'Pieczarka');
+    return Object.assign({}, source, {
+      tutorialDone: Boolean(source.tutorialDone),
+      firstWakeDone: Boolean(source.firstWakeDone),
+      firstFeedDone: Boolean(source.firstFeedDone),
+      firstInstrumentDone: Boolean(source.firstInstrumentDone),
+      firstSingDone: Boolean(source.firstSingDone),
+      nameConfirmed: Boolean(source.nameConfirmed || hasCustomLegacyName)
+    });
   }
 
   function normalizeHistoryCore(history, actions) {

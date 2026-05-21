@@ -45,6 +45,7 @@ ACTIVITIES = [
 ]
 ACTIVITY_FRAME_COUNT = 8
 EFFECTS = ["drops", "sparkle", "dust", "notes", "spore_cloud"]
+SPRITE_OWNED_ACTIVITY_DETAILS = {"feed", "instrument", "sing"}
 
 STAGE_LAYOUT = {
     "spore": {"target_h": 132, "max_w": 240, "bottom": 424},
@@ -749,19 +750,16 @@ def narysuj_akcesoria_aktywnosci(
         "center_y": character_y + (body_bbox[1] + body_bbox[3]) / 2,
     }
 
+    if activity in SPRITE_OWNED_ACTIVITY_DETAILS:
+        return
+
     if activity == "hydrate":
         visible_top_y = character_y + znajdz_gorna_krawedz_postaci(character)
         narysuj_zraszanie(frame, character_x, visible_top_y, character.width, character.height, frame_index, scale)
-    elif activity == "feed":
-        narysuj_karmienie(frame, bounds, frame_index)
     elif activity == "clean":
         narysuj_czyszczenie(frame, bounds, frame_index)
     elif activity == "play":
         narysuj_zabawe(frame, bounds, frame_index)
-    elif activity == "instrument":
-        narysuj_granie(frame, bounds, frame_index)
-    elif activity == "sing":
-        narysuj_spiew(frame, bounds, frame_index)
     elif activity == "spores":
         narysuj_emisje_zarodnikow(frame, bounds, frame_index)
     elif activity == "harvest":

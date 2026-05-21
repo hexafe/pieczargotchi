@@ -314,6 +314,41 @@ function getGameRulesConfig() {
       'słoikowe bębenki',
       'dzwonki zarodnikowe',
       'deszczowe cymbałki'
-    ]
+    ],
+    instrumentCatalog: {
+      rareChance: 0.06,
+      stages: {
+        spore: [
+          { id: 'sporeDropletBell', label: 'Kropelkowy dzwoneczek', logLabel: 'kropelkowym dzwoneczku', activityType: 'instrument_bell' },
+          { id: 'sporeMossFlute', label: 'Mini fletnia z mchu', logLabel: 'mini fletni z mchu', activityType: 'instrument_flute' },
+          { id: 'sporeShellDrum', label: 'Łupinkowy bębenek', logLabel: 'łupinkowym bębenku', activityType: 'instrument_drum' },
+          { id: 'sporeStarTone', label: 'Gwiezdny zarodkofon', logLabel: 'gwiezdnym zarodkofonie', activityType: 'instrument_rare', rare: true, discoveryId: 'rareInstrument_spore', hint: 'bardzo rzadki ton zarodnika' }
+        ],
+        baby: [
+          { id: 'babyKalimba', label: 'Dziecięca kalimba', logLabel: 'dziecięcej kalimbie', activityType: 'instrument_bell' },
+          { id: 'babyMossFlute', label: 'Mchowy flecik', logLabel: 'mchowym fleciku', activityType: 'instrument_flute' },
+          { id: 'babyJarDrums', label: 'Słoikowe bębenki', logLabel: 'słoikowych bębenkach', activityType: 'instrument_drum' },
+          { id: 'babyMoonOcarina', label: 'Księżycowa okaryna', logLabel: 'księżycowej okarynie', activityType: 'instrument_rare', rare: true, discoveryId: 'rareInstrument_baby', hint: 'księżycowa melodia malucha' }
+        ],
+        young: [
+          { id: 'youngMossFlute', label: 'Mchowy flet', logLabel: 'mchowym flecie', activityType: 'instrument_flute' },
+          { id: 'youngLeafLyre', label: 'Listkowa lirka', logLabel: 'listkowej lirce', activityType: 'instrument_bell' },
+          { id: 'youngRainCymbals', label: 'Deszczowe cymbałki', logLabel: 'deszczowych cymbałkach', activityType: 'instrument_drum' },
+          { id: 'youngFireflyLyre', label: 'Świetlikowa lira', logLabel: 'świetlikowej lirze', activityType: 'instrument_rare', rare: true, discoveryId: 'rareInstrument_young', hint: 'świetlikowy koncert w trawie' }
+        ],
+        adult: [
+          { id: 'adultKalimba', label: 'Mała kalimba', logLabel: 'małej kalimbie', activityType: 'instrument_bell' },
+          { id: 'adultPocketSynth', label: 'Kieszonkowy syntezator', logLabel: 'kieszonkowym syntezatorze', activityType: 'instrument_flute' },
+          { id: 'adultSporeChimes', label: 'Dzwonki zarodnikowe', logLabel: 'dzwonkach zarodnikowych', activityType: 'instrument_drum' },
+          { id: 'adultCometHarp', label: 'Kometowa harfa', logLabel: 'kometowej harfie', activityType: 'instrument_rare', rare: true, discoveryId: 'rareInstrument_adult', hint: 'kometa i spokojny wieczór' }
+        ],
+        legendary: [
+          { id: 'legendCrystalHarp', label: 'Kryształowa harfa', logLabel: 'kryształowej harfie', activityType: 'instrument_bell' },
+          { id: 'legendSporeTheremin', label: 'Zarodnikowy theremin', logLabel: 'zarodnikowym thereminie', activityType: 'instrument_flute' },
+          { id: 'legendRootLute', label: 'Korzeniowa lutnia', logLabel: 'korzeniowej lutni', activityType: 'instrument_drum' },
+          { id: 'legendAuroraOrgan', label: 'Zorzo-organki', logLabel: 'zorzo-organkach', activityType: 'instrument_rare', rare: true, discoveryId: 'rareInstrument_legendary', hint: 'legendarna noc pod zorzami' }
+        ]
+      }
+    }
   };
 }

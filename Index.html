@@ -9,6 +9,27 @@
   </head>
   <body>
     <div class="app" data-app>
+      <span class="build-badge" data-build-badge hidden aria-label="Wersja buildu"></span>
+
+      <section class="name-gate" data-name-gate hidden>
+        <form class="name-gate__panel" data-name-form>
+          <p class="eyebrow">Pierwszy krok</p>
+          <h2>Jak ma na imię?</h2>
+          <label>
+            Imię
+            <input
+              type="text"
+              maxlength="24"
+              autocomplete="off"
+              data-name-input
+              required
+            >
+          </label>
+          <span class="name-gate__error" data-name-error aria-live="polite"></span>
+          <button class="ghost-button" type="submit">Zacznij opiekę</button>
+        </form>
+      </section>
+
       <header class="topbar">
         <div>
           <h1>Pieczargotchi</h1>
@@ -28,7 +49,7 @@
           <div class="stage-toolbar">
             <div>
               <p class="eyebrow" data-stage-eyebrow>Grzybnia</p>
-              <h2 data-mushroom-name>Pieczarka</h2>
+              <h2 data-mushroom-name>Bez imienia</h2>
             </div>
             <div class="stage-meta">
               <span data-stage-label>Maluch</span>
@@ -49,8 +70,11 @@
           <div class="message-panel" aria-live="polite">
             <span class="attention-chip" data-attention-chip hidden>Potrzeba</span>
             <strong data-message-title>Odpoczywa</strong>
-            <span data-message-body>Pieczarka drzemie w miękkim mchu.</span>
+            <span data-message-body>Grzybnia czeka na imię.</span>
           </div>
+
+          <div class="daily-rhythm-strip" data-daily-rhythm aria-label="Dzisiejszy rytm"></div>
+          <div class="daily-plan-strip" data-day-plan aria-label="Plan dnia"></div>
         </section>
 
         <aside class="side-panel" aria-label="Panel opieki">
@@ -75,6 +99,7 @@
               <h2>Gry</h2>
               <span data-minigame-status>Gotowe</span>
             </div>
+            <div class="minigame-opportunities" data-minigame-opportunities></div>
             <div class="minigame-card">
               <div>
                 <strong>Łapanie rosy</strong>
@@ -123,7 +148,7 @@
 
           <section class="panel-block panel-block--discoveries" data-care-panel>
             <div class="block-heading">
-              <h2>Odkrycia</h2>
+              <h2>Dziennik świata</h2>
               <span data-sky-discovery-count>0/0</span>
             </div>
             <div class="discovery-grid" data-sky-discoveries></div>
@@ -134,6 +159,7 @@
               <h2>Dekoracje</h2>
               <span data-decoration-count>0</span>
             </div>
+            <div class="habitat-summary" data-habitat-summary></div>
             <div class="decoration-list" data-decoration-list></div>
           </section>
 
@@ -142,7 +168,9 @@
               <h2>Historia</h2>
               <span data-history-score>0 opieki</span>
             </div>
+            <div class="character-compass" data-character-compass></div>
             <div class="history-grid" data-care-history></div>
+            <div class="relationship-list" data-relationship-list></div>
           </section>
 
           <section class="panel-block panel-block--backup" data-care-panel>
@@ -172,7 +200,7 @@
             <div class="battle-training" data-battle-training></div>
             <div class="battle-status" data-battle-status>
               <div class="battle-meter-row">
-                <span>Pieczarka</span>
+                <span data-battle-player-name>Bez imienia</span>
                 <strong data-battle-player-hp>HP --</strong>
                 <strong data-battle-player-stamina>ST --</strong>
               </div>

@@ -48,6 +48,8 @@
 
   const debugStorageKey = (config.storageKey || 'pieczargotchi_state_v2') + '_debug';
   const debugStatIds = ['hydration', 'nutrients', 'energy', 'happiness', 'cleanliness', 'health'];
+  const defaultMushroomName = 'Pieczarka';
+  const mushroomNameMaxLength = 24;
   const debugAnimationOptions = [
     { id: 'auto', label: 'Auto' },
     { id: 'state.idle', label: 'Idle' },
@@ -89,6 +91,10 @@
     { id: 'activity.clean', label: 'Akcja: czyszczenie' },
     { id: 'activity.play', label: 'Akcja: zabawa' },
     { id: 'activity.instrument', label: 'Akcja: instrument' },
+    { id: 'activity.instrument_bell', label: 'Akcja: instrument dzwonkowy' },
+    { id: 'activity.instrument_flute', label: 'Akcja: instrument fletowy' },
+    { id: 'activity.instrument_drum', label: 'Akcja: instrument rytmiczny' },
+    { id: 'activity.instrument_rare', label: 'Akcja: instrument rzadki' },
     { id: 'activity.sing', label: 'Akcja: śpiew' },
     { id: 'activity.spores', label: 'Akcja: zarodniki' },
     { id: 'activity.harvest', label: 'Akcja: plon' }
@@ -218,6 +224,41 @@
     resetConfirmTimer: null
   };
 
+  function normalizeMushroomNameValue(value) {
+    return String(value || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, mushroomNameMaxLength);
+  }
+
+  function getMushroomName(state) {
+    return normalizeMushroomNameValue(state && state.mushroomName) || defaultMushroomName;
+  }
+
+  function hasNamedMushroom(state) {
+    if (!state) {
+      return false;
+    }
+
+    const name = normalizeMushroomNameValue(state.mushroomName);
+    const flags = state.flags || {};
+    return Boolean(name && (flags.nameConfirmed || name !== defaultMushroomName));
+  }
+
+  function formatMushroomText(value, state) {
+    const text = String(value || '');
+    if (!text || !hasNamedMushroom(state || runtime.state)) {
+      return text;
+    }
+
+    const name = getMushroomName(state || runtime.state);
+    const letters = 'A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż';
+    const pattern = new RegExp('(^|[^' + letters + '])(Pieczarka|Pieczarkę|Pieczarki|Pieczarce|Pieczarką)(?=$|[^' + letters + '])', 'g');
+    return text.replace(pattern, function(match, prefix) {
+      return prefix + name;
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', function() {
     try {
       init();
@@ -288,12 +329,14 @@
     runtime.state = applyElapsedTime(runtime.state, getRuntimeNow());
     saveState(runtime.state);
 
+    renderBuildBadge();
     renderActions();
     renderDebugControls();
     bindControls();
     bindImmersionInput();
     bindKeyboardShortcuts();
     renderUi();
+    focusNameInputIfNeeded();
     resumeMinigameIfActive();
     startTimers();
     startRenderLoop();
@@ -306,8 +349,13 @@
   }
 
   function bindDom() {
+    dom.buildBadge = document.querySelector('[data-build-badge]');
     dom.modePill = document.querySelector('[data-mode-pill]');
     dom.resetButton = document.querySelector('[data-reset-button]');
+    dom.nameGate = document.querySelector('[data-name-gate]');
+    dom.nameForm = document.querySelector('[data-name-form]');
+    dom.nameInput = document.querySelector('[data-name-input]');
+    dom.nameError = document.querySelector('[data-name-error]');
     dom.viewSwitch = document.querySelector('[data-view-switch]');
     dom.viewCare = document.querySelector('[data-view-care]');
     dom.viewArena = document.querySelector('[data-view-arena]');
@@ -319,6 +367,8 @@
     dom.attentionChip = document.querySelector('[data-attention-chip]');
     dom.messageTitle = document.querySelector('[data-message-title]');
     dom.messageBody = document.querySelector('[data-message-body]');
+    dom.dailyRhythm = document.querySelector('[data-daily-rhythm]');
+    dom.dayPlan = document.querySelector('[data-day-plan]');
     dom.healthLabel = document.querySelector('[data-health-label]');
     dom.statsList = document.querySelector('[data-stats-list]');
     dom.actionsGrid = document.querySelector('[data-actions-grid]');
@@ -361,6 +411,7 @@
     dom.carePanels = Array.from(document.querySelectorAll('[data-care-panel]'));
     dom.arenaPanel = document.querySelector('[data-arena-panel]');
     dom.battleRecord = document.querySelector('[data-battle-record]');
+    dom.battlePlayerName = document.querySelector('[data-battle-player-name]');
     dom.battlePlayerHp = document.querySelector('[data-battle-player-hp]');
     dom.battlePlayerStamina = document.querySelector('[data-battle-player-stamina]');
     dom.battleOpponentHp = document.querySelector('[data-battle-opponent-hp]');
@@ -371,6 +422,7 @@
     dom.battleTraining = document.querySelector('[data-battle-training]');
     dom.battleLog = document.querySelector('[data-battle-log]');
     dom.minigameStatus = document.querySelector('[data-minigame-status]');
+    dom.minigameOpportunities = document.querySelector('[data-minigame-opportunities]');
     dom.minigameLast = document.querySelector('[data-minigame-last]');
     dom.minigameLastItems = Array.from(document.querySelectorAll('[data-minigame-last]'));
     dom.minigamePlayfield = document.querySelector('[data-minigame-playfield]');
@@ -382,12 +434,40 @@
     dom.sporePopCanvas = document.querySelector('[data-spore-pop-canvas]');
     dom.decorationList = document.querySelector('[data-decoration-list]');
     dom.decorationCount = document.querySelector('[data-decoration-count]');
+    dom.habitatSummary = document.querySelector('[data-habitat-summary]');
     dom.historyScore = document.querySelector('[data-history-score]');
     dom.careHistory = document.querySelector('[data-care-history]');
+    dom.characterCompass = document.querySelector('[data-character-compass]');
+    dom.relationshipList = document.querySelector('[data-relationship-list]');
     dom.exportButton = document.querySelector('[data-export-button]');
     dom.importButton = document.querySelector('[data-import-button]');
     dom.importInput = document.querySelector('[data-import-input]');
     dom.backupStatus = document.querySelector('[data-backup-status]');
+  }
+
+  function renderBuildBadge() {
+    if (!dom.buildBadge) {
+      return;
+    }
+
+    const build = config.build || {};
+    const label = String(build.label || formatBuildLabel(build)).trim();
+    dom.buildBadge.textContent = label;
+    dom.buildBadge.hidden = !label;
+    if (label) {
+      const source = build.sourceHash ? 'source ' + build.sourceHash : '';
+      const revision = build.revision ? 'commit ' + build.revision : '';
+      dom.buildBadge.title = [label, source, revision].filter(Boolean).join(' · ');
+    }
+  }
+
+  function formatBuildLabel(build) {
+    const version = String((build && build.version) || config.appVersion || '').trim();
+    const id = String(build && build.id || '').trim();
+    if (version && id) {
+      return 'v' + version + '+' + id;
+    }
+    return version ? 'v' + version : id;
   }
 
   function setupCanvas() {
@@ -412,6 +492,9 @@
 
   function bindControls() {
     dom.resetButton.addEventListener('click', handleResetButtonClick);
+    if (dom.nameForm) {
+      dom.nameForm.addEventListener('submit', handleNameFormSubmit);
+    }
 
     dom.viewCare.addEventListener('click', function() {
       setViewMode('care');
@@ -434,6 +517,7 @@
     }
     if (dom.dewCatchCanvas) {
       dom.dewCatchCanvas.addEventListener('pointerdown', handleDewCatchPointer);
+      dom.dewCatchCanvas.addEventListener('pointermove', handleDewCatchPointer);
     }
     if (dom.sporePopCanvas) {
       dom.sporePopCanvas.addEventListener('pointerdown', handleSporePopPointer);
@@ -499,7 +583,41 @@
     addLog(runtime.state, 'Nowa grzybnia jest gotowa.', getRuntimeNow());
     saveState(runtime.state);
     renderUi();
+    focusNameInputIfNeeded();
     triggerEffect('clean');
+  }
+
+  function handleNameFormSubmit(event) {
+    event.preventDefault();
+    const name = normalizeMushroomNameValue(dom.nameInput && dom.nameInput.value);
+    if (!name) {
+      if (dom.nameError) {
+        dom.nameError.textContent = 'Wpisz imię.';
+      }
+      if (dom.nameInput) {
+        dom.nameInput.focus();
+      }
+      return;
+    }
+
+    const now = getRuntimeNow();
+    runtime.state.mushroomName = name;
+    runtime.state.flags = Object.assign({}, runtime.state.flags || {}, { nameConfirmed: true });
+    runtime.state.lastUpdatedAt = new Date(now).toISOString();
+    addLog(runtime.state, name + ' trafia do miękkiej grzybni.', now);
+    saveState(runtime.state);
+    if (dom.nameError) {
+      dom.nameError.textContent = '';
+    }
+    renderUi();
+  }
+
+  function focusNameInputIfNeeded() {
+    if (!hasNamedMushroom(runtime.state) && dom.nameInput) {
+      window.setTimeout(function() {
+        dom.nameInput.focus();
+      }, 0);
+    }
   }
 
   function bindKeyboardShortcuts() {

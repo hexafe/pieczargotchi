@@ -135,6 +135,9 @@
       lastSeenAt: now,
       count: clampInteger(existing && existing.count ? existing.count + 1 : 1, 1, 999999, 1)
     };
+    if (!existing && typeof addWorldJournalDiscoveryEntryCore === 'function') {
+      addWorldJournalDiscoveryEntryCore(state, 'environment', item, Date.parse(now));
+    }
 
     return {
       state: state,

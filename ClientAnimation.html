@@ -584,7 +584,6 @@
 
   function drawTemporaryOverlays(ctx, now, wallNow, selectedAnimation, drewAnimation) {
     const need = getStrongestNeed(runtime.state);
-    const activity = getActiveActivity(runtime.state, wallNow);
 
     if (!drewAnimation) {
       drawNeedOverlay(ctx, now);

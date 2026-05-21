@@ -369,15 +369,17 @@ test('corrupted save shape falls back to a normal migration target', () => {
   assert(migrated.battle && migrated.battle.rewards.wins === 0, 'expected normalized battle rewards');
 });
 
-test('v2 saves migrate to v9 progression history, discoveries, evolution, minigames, decorations, recovery, game over, and daily growth', () => {
+test('v2 saves migrate to v12 progression history, discoveries, evolution, minigames, decorations, daily rhythm, journal, return recap, relationship, and naming gate', () => {
   const migrated = core.migrateStateVersion({
     version: 2,
     stage: 'adult',
     stats: { growth: 70 },
     history: { actionsPerformed: { hydrate: 2 } }
-  }, 9);
+  }, 12);
 
-  assert(migrated.version === 9, `expected version 9, got ${migrated.version}`);
+  assert(migrated.version === 12, `expected version 12, got ${migrated.version}`);
+  assert(migrated.mushroomName === '', 'expected unnamed default mushroom for first-run naming gate');
+  assert(migrated.flags && migrated.flags.nameConfirmed === false, 'expected name confirmation flag to default to false');
   assert(migrated.history.actionsPerformed.hydrate === 2, 'expected action history to survive migration');
   assert(migrated.history.attention.handled === 0, 'expected attention history defaults');
   assert(migrated.history.dailyGrowth.earned === 0, 'expected daily growth defaults');
@@ -386,8 +388,151 @@ test('v2 saves migrate to v9 progression history, discoveries, evolution, miniga
   assert(Array.isArray(migrated.decorations.owned), 'expected decoration ownership list');
   assert(migrated.discoveries && migrated.discoveries.sky, 'expected sky discoveries subtree');
   assert(migrated.discoveries && migrated.discoveries.environment, 'expected environment discoveries subtree');
+  assert(migrated.discoveries && migrated.discoveries.instruments, 'expected instrument discoveries subtree');
   assert(migrated.recovery && migrated.recovery.active === false, 'expected empty recovery state');
   assert(migrated.gameOver && migrated.gameOver.active === false, 'expected empty game-over state');
+  assert(migrated.dailyPlan && Array.isArray(migrated.dailyPlan.activeIds), 'expected daily plan defaults');
+  assert(migrated.dailyRhythm && Array.isArray(migrated.dailyRhythm.options), 'expected daily rhythm defaults');
+  assert(migrated.relationship && Array.isArray(migrated.relationship.entries), 'expected relationship defaults');
+  assert(migrated.journal && Array.isArray(migrated.journal.entries), 'expected world journal defaults');
+  assert(migrated.returnRecap && Array.isArray(migrated.returnRecap.entries), 'expected return recap defaults');
+});
+
+test('custom mushroom names survive migration as confirmed names', () => {
+  const migrated = core.migrateStateVersion({
+    version: 11,
+    mushroomName: 'Borowik',
+    flags: {}
+  }, 12);
+
+  assert(migrated.version === 12, `expected version 12, got ${migrated.version}`);
+  assert(migrated.mushroomName === 'Borowik', `expected custom name to survive, got ${migrated.mushroomName}`);
+  assert(migrated.flags && migrated.flags.nameConfirmed === true, 'expected custom legacy name to count as confirmed');
+});
+
+test('daily care plan is deterministic and completes matching actions once', () => {
+  const now = Date.parse('2026-05-21T08:00:00.000Z');
+  const rules = getGameplayLoopTestRules();
+  const state = getGameplayLoopTestState({
+    stats: { hydration: 35, nutrients: 72, energy: 80, happiness: 70, cleanliness: 76, health: 90, growth: 18 },
+    attention: { activeNeed: 'hydration', severity: 'mild', startedAt: null, deadlineAt: null }
+  });
+  const scene = { dayPhase: 'morning', humidity: 88, precipitation: 0, rain: 0 };
+  const planned = core.ensureDailyPlan(state, rules, now, scene);
+  const plan = core.getDailyCarePlan(planned, rules, now, scene);
+  const first = core.updateDailyPlanProgress(planned, { type: 'action', actionId: 'hydrate' }, rules, now + 1000, scene);
+  const second = core.updateDailyPlanProgress(first.state, { type: 'action', actionId: 'hydrate' }, rules, now + 2000, scene);
+
+  assert(plan.goals.length === 3, `expected three daily goals, got ${plan.goals.length}`);
+  assert(plan.goals[0].id === 'attention-hydration', `expected hydration attention first, got ${plan.goals[0].id}`);
+  assert(first.completed.length === 1, `expected one completed goal, got ${first.completed.length}`);
+  assert(first.state.dailyPlan.completed['attention-hydration'], 'expected hydration goal to be marked complete');
+  assert(second.completed.length === 0, 'expected repeated action not to duplicate completion');
+  assert(first.state.patch.quality > state.patch.quality, 'expected daily goal reward to improve patch quality');
+});
+
+test('daily rhythm selection reshapes the same-day care plan once', () => {
+  const now = Date.parse('2026-05-21T08:00:00.000Z');
+  const rules = getGameplayLoopTestRules();
+  const state = getGameplayLoopTestState({
+    stats: { hydration: 82, nutrients: 78, energy: 80, happiness: 76, cleanliness: 80, health: 90, growth: 18 }
+  });
+  const scene = { dayPhase: 'morning', humidity: 88, precipitation: 0, rain: 0 };
+  const options = core.getDailyRhythmOptions(state, rules, now, scene);
+  const dewOption = options.options.find((item) => item.id === 'dew');
+  const selected = core.selectDailyRhythm(state, 'dew', rules, now, scene);
+  const plan = core.getDailyCarePlan(selected.state, rules, now, scene);
+  const second = core.selectDailyRhythm(selected.state, 'music', rules, now + 1000, scene);
+
+  assert(dewOption, 'expected dew rhythm to be offered in a wet morning scene');
+  assert(selected.ok, `expected dew rhythm selection to succeed: ${selected.reason}`);
+  assert(selected.state.dailyRhythm.selectedId === 'dew', 'expected selected dew rhythm');
+  assert(plan.goals.some((goal) => goal.id === 'action-hydrate' || goal.id === 'minigame-dewCatch'), 'expected dew rhythm goal in plan');
+  assert(!second.ok, 'expected same day rhythm to be locked after selection');
+});
+
+test('minigame opportunities follow scene, stage, and cooldowns', () => {
+  const now = Date.parse('2026-05-21T07:30:00.000Z');
+  const rules = getGameplayLoopTestRules();
+  const state = getGameplayLoopTestState({
+    stage: 'adult',
+    patch: { quality: 74, mycelium: 80, harvests: 0, careStreak: 0 },
+    cooldowns: { 'minigame.dewCatch': now + 60000 }
+  });
+  const opportunities = core.getMinigameOpportunities(state, rules, {
+    dayPhase: 'morning',
+    humidity: 92,
+    precipitation: 0,
+    rain: 0
+  }, now);
+  const dew = opportunities.find((item) => item.minigameId === 'dewCatch');
+  const spore = opportunities.find((item) => item.minigameId === 'sporePop');
+
+  assert(dew && !dew.available, 'expected dew catch opportunity on cooldown');
+  assert(spore && spore.available, 'expected adult spore opportunity to be available');
+});
+
+test('habitat tags influence minigame opportunities and expose effects', () => {
+  const now = Date.parse('2026-05-21T13:30:00.000Z');
+  const rules = getGameplayLoopTestRules();
+  const state = getGameplayLoopTestState({
+    stage: 'young',
+    stats: { hydration: 65 },
+    decorations: { owned: ['dewStone', 'sporeLantern'], active: ['dewStone', 'sporeLantern'] },
+    inventory: { spores: 0 },
+    patch: { quality: 74, mycelium: 24, harvests: 0, careStreak: 0 }
+  });
+  const opportunities = core.getMinigameOpportunities(state, rules, {
+    dayPhase: 'afternoon',
+    humidity: 66,
+    precipitation: 0,
+    rain: 0
+  }, now);
+  const habitat = core.getDecorationHabitatSummary(state, rules);
+
+  assert(opportunities.some((item) => item.minigameId === 'dewCatch'), 'expected moisture habitat to make dew catch viable');
+  assert(opportunities.some((item) => item.minigameId === 'sporePop'), 'expected spore habitat to unlock young-stage spore pop');
+  assert(habitat.effects.some((effect) => effect.includes('Rosa')), 'expected habitat summary to describe moisture effect');
+});
+
+test('relationship log is bounded and decoration habitat aggregates tags', () => {
+  const rules = getGameplayLoopTestRules();
+  let state = getGameplayLoopTestState({
+    decorations: { owned: ['dewStone', 'mossBell'], active: ['dewStone', 'mossBell'] }
+  });
+  for (let index = 0; index < 10; index += 1) {
+    state = core.addRelationshipEntry(state, {
+      title: 'Wpis ' + index,
+      body: 'Krótki ślad opieki.',
+      tone: 'care',
+      tag: 'test'
+    }, Date.parse('2026-05-21T08:00:00.000Z') + index, 4);
+  }
+  const habitat = core.getDecorationHabitatSummary(state, rules);
+
+  assert(state.relationship.entries.length === 4, `expected bounded relationship entries, got ${state.relationship.entries.length}`);
+  assert(state.relationship.entries[0].title === 'Wpis 9', 'expected newest relationship entry first');
+  assert(habitat.tags.some((tag) => tag.id === 'comfort' && tag.count === 2), 'expected comfort habitat from active decorations');
+  assert(habitat.tags.some((tag) => tag.id === 'music'), 'expected music habitat tag');
+});
+
+test('evolution compass summarizes current care direction without deciding evolution', () => {
+  const rules = getGameplayLoopTestRules();
+  const state = getGameplayLoopTestState({
+    history: {
+      actionsPerformed: { hydrate: 6, feed: 1, clean: 1, play: 0, instrument: 0, sing: 0 },
+      modeMs: { awake: 1000, sleeping: 1000 },
+      statSamples: { count: 2, hydration: 170, nutrients: 140, energy: 160, happiness: 130, cleanliness: 150, health: 180 },
+      attention: { handled: 2, missed: 0 },
+      dailyGrowth: { dateKey: '2026-05-21', earned: 1 },
+      minigames: {}
+    }
+  });
+  const compass = core.getEvolutionCompass(state, rules);
+
+  assert(compass.variant === 'dewcap', `expected dewcap direction, got ${compass.variant}`);
+  assert(!compass.decided, 'expected compass to remain a preview before evolution');
+  assert(compass.cues.length > 0, 'expected visible compass cues');
 });
 
 test('arena unlocks only at legendary stage', () => {
@@ -1753,6 +1898,66 @@ test('environment discoveries normalize and record first sightings once', () => 
   assert(!normalized.environment.bogus, 'expected unknown environment discovery to be dropped');
 });
 
+test('world journal combines sky, environment, and rare instrument discoveries with locked hints', () => {
+  const state = getGameplayLoopTestState({
+    discoveries: { sky: {}, environment: {}, instruments: {} },
+    journal: { entries: [] }
+  });
+  core.recordSkyDiscovery(state, 'aurora', Date.parse('2026-01-12T22:30:00.000Z'));
+  core.recordEnvironmentDiscovery(state, 'dew', Date.parse('2026-06-21T04:20:00.000Z'));
+  core.recordInstrumentDiscovery(state, {
+    id: 'adultCometHarp',
+    discoveryId: 'rareInstrument_adult',
+    label: 'Kometowa harfa',
+    logLabel: 'kometowej harfie',
+    stage: 'adult'
+  }, Date.parse('2026-06-21T21:20:00.000Z'));
+  const rareInstrumentAgain = core.recordInstrumentDiscovery(state, {
+    id: 'adultCometHarp',
+    discoveryId: 'rareInstrument_adult',
+    label: 'Kometowa harfa',
+    logLabel: 'kometowej harfie',
+    stage: 'adult'
+  }, Date.parse('2026-06-21T21:30:00.000Z'));
+  const journal = core.getWorldJournal(state, getGameplayLoopTestRules());
+  const sky = journal.groups.find((group) => group.id === 'sky');
+  const environment = journal.groups.find((group) => group.id === 'environment');
+  const instruments = journal.groups.find((group) => group.id === 'instrument');
+  const aurora = sky.items.find((item) => item.id === 'aurora');
+  const comet = sky.items.find((item) => item.id === 'comet');
+  const dew = environment.items.find((item) => item.id === 'dew');
+  const rare = instruments.items.find((item) => item.id === 'rareInstrument_adult');
+
+  assert(journal.discoveredCount === 3, `expected three discoveries, got ${journal.discoveredCount}`);
+  assert(rareInstrumentAgain.message.includes('kometowej harfie'), 'expected rare instrument log label to mention the played instrument');
+  assert(aurora.discovered, 'expected aurora to be discovered');
+  assert(dew.discovered, 'expected dew to be discovered');
+  assert(rare.discovered, 'expected rare instrument to be discovered');
+  assert(comet && !comet.discovered && comet.hint, 'expected locked sky item to keep a hint');
+  assert(state.journal.entries.length === 3, 'expected first sightings to create journal entries');
+});
+
+test('return recap is generated once for long offline windows', () => {
+  const now = Date.parse('2026-05-21T12:00:00.000Z');
+  const from = now - 3 * 60 * 60 * 1000;
+  const rules = getGameplayLoopTestRules();
+  const state = getGameplayLoopTestState({
+    lastUpdatedAt: new Date(from).toISOString(),
+    stats: { hydration: 44, nutrients: 72, energy: 80, happiness: 70, cleanliness: 76, health: 90 },
+    discoveries: { sky: { aurora: { id: 'aurora', label: 'Zorza polarna', firstSeenAt: new Date(from).toISOString(), lastSeenAt: new Date(from).toISOString(), count: 1 } }, environment: {} },
+    returnRecap: { lastSeenAt: null, lastDigestAt: null, entries: [] }
+  });
+  const recap = core.getReturnRecap(state, rules, from, now, { appliedMs: now - from }, {});
+  const ack = core.ackReturnRecap(state, recap, now);
+  const repeated = core.getReturnRecap(ack.state, rules, from, now + 1000, { appliedMs: now - from }, {});
+
+  assert(recap.entries.length === 1, 'expected one return recap entry');
+  assert(recap.body.includes('Wilgoć'), 'expected recap to mention the lowest need');
+  assert(ack.state.returnRecap.entries.length === 1, 'expected recap to be persisted');
+  assert(ack.state.relationship.entries[0].tag === 'recap', 'expected recap to be visible in relationship history');
+  assert(repeated.entries.length === 0, 'expected acked recap not to repeat');
+});
+
 function findAmbientCue(scene, start) {
   for (let step = 0; step < 80; step += 1) {
     const now = start + step * 13500 + 2200;
@@ -1763,6 +1968,95 @@ function findAmbientCue(scene, start) {
   }
 
   return null;
+}
+
+function getGameplayLoopTestRules() {
+  return {
+    needDefinitions: {
+      hydration: { category: 'physical', actionId: 'hydrate', title: 'Chce wilgoci', mildMessage: 'Mech robi się suchy.' },
+      nutrients: { category: 'physical', actionId: 'feed', title: 'Głodne podłoże', mildMessage: 'Podłoże traci siłę.' },
+      happiness: { category: 'mental', actionId: 'play', title: 'Nudzi się', mildMessage: 'Czeka na zabawę.' },
+      cleanliness: { category: 'environment', actionId: 'clean', title: 'Bałagan', mildMessage: 'W mchu zbiera się bałagan.' },
+      energy: { category: 'rest', actionId: 'sleepWake', title: 'Senność', mildMessage: 'Czas na odpoczynek.' },
+      health: { category: 'physical', actionId: 'hydrate', title: 'Niedomaga', mildMessage: 'Wygląda słabiej.' }
+    },
+    evolution: {
+      legendaryGrowth: 100,
+      variants: {
+        dewcap: 'Rosopieczarka',
+        compostcap: 'Kompostopieczarka',
+        songcap: 'Śpiewopieczarka',
+        wildcap: 'Dzika Pieczarka',
+        ghostcap: 'Mglista Pieczarka',
+        royalcap: 'Królewska Pieczarka'
+      },
+      traits: {
+        dewcap: { title: 'Rytm rosy', favoriteAction: 'hydrate', message: 'Rosopieczarka łapie spokojny rytm wilgoci.' }
+      }
+    },
+    decorations: [
+      { id: 'dewStone', label: 'Kamień rosy', cost: 6, happinessBonus: 2, tags: ['moisture', 'comfort'] },
+      { id: 'mossBell', label: 'Mchowy dzwonek', cost: 10, happinessBonus: 3, tags: ['music', 'wind', 'comfort'] },
+      { id: 'sporeLantern', label: 'Latarenka zarodników', cost: 16, happinessBonus: 4, tags: ['night', 'spores'] },
+      { id: 'cloverPatch', label: 'Kępa koniczyny', cost: 5, happinessBonus: 1, tags: ['wild', 'flowers', 'insects'] }
+    ],
+    instrumentCatalog: {
+      stages: {
+        adult: [
+          { id: 'adultKalimba', label: 'Mała kalimba', logLabel: 'małej kalimbie', activityType: 'instrument_bell' },
+          { id: 'adultPocketSynth', label: 'Kieszonkowy syntezator', logLabel: 'kieszonkowym syntezatorze', activityType: 'instrument_flute' },
+          { id: 'adultSporeChimes', label: 'Dzwonki zarodnikowe', logLabel: 'dzwonkach zarodnikowych', activityType: 'instrument_drum' },
+          { id: 'adultCometHarp', label: 'Kometowa harfa', logLabel: 'kometowej harfie', activityType: 'instrument_rare', rare: true, discoveryId: 'rareInstrument_adult', hint: 'kometa i spokojny wieczór' }
+        ]
+      }
+    }
+  };
+}
+
+function getGameplayLoopTestState(overrides = {}) {
+  return {
+    version: 12,
+    playerId: 'test-player',
+    mushroomName: overrides.mushroomName || 'Testek',
+    createdAt: overrides.createdAt || '2026-05-20T08:00:00.000Z',
+    lastUpdatedAt: overrides.lastUpdatedAt || '2026-05-21T08:00:00.000Z',
+    mode: 'awake',
+    stage: overrides.stage || 'baby',
+    stats: {
+      hydration: 72,
+      nutrients: 72,
+      energy: 80,
+      happiness: 70,
+      cleanliness: 76,
+      health: 90,
+      growth: 18,
+      ...(overrides.stats || {})
+    },
+    history: overrides.history || {
+      actionsPerformed: {},
+      modeMs: { awake: 0, sleeping: 0 },
+      statSamples: { count: 0, hydration: 0, nutrients: 0, energy: 0, happiness: 0, cleanliness: 0, health: 0 },
+      attention: { handled: 0, missed: 0 },
+      dailyGrowth: { dateKey: null, earned: 0 },
+      minigames: {}
+    },
+    patch: overrides.patch || { quality: 72, mycelium: 12, harvests: 0, careStreak: 0 },
+    attention: overrides.attention || { activeNeed: null, severity: null, startedAt: null, deadlineAt: null },
+    flags: overrides.flags || { nameConfirmed: true },
+    careMistakes: overrides.careMistakes || { physical: 0, mental: 0, environment: 0, rest: 0 },
+    evolution: overrides.evolution || { variant: null, decidedAt: null, reason: null },
+    minigames: overrides.minigames || { active: null, lastResult: null },
+    dailyPlan: overrides.dailyPlan || { dateKey: null, activeIds: [], completed: {} },
+    dailyRhythm: overrides.dailyRhythm || { dateKey: null, selectedId: null, options: [] },
+    relationship: overrides.relationship || { entries: [] },
+    journal: overrides.journal || { entries: [] },
+    decorations: overrides.decorations || { owned: [], active: [] },
+    discoveries: overrides.discoveries || { sky: {}, environment: {}, instruments: {} },
+    returnRecap: overrides.returnRecap || { lastSeenAt: null, lastDigestAt: null, entries: [] },
+    inventory: overrides.inventory || { spores: 12 },
+    coins: overrides.coins ?? 12,
+    cooldowns: overrides.cooldowns || {}
+  };
 }
 
 function getBattleTestRules() {
@@ -1819,7 +2113,8 @@ function getLegendaryBattleState(overrides = {}) {
   const battle = core.normalizeBattleState(overrides.battle || {});
   return {
     stage: 'legendary',
-    mushroomName: 'Pieczarka',
+    mushroomName: overrides.mushroomName || 'Testek',
+    flags: overrides.flags || { nameConfirmed: true },
     stats: {
       hydration: 80,
       nutrients: 80,

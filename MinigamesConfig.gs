@@ -4,7 +4,7 @@ function getMinigamesConfig() {
       id: 'dewCatch',
       label: 'Łapanie rosy',
       durationMs: 20000,
-      dropCount: 18,
+      dropCount: 24,
       cooldownMs: 25 * 60000,
       rewards: {
         hydrationBase: 4,

@@ -56,8 +56,13 @@
     result.battle = Object.assign({}, base.battle, override.battle || {});
     result.evolution = Object.assign({}, base.evolution, override.evolution || {});
     result.minigames = Object.assign({}, base.minigames, override.minigames || {});
+    result.dailyPlan = Object.assign({}, base.dailyPlan, override.dailyPlan || {});
+    result.dailyRhythm = Object.assign({}, base.dailyRhythm, override.dailyRhythm || {});
+    result.relationship = Object.assign({}, base.relationship, override.relationship || {});
+    result.journal = Object.assign({}, base.journal, override.journal || {});
     result.decorations = Object.assign({}, base.decorations, override.decorations || {});
     result.discoveries = Object.assign({}, base.discoveries, override.discoveries || {});
+    result.returnRecap = Object.assign({}, base.returnRecap, override.returnRecap || {});
     result.cooldowns = Object.assign({}, base.cooldowns, override.cooldowns || {});
     result.flags = Object.assign({}, base.flags, override.flags || {});
     result.log = Array.isArray(override.log) ? override.log.slice(0, rules.maxLogEntries || 8) : base.log;
@@ -66,7 +71,7 @@
 
   function normalizeState(state) {
     state.mode = state.mode === 'awake' ? 'awake' : 'sleeping';
-    state.mushroomName = state.mushroomName || 'Pieczarka';
+    state.mushroomName = normalizeMushroomNameValue(state.mushroomName);
     state.createdAt = state.createdAt || new Date(getRuntimeNow()).toISOString();
     state.lastUpdatedAt = state.lastUpdatedAt || state.createdAt;
     state.stats = clampAllStats(state.stats || {});
@@ -80,7 +85,7 @@
     state = normalizeProgressionForRuntime(state);
     state.discoveries = normalizeDiscoveriesForRuntime(state.discoveries || {});
     state.cooldowns = state.cooldowns || {};
-    state.flags = state.flags || {};
+    state.flags = normalizeFlags(state.flags || {}, state.mushroomName);
     state.log = Array.isArray(state.log) ? state.log.slice(0, rules.maxLogEntries || 8) : [];
     state.stage = getStageForGrowth(state.stats.growth || 0);
     state = applyEvolutionIfReady(state, getRuntimeNow(), false);
@@ -89,14 +94,32 @@
     return state;
   }
 
+  function normalizeFlags(flags, mushroomName) {
+    const source = flags || {};
+    const hasCustomLegacyName = Boolean(mushroomName && mushroomName !== defaultMushroomName);
+    return Object.assign({}, source, {
+      tutorialDone: Boolean(source.tutorialDone),
+      firstWakeDone: Boolean(source.firstWakeDone),
+      firstFeedDone: Boolean(source.firstFeedDone),
+      firstInstrumentDone: Boolean(source.firstInstrumentDone),
+      firstSingDone: Boolean(source.firstSingDone),
+      nameConfirmed: Boolean(source.nameConfirmed || hasCustomLegacyName)
+    });
+  }
+
   function normalizeProgressionForRuntime(state) {
     const core = window.PieczargotchiCore;
     if (!core || !core.normalizeProgressionState) {
       state.history = state.history || {};
       state.evolution = state.evolution || { variant: null, decidedAt: null, reason: null };
       state.minigames = state.minigames || { active: null, lastResult: null };
+      state.dailyPlan = state.dailyPlan || { dateKey: null, activeIds: [], completed: {} };
+      state.dailyRhythm = state.dailyRhythm || { dateKey: null, selectedId: null, options: [] };
+      state.relationship = state.relationship || { entries: [] };
+      state.journal = state.journal || { entries: [] };
       state.decorations = state.decorations || { owned: [], active: [] };
       state.discoveries = normalizeDiscoveriesForRuntime(state.discoveries || {});
+      state.returnRecap = state.returnRecap || { lastSeenAt: null, lastDigestAt: null, entries: [] };
       return state;
     }
 
@@ -104,8 +127,13 @@
     state.history = normalized.history;
     state.evolution = normalized.evolution;
     state.minigames = normalized.minigames;
+    state.dailyPlan = normalized.dailyPlan || state.dailyPlan || { dateKey: null, activeIds: [], completed: {} };
+    state.dailyRhythm = normalized.dailyRhythm || state.dailyRhythm || { dateKey: null, selectedId: null, options: [] };
+    state.relationship = normalized.relationship || state.relationship || { entries: [] };
+    state.journal = normalized.journal || state.journal || { entries: [] };
     state.decorations = normalized.decorations;
     state.discoveries = normalized.discoveries || normalizeDiscoveriesForRuntime(state.discoveries || {});
+    state.returnRecap = normalized.returnRecap || state.returnRecap || { lastSeenAt: null, lastDigestAt: null, entries: [] };
     state.recovery = normalized.recovery || normalizeRecovery(state.recovery || {});
     state.gameOver = normalized.gameOver || normalizeGameOver(state.gameOver || {});
     return state;
@@ -181,7 +209,8 @@
 
     return {
       sky: discoveries && discoveries.sky && typeof discoveries.sky === 'object' ? discoveries.sky : {},
-      environment: discoveries && discoveries.environment && typeof discoveries.environment === 'object' ? discoveries.environment : {}
+      environment: discoveries && discoveries.environment && typeof discoveries.environment === 'object' ? discoveries.environment : {},
+      instruments: discoveries && discoveries.instruments && typeof discoveries.instruments === 'object' ? discoveries.instruments : {}
     };
   }
 
@@ -218,6 +247,7 @@
       state.lastUpdatedAt = new Date(now).toISOString();
       cleanupActivity(now);
       evaluateAttention(state, now);
+      refreshDailyPlanState(state, now);
       return state;
     }
 
@@ -254,8 +284,52 @@
     updateArenaUnlock(state);
     evaluateAttention(state, now);
     updateRecoveryState(state, now, true);
+    refreshDailyPlanState(state, now);
+    applyReturnRecapState(state, safeLastUpdated, now, timePlan);
     state.lastUpdatedAt = new Date(now).toISOString();
     cleanupActivity(now);
+    return state;
+  }
+
+  function refreshDailyPlanState(state, now) {
+    const core = window.PieczargotchiCore;
+    if (!core || !core.ensureDailyPlan) {
+      return state;
+    }
+    const scene = typeof getCurrentWeatherScene === 'function' ? getCurrentWeatherScene() : null;
+    if (typeof core.ensureDailyRhythm === 'function') {
+      const rhythmState = core.ensureDailyRhythm(state, rules, now, scene);
+      state.dailyRhythm = rhythmState.dailyRhythm || state.dailyRhythm;
+    }
+    const nextState = core.ensureDailyPlan(state, rules, now, scene);
+    state.dailyRhythm = nextState.dailyRhythm || state.dailyRhythm;
+    state.dailyPlan = nextState.dailyPlan || state.dailyPlan;
+    return state;
+  }
+
+  function applyReturnRecapState(state, from, to, timePlan) {
+    const core = window.PieczargotchiCore;
+    if (!core || typeof core.getReturnRecap !== 'function' || typeof core.ackReturnRecap !== 'function') {
+      return state;
+    }
+
+    const scene = typeof getCurrentWeatherScene === 'function' ? getCurrentWeatherScene() : null;
+    const recap = core.getReturnRecap(state, rules, from, to, timePlan, scene);
+    if (!recap || !Array.isArray(recap.entries) || !recap.entries.length) {
+      return state;
+    }
+
+    const result = core.ackReturnRecap(state, recap, to);
+    const nextState = result.state || state;
+    state.returnRecap = nextState.returnRecap || state.returnRecap;
+    state.relationship = nextState.relationship || state.relationship;
+    state.currentActivity = {
+      type: 'notice',
+      label: recap.title || 'Powrót do grzybni',
+      body: recap.body || recap.entries[0].body,
+      startedAt: to,
+      until: to + 8000
+    };
     return state;
   }
 
@@ -379,6 +453,16 @@
       until: now + (rules.activityMs || 2400)
     };
     addLog(state, 'Dojrzała grzybnia wypuściła plon: +' + spores + ' zarodników.', now);
+    applyGameplayEventToState(state, {
+      type: 'harvest',
+      spores: spores
+    }, now);
+    appendRelationshipEntryToState(state, {
+      title: 'Plon grzybni',
+      body: 'Dojrzałe mycelium oddało zarodniki i zaczęło nowy cykl.',
+      tone: 'spores',
+      tag: 'harvest'
+    }, now);
     triggerEffect('spores');
   }
 
@@ -449,6 +533,12 @@
       : null;
     if (event.type === 'resolved') {
       addLog(state, 'Pieczarka uspokoiła się. Potrzeba została zaopiekowana.', now);
+      appendRelationshipEntryToState(state, {
+        title: 'Spokojniejsza grzybnia',
+        body: 'Potrzeba została domknięta bez presji.',
+        tone: 'care',
+        tag: 'attention'
+      }, now);
       return;
     }
     if (!definition) {
@@ -464,6 +554,12 @@
     }
     if (event.type === 'mistake') {
       addLog(state, 'Przegapiona potrzeba: ' + definition.title + '. To zapisuje się w historii opieki.', now);
+      appendRelationshipEntryToState(state, {
+        title: 'Pominięta potrzeba',
+        body: definition.title + ' zostawiło drobny ślad w charakterze.',
+        tone: 'mistake',
+        tag: definition.category || 'care'
+      }, now);
       triggerEffect('attention');
     }
   }
@@ -526,6 +622,12 @@
     state.stats.happiness += Number(penalty.happiness) || 0;
     recordAttentionHistory(state, 'missed');
     addLog(state, 'Przegapiona potrzeba: ' + need.definition.title + '. To zapisuje się w historii opieki.', now);
+    appendRelationshipEntryToState(state, {
+      title: 'Pominięta potrzeba',
+      body: need.definition.title + ' zostawiło drobny ślad w charakterze.',
+      tone: 'mistake',
+      tag: category
+    }, now);
     triggerEffect('attention');
   }
 

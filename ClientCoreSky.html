@@ -54,7 +54,8 @@
     const source = isPlainObject(discoveries) ? discoveries : {};
     return {
       sky: normalizeSkyDiscoveryMap(source.sky),
-      environment: normalizeEnvironmentDiscoveryMap(source.environment)
+      environment: normalizeEnvironmentDiscoveryMap(source.environment),
+      instruments: normalizeInstrumentDiscoveryMap(source.instruments)
     };
   }
 
@@ -75,6 +76,9 @@
       lastSeenAt: now,
       count: clampInteger(existing && existing.count ? existing.count + 1 : 1, 1, 999999, 1)
     };
+    if (!existing && typeof addWorldJournalDiscoveryEntryCore === 'function') {
+      addWorldJournalDiscoveryEntryCore(state, 'sky', item, Date.parse(now));
+    }
 
     return {
       state: state,
@@ -131,6 +135,31 @@
         count: clampInteger(item.count, 1, 999999, 1)
       };
     });
+    return result;
+  }
+
+  function normalizeInstrumentDiscoveryMap(source) {
+    const result = {};
+    if (!isPlainObject(source)) {
+      return result;
+    }
+
+    Object.keys(source).forEach(function(id) {
+      const item = isPlainObject(source[id]) ? source[id] : {};
+      const label = String(item.label || item.title || id).slice(0, 80);
+      if (!id || !label) {
+        return;
+      }
+      result[String(id).slice(0, 64)] = {
+        id: String(item.id || id).slice(0, 64),
+        label: label,
+        stage: String(item.stage || '').slice(0, 24),
+        firstSeenAt: item.firstSeenAt || null,
+        lastSeenAt: item.lastSeenAt || item.firstSeenAt || null,
+        count: clampInteger(item.count, 1, 999999, 1)
+      };
+    });
+
     return result;
   }
 

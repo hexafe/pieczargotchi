@@ -33,6 +33,7 @@ const requiredSourceFiles = [
   'ClientCoreShared.html',
   'ClientCoreImmersion.html',
   'ClientCoreProgression.html',
+  'ClientCoreGameplay.html',
   'ClientCoreMinigames.html',
   'ClientCoreExports.html',
   'ClientBoot.html',
@@ -74,6 +75,7 @@ const expectedCoreIncludes = [
   'ClientCoreShared',
   'ClientCoreImmersion',
   'ClientCoreProgression',
+  'ClientCoreGameplay',
   'ClientCoreMinigames',
   'ClientCoreExports'
 ];
@@ -271,7 +273,7 @@ function checkStaticConfig() {
   if (config.storageKey !== 'pieczargotchi_state_v2') {
     fail(`Unexpected storage key: ${config.storageKey}`);
   }
-  if (config.stateVersion !== 9) {
+  if (config.stateVersion !== 12) {
     fail(`Unexpected state version: ${config.stateVersion}`);
   }
   if (!config.runtime || config.runtime.debugEnabled !== false) {
@@ -389,6 +391,7 @@ function checkLocalPreviewConfig() {
     if (!Array.isArray(config.rules && config.rules.decorations) || !config.rules.decorations.length) {
       fail('Local preview config is missing decorations.');
     }
+    checkGameplayLoopIteration2Config(config);
     const initialAssetDataKeys = Object.keys(config.assetData || {});
     if (config.runtime && config.runtime.assetMode === 'critical' && initialAssetDataKeys.length > 20) {
       fail(`Initial Apps Script asset payload is too large for critical mode: ${initialAssetDataKeys.length} asset records.`);
@@ -415,6 +418,73 @@ function checkDebugAnimationCoverage(config) {
 
   if (missing.length) {
     fail(`Debug animation selector is missing stage animations: ${missing.join(', ')}`);
+  }
+}
+
+function checkGameplayLoopIteration2Config(config) {
+  const state = config.state && config.state.defaultState ? config.state.defaultState : null;
+  if (!state) {
+    fail('Local preview config is missing default state.');
+    return;
+  }
+
+  if (config.stateVersion !== 12 || config.state.version !== config.stateVersion || state.version !== config.stateVersion) {
+    fail('Named first-run flow requires state version 12 across static config and default state.');
+  }
+
+  if (state.mushroomName !== '') {
+    fail('Default state should start without a mushroom name so first-run naming is required.');
+  }
+  if (!state.flags || state.flags.nameConfirmed !== false) {
+    fail('Default state should include flags.nameConfirmed=false.');
+  }
+
+  const index = readText('Index.html');
+  const boot = readText('ClientBoot.html');
+  const ui = readText('ClientUi.html');
+  const stateClient = readText('ClientState.html');
+  if (!index.includes('data-name-form') || !index.includes('data-name-input')) {
+    fail('Index.html is missing the first-run mushroom naming form.');
+  }
+  if (!boot.includes('function handleNameFormSubmit') || !boot.includes('function getMushroomName')) {
+    fail('ClientBoot.html is missing mushroom naming helpers.');
+  }
+  if (!stateClient.includes('nameConfirmed')) {
+    fail('ClientState.html is missing nameConfirmed migration logic.');
+  }
+  if (!ui.includes('function renderNameGate')) {
+    fail('ClientUi.html is missing first-run naming gate rendering.');
+  }
+
+  if (!state.dailyRhythm || !Array.isArray(state.dailyRhythm.options)) {
+    fail('Default state is missing dailyRhythm options.');
+  }
+  if (!state.journal || !Array.isArray(state.journal.entries)) {
+    fail('Default state is missing world journal entries.');
+  }
+  if (!state.returnRecap || !Array.isArray(state.returnRecap.entries)) {
+    fail('Default state is missing return recap entries.');
+  }
+  if (!state.discoveries || !state.discoveries.instruments) {
+    fail('Default state is missing rare instrument discoveries.');
+  }
+
+  const decorations = Array.isArray(config.rules && config.rules.decorations) ? config.rules.decorations : [];
+  const taggedDecorations = decorations.filter((item) => Array.isArray(item.tags) && item.tags.length);
+  if (decorations.length < 6 || taggedDecorations.length !== decorations.length) {
+    fail('Gameplay loop iteration 2 expects all decorations to carry habitat tags.');
+  }
+
+  const instrumentCatalog = config.rules && config.rules.instrumentCatalog && config.rules.instrumentCatalog.stages;
+  if (!instrumentCatalog) {
+    fail('Instrument catalog is missing stage-specific variants.');
+  } else {
+    ['spore', 'baby', 'young', 'adult', 'legendary'].forEach((stage) => {
+      const instruments = Array.isArray(instrumentCatalog[stage]) ? instrumentCatalog[stage] : [];
+      if (instruments.filter((item) => !item.rare).length < 3 || instruments.filter((item) => item.rare).length !== 1) {
+        fail(`Instrument catalog for ${stage} must include three common instruments and one rare instrument.`);
+      }
+    });
   }
 }
 

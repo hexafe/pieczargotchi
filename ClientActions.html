@@ -9,6 +9,9 @@
     if (!action) {
       return;
     }
+    if (!ensureMushroomNamed()) {
+      return;
+    }
 
     if (isMinigameActive()) {
       setTransientMessage('Minigra', 'Najpierw zakończ krótką rozgrywkę.');
@@ -53,6 +56,43 @@
     renderUi();
   }
 
+  function handleDailyRhythmSelect(rhythmId) {
+    const core = window.PieczargotchiCore;
+    if (!core || typeof core.selectDailyRhythm !== 'function') {
+      return;
+    }
+    if (!ensureMushroomNamed()) {
+      return;
+    }
+
+    const now = getRuntimeNow();
+    runtime.state = applyElapsedTime(runtime.state, now);
+    if (isGameOverForRuntime()) {
+      renderUi();
+      return;
+    }
+
+    const scene = typeof getCurrentWeatherScene === 'function' ? getCurrentWeatherScene() : null;
+    const result = core.selectDailyRhythm(runtime.state, rhythmId, rules, now, scene);
+    runtime.state = result.state || runtime.state;
+    if (!result.ok) {
+      setTransientMessage('Rytm dnia', result.reason);
+      renderUi();
+      return;
+    }
+
+    addLog(runtime.state, 'Rytm dnia: ' + result.rhythm.label + '.', now);
+    appendRelationshipEntryToState(runtime.state, {
+      title: 'Rytm dnia',
+      body: result.rhythm.label + ' poprowadzi dzisiejszą opiekę.',
+      tone: 'rhythm',
+      tag: result.rhythm.id
+    }, now);
+    runtime.state.lastUpdatedAt = new Date(now).toISOString();
+    saveState(runtime.state);
+    renderUi();
+  }
+
   function normalizeViewMode() {
     if (runtime.viewMode === 'arena' && !isArenaUnlockedForRuntime()) {
       runtime.viewMode = 'care';
@@ -64,9 +104,23 @@
     return Boolean(core && core.isArenaUnlocked && runtime.state && core.isArenaUnlocked(runtime.state, rules));
   }
 
+  function ensureMushroomNamed() {
+    if (hasNamedMushroom(runtime.state)) {
+      return true;
+    }
+
+    setTransientMessage('Imię', 'Najpierw nadaj imię.');
+    renderUi();
+    focusNameInputIfNeeded();
+    return false;
+  }
+
   function handleBattleStart() {
     const core = window.PieczargotchiCore;
     if (!core || !core.startBattle) {
+      return;
+    }
+    if (!ensureMushroomNamed()) {
       return;
     }
 
@@ -97,6 +151,9 @@
   function handleBattleTrain(statId) {
     const core = window.PieczargotchiCore;
     if (!core || !core.trainBattleStat) {
+      return;
+    }
+    if (!ensureMushroomNamed()) {
       return;
     }
 
@@ -130,6 +187,9 @@
     if (!core || !core.resolveBattleRound || !activeBattle || ['victory', 'defeat'].includes(activeBattle.mode)) {
       return;
     }
+    if (!ensureMushroomNamed()) {
+      return;
+    }
 
     const now = getRuntimeNow();
     if (isGameOverForRuntime()) {
@@ -157,6 +217,13 @@
 
   function canRunAction(action, now) {
     const core = window.PieczargotchiCore;
+    if (!hasNamedMushroom(runtime.state)) {
+      return {
+        ok: false,
+        reason: 'Najpierw nadaj imię.'
+      };
+    }
+
     if (isMinigameActive()) {
       return {
         ok: false,
@@ -231,6 +298,11 @@
       addLog(runtime.state, 'Pieczarka wtuliła się pod mech.', now);
     }
     applyEvolutionActionBonus(runtime.state, action, now);
+    applyGameplayEventToState(runtime.state, {
+      type: 'action',
+      actionId: action.id,
+      label: action.label
+    }, now);
   }
 
   function applyAction(action, now, source) {
@@ -256,21 +328,35 @@
     };
 
     if (action.id === 'instrument') {
-      const instrument = pickRandomInstrument();
+      const instrument = pickRandomInstrument(runtime.state.stage);
       runtime.state.lastRandomInstrument = instrument.label;
       runtime.state.currentActivity.label = instrument.label;
+      runtime.state.currentActivity.type = instrument.activityType || 'instrument';
+      runtime.state.currentActivity.instrumentId = instrument.id || '';
       runtime.state.currentActivity.instrumentVariant = instrument.variant;
-      addLog(runtime.state, 'Pieczarka zagrała na instrumencie: ' + instrument.label + '.', now);
+      if (instrument.rare) {
+        recordRareInstrumentDiscovery(runtime.state, instrument, now);
+      } else {
+        addLog(runtime.state, 'Pieczarka zagrała na ' + (instrument.logLabel || instrument.label) + '.', now);
+      }
     } else if (action.id === 'sing') {
       addLog(runtime.state, 'Pieczarka zaśpiewała miękką kapeluszową piosenkę.', now);
     } else {
       addLog(runtime.state, action.log, now);
     }
 
-    triggerEffect(action.effectType || action.id);
+    const canvasEffectType = getActionCanvasEffectType(action);
+    if (canvasEffectType) {
+      triggerEffect(canvasEffectType);
+    }
     rewardCareIfNeeded(runtime.state, action, now);
     updateRecoveryState(runtime.state, now, true);
     applyEvolutionActionBonus(runtime.state, action, now);
+    applyGameplayEventToState(runtime.state, {
+      type: 'action',
+      actionId: action.id,
+      label: action.label
+    }, now);
     flashActionButton(action.id);
   }
 
@@ -291,6 +377,12 @@
 
     if (handledNeed) {
       addLog(state, 'Dobra reakcja! Pieczarka zapamiętuje szybką opiekę.', now);
+      appendRelationshipEntryToState(state, {
+        title: 'Szybka opieka',
+        body: definition.title + ' zostało zaopiekowane, zanim zostawiło trudny ślad.',
+        tone: 'care',
+        tag: definition.category || 'care'
+      }, now);
       recordAttentionHistory(state, 'handled');
       state.attention = normalizeAttention({});
     }
@@ -303,6 +395,9 @@
     if (!core || !core.createMinigameSession || !minigameRules) {
       setTransientMessage('Gry', 'Ta minigra nie jest jeszcze gotowa.');
       renderUi();
+      return;
+    }
+    if (!ensureMushroomNamed()) {
       return;
     }
 
@@ -365,6 +460,11 @@
       runtime.state.stats = clampAllStats(runtime.state.stats);
       runtime.state.cooldowns[getMinigameCooldownKey(session.id)] = now + getMinigameCooldownMs(session.id);
       addLog(runtime.state, formatMinigameRewardLog(session, result.rewards, reason), now);
+      applyGameplayEventToState(runtime.state, {
+        type: 'minigame',
+        minigameId: session.id,
+        score: session.score
+      }, now);
       triggerEffect(session.id === 'sporePop' ? 'spores' : 'water');
     }
 
@@ -379,6 +479,9 @@
     if (!core || !core.buyDecoration) {
       return;
     }
+    if (!ensureMushroomNamed()) {
+      return;
+    }
 
     runtime.state = applyElapsedTime(runtime.state, now);
     if (isGameOverForRuntime()) {
@@ -391,6 +494,11 @@
       setTransientMessage('Dekoracje', result.reason);
     } else {
       addLog(runtime.state, 'Dekoracja w grzybni: ' + result.decoration.label + '.', now);
+      applyGameplayEventToState(runtime.state, {
+        type: 'decoration',
+        decorationId: result.decoration.id,
+        label: result.decoration.label
+      }, now);
       triggerEffect('hearts');
     }
 
@@ -495,6 +603,49 @@
     addLog(state, trait.title + ': ulubiona akcja wzmacnia grzybnię.', now);
   }
 
+  function applyGameplayEventToState(state, event, now) {
+    const core = window.PieczargotchiCore;
+    if (!core || !core.updateDailyPlanProgress) {
+      return state;
+    }
+
+    const scene = typeof getCurrentWeatherScene === 'function' ? getCurrentWeatherScene() : null;
+    const result = core.updateDailyPlanProgress(state, event, rules, now, scene);
+    const nextState = result.state || state;
+    state.dailyPlan = nextState.dailyPlan || state.dailyPlan;
+    state.relationship = nextState.relationship || state.relationship;
+    state.stats = clampAllStats(nextState.stats || state.stats);
+    state.patch = normalizePatch(nextState.patch || state.patch);
+    state.inventory = Object.assign({}, state.inventory || {}, nextState.inventory || {});
+    state.coins = Number(nextState.coins) || Number(state.coins) || 0;
+
+    (result.completed || []).forEach(function(goal) {
+      addLog(state, 'Plan dnia: ' + goal.title + ' ukończony.', now);
+      appendRelationshipEntryToState(state, {
+        title: 'Plan dnia',
+        body: goal.title + ' wzmacnia ' + String(goal.tag || 'relację').toLowerCase() + '.',
+        tone: 'goal',
+        tag: goal.tag || 'plan'
+      }, now);
+    });
+
+    return state;
+  }
+
+  function appendRelationshipEntryToState(state, entry, now) {
+    const core = window.PieczargotchiCore;
+    if (!core || !core.addRelationshipEntry) {
+      return state;
+    }
+    const nextEntry = Object.assign({}, entry || {}, {
+      title: formatMushroomText(entry && entry.title, state),
+      body: formatMushroomText(entry && entry.body, state)
+    });
+    const nextState = core.addRelationshipEntry(state, nextEntry, now, 8);
+    state.relationship = nextState.relationship || state.relationship;
+    return state;
+  }
+
   function applyStatDeltas(state, deltas, now) {
     Object.keys(deltas).forEach(function(stat) {
       if (stat === 'growth' && typeof applyGrowthDelta === 'function' && Number.isFinite(Number(now))) {
@@ -522,19 +673,74 @@
     return action.label;
   }
 
-  function pickRandomInstrument() {
+  function getActionCanvasEffectType(action) {
+    const spriteOwnsVisuals = {
+      feed: true,
+      instrument: true,
+      sing: true
+    };
+    if (!action || spriteOwnsVisuals[action.id]) {
+      return null;
+    }
+
+    return action.effectType || action.id;
+  }
+
+  function pickRandomInstrument(stage) {
+    const catalog = rules.instrumentCatalog && rules.instrumentCatalog.stages
+      ? rules.instrumentCatalog.stages
+      : null;
+    const stageCatalog = catalog && (catalog[stage] || catalog.adult);
+    if (Array.isArray(stageCatalog) && stageCatalog.length) {
+      const common = stageCatalog.filter(function(item) {
+        return !item.rare;
+      });
+      const rare = stageCatalog.filter(function(item) {
+        return item.rare;
+      });
+      const rareChance = Number(rules.instrumentCatalog && rules.instrumentCatalog.rareChance) || 0.05;
+      const pool = rare.length && Math.random() < rareChance ? rare : common.length ? common : stageCatalog;
+      const index = Math.floor(Math.random() * pool.length);
+      const instrument = pool[Math.max(0, Math.min(pool.length - 1, index))];
+      return Object.assign({
+        activityType: 'instrument',
+        variant: 0
+      }, instrument, {
+        stage: stage || 'adult',
+        variant: positiveModulo(stageCatalog.indexOf(instrument), 4)
+      });
+    }
+
     const instruments = rules.instruments || ['mała kalimba'];
     const index = Math.floor(Math.random() * instruments.length);
     return {
+      id: 'fallbackInstrument',
       label: instruments[index],
+      logLabel: instruments[index],
+      activityType: 'instrument',
       variant: positiveModulo(index, 4)
     };
+  }
+
+  function recordRareInstrumentDiscovery(state, instrument, now) {
+    const core = window.PieczargotchiCore;
+    if (!core || typeof core.recordInstrumentDiscovery !== 'function') {
+      addLog(state, 'Rzadkie brzmienie: Pieczarka zagrała na ' + (instrument.logLabel || instrument.label) + '.', now);
+      return;
+    }
+
+    const result = core.recordInstrumentDiscovery(state, instrument, now);
+    state.discoveries = result.state && result.state.discoveries ? result.state.discoveries : state.discoveries;
+    state.journal = result.state && result.state.journal ? result.state.journal : state.journal;
+    addLog(state, result.newlyDiscovered
+      ? result.message
+      : 'Pieczarka zagrała na ' + (instrument.logLabel || instrument.label) + '.', now);
   }
 
   function addLog(state, message, now) {
     const entry = {
       at: new Date(now).toISOString(),
-      text: message || 'Coś poruszyło się w grzybni.'
+      text: formatMushroomText(message || 'Coś poruszyło się w grzybni.', state)
     };
     const maxEntries = rules.maxLogEntries || 8;
     state.log = [entry].concat(state.log || []).slice(0, maxEntries);
@@ -544,7 +750,7 @@
     const battle = state.battle || {};
     const entry = {
       at: new Date(now).toISOString(),
-      text: message || 'Tura areny zakończona.'
+      text: formatMushroomText(message || 'Tura areny zakończona.', state)
     };
     battle.log = [entry].concat(Array.isArray(battle.log) ? battle.log : []).slice(0, rules.maxLogEntries || 8);
     state.battle = battle;
@@ -560,7 +766,7 @@
     }
 
     return events.map(function(event) {
-      const actor = event.actor === 'player' ? 'Pieczarka' : 'Rywal';
+      const actor = event.actor === 'player' ? getMushroomName(runtime.state) : 'Rywal';
       const move = movesById.get(event.moveId);
       const label = move ? move.label : event.moveId;
       if (event.type === 'rest') {

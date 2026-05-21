@@ -253,6 +253,7 @@ try {
 
   await navigate(cdp, appUrl);
   if (process.env.PIECZARGOTCHI_CAPTURE_VIEWPORT === '1') {
+    await setCaptureGrowth(cdp, 70);
     await captureViewport(cdp);
   }
   await captureState(cdp, 'sleeping');
@@ -281,6 +282,10 @@ try {
 
   if (process.env.PIECZARGOTCHI_CAPTURE_ARENA === '1') {
     await captureArena(cdp);
+  }
+
+  if (process.env.PIECZARGOTCHI_CAPTURE_DEW_MINIGAME === '1') {
+    await captureDewMinigame(cdp);
   }
 
   await cdp.close();
@@ -362,6 +367,8 @@ async function captureArena(cdp) {
     const iso = new Date(${now}).toISOString();
     state.version = config.stateVersion;
     state.playerId = 'arena-audit';
+    state.mushroomName = 'Auditka';
+    state.flags = Object.assign({}, state.flags || {}, { nameConfirmed: true });
     state.createdAt = iso;
     state.lastUpdatedAt = iso;
     state.mode = 'awake';
@@ -406,6 +413,109 @@ async function captureArena(cdp) {
   console.log(`arena layout: moves=${info.moveColumns}, minMoveHeight=${Math.round(info.minMoveHeight)}px, arenaHidden=${info.arenaHidden}`);
 }
 
+async function captureDewMinigame(cdp) {
+  const now = captureDebugSettings && Number.isFinite(Number(captureDebugSettings.fixedAt))
+    ? Number(captureDebugSettings.fixedAt)
+    : Date.now();
+  const startedAt = now - 4200;
+  const stateExpression = `(() => {
+    const config = window.PIECZARGOTCHI_CONFIG;
+    const state = JSON.parse(JSON.stringify(config.state.defaultState));
+    const iso = new Date(${now}).toISOString();
+    state.version = config.stateVersion;
+    state.playerId = 'dew-audit';
+    state.mushroomName = 'Auditka';
+    state.flags = Object.assign({}, state.flags || {}, { nameConfirmed: true });
+    state.createdAt = iso;
+    state.lastUpdatedAt = iso;
+    state.mode = 'awake';
+    state.stats.growth = 70;
+    state.stats.hydration = 70;
+    state.stats.nutrients = 70;
+    state.stats.energy = 80;
+    state.stats.happiness = 70;
+    state.stats.cleanliness = 80;
+    state.stats.health = 100;
+    state.minigames.active = {
+      id: 'dewCatch',
+      label: 'Łapanie rosy',
+      seed: 424242,
+      startedAt: ${startedAt},
+      until: ${now + 16000},
+      score: 0,
+      caught: [],
+      missed: []
+    };
+    localStorage.setItem(config.storageKey, JSON.stringify(state));
+  })()`;
+
+  await cdp.send('Runtime.evaluate', { expression: stateExpression, awaitPromise: true });
+  await waitForLoad(cdp, () => cdp.send('Page.reload', { ignoreCache: true }));
+  await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.booted && window.__pieczargotchiRuntime.minigame && window.__pieczargotchiRuntime.minigame.session && window.__pieczargotchiRuntime.minigame.session.id === 'dewCatch')`, 6000);
+  await delay(Math.max(captureDelayMs, 650));
+  const diagnostics = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const canvas = document.querySelector('[data-dew-catch-canvas]');
+      const runtime = window.__pieczargotchiRuntime || {};
+      const bucket = runtime.minigame && runtime.minigame.bucket;
+      const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+      let nonBlank = 0;
+      let bluePixels = 0;
+      let bucketPixels = 0;
+      for (let index = 0; index < imageData.length; index += 4) {
+        const r = imageData[index];
+        const g = imageData[index + 1];
+        const b = imageData[index + 2];
+        const a = imageData[index + 3];
+        if (a) {
+          nonBlank += 1;
+        }
+        if (b > 120 && g > 90 && r < 120) {
+          bluePixels += 1;
+        }
+        if (r > 120 && r > g && g > 60 && b < 120) {
+          bucketPixels += 1;
+        }
+      }
+      return {
+        nonBlank,
+        bluePixels,
+        bucketPixels,
+        bucketX: bucket && bucket.x,
+        dropCount: runtime.minigame && runtime.minigame.drops && runtime.minigame.drops.length,
+        drawnDrops: runtime.minigame && runtime.minigame.drawnDrops,
+        progress: runtime.minigame && runtime.minigame.lastProgress,
+        visibleDrops: runtime.minigame && runtime.minigame.drops && runtime.minigame.drops.filter((drop) => {
+          const progress = Number(runtime.minigame.lastProgress) || 0;
+          const local = (progress - Number(drop.start)) / Math.max(0.01, Number(drop.speed) || 1);
+          const y = -18 + local * (canvas.height + 34);
+          return y >= -16 && y <= canvas.height + 14;
+        }).length,
+        caught: runtime.minigame && runtime.minigame.session && runtime.minigame.session.caught && runtime.minigame.session.caught.length,
+        missed: runtime.minigame && runtime.minigame.session && runtime.minigame.session.missed && runtime.minigame.session.missed.length,
+        now: runtime.minigame && runtime.minigame.lastProgress,
+        startedAt: runtime.minigame && runtime.minigame.session && runtime.minigame.session.startedAt,
+        until: runtime.minigame && runtime.minigame.session && runtime.minigame.session.until
+      };
+    })()`,
+    returnByValue: true
+  });
+  const info = diagnostics.result.value || {};
+  if (info.nonBlank < 8000 || info.bluePixels < 6 || info.bucketPixels < 80 || !info.dropCount) {
+    throw new Error(`Dew minigame render looks incomplete: ${JSON.stringify(info)}`);
+  }
+
+  const result = await cdp.send('Runtime.evaluate', {
+    expression: `document.querySelector('[data-dew-catch-canvas]').toDataURL('image/png')`,
+    returnByValue: true
+  });
+  const png = Buffer.from(result.result.value.replace(/^data:image\/png;base64,/, ''), 'base64');
+  const filePath = `${outputPrefix}-dew-catch.png`;
+  writeFileSync(filePath, png);
+  console.log(`dew-catch: ${filePath}`);
+  console.log(`dew-catch diagnostics: ${JSON.stringify(info)}`);
+}
+
 async function assertArenaUnlockVisibility(cdp) {
   await setCaptureGrowth(cdp, 70);
   let visibility = await getArenaVisibility(cdp);
@@ -429,6 +539,8 @@ async function setCaptureGrowth(cdp, growth) {
       const iso = new Date(${now}).toISOString();
       state.version = config.stateVersion;
       state.playerId = 'arena-unlock-audit';
+      state.mushroomName = 'Auditka';
+      state.flags = Object.assign({}, state.flags || {}, { nameConfirmed: true });
       state.createdAt = iso;
       state.lastUpdatedAt = iso;
       state.mode = 'awake';
@@ -608,6 +720,8 @@ async function captureCanvas(cdp, label, options) {
     const iso = new Date(runtimeNow).toISOString();
     state.version = config.stateVersion;
     state.playerId = 'audit';
+    state.mushroomName = 'Auditka';
+    state.flags = Object.assign({}, state.flags || {}, { nameConfirmed: true });
     state.createdAt = iso;
     state.lastUpdatedAt = iso;
     state.mode = ${JSON.stringify(options.mode)};

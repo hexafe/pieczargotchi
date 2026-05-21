@@ -511,9 +511,6 @@
       sparkle: { color: '#fffdf7', shape: 'spark' },
       hearts: { color: '#d8646f', shape: 'heart' },
       play: { color: '#d8646f', shape: 'heart' },
-      music: { color: '#674ea7', shape: 'note' },
-      instrument: { color: '#674ea7', shape: 'note' },
-      sing: { color: '#674ea7', shape: 'note' },
       spores: { color: '#f5e58b', shape: 'spore' },
       harvest: { color: '#f5e58b', shape: 'spore' },
       sporeCloud: { color: '#f5e58b', shape: 'spore' }
@@ -559,9 +556,6 @@
       clean: 'effect.sparkle',
       sparkle: 'effect.sparkle',
       dust: 'effect.dust',
-      music: 'effect.notes',
-      instrument: 'effect.notes',
-      sing: 'effect.notes',
       spores: 'effect.sporeCloud',
       sporeCloud: 'effect.sporeCloud',
       harvest: 'effect.sporeCloud'
@@ -599,10 +593,6 @@
         ctx.fillRect(x, y, size, size);
         ctx.fillRect(x - size * 0.6, y, size, size);
         ctx.fillRect(x - size * 0.3, y + size * 0.55, size, size);
-      } else if (shape === 'note') {
-        ctx.fillRect(x, y, 5, size * 1.6);
-        ctx.fillRect(x + 5, y, size, 5);
-        ctx.fillRect(x - 5, y + size * 1.35, size, size * 0.6);
       } else if (shape === 'spore') {
         ctx.fillRect(x, y, size, size);
       }

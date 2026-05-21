@@ -32,9 +32,10 @@ async function main() {
 function buildCloudflareStaticArtifacts() {
   const config = buildClientConfig();
   config.assetVersions = buildAssetVersionMap();
-  const configBundle = renderConfigBundle(config);
   const coreBundle = renderScriptBundle('ClientCore.html');
   const clientBundle = renderScriptBundle('Client.html');
+  config.build = buildStaticBuildMetadata(config, coreBundle, clientBundle);
+  const configBundle = renderConfigBundle(config);
   const versions = {
     config: getBundleVersion(configBundle),
     core: getBundleVersion(coreBundle),
@@ -134,6 +135,50 @@ function collectStaticAssetFilesInto(baseDir, sourceDir, files) {
 
 function getFileVersion(filePath) {
   return createHash('sha256').update(readFileSync(filePath)).digest('hex').slice(0, 12);
+}
+
+function buildStaticBuildMetadata(config, coreBundle, clientBundle) {
+  const packageVersion = getPackageVersion();
+  const version = packageVersion || config.appVersion || '0.0.0';
+  const sourceHash = getBundleVersion([
+    version,
+    JSON.stringify(config),
+    coreBundle,
+    clientBundle
+  ].join('\n'));
+  const revision = getBuildRevision();
+  const id = sourceHash.slice(0, 7);
+
+  return {
+    version,
+    id,
+    label: `v${version}+${id}`,
+    sourceHash,
+    revision
+  };
+}
+
+function getPackageVersion() {
+  try {
+    const packageJson = JSON.parse(readTextSync('package.json'));
+    return String(packageJson.version || '').trim();
+  } catch (_error) {
+    return '';
+  }
+}
+
+function getBuildRevision() {
+  const envRevision = [
+    process.env.CF_PAGES_COMMIT_SHA,
+    process.env.CLOUDFLARE_COMMIT_SHA,
+    process.env.GITHUB_SHA
+  ].map((value) => String(value || '').trim()).find(Boolean);
+
+  if (envRevision) {
+    return envRevision.slice(0, 12);
+  }
+
+  return '';
 }
 
 function stripScriptTag(content) {

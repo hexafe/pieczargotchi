@@ -20,7 +20,7 @@ function createDefaultStateTemplate() {
   return {
     version: PIECZARGOTCHI_STATE_VERSION,
     playerId: null,
-    mushroomName: 'Pieczarka',
+    mushroomName: '',
     createdAt: null,
     lastUpdatedAt: null,
     mode: 'sleeping',
@@ -133,13 +133,35 @@ function createDefaultStateTemplate() {
       active: null,
       lastResult: null
     },
+    dailyPlan: {
+      dateKey: null,
+      activeIds: [],
+      completed: {}
+    },
+    dailyRhythm: {
+      dateKey: null,
+      selectedId: null,
+      options: []
+    },
+    relationship: {
+      entries: []
+    },
+    journal: {
+      entries: []
+    },
     decorations: {
       owned: [],
       active: []
     },
     discoveries: {
       sky: {},
-      environment: {}
+      environment: {},
+      instruments: {}
+    },
+    returnRecap: {
+      lastSeenAt: null,
+      lastDigestAt: null,
+      entries: []
     },
     coins: 0,
     cooldowns: {
@@ -158,7 +180,8 @@ function createDefaultStateTemplate() {
       firstWakeDone: false,
       firstFeedDone: false,
       firstInstrumentDone: false,
-      firstSingDone: false
+      firstSingDone: false,
+      nameConfirmed: false
     },
     log: []
   };

@@ -19,6 +19,8 @@ const coreJs = readDistText('core.js');
 const clientJs = readDistText('client.js');
 const expected = buildCloudflareStaticArtifacts();
 const distConfig = evaluateConfig(configJs);
+const imagegenSpriteBuilder = readFileSync(path.join(rootDir, 'scripts', 'build-imagegen-sprites.py'), 'utf8');
+const instrumentVariantBuilder = readFileSync(path.join(rootDir, 'scripts', 'generate-instrument-variant-assets.py'), 'utf8');
 
 test('Cloudflare static dist matches current source bundles', () => {
   assert(configJs === expected.configBundle, 'dist/config.js is stale; run npm run build');
@@ -57,6 +59,51 @@ test('reset flow does not depend on browser modals in the static client', () => 
   assert(clientJs.includes('function performGameReset()'), 'static client should include the reset executor');
   assert(!clientJs.includes('window.confirm('), 'static client reset should not depend on window.confirm');
   assert(clientJs.includes('Potwierdź'), 'static client should expose an inline reset confirmation state');
+});
+
+test('first-run naming gate is present in the static client', () => {
+  assert(indexHtml.includes('data-name-form'), 'static HTML should include the first-run name form');
+  assert(indexHtml.includes('data-name-input'), 'static HTML should include the first-run name input');
+  assert(clientJs.includes('function handleNameFormSubmit'), 'static client should include the name submit handler');
+  assert(clientJs.includes('function renderNameGate'), 'static client should render the name gate');
+  assert(clientJs.includes('nameConfirmed'), 'static client should persist name confirmation');
+});
+
+test('static build exposes a subtle build version badge', () => {
+  assert(indexHtml.includes('data-build-badge'), 'static HTML should include the build badge anchor');
+  assert(clientJs.includes('function renderBuildBadge()'), 'static client should render the build badge');
+  assert(distConfig.build && distConfig.build.version === '0.1.0', 'static config should expose the package version');
+  assert(/^[a-f0-9]{7}$/.test(distConfig.build.id), 'static build id should be a short source hash');
+  assert(distConfig.build.label === `v${distConfig.build.version}+${distConfig.build.id}`, 'static build label should combine version and build id');
+});
+
+test('dew catch minigame uses bucket catching instead of click-to-collect drops', () => {
+  assert(clientJs.includes('function drawDewBucket('), 'dew catch should render a pixel-art bucket');
+  assert(clientJs.includes('function canDewBucketCatchDrop('), 'dew catch should score through bucket/drop collision');
+  assert(clientJs.includes('function drawDewGrassLayer('), 'dew catch should render layered grass');
+  assert(clientJs.includes('function drawDewDrop('), 'dew catch should render custom pixel-art drops');
+  assert(clientJs.includes('missed'), 'dew catch should track missed drops so they do not respawn');
+  assert(!clientJs.includes('Math.abs(drop.x - x) <= radius && Math.abs(dropY - y) <= radius'), 'dew catch should not use click-to-collect hit testing');
+});
+
+test('sprite-owned activities do not stack canvas visual effects', () => {
+  assert(clientJs.includes('function getActionCanvasEffectType(action)'), 'static client should route action effects through getActionCanvasEffectType');
+  assert(clientJs.includes('feed: true'), 'feed should be marked as sprite-owned');
+  assert(clientJs.includes('instrument: true'), 'instrument should be marked as sprite-owned');
+  assert(clientJs.includes('sing: true'), 'sing should be marked as sprite-owned');
+  assert(!clientJs.includes('triggerEffect(action.effectType || action.id)'), 'actions should not directly trigger fallback canvas effects');
+  assert(!clientJs.includes("music: { color: '#674ea7', shape: 'note' }"), 'music should not map to canvas note particles');
+  assert(!clientJs.includes("music: 'effect.notes'"), 'music should not map to canvas note assets');
+  assert(!clientJs.includes("shape === 'note'"), 'static client should not draw canvas music-note particles');
+  assert(!clientJs.includes("instrument: { color: '#674ea7', shape: 'note' }"), 'instrument should not map to canvas note particles');
+  assert(!clientJs.includes("sing: { color: '#674ea7', shape: 'note' }"), 'sing should not map to canvas note particles');
+  assert(!clientJs.includes("instrument: 'effect.notes'"), 'instrument should not map to canvas note assets');
+  assert(!clientJs.includes("sing: 'effect.notes'"), 'sing should not map to canvas note assets');
+  assert(imagegenSpriteBuilder.includes('SPRITE_OWNED_ACTIVITY_DETAILS = {"feed", "instrument", "sing"}'), 'imagegen activity builder should mark feed/instrument/sing as sprite-owned');
+  assert(!imagegenSpriteBuilder.includes('elif activity == "feed":\n        narysuj_karmienie'), 'feed sheets should not get generated overlay mouths');
+  assert(!imagegenSpriteBuilder.includes('elif activity == "instrument":\n        narysuj_granie'), 'instrument sheets should not get generated overlay props');
+  assert(!imagegenSpriteBuilder.includes('elif activity == "sing":\n        narysuj_spiew'), 'sing sheets should not get generated overlay mouths');
+  assert(instrumentVariantBuilder.includes('without stacking an extra generated prop over the face'), 'instrument variants should not stack generated props over the source sprite');
 });
 
 function assertScriptVersion(name, content) {

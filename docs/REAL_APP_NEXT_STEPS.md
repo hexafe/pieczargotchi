@@ -1,7 +1,7 @@
 # Pieczargotchi Real App Next Steps
 
 Last researched: 2026-05-09
-Last repo checkpoint: 2026-05-16
+Last repo checkpoint: 2026-05-21
 
 This plan is for turning the MVP into a real, fun virtual-pet app. It is not a narrow MVP checklist.
 
@@ -89,6 +89,21 @@ Implemented progression slice:
 - Weather precipitation fix: rain/snow now use a monotonic motion clock and separate background/foreground passes, so visible drops/flakes do not reverse direction.
 
 Immediate next product slices should start from `docs/PROJECT_STATE_2026-05-16.md`.
+
+## Current Repo Checkpoint - 2026-05-21
+
+Implemented gameplay-loop iteration 2:
+
+- Save version `12` adds the first-run naming gate: new saves start unnamed, care actions stay locked until the mushroom is named, and runtime "Pieczarka" copy is displayed with the chosen name.
+- Save version `11` added `dailyRhythm`, `journal`, and `returnRecap` defaults while preserving existing saves through normalization.
+- The stage panel now offers one selectable daily rhythm. The chosen rhythm reshapes daily goals, then locks for the day to avoid churn.
+- The discovery panel is now a combined world journal for sky and environment phenomena, with locked hints and first-sighting journal entries.
+- Long offline returns produce a single "Powrót do grzybni" recap in transient messaging and relationship history.
+- Habitat tags now have gameplay effects: moisture makes dew opportunities easier, spore/night tags help spore play, and new decorations add wild/flower/insect/shelter hooks for future ambient-life tuning.
+- Instrument activity keeps the restored expressive sprite sheets and adds three common instrument variants plus one rare discoverable instrument per growth stage.
+- Mobile layout was rebalanced so the rhythm row, daily plan, and full action panel fit the 390x844 smoke viewport.
+
+Focused QA now covers v12 migration, first-run naming contracts, daily rhythm selection, habitat synergies, combined journal rendering contracts, one-shot return recaps, Cloudflare static build, and mobile viewport capture.
 
 ## Real App Systems Plan
 

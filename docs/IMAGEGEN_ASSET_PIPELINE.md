@@ -87,6 +87,7 @@ Skrypt tworzy:
 
 - `assets/stages/<stage>/<state>_sheet.png`
 - `assets/activities/<stage>/<activity>_sheet.png`, dla dopracowanych aktywnosci w kontrakcie `8` klatek
+- `assets/activities/<stage>/instrument_bell_sheet.png`, `instrument_flute_sheet.png`, `instrument_drum_sheet.png`, `instrument_rare_sheet.png` dla wariantow instrumentu wybieranych przez runtime
 - kompatybilne fallbacki `assets/activities/<activity>_sheet.png` z wariantu `adult`
 - `assets/easter-eggs/<stage>/neutral_sheet.png`
 - `assets/easter-eggs/<stage>/neutral_rain_sheet.png`
@@ -111,6 +112,7 @@ python3 -m py_compile scripts/build-imagegen-sprites.py scripts/generate-pixel-a
 python3 scripts/build-imagegen-sprites.py
 node scripts/validate-assets.mjs
 python3 scripts/audit-activity-sprite-motion.py
+python3 scripts/generate-instrument-variant-assets.py
 python3 scripts/audit-glint-sprites.py
 python3 scripts/audit-sprite-consistency.py
 PIECZARGOTCHI_CAPTURE_STAGES=1 PIECZARGOTCHI_CAPTURE_ACTIVITIES=1 node scripts/capture-app-render.mjs http://127.0.0.1:8092/ /tmp/pieczargotchi-imagegen-final

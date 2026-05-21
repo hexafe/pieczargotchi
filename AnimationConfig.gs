@@ -328,6 +328,70 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
     priority: 100
   },
   {
+    key: 'activity.instrument_bell',
+    activity: 'instrument_bell',
+    fileName: 'activities/instrument_bell_sheet.png',
+    frameCount: 8,
+    frameDurationsMs: [95, 110, 118, 126, 118, 132, 170, 250],
+    loop: true,
+    bodyMotion: false,
+    stageOverrides: {
+      spore: {
+        frameDurationsMs: [160, 180, 210, 240, 280, 340, 400, 500],
+        loop: false
+      }
+    },
+    priority: 100
+  },
+  {
+    key: 'activity.instrument_flute',
+    activity: 'instrument_flute',
+    fileName: 'activities/instrument_flute_sheet.png',
+    frameCount: 8,
+    frameDurationsMs: [95, 110, 118, 126, 118, 132, 170, 250],
+    loop: true,
+    bodyMotion: false,
+    stageOverrides: {
+      spore: {
+        frameDurationsMs: [160, 180, 210, 240, 280, 340, 400, 500],
+        loop: false
+      }
+    },
+    priority: 100
+  },
+  {
+    key: 'activity.instrument_drum',
+    activity: 'instrument_drum',
+    fileName: 'activities/instrument_drum_sheet.png',
+    frameCount: 8,
+    frameDurationsMs: [95, 110, 118, 126, 118, 132, 170, 250],
+    loop: true,
+    bodyMotion: false,
+    stageOverrides: {
+      spore: {
+        frameDurationsMs: [160, 180, 210, 240, 280, 340, 400, 500],
+        loop: false
+      }
+    },
+    priority: 100
+  },
+  {
+    key: 'activity.instrument_rare',
+    activity: 'instrument_rare',
+    fileName: 'activities/instrument_rare_sheet.png',
+    frameCount: 8,
+    frameDurationsMs: [95, 110, 118, 126, 118, 132, 170, 250],
+    loop: true,
+    bodyMotion: false,
+    stageOverrides: {
+      spore: {
+        frameDurationsMs: [160, 180, 210, 240, 280, 340, 400, 500],
+        loop: false
+      }
+    },
+    priority: 100
+  },
+  {
     key: 'activity.sing',
     activity: 'sing',
     fileName: 'activities/sing_sheet.png',

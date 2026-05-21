@@ -260,6 +260,10 @@ Aktywności są stage-specific. Ten sam typ akcji musi mieć osobny sheet dla ka
 | `assets/activities/<stage>/clean_sheet.png` | reakcja na czyszczenie |
 | `assets/activities/<stage>/play_sheet.png` | zabawa i ruch |
 | `assets/activities/<stage>/instrument_sheet.png` | kontakt z instrumentem lub słuchanie |
+| `assets/activities/<stage>/instrument_bell_sheet.png` | wariant instrumentu: dzwonki/kalimba |
+| `assets/activities/<stage>/instrument_flute_sheet.png` | wariant instrumentu: flet/syntezator |
+| `assets/activities/<stage>/instrument_drum_sheet.png` | wariant instrumentu: bębenki/rytm |
+| `assets/activities/<stage>/instrument_rare_sheet.png` | rzadki instrument etapu, zapisywany w odkryciach |
 | `assets/activities/<stage>/sing_sheet.png` | śpiew, wokal, nutki |
 | `assets/activities/<stage>/spores_sheet.png` | emisja zarodników |
 | `assets/activities/<stage>/harvest_sheet.png` | plon, zbiór lub dojrzałość |
@@ -297,6 +301,7 @@ Reguła produkcyjna dla immersji:
 - PNG/imagegen: sylwetka Pieczarki, oczy, usta, kapelusz, akcesoria dotykające postaci, parasolka/liść/osłona, duże reakcje mimiczne i stage-specific stany.
 - Canvas: opady, wiatr, ruch trawy, gwiazdy, promienie, mokrość, śnieg na ziemi, cursor ripple, szelest, motyle, świetliki, żuki i małe cząstki.
 - Runtime nie maluje nowej mimiki po głównym PNG. Jeśli reakcja wymaga twarzy, dostaje własny sheet w `assets/stages/<stage>/`.
+- `feed`, `instrument` i `sing` są sprite-owned: renderer nie może dorysowywać im dodatkowych ust, instrumentów ani muzycznych rekwizytów na canvasie.
 - Trawa foreground rośnie proceduralnie z ziemi pod Pieczarką i może częściowo przykrywać dolną część postaci, ale nie może wyglądać jak element wyrastający z kapelusza albo twarzy. Dekoracje patcha muszą być rysowane nad trawą albo na osobnym meblu, żeby zakupione przedmioty nie ginęły w zaroślach.
 
 ## 10. Rytm animacji
