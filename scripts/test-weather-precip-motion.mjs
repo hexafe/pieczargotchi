@@ -7,6 +7,7 @@ const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const script = [
   'ClientCoreShared.html',
   'ClientSceneWeatherShared.html',
+  'ClientSceneWeatherClouds.html',
   'ClientSceneWeatherPrecip.html'
 ].map((fileName) => readFileSync(path.join(rootDir, fileName), 'utf8')).join('\n');
 
@@ -129,6 +130,46 @@ test('north-south wind keeps rain and snow cycle progress monotonic', () => {
   assert(rainProgress[2] > rainProgress[1], `rain should keep falling after gust phase changes: ${rainProgress.join(' -> ')}`);
   assert(snowProgress[1] > snowProgress[0], `snow should keep falling in north-south wind: ${snowProgress.join(' -> ')}`);
   assert(snowProgress[2] > snowProgress[1], `snow should keep falling after gust phase changes: ${snowProgress.join(' -> ')}`);
+});
+
+test('cloud layer motion is driven by wind strength and direction', () => {
+  const layer = {
+    windResponse: 0.62,
+    depthResponse: 0.40,
+    shearResponse: 0.62
+  };
+  const calmScene = {
+    windSpeed: 4,
+    windGusts: 5,
+    windDirection: 90,
+    windLevel: 0.05,
+    gustLevel: 0.02,
+    windVector: { x: -1, y: 0 }
+  };
+  const windyEastScene = {
+    windSpeed: 46,
+    windGusts: 72,
+    windDirection: 270,
+    windLevel: 0.62,
+    gustLevel: 0.47,
+    windVector: { x: 1, y: 0 }
+  };
+  const windyWestScene = {
+    ...windyEastScene,
+    windDirection: 90,
+    windVector: { x: -1, y: 0 }
+  };
+
+  const calm = context.getCloudLayerWindMotion(calmScene, context.getDynamicWindState(calmScene, 1400), layer, 1, 52, 1400, 0.016);
+  const windyEast = context.getCloudLayerWindMotion(windyEastScene, context.getDynamicWindState(windyEastScene, 1400), layer, 1, 52, 1400, 0.016);
+  const windyWest = context.getCloudLayerWindMotion(windyWestScene, context.getDynamicWindState(windyWestScene, 1400), layer, 1, 52, 1400, 0.016);
+
+  assert(windyEast.speed > calm.speed * 2.5, `windy clouds should move much faster than calm clouds: ${calm.speed} -> ${windyEast.speed}`);
+  assert(windyEast.directionX > 0.8, `eastbound cloud wind should be positive, got ${windyEast.directionX}`);
+  assert(windyWest.directionX < -0.8, `westbound cloud wind should be negative, got ${windyWest.directionX}`);
+  assert(windyEast.shear > 0, `eastbound cloud shear should be positive, got ${windyEast.shear}`);
+  assert(windyWest.shear < 0, `westbound cloud shear should be negative, got ${windyWest.shear}`);
+  assert(windyEast.streakAlpha > calm.streakAlpha, `windy clouds should draw stronger wind wisps: ${calm.streakAlpha} -> ${windyEast.streakAlpha}`);
 });
 
 test('rain and snow land at varied grass heights instead of the canvas bottom', () => {

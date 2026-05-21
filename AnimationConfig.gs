@@ -251,63 +251,112 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
     key: 'activity.hydrate',
     activity: 'hydrate',
     fileName: 'activities/hydrate_sheet.png',
-    frameCount: 4,
-    frameDurationsMs: [80, 120, 180, 260],
+    frameCount: 8,
+    frameDurationsMs: [70, 80, 90, 100, 130, 150, 180, 240],
     loop: true,
+    bodyMotion: false,
+    stageOverrides: {
+      spore: {
+        frameDurationsMs: [160, 180, 200, 240, 280, 320, 360, 420],
+        loop: false
+      }
+    },
     priority: 100
   },
   {
     key: 'activity.feed',
     activity: 'feed',
     fileName: 'activities/feed_sheet.png',
-    frameCount: 4,
-    frameDurationsMs: [80, 120, 180, 260],
+    frameCount: 8,
+    frameDurationsMs: [60, 65, 70, 78, 86, 108, 140, 210],
     loop: true,
+    bodyMotion: false,
+    stageOverrides: {
+      spore: {
+        frameDurationsMs: [150, 170, 200, 230, 270, 320, 390, 480],
+        loop: false
+      }
+    },
     priority: 100
   },
   {
     key: 'activity.clean',
     activity: 'clean',
     fileName: 'activities/clean_sheet.png',
-    frameCount: 4,
-    frameDurationsMs: [80, 120, 180, 260],
+    frameCount: 8,
+    frameDurationsMs: [65, 75, 65, 75, 80, 105, 145, 210],
     loop: true,
+    bodyMotion: false,
+    stageOverrides: {
+      spore: {
+        frameDurationsMs: [150, 180, 210, 230, 260, 320, 390, 480],
+        loop: false
+      }
+    },
     priority: 100
   },
   {
     key: 'activity.play',
     activity: 'play',
     fileName: 'activities/play_sheet.png',
-    frameCount: 4,
-    frameDurationsMs: [80, 120, 180, 260],
+    frameCount: 8,
+    frameDurationsMs: [70, 80, 88, 96, 104, 126, 160, 230],
     loop: true,
+    bodyMotion: false,
+    stageOverrides: {
+      spore: {
+        frameDurationsMs: [140, 170, 210, 250, 300, 360, 430, 520],
+        loop: false
+      }
+    },
     priority: 100
   },
   {
     key: 'activity.instrument',
     activity: 'instrument',
     fileName: 'activities/instrument_sheet.png',
-    frameCount: 4,
-    frameDurationsMs: [100, 140, 180, 300],
+    frameCount: 8,
+    frameDurationsMs: [95, 110, 118, 126, 118, 132, 170, 250],
     loop: true,
+    bodyMotion: false,
+    stageOverrides: {
+      spore: {
+        frameDurationsMs: [160, 180, 210, 240, 280, 340, 400, 500],
+        loop: false
+      }
+    },
     priority: 100
   },
   {
     key: 'activity.sing',
     activity: 'sing',
     fileName: 'activities/sing_sheet.png',
-    frameCount: 4,
-    frameDurationsMs: [100, 140, 180, 300],
+    frameCount: 8,
+    frameDurationsMs: [90, 105, 118, 130, 118, 138, 176, 260],
     loop: true,
+    bodyMotion: false,
+    stageOverrides: {
+      spore: {
+        frameDurationsMs: [160, 190, 220, 250, 300, 350, 420, 500],
+        loop: false
+      }
+    },
     priority: 100
   },
   {
     key: 'activity.spores',
     activity: 'spores',
     fileName: 'activities/spores_sheet.png',
-    frameCount: 4,
-    frameDurationsMs: [100, 160, 220, 360],
+    frameCount: 8,
+    frameDurationsMs: [90, 105, 130, 155, 170, 190, 230, 320],
     loop: true,
+    bodyMotion: false,
+    stageOverrides: {
+      spore: {
+        frameDurationsMs: [150, 180, 220, 270, 330, 400, 480, 370],
+        loop: false
+      }
+    },
     priority: 100,
     minStage: 'adult'
   },
@@ -315,9 +364,16 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
     key: 'activity.harvest',
     activity: 'harvest',
     fileName: 'activities/harvest_sheet.png',
-    frameCount: 4,
-    frameDurationsMs: [100, 160, 220, 360],
+    frameCount: 8,
+    frameDurationsMs: [90, 105, 130, 150, 165, 190, 230, 320],
     loop: true,
+    bodyMotion: false,
+    stageOverrides: {
+      spore: {
+        frameDurationsMs: [150, 180, 220, 260, 320, 390, 470, 410],
+        loop: false
+      }
+    },
     priority: 100
   }
 ];
@@ -451,22 +507,34 @@ function buildStageAnimationEntry(stage, animation) {
 
 function buildActivityAnimationEntry(stage, animation) {
   const canvasSize = getPieczargotchiAnimationCanvasSize_();
+  const stageOverride = getActivityStageOverride_(stage, animation);
+  const frameDurationsMs = stageOverride.frameDurationsMs || animation.frameDurationsMs;
+  const loop = typeof stageOverride.loop === 'boolean' ? stageOverride.loop : animation.loop;
 
   return {
     key: stage + '.activity.' + animation.activity,
     kind: 'activity',
     stage: stage,
     activity: animation.activity,
-    minStage: null,
+    minStage: animation.minStage || null,
     fileName: 'activities/' + stage + '/' + animation.activity + '_sheet.png',
     frameCount: animation.frameCount,
     frameWidth: canvasSize,
     frameHeight: canvasSize,
-    frameDurationsMs: animation.frameDurationsMs.slice(),
-    loop: animation.loop,
+    frameDurationsMs: frameDurationsMs.slice(),
+    loop: loop,
+    bodyMotion: animation.bodyMotion !== false,
     priority: animation.priority,
     required: false
   };
+}
+
+function getActivityStageOverride_(stage, animation) {
+  if (!animation.stageOverrides || !animation.stageOverrides[stage]) {
+    return {};
+  }
+
+  return animation.stageOverrides[stage];
 }
 
 function buildEasterEggAnimationEntry(stage, animation) {

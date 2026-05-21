@@ -31,6 +31,9 @@
     drawGroundForeground(ctx, now);
     drawPatchDecorationsForeground(ctx, now);
     drawAmbientLifeForeground(ctx, now);
+    if (typeof updateGrassLocalReactionSnapshot === 'function') {
+      updateGrassLocalReactionSnapshot(now);
+    }
     drawWeatherPrecipitationForeground(ctx, now);
     drawImmersionForeground(ctx, now, wallNow);
 
@@ -256,12 +259,14 @@
     const image = runtime.assets[animation.key];
     if (!image) {
       ensureAssetLoaded(animation.key);
+      if (animation.kind === 'activity') {
+        runtime.pendingAnimationStarts = runtime.pendingAnimationStarts || {};
+        runtime.pendingAnimationStarts[animation.key] = now;
+      }
       return false;
     }
 
-    const requestedStart = selection.startedAt
-      || (runtime.currentAnimationKey === animation.key ? runtime.currentAnimationStartedAt : now)
-      || now;
+    const requestedStart = getSelectedAnimationStart(animation, selection, now);
     if (
       runtime.currentAnimationKey !== animation.key
       || Math.abs((runtime.currentAnimationStartedAt || 0) - requestedStart) > 50
@@ -272,6 +277,23 @@
 
     drawAnimationFrame(ctx, animation, image, now, runtime.currentAnimationStartedAt);
     return true;
+  }
+
+  function getSelectedAnimationStart(animation, selection, now) {
+    const pendingStarts = runtime.pendingAnimationStarts || {};
+    const pendingStart = Number(pendingStarts[animation.key]);
+    if (
+      animation.kind === 'activity'
+      && Number.isFinite(pendingStart)
+      && runtime.currentAnimationKey !== animation.key
+    ) {
+      delete pendingStarts[animation.key];
+      return now;
+    }
+
+    return selection.startedAt
+      || (runtime.currentAnimationKey === animation.key ? runtime.currentAnimationStartedAt : now)
+      || now;
   }
 
   function drawLastReadyAnimation(ctx, selection, now) {
@@ -310,6 +332,7 @@
     }
 
     ctx.drawImage(image, frame * frameWidth, 0, frameWidth, frameHeight, 0, 0, canvasSize, canvasSize);
+    drawMushroomConditionOverlay(ctx, animation, frame, null);
   }
 
   function drawGrassAnchoredMotionFrame(ctx, image, frame, frameWidth, frameHeight, animation, motion) {
@@ -335,11 +358,18 @@
       canvasSize,
       canvasSize - grassTop
     );
+    drawMushroomConditionOverlay(ctx, animation, frame, motion, grassTop);
   }
 
   function getAnimationGrassAnchorTop(animation) {
     const key = animation && animation.key ? String(animation.key) : '';
-    const stage = key.split('.')[0] || 'adult';
+    const parts = key.split('.');
+    const stage = parts[0] || 'adult';
+    const state = animation && animation.state ? animation.state : parts[1];
+    if (stage === 'spore' && state === 'sleep') {
+      return 424;
+    }
+
     const tops = {
       spore: 382,
       baby: 372,
@@ -411,7 +441,7 @@
   }
 
   function getAnimationActivityMotion(animation, now, startedAt) {
-    if (!animation || animation.kind !== 'activity') {
+    if (!animation || animation.kind !== 'activity' || animation.bodyMotion === false) {
       return null;
     }
 

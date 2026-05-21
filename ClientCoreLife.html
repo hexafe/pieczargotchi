@@ -13,6 +13,7 @@
     const fireflyWeatherFactor = getFireflyWeatherFactor(condition, source);
     const fireflyTemperatureFactor = getFireflyTemperatureFactor(source);
     const fireflyHumidityFactor = getFireflyHumidityFactor(source);
+    const nocturnalFlightFactor = getNocturnalFlightTimeFactor(source.dayPhase, date);
     const baseIntensity = clampNumber(
       seasonFactor * weatherFactor * temperatureFactor * windFactor,
       0,
@@ -28,6 +29,18 @@
       butterflyIntensity: roundAmbientLife(baseIntensity * getButterflyDayFactor(source.dayPhase, date)),
       flyingInsectIntensity: roundAmbientLife(baseIntensity * Math.max(dayFactor * 0.72, fireflyTimeFactor * 0.38)),
       crawlerIntensity: roundAmbientLife(baseIntensity * Math.max(0.28, dayFactor * 0.82)),
+      mothIntensity: roundAmbientLife(
+        baseIntensity
+          * nocturnalFlightFactor
+          * getMothHumidityFactor(source)
+      ),
+      batIntensity: roundAmbientLife(
+        getBatSeasonFactor(ecologicalMonth, date.getDate())
+          * nocturnalFlightFactor
+          * getBatWeatherFactor(condition, source)
+          * getBatTemperatureFactor(source)
+          * getBatWindFactor(source)
+      ),
       fireflyIntensity: roundAmbientLife(
         fireflySeasonFactor
           * fireflyTimeFactor
@@ -316,6 +329,68 @@
     return clampNumber(0.44 + humidity / 100 * 0.62, 0.44, 1, 0.86);
   }
 
+  function getMothHumidityFactor(scene) {
+    const humidity = clampNumber(Number(scene.humidity), 0, 100, 62);
+    return clampNumber(0.58 + humidity / 100 * 0.34, 0.58, 0.96, 0.74);
+  }
+
+  function getBatSeasonFactor(month, day) {
+    const factors = [0, 0, 0.08, 0.34, 0.72, 1, 0.94, 0.86, 0.56, 0.16, 0.02, 0];
+    let factor = factors[month] || 0;
+    if (month === 2 && day < 20) {
+      factor *= 0.35;
+    } else if (month === 9 && day > 18) {
+      factor *= 0.45;
+    }
+
+    return clampNumber(factor, 0, 1, 0);
+  }
+
+  function getBatWeatherFactor(condition, scene) {
+    const precipitation = Math.max(0, Number(scene.precipitation) || 0, Number(scene.rain) || 0, Number(scene.snowfall) || 0);
+    if (condition === 'storm' || condition === 'snow' || precipitation > 0.10) {
+      return 0;
+    }
+    if (condition === 'rain') {
+      return 0.08;
+    }
+    if (condition === 'fog') {
+      return 0.34;
+    }
+    if (condition === 'cloudy') {
+      return 0.78;
+    }
+
+    return 1;
+  }
+
+  function getBatTemperatureFactor(scene) {
+    const temperature = readAmbientTemperature(scene);
+    if (temperature === null) {
+      return 0.66;
+    }
+    if (temperature < 7) {
+      return 0;
+    }
+    if (temperature < 13) {
+      return (temperature - 7) / 6 * 0.48;
+    }
+    if (temperature <= 25) {
+      return 1;
+    }
+    if (temperature <= 34) {
+      return 1 - (temperature - 25) / 9 * 0.28;
+    }
+
+    return 0.52;
+  }
+
+  function getBatWindFactor(scene) {
+    const windLevel = clampNumber(Number(scene.windLevel), 0, 1, clampNumber(Number(scene.windSpeed) / 82, 0, 1, 0));
+    const gustLevel = clampNumber(Number(scene.gustLevel), 0, 1, 0);
+    return clampNumber(1 - windLevel * 0.82 - gustLevel * 0.28, 0, 1, 1);
+  }
+
   function getInsectDayFactor(dayPhase, date) {
     const phaseFactors = {
       sunrise: 0.34,
@@ -403,6 +478,40 @@
     }
     if (hour >= 18 && hour < 19) {
       return 0.34;
+    }
+
+    return 0;
+  }
+
+  function getNocturnalFlightTimeFactor(dayPhase, date) {
+    const hour = date.getHours() + date.getMinutes() / 60;
+    if (dayPhase === 'sunset') {
+      return 0.82;
+    }
+    if (dayPhase === 'evening') {
+      return hour >= 18.5 ? 0.74 : 0.30;
+    }
+    if (dayPhase === 'night') {
+      if (hour >= 20 && hour < 24) {
+        return 1;
+      }
+      if (hour >= 0 && hour < 2.5) {
+        return 0.70;
+      }
+      if (hour >= 2.5 && hour < 4.5) {
+        return 0.30;
+      }
+      return 0.18;
+    }
+
+    if (hour >= 20 && hour < 24) {
+      return 1;
+    }
+    if (hour >= 18.5 && hour < 20) {
+      return 0.66;
+    }
+    if (hour >= 0 && hour < 2.5) {
+      return 0.70;
     }
 
     return 0;

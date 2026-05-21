@@ -14,6 +14,12 @@ const captureDelayOverride = Number(process.env.PIECZARGOTCHI_CAPTURE_DELAY_MS);
 const captureDelayMs = Number.isFinite(captureDelayOverride) ? Math.max(0, captureDelayOverride) : 350;
 const captureAppsScriptNoAssets = process.env.PIECZARGOTCHI_CAPTURE_APPS_SCRIPT_NO_ASSETS === '1';
 const captureBeforeAssets = process.env.PIECZARGOTCHI_CAPTURE_BEFORE_ASSETS === '1';
+const blockedAssetPatterns = readListEnv('PIECZARGOTCHI_CAPTURE_BLOCK_ASSETS');
+const captureGrassPointer = process.env.PIECZARGOTCHI_CAPTURE_GRASS_POINTER === '1';
+const captureCleanlinessOverride = readOptionalEnvNumber('PIECZARGOTCHI_CAPTURE_CLEANLINESS');
+const captureCleanliness = captureCleanlinessOverride === null
+  ? 80
+  : Math.max(0, Math.min(100, captureCleanlinessOverride));
 const port = 9237 + Math.floor(Math.random() * 400);
 const userDataDir = path.join(tmpdir(), `pieczargotchi-cdp-${Date.now()}`);
 const captureDebugSettings = createCaptureDebugSettings();
@@ -190,6 +196,12 @@ try {
   const cdp = await connectCdp(endpoint.webSocketDebuggerUrl);
   await cdp.send('Page.enable');
   await cdp.send('Runtime.enable');
+  if (blockedAssetPatterns.length) {
+    await cdp.send('Network.enable');
+    await cdp.send('Network.setBlockedURLs', {
+      urls: blockedAssetPatterns.map((pattern) => `*${pattern}*`)
+    });
+  }
   if (captureAppsScriptNoAssets) {
     await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
       source: `
@@ -307,12 +319,25 @@ async function captureStage(cdp, stage, growth) {
 }
 
 async function captureActivity(cdp, stage, growth, activity) {
+  if (!isCaptureActivityAllowedForStage(stage, activity)) {
+    console.log(`activity-${stage}-${activity}: skipped; activity is not available at ${stage} stage`);
+    return;
+  }
+
   await captureCanvas(cdp, `activity-${stage}-${activity}`, {
     mode: 'awake',
     growth,
     activity: `{ type: ${JSON.stringify(activity)}, label: ${JSON.stringify(activity)}, startedAt: runtimeNow - 850, until: runtimeNow + 2400 }`,
     expectedAnimationKey: `${stage}.activity.${activity}`
   });
+}
+
+function isCaptureActivityAllowedForStage(stage, activity) {
+  if (activity !== 'spores') {
+    return true;
+  }
+
+  return ['adult', 'legendary'].includes(stage);
 }
 
 async function captureImmersion(cdp, sample) {
@@ -537,6 +562,9 @@ function getExpectedAwakeIdleAnimationKey(stage) {
     if (isCaptureSnowy()) {
       return `${stage}.snow`;
     }
+    if (captureCleanliness <= 35) {
+      return `${stage}.dirty`;
+    }
     return `${stage}.idle`;
   }
 
@@ -585,7 +613,7 @@ async function captureCanvas(cdp, label, options) {
     state.stats.nutrients = 70;
     state.stats.energy = 80;
     state.stats.happiness = 60;
-    state.stats.cleanliness = 80;
+    state.stats.cleanliness = ${JSON.stringify(captureCleanliness)};
     state.stats.health = 100;
     state.patch.quality = 72;
     state.patch.mycelium = 0;
@@ -606,6 +634,9 @@ async function captureCanvas(cdp, label, options) {
     await waitForExpression(cdp, getAssetStatusReadyExpression(), 6000);
   }
   await applyCaptureSceneOverrides(cdp);
+  if (captureGrassPointer) {
+    await forceCaptureGrassPointer(cdp);
+  }
   if (options.immersion) {
     await forceCaptureImmersion(cdp, options.immersion);
   } else if (shouldSuppressCaptureImmersion(options)) {
@@ -664,39 +695,143 @@ async function captureCanvas(cdp, label, options) {
             }
             return Math.round((Math.max(...values) - Math.min(...values)) * 1000) / 1000;
           };
+          const counts = (field) => samples.reduce((acc, sample) => {
+            const value = sample[field];
+            if (value !== undefined && value !== null && value !== '') {
+              acc[value] = (acc[value] || 0) + 1;
+            }
+            return acc;
+          }, {});
           return {
             count: samples.length,
             xRange: range('x'),
             yRange: range('y'),
             alphaRange: range('alpha'),
             glowRange: range('glow'),
+            lightAlphaRange: range('lightAlpha'),
             glowRadiusRange: range('glowRadius'),
+            lightRadiusRange: range('lightRadius'),
+            pauseRange: range('pause'),
             maxGlowRadius: Math.max(0, ...numbers('glowRadius')),
-            maxExcursion: Math.max(0, ...numbers('excursion'))
+            maxLightRadius: Math.max(0, ...numbers('lightRadius')),
+            maxLightAlpha: Math.max(0, ...numbers('lightAlpha')),
+            maxExcursion: Math.max(0, ...numbers('excursion')),
+            layers: counts('layer'),
+            depths: counts('depth'),
+            mushroomOverlaps: counts('mushroomOverlap'),
+            routes: counts('route'),
+            variants: counts('variant'),
+            directions: counts('direction')
           };
         };
         const sampleForLog = (sample) => ({
           seed: sample.seed,
           layer: sample.layer,
+          depth: sample.depth,
+          route: sample.route,
+          variant: sample.variant,
+          direction: sample.direction,
           x: sample.x,
           y: sample.y,
           alpha: sample.alpha,
           glow: sample.glow,
+          lightAlpha: sample.lightAlpha,
           glowRadius: sample.glowRadius,
+          lightRadius: sample.lightRadius,
+          excursion: sample.excursion,
+          pause: sample.pause,
+          mushroomOverlap: sample.mushroomOverlap,
           progress: sample.progress
         });
+        const sampleGrassRegion = (x, y, width, height) => {
+          const canvas = document.getElementById('mushroomCanvas');
+          if (!canvas) {
+            return null;
+          }
+          const image = canvas.getContext('2d').getImageData(x, y, width, height).data;
+          let red = 0;
+          let green = 0;
+          let blue = 0;
+          let count = 0;
+          for (let index = 0; index < image.length; index += 4) {
+            red += image[index];
+            green += image[index + 1];
+            blue += image[index + 2];
+            count += 1;
+          }
+          if (!count) {
+            return null;
+          }
+          const meanRed = red / count;
+          const meanGreen = green / count;
+          const meanBlue = blue / count;
+          let textured = 0;
+          let vegetation = 0;
+          let deltaTotal = 0;
+          let luminance = 0;
+          for (let index = 0; index < image.length; index += 4) {
+            const r = image[index];
+            const g = image[index + 1];
+            const b = image[index + 2];
+            const delta = Math.abs(r - meanRed) + Math.abs(g - meanGreen) + Math.abs(b - meanBlue);
+            const greenish = g >= r * 0.78 && g >= b * 0.72 && g - Math.min(r, b) >= -10;
+            const snowish = r > 185 && g > 195 && b > 180 && Math.abs(r - b) < 48;
+            if (delta >= 24 || greenish || snowish) {
+              textured += 1;
+            }
+            if (greenish) {
+              vegetation += 1;
+            }
+            deltaTotal += delta;
+            luminance += r * 0.2126 + g * 0.7152 + b * 0.0722;
+          }
+          return {
+            coverage: Math.round(textured / count * 1000) / 1000,
+            vegetation: Math.round(vegetation / count * 1000) / 1000,
+            avgDelta: Math.round(deltaTotal / count * 1000) / 1000,
+            luminance: Math.round(luminance / count * 1000) / 1000
+          };
+        };
+        const grassMetrics = {
+          bottom: sampleGrassRegion(0, 500, 512, 12),
+          left: sampleGrassRegion(0, 412, 16, 100),
+          right: sampleGrassRegion(496, 412, 16, 100),
+          center: sampleGrassRegion(196, 426, 120, 86)
+        };
         return {
           butterflies: Array.isArray(diagnostics.butterflies) ? diagnostics.butterflies.length : 0,
+          bats: Array.isArray(diagnostics.bats) ? diagnostics.bats.length : 0,
+          moths: Array.isArray(diagnostics.moths) ? diagnostics.moths.length : 0,
           fireflies: Array.isArray(diagnostics.fireflies) ? diagnostics.fireflies.length : 0,
+          crawlers: Array.isArray(diagnostics.crawlers) ? diagnostics.crawlers.length : 0,
           butterflySummary: summarize(diagnostics.butterflies),
+          batSummary: summarize(diagnostics.bats),
+          mothSummary: summarize(diagnostics.moths),
           fireflySummary: summarize(diagnostics.fireflies),
+          crawlerSummary: summarize(diagnostics.crawlers),
+          butterflySamples: Array.isArray(diagnostics.butterflies)
+            ? diagnostics.butterflies.slice(0, 8).map(sampleForLog)
+            : [],
+          batSamples: Array.isArray(diagnostics.bats)
+            ? diagnostics.bats.slice(0, 8).map(sampleForLog)
+            : [],
+          mothSamples: Array.isArray(diagnostics.moths)
+            ? diagnostics.moths.slice(0, 8).map(sampleForLog)
+            : [],
           fireflySamples: Array.isArray(diagnostics.fireflies)
             ? diagnostics.fireflies.slice(0, 8).map(sampleForLog)
+            : [],
+          crawlerSamples: Array.isArray(diagnostics.crawlers)
+            ? diagnostics.crawlers.slice(0, 8).map(sampleForLog)
             : [],
           sleepGlyphs: Array.isArray(diagnostics.sleepGlyphs) ? diagnostics.sleepGlyphs.length : 0,
           sleepBody: diagnostics.sleepBody || null,
           activityBody: diagnostics.activityBody || null,
+          conditionOverlay: diagnostics.conditionOverlay || null,
+          sunbeams: diagnostics.sunbeams || null,
+          clouds: diagnostics.clouds || null,
           ground: diagnostics.ground || null,
+          grassMetrics: grassMetrics,
           celestial: diagnostics.celestial || null
         };
       })()`,
@@ -739,6 +874,28 @@ async function captureCanvas(cdp, label, options) {
     });
     console.log(`${label} scene: ${JSON.stringify(sceneSummary.result.value)}`);
   }
+}
+
+async function forceCaptureGrassPointer(cdp) {
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const runtime = window.__pieczargotchiRuntime;
+      if (!runtime) {
+        return;
+      }
+      const now = Number(runtime.debug && runtime.debug.fixedAt) || Date.now();
+      runtime.input = Object.assign(runtime.input || {}, {
+        inside: true,
+        x: 262,
+        y: 436,
+        lastMoveAt: now,
+        lastDownAt: 0,
+        consumedDownAt: 0,
+        speed: 0.2
+      });
+    })()`,
+    awaitPromise: true
+  });
 }
 
 async function forceCaptureImmersion(cdp, sample) {

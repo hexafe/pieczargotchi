@@ -96,6 +96,186 @@
     ctx.restore();
   }
 
+  function drawMushroomConditionOverlay(ctx, animation, frameIndex, motion, grassTop) {
+    if (!runtime.state || !runtime.state.stats || !animation || animation.kind === 'effect') {
+      return;
+    }
+
+    const cleanliness = clamp(Number(runtime.state.stats.cleanliness), 0, 100, 100);
+    let intensity = clamp((72 - cleanliness) / 52, 0, 1, 0);
+    if (intensity <= 0.01) {
+      recordConditionOverlayDiagnostics(cleanliness, 0);
+      return;
+    }
+
+    const activity = getActiveActivity(runtime.state, getRuntimeNow());
+    if (activity && activity.type === 'clean') {
+      intensity *= 0.18;
+    }
+
+    const stage = animation.stage || (animation.key ? String(animation.key).split('.')[0] : runtime.state.stage) || 'adult';
+    const now = getRuntimeNow();
+    const resolvedGrassTop = Number.isFinite(grassTop) ? grassTop : getConditionOverlayGrassTop(stage);
+    if (motion) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, canvasSize, resolvedGrassTop);
+      ctx.clip();
+      ctx.translate(canvasSize / 2 + motion.x, canvasSize / 2 + motion.y);
+      ctx.scale(motion.scaleX || 1, motion.scaleY || 1);
+      ctx.translate(-canvasSize / 2, -canvasSize / 2);
+      drawMushroomDirtMarks(ctx, stage, intensity, now, frameIndex, 0, resolvedGrassTop);
+      ctx.restore();
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, resolvedGrassTop, canvasSize, canvasSize - resolvedGrassTop);
+      ctx.clip();
+      drawMushroomDirtMarks(ctx, stage, intensity, now, frameIndex, resolvedGrassTop, canvasSize);
+      ctx.restore();
+    } else {
+      drawMushroomDirtMarks(ctx, stage, intensity, now, frameIndex, 0, canvasSize);
+    }
+
+    recordConditionOverlayDiagnostics(cleanliness, intensity);
+  }
+
+  function drawMushroomDirtMarks(ctx, stage, intensity, now, frameIndex, minY, maxY) {
+    const profile = getDirtOverlayProfile(stage);
+    const alpha = clamp(0.18 + intensity * 0.62, 0, 0.82, 0.2);
+    ctx.save();
+    profile.marks.forEach(function(mark, index) {
+      if (mark.y < minY - 16 || mark.y > maxY + 16) {
+        return;
+      }
+
+      const seed = (index + 1) * 37 + (frameIndex || 0) * 11;
+      const pulse = 0.92 + Math.sin(now / 1700 + seed) * 0.08;
+      const markAlpha = alpha * clamp(mark.weight || 1, 0.45, 1.25, 1) * pulse;
+      const x = Math.round(mark.x + Math.sin(now / 2600 + seed) * mark.drift);
+      const y = Math.round(mark.y + Math.cos(now / 3100 + seed) * mark.drift * 0.45);
+      const w = Math.max(3, Math.round(mark.w * (0.72 + intensity * 0.42)));
+      const h = Math.max(2, Math.round(mark.h * (0.72 + intensity * 0.36)));
+      ctx.globalAlpha = markAlpha;
+      ctx.fillStyle = mark.tone === 'green' ? '#53683e' : '#6b5038';
+      ctx.fillRect(x, y, w, h);
+      ctx.globalAlpha = markAlpha * 0.54;
+      ctx.fillStyle = mark.tone === 'green' ? '#2f4d31' : '#3f3125';
+      ctx.fillRect(x + Math.max(1, Math.floor(w * 0.42)), y + h, Math.max(2, Math.floor(w * 0.55)), Math.max(1, Math.floor(h * 0.42)));
+    });
+
+    ctx.globalAlpha = alpha * 0.72;
+    ctx.fillStyle = '#2f3d28';
+    profile.specks.forEach(function(point, index) {
+      if (point.y < minY || point.y > maxY) {
+        return;
+      }
+
+      if (intensity < point.threshold) {
+        return;
+      }
+
+      const jitter = Math.sin(now / 2200 + index * 1.7) * 1.5;
+      ctx.fillRect(Math.round(point.x + jitter), Math.round(point.y), point.size, point.size);
+    });
+    ctx.restore();
+  }
+
+  function getDirtOverlayProfile(stage) {
+    const profiles = {
+      spore: {
+        marks: [
+          { x: 229, y: 350, w: 9, h: 6, drift: 0.6, weight: 0.72 },
+          { x: 263, y: 366, w: 8, h: 6, drift: 0.5, weight: 0.68 },
+          { x: 248, y: 397, w: 11, h: 7, drift: 0.4, weight: 0.78, tone: 'green' }
+        ],
+        specks: [
+          { x: 235, y: 381, size: 2, threshold: 0.28 },
+          { x: 281, y: 389, size: 2, threshold: 0.44 },
+          { x: 220, y: 406, size: 2, threshold: 0.56 }
+        ]
+      },
+      baby: {
+        marks: [
+          { x: 184, y: 222, w: 16, h: 9, drift: 0.9, weight: 0.72 },
+          { x: 282, y: 236, w: 14, h: 8, drift: 0.8, weight: 0.66 },
+          { x: 218, y: 324, w: 15, h: 10, drift: 0.7, weight: 0.78, tone: 'green' },
+          { x: 300, y: 344, w: 12, h: 8, drift: 0.6, weight: 0.64 }
+        ],
+        specks: [
+          { x: 210, y: 270, size: 2, threshold: 0.24 },
+          { x: 260, y: 292, size: 2, threshold: 0.34 },
+          { x: 331, y: 334, size: 2, threshold: 0.52 },
+          { x: 176, y: 362, size: 2, threshold: 0.64 }
+        ]
+      },
+      young: {
+        marks: [
+          { x: 156, y: 160, w: 20, h: 12, drift: 1.0, weight: 0.72 },
+          { x: 278, y: 178, w: 18, h: 10, drift: 0.9, weight: 0.68 },
+          { x: 207, y: 293, w: 17, h: 11, drift: 0.8, weight: 0.78, tone: 'green' },
+          { x: 328, y: 318, w: 14, h: 9, drift: 0.7, weight: 0.68 }
+        ],
+        specks: [
+          { x: 234, y: 218, size: 2, threshold: 0.22 },
+          { x: 322, y: 242, size: 2, threshold: 0.34 },
+          { x: 179, y: 338, size: 2, threshold: 0.48 },
+          { x: 286, y: 356, size: 3, threshold: 0.64 }
+        ]
+      },
+      adult: {
+        marks: [
+          { x: 134, y: 112, w: 24, h: 13, drift: 1.1, weight: 0.72 },
+          { x: 300, y: 126, w: 22, h: 12, drift: 1.0, weight: 0.66 },
+          { x: 188, y: 268, w: 20, h: 12, drift: 0.8, weight: 0.78, tone: 'green' },
+          { x: 338, y: 292, w: 17, h: 10, drift: 0.7, weight: 0.66 }
+        ],
+        specks: [
+          { x: 229, y: 174, size: 2, threshold: 0.22 },
+          { x: 354, y: 206, size: 2, threshold: 0.36 },
+          { x: 160, y: 320, size: 3, threshold: 0.52 },
+          { x: 280, y: 344, size: 2, threshold: 0.64 }
+        ]
+      },
+      legendary: {
+        marks: [
+          { x: 128, y: 108, w: 24, h: 13, drift: 1.1, weight: 0.68 },
+          { x: 310, y: 124, w: 22, h: 12, drift: 1.0, weight: 0.64 },
+          { x: 190, y: 270, w: 20, h: 12, drift: 0.8, weight: 0.76, tone: 'green' },
+          { x: 346, y: 296, w: 17, h: 10, drift: 0.7, weight: 0.64 }
+        ],
+        specks: [
+          { x: 238, y: 172, size: 2, threshold: 0.22 },
+          { x: 366, y: 210, size: 2, threshold: 0.36 },
+          { x: 166, y: 320, size: 3, threshold: 0.52 },
+          { x: 292, y: 344, size: 2, threshold: 0.64 }
+        ]
+      }
+    };
+    return profiles[stage] || profiles.adult;
+  }
+
+  function getConditionOverlayGrassTop(stage) {
+    const tops = {
+      spore: 424,
+      baby: 372,
+      young: 360,
+      adult: 354,
+      legendary: 354
+    };
+    return tops[stage] || tops.adult;
+  }
+
+  function recordConditionOverlayDiagnostics(cleanliness, intensity) {
+    if (!runtime.motionDiagnostics) {
+      return;
+    }
+    runtime.motionDiagnostics.conditionOverlay = {
+      cleanliness: Math.round(cleanliness),
+      dirtIntensity: Number(clamp(intensity, 0, 1, 0).toFixed(3))
+    };
+  }
+
   function drawTiredCue(ctx, now, severity) {
     drawBlink(ctx);
     const anchor = getStageEffectAnchor();
@@ -291,8 +471,11 @@
   function drawEffect(ctx, effect, progress) {
     const particleStyle = getEffectParticleStyle(effect.type);
     if (particleStyle) {
-      drawEffectAssetFrame(ctx, effect, progress, 0.28);
-      drawParticleSet(ctx, effect, progress, particleStyle.color, particleStyle.shape);
+      const spriteSynced = isSpriteSyncedActivityEffect(effect.type);
+      drawEffectAssetFrame(ctx, effect, progress, spriteSynced ? 0.14 : 0.28);
+      if (!spriteSynced) {
+        drawParticleSet(ctx, effect, progress, particleStyle.color, particleStyle.shape);
+      }
       return;
     }
 
@@ -305,6 +488,19 @@
     } else if (effect.type === 'attention') {
       drawAttentionAlarm(ctx, 1 - progress);
     }
+  }
+
+  function isSpriteSyncedActivityEffect(type) {
+    if (type !== 'spores' && type !== 'harvest') {
+      return false;
+    }
+
+    const activity = runtime.state && runtime.state.currentActivity;
+    return Boolean(
+      activity
+      && activity.type === type
+      && Number(activity.until) > getRuntimeNow()
+    );
   }
 
   function getEffectParticleStyle(type) {

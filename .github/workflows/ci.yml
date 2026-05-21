@@ -37,14 +37,29 @@ jobs:
       - name: Run client core tests
         run: node scripts/test-client-core.mjs
 
+      - name: Run client core tests in UTC
+        run: env TZ=UTC node scripts/test-client-core.mjs
+
       - name: Run asset service tests
         run: node scripts/test-asset-service.mjs
 
       - name: Run weather precipitation motion tests
         run: node scripts/test-weather-precip-motion.mjs
 
+      - name: Run scene palette transition tests
+        run: node scripts/test-scene-palette.mjs
+
+      - name: Run grass wind motion tests
+        run: node scripts/test-grass-wind-motion.mjs
+
       - name: Run celestial position tests
         run: node scripts/test-celestial-position.mjs
+
+      - name: Build Cloudflare static bundle
+        run: npm run build
+
+      - name: Test Cloudflare static bundle
+        run: node scripts/test-cloudflare-static-build.mjs
 
       - name: Check capture scripts
         run: |
@@ -52,6 +67,8 @@ jobs:
           node --check scripts/capture-life-motion.mjs
           node --check scripts/capture-weather-matrix.mjs
           node --check scripts/test-celestial-position.mjs
+          node --check scripts/test-cloudflare-static-build.mjs
+          node --check scripts/test-grass-wind-motion.mjs
           node --check scripts/check-deployment-readiness.mjs
 
       - name: Check Apps Script syntax
@@ -59,7 +76,7 @@ jobs:
           node -e "const fs=require('fs'); for (const f of ['Code.gs','Config.gs','AnimationConfig.gs','AssetService.gs','StateModel.gs','GameRules.gs','MinigamesConfig.gs','EvolutionRules.gs','DecorationStore.gs','SyncService.gs','Actions.gs']) { new Function(fs.readFileSync(f,'utf8')); console.log(f + ' syntax ok'); }"
 
       - name: Check Python helper syntax
-        run: python -m py_compile scripts/build-imagegen-sprites.py scripts/generate-pixel-assets.py scripts/audit-spore-sprites.py scripts/audit-sprite-consistency.py scripts/audit-glint-sprites.py
+        run: python -m py_compile scripts/build-imagegen-sprites.py scripts/generate-pixel-assets.py scripts/audit-spore-sprites.py scripts/audit-sprite-consistency.py scripts/audit-glint-sprites.py scripts/audit-activity-sprite-motion.py
 
       - name: Validate assets
         run: node scripts/validate-assets.mjs
@@ -69,6 +86,9 @@ jobs:
 
       - name: Audit glint sprites
         run: python scripts/audit-glint-sprites.py
+
+      - name: Audit activity sprite motion
+        run: python scripts/audit-activity-sprite-motion.py
 
       - name: Audit spore sprites
         run: python scripts/audit-spore-sprites.py

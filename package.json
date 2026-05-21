@@ -10,6 +10,9 @@
     "check:client": "node scripts/check-client-syntax.mjs",
     "test:core": "node scripts/test-client-core.mjs",
     "test:celestial": "node scripts/test-celestial-position.mjs",
-    "test:palette": "node scripts/test-scene-palette.mjs"
+    "test:palette": "node scripts/test-scene-palette.mjs",
+    "test:weather": "node scripts/test-weather-precip-motion.mjs",
+    "test:grass-wind": "node scripts/test-grass-wind-motion.mjs",
+    "test:cloudflare-static": "node scripts/test-cloudflare-static-build.mjs"
   }
 }

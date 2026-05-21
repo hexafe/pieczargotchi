@@ -31,6 +31,14 @@ Kazdy atlas stanu lub akcji ma jeden rzad pieciu postaci: `spore`, `baby`, `youn
 
 Dla etapu `spore` builder uzywa `spore_full_generated_atlas.png`: 19 kompletnych, wygenerowanych wariantow zarodka w kolejnosci stanow i akcji. Builder nie dokleja kapelusza ani nie sklada twarzy z osobnych warstw; tylko usuwa chroma-key, skaluje, centruje po ciele i doklada stabilna trawe runtime.
 
+Dopracowane aktywnosci sa sprite-first i maja docelowo `8` klatek per sheet (`4096x512`). Generator powinien traktowac gest, mimike i rekwizyt jako czesc PNG dla danego etapu. Canvas/runtime nie doklada dodatkowego body-motion do tych sheetow; zostaja tylko stanowe overlaye i efekty pomocnicze z `assets/effects/`.
+
+Etap `spore` ma lagodniejszy plan ruchu niz starsze etapy: mikroprzesuniecia, mniejszy squash/stretch i one-shot timing z holdem ostatniej klatki w runtime. Zarodnik nie moze wykonywac szybkiego naprzemiennego ruchu lewo/prawo tylko dlatego, ze dorosla Pieczarka znosi wieksza amplitude.
+
+`clean` zostawia brud jako decyzje renderera: niska `cleanliness` ma nadal uzywac dirt cue / stanu `dirty`, a activity sheet pokazuje czyszczenie, gest i blysk bez trwalego przybrudzania bazowego cutoutu.
+
+`spore/sleep` walidujemy jako split: sam spiacy zarodek pochodzi z PNG bez wklejonych `zZz`, a glyphy snu i chmura zarodnikow pozostaja oddzielnymi warstwami runtime/efektow.
+
 Neutralny easter egg `:|` tez ma osobne wyrenderowane zrodla:
 
 ```text
@@ -78,7 +86,7 @@ python3 scripts/build-imagegen-sprites.py
 Skrypt tworzy:
 
 - `assets/stages/<stage>/<state>_sheet.png`
-- `assets/activities/<stage>/<activity>_sheet.png`
+- `assets/activities/<stage>/<activity>_sheet.png`, dla dopracowanych aktywnosci w kontrakcie `8` klatek
 - kompatybilne fallbacki `assets/activities/<activity>_sheet.png` z wariantu `adult`
 - `assets/easter-eggs/<stage>/neutral_sheet.png`
 - `assets/easter-eggs/<stage>/neutral_rain_sheet.png`
@@ -102,6 +110,7 @@ Stary `scripts/generate-pixel-assets.py` deleguje do tego buildera, jezeli wykry
 python3 -m py_compile scripts/build-imagegen-sprites.py scripts/generate-pixel-assets.py scripts/generate-immersion-assets.py
 python3 scripts/build-imagegen-sprites.py
 node scripts/validate-assets.mjs
+python3 scripts/audit-activity-sprite-motion.py
 python3 scripts/audit-glint-sprites.py
 python3 scripts/audit-sprite-consistency.py
 PIECZARGOTCHI_CAPTURE_STAGES=1 PIECZARGOTCHI_CAPTURE_ACTIVITIES=1 node scripts/capture-app-render.mjs http://127.0.0.1:8092/ /tmp/pieczargotchi-imagegen-final
@@ -113,5 +122,9 @@ Ostatnia walidacja:
 - `233` sheety PNG i `1` asset srodowiska przechodza `validate-assets`,
 - manifest runtime laduje `226` assetow: stage, activity, easter egg, effect i environment; poza manifestem zostaja swiadomie walidowane tylko fallbacki `assets/activities/*.png`,
 - stany bazowe, aktywnosci, neutralne easter eggi i nowe reakcje kursora trzymaja rozmiar/baseline w kazdym etapie,
+- dopracowane aktywnosci sa sprawdzane jako `8`-klatkowe, stage-specific sheety z gestem w PNG, nie jako 4-klatkowy idle z canvasowym efektem,
+- `spore` activity timing jest one-shot/hold w zakresie ludzkiego okna aktywnosci, a audyt lapie zbyt duzy drift i cienkie jasne poziome pasy typu "laser",
+- `clean` zachowuje split: activity sheet czysci, a brud niskiej `cleanliness` pozostaje overlayem/stanem renderera,
+- `spore/sleep` zachowuje split: PNG pokazuje spiace cialo, a `zZz` i zarodniki nie sa wklejone w sheet snu,
 - lokalny capture potwierdza osobne animacje akcji i reakcje immersyjne, w tym `watch_cursor_*`, `follow_cursor_*`, warianty `idle_fidget` oraz warianty `ponder`,
 - viewport/canvas capture potwierdza czytelny render bez checkerboardu w obszarze canvasu.

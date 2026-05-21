@@ -1382,7 +1382,9 @@ test('ambient insects collapse during storm and snow', () => {
 
   assert(storm.generalIntensity < 0.02, `expected near-zero storm insects, got ${storm.generalIntensity}`);
   assert(storm.fireflyIntensity === 0, `expected no storm fireflies, got ${storm.fireflyIntensity}`);
+  assert(storm.batIntensity === 0, `expected no storm bats, got ${storm.batIntensity}`);
   assert(snow.generalIntensity === 0, `expected no snow insects, got ${snow.generalIntensity}`);
+  assert(snow.mothIntensity === 0, `expected no snow moths, got ${snow.mothIntensity}`);
 });
 
 test('fireflies appear in the right summer evening window', () => {
@@ -1401,6 +1403,25 @@ test('fireflies appear in the right summer evening window', () => {
   assert(evening.fireflyIntensity > 0.7, `expected strong summer evening fireflies, got ${evening.fireflyIntensity}`);
   assert(noon.fireflyIntensity === 0, `expected no noon fireflies, got ${noon.fireflyIntensity}`);
   assert(january.fireflyIntensity === 0, `expected no winter fireflies, got ${january.fireflyIntensity}`);
+});
+
+test('warm calm nights add moths and bats without daytime bats', () => {
+  const baseScene = {
+    condition: 'clear',
+    latitude: 50.2649,
+    temperature: 22,
+    humidity: 74,
+    windLevel: 0.05,
+    gustLevel: 0.05,
+    precipitation: 0
+  };
+  const night = core.calculateAmbientLife(Object.assign({ dayPhase: 'night' }, baseScene), new Date(2026, 6, 12, 22, 30));
+  const noon = core.calculateAmbientLife(Object.assign({ dayPhase: 'noon' }, baseScene), new Date(2026, 6, 12, 12, 0));
+
+  assert(night.mothIntensity > 0.55, `expected active night moths, got ${night.mothIntensity}`);
+  assert(night.batIntensity > 0.65, `expected active night bats, got ${night.batIntensity}`);
+  assert(noon.mothIntensity === 0, `expected no noon moths, got ${noon.mothIntensity}`);
+  assert(noon.batIntensity === 0, `expected no noon bats, got ${noon.batIntensity}`);
 });
 
 test('ambient sky recognizes Perseids on clear August nights', () => {

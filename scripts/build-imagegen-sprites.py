@@ -43,6 +43,7 @@ ACTIVITIES = [
     "spores",
     "harvest",
 ]
+ACTIVITY_FRAME_COUNT = 8
 EFFECTS = ["drops", "sparkle", "dust", "notes", "spore_cloud"]
 
 STAGE_LAYOUT = {
@@ -98,15 +99,170 @@ STATE_OFFSETS = {
     "critical": [(-2, 0), (2, 0), (-1, 1), (1, -1)],
 }
 
-ACTIVITY_OFFSETS = {
-    "hydrate": [(0, 0), (0, -2), (0, -1), (0, 0)],
-    "feed": [(0, 0), (0, -1), (0, -1), (0, 0)],
-    "clean": [(0, 0), (0, -2), (0, -1), (0, 0)],
-    "play": [(-2, 0), (1, -2), (2, -1), (0, 0)],
-    "instrument": [(0, 0), (0, -1), (0, 0), (0, 1)],
-    "sing": [(0, 0), (0, -1), (0, -1), (0, 0)],
-    "spores": [(0, -8), (0, -9), (0, -9), (0, -8)],
-    "harvest": [(0, 0), (0, -1), (0, -1), (0, 0)],
+ACTIVITY_FRAME_PLANS = {
+    "hydrate": [
+        {"x": 0, "bottom": 0, "sx": 1.00, "sy": 1.00},
+        {"x": 0, "bottom": -1, "sx": 1.00, "sy": 1.01},
+        {"x": -1, "bottom": -1, "sx": 1.00, "sy": 1.01},
+        {"x": 1, "bottom": -2, "sx": 0.99, "sy": 1.02},
+        {"x": 0, "bottom": 0, "sx": 1.01, "sy": 0.99},
+        {"x": 0, "bottom": 0, "sx": 1.00, "sy": 1.00},
+        {"x": 0, "bottom": 0, "sx": 1.00, "sy": 1.00},
+        {"x": 0, "bottom": 0, "sx": 1.00, "sy": 1.00},
+    ],
+    "feed": [
+        {"x": 0, "bottom": 0, "sx": 1.00, "sy": 1.00},
+        {"x": -2, "bottom": -1, "sx": 1.02, "sy": 0.99},
+        {"x": 2, "bottom": -2, "sx": 0.98, "sy": 1.03},
+        {"x": -2, "bottom": -1, "sx": 1.03, "sy": 0.98},
+        {"x": 2, "bottom": -1, "sx": 0.99, "sy": 1.02},
+        {"x": 0, "bottom": 0, "sx": 1.02, "sy": 0.99},
+        {"x": 0, "bottom": -1, "sx": 1.01, "sy": 1.00},
+        {"x": 0, "bottom": 0, "sx": 1.00, "sy": 1.00},
+    ],
+    "clean": [
+        {"x": 0, "bottom": 0, "sx": 1.00, "sy": 1.00},
+        {"x": -1, "bottom": 0, "sx": 1.01, "sy": 1.00},
+        {"x": 1, "bottom": -1, "sx": 0.99, "sy": 1.01},
+        {"x": -1, "bottom": -1, "sx": 1.01, "sy": 0.99},
+        {"x": 1, "bottom": 0, "sx": 0.99, "sy": 1.01},
+        {"x": 0, "bottom": 0, "sx": 1.00, "sy": 1.00},
+        {"x": 0, "bottom": 0, "sx": 1.01, "sy": 0.99},
+        {"x": 0, "bottom": 0, "sx": 1.00, "sy": 1.00},
+    ],
+    "play": [
+        {"x": -3, "bottom": 0, "sx": 1.00, "sy": 1.00},
+        {"x": -1, "bottom": 0, "sx": 0.99, "sy": 1.03},
+        {"x": 2, "bottom": 0, "sx": 0.98, "sy": 1.04},
+        {"x": 5, "bottom": 0, "sx": 1.02, "sy": 0.99},
+        {"x": 3, "bottom": -1, "sx": 1.03, "sy": 0.98},
+        {"x": 0, "bottom": 0, "sx": 0.99, "sy": 1.02},
+        {"x": -2, "bottom": -1, "sx": 1.01, "sy": 0.99},
+        {"x": 0, "bottom": 0, "sx": 1.00, "sy": 1.00},
+    ],
+    "instrument": [
+        {"x": 0, "bottom": 0, "sx": 1.00, "sy": 1.00},
+        {"x": 0, "bottom": -1, "sx": 1.00, "sy": 1.01},
+        {"x": 1, "bottom": 0, "sx": 1.01, "sy": 0.99},
+        {"x": 0, "bottom": -1, "sx": 1.00, "sy": 1.01},
+        {"x": -1, "bottom": 0, "sx": 1.01, "sy": 0.99},
+        {"x": 0, "bottom": -1, "sx": 1.00, "sy": 1.01},
+        {"x": 1, "bottom": 0, "sx": 1.00, "sy": 1.00},
+        {"x": 0, "bottom": 0, "sx": 1.00, "sy": 1.00},
+    ],
+    "sing": [
+        {"x": 0, "bottom": 0, "sx": 1.00, "sy": 1.00},
+        {"x": 0, "bottom": -1, "sx": 1.00, "sy": 1.01},
+        {"x": 1, "bottom": -1, "sx": 1.02, "sy": 0.99},
+        {"x": 0, "bottom": -2, "sx": 0.99, "sy": 1.03},
+        {"x": -1, "bottom": -1, "sx": 1.02, "sy": 0.99},
+        {"x": 0, "bottom": -1, "sx": 1.00, "sy": 1.01},
+        {"x": 0, "bottom": 0, "sx": 1.01, "sy": 0.99},
+        {"x": 0, "bottom": 0, "sx": 1.00, "sy": 1.00},
+    ],
+    "spores": [
+        {"x": 0, "bottom": 0, "sx": 1.00, "sy": 1.00},
+        {"x": 0, "bottom": -2, "sx": 0.99, "sy": 1.02},
+        {"x": -1, "bottom": -4, "sx": 0.98, "sy": 1.04},
+        {"x": 1, "bottom": -5, "sx": 1.03, "sy": 0.99},
+        {"x": 0, "bottom": -3, "sx": 1.02, "sy": 0.99},
+        {"x": 0, "bottom": -2, "sx": 1.01, "sy": 1.00},
+        {"x": 0, "bottom": -1, "sx": 1.00, "sy": 1.00},
+        {"x": 0, "bottom": 0, "sx": 1.00, "sy": 1.00},
+    ],
+    "harvest": [
+        {"x": 0, "bottom": 0, "sx": 1.00, "sy": 1.00},
+        {"x": -1, "bottom": -1, "sx": 1.01, "sy": 1.00},
+        {"x": 1, "bottom": -2, "sx": 0.99, "sy": 1.02},
+        {"x": 0, "bottom": -4, "sx": 0.98, "sy": 1.04},
+        {"x": 1, "bottom": -2, "sx": 1.02, "sy": 0.99},
+        {"x": -1, "bottom": -1, "sx": 1.01, "sy": 0.99},
+        {"x": 0, "bottom": 0, "sx": 1.00, "sy": 1.00},
+        {"x": 0, "bottom": 0, "sx": 1.00, "sy": 1.00},
+    ],
+}
+
+SPORE_ACTIVITY_FRAME_PLANS = {
+    "hydrate": [
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+        {"x": 0, "bottom": -1, "sx": 1.000, "sy": 1.004},
+        {"x": 0, "bottom": -1, "sx": 0.998, "sy": 1.006},
+        {"x": 0, "bottom": -1, "sx": 1.000, "sy": 1.006},
+        {"x": 0, "bottom": 0, "sx": 1.003, "sy": 0.998},
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+    ],
+    "feed": [
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+        {"x": 0, "bottom": -1, "sx": 1.004, "sy": 0.998},
+        {"x": 1, "bottom": -1, "sx": 0.998, "sy": 1.006},
+        {"x": 1, "bottom": -1, "sx": 1.006, "sy": 0.997},
+        {"x": 0, "bottom": 0, "sx": 1.002, "sy": 1.000},
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+    ],
+    "clean": [
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+        {"x": 0, "bottom": 0, "sx": 1.002, "sy": 1.000},
+        {"x": 1, "bottom": 0, "sx": 0.998, "sy": 1.004},
+        {"x": 1, "bottom": -1, "sx": 1.004, "sy": 0.998},
+        {"x": 0, "bottom": -1, "sx": 0.998, "sy": 1.004},
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+        {"x": -1, "bottom": 0, "sx": 1.002, "sy": 0.998},
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+    ],
+    "play": [
+        {"x": -1, "bottom": 0, "sx": 1.000, "sy": 1.000},
+        {"x": 0, "bottom": 0, "sx": 0.998, "sy": 1.006},
+        {"x": 1, "bottom": -1, "sx": 0.996, "sy": 1.008},
+        {"x": 2, "bottom": -1, "sx": 1.004, "sy": 0.998},
+        {"x": 1, "bottom": -1, "sx": 1.006, "sy": 0.996},
+        {"x": 0, "bottom": 0, "sx": 0.998, "sy": 1.004},
+        {"x": -1, "bottom": 0, "sx": 1.002, "sy": 0.998},
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+    ],
+    "instrument": [
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+        {"x": 0, "bottom": -1, "sx": 1.000, "sy": 1.004},
+        {"x": 1, "bottom": 0, "sx": 1.002, "sy": 0.998},
+        {"x": 0, "bottom": -1, "sx": 1.000, "sy": 1.004},
+        {"x": -1, "bottom": 0, "sx": 1.002, "sy": 0.998},
+        {"x": 0, "bottom": -1, "sx": 1.000, "sy": 1.004},
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+    ],
+    "sing": [
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+        {"x": 0, "bottom": -1, "sx": 1.000, "sy": 1.004},
+        {"x": 1, "bottom": -1, "sx": 1.004, "sy": 0.998},
+        {"x": 0, "bottom": -1, "sx": 0.998, "sy": 1.006},
+        {"x": -1, "bottom": -1, "sx": 1.004, "sy": 0.998},
+        {"x": 0, "bottom": -1, "sx": 1.000, "sy": 1.004},
+        {"x": 0, "bottom": 0, "sx": 1.002, "sy": 0.998},
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+    ],
+    "spores": [
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+        {"x": 0, "bottom": -1, "sx": 0.998, "sy": 1.004},
+        {"x": 0, "bottom": -2, "sx": 0.996, "sy": 1.008},
+        {"x": 1, "bottom": -2, "sx": 1.006, "sy": 0.998},
+        {"x": 0, "bottom": -2, "sx": 1.004, "sy": 0.998},
+        {"x": 0, "bottom": -1, "sx": 1.002, "sy": 1.000},
+        {"x": 0, "bottom": -1, "sx": 1.000, "sy": 1.000},
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+    ],
+    "harvest": [
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+        {"x": 0, "bottom": -1, "sx": 1.002, "sy": 1.000},
+        {"x": 1, "bottom": -1, "sx": 0.998, "sy": 1.004},
+        {"x": 1, "bottom": -2, "sx": 0.996, "sy": 1.008},
+        {"x": 1, "bottom": -1, "sx": 1.004, "sy": 0.998},
+        {"x": 0, "bottom": -1, "sx": 1.002, "sy": 0.998},
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+        {"x": 0, "bottom": 0, "sx": 1.000, "sy": 1.000},
+    ],
 }
 
 ACTIVITY_LAYOUT_OVERRIDES = {
@@ -288,23 +444,50 @@ def zbuduj_aktywnosci(grass: Image.Image, body_bottom_targets: dict[str, int]) -
     for activity in ACTIVITIES:
         atlas = wczytaj_atlas(activity)
         cutouts = przygotuj_cutouty_etapow(atlas, activity)
+        framed_cutouts = wczytaj_klatkowe_cutouty_aktywnosci(activity)
         for stage, cutout in zip(STAGES, cutouts):
             zapisz_cutout("activities", activity, stage, cutout)
-            if activity == "hydrate":
-                frames = [
-                    zloz_klatke_podlania(cutout, grass, stage, offset, frame_index, body_bottom_targets)
-                    for frame_index, offset in enumerate(ACTIVITY_OFFSETS[activity])
-                ]
-            else:
-                frames = [
-                    zloz_klatke_z_trawa(cutout, grass, stage, offset, activity, body_bottom_targets)
-                    for offset in ACTIVITY_OFFSETS[activity]
-                ]
+            stage_frame_cutouts = framed_cutouts.get(stage)
+            frames = [
+                zloz_klatke_aktywnosci(
+                    stage_frame_cutouts[frame_index] if stage_frame_cutouts else cutout,
+                    grass,
+                    stage,
+                    activity,
+                    frame_index,
+                    body_bottom_targets,
+                )
+                for frame_index in range(ACTIVITY_FRAME_COUNT)
+            ]
             sciezka = ASSETS / "activities" / stage / f"{activity}_sheet.png"
             zapisz_sheet(sciezka, frames)
 
             if stage == "adult":
                 zapisz_sheet(ASSETS / "activities" / f"{activity}_sheet.png", frames)
+
+
+def wczytaj_klatkowe_cutouty_aktywnosci(activity: str) -> dict[str, list[Image.Image]]:
+    frame_dir = RAW_DIR / "activities" / activity
+    paths = [frame_dir / f"frame_{index + 1:02d}_atlas.png" for index in range(ACTIVITY_FRAME_COUNT)]
+    if not all(path.exists() for path in paths):
+        return {}
+
+    cutouts_by_stage = {stage: [] for stage in STAGES}
+    for frame_index, path in enumerate(paths):
+        atlas = usun_chroma_key(Image.open(path).convert("RGBA"))
+        cutouts = przygotuj_cutouty_klatkowej_aktywnosci(atlas, activity, frame_index)
+        for stage, cutout in zip(STAGES, cutouts):
+            cutouts_by_stage[stage].append(cutout)
+
+    return cutouts_by_stage
+
+
+def przygotuj_cutouty_klatkowej_aktywnosci(atlas: Image.Image, activity: str, frame_index: int) -> list[Image.Image]:
+    cutouts = wytnij_etapy(atlas)
+    return [
+        przygotuj_zarodnik_grzybni(cutout, f"{activity}_frame_{frame_index + 1:02d}") if stage == "spore" else cutout
+        for stage, cutout in zip(STAGES, cutouts)
+    ]
 
 
 def zbuduj_efekty() -> None:
@@ -496,6 +679,93 @@ def zloz_klatke_z_trawa(
     if state == "excellent":
         narysuj_animowane_blyski_excellent(frame, stage, character, x, y, frame_index)
     return frame
+
+
+def zloz_klatke_aktywnosci(
+    cutout: Image.Image,
+    grass: Image.Image,
+    stage: str,
+    activity: str,
+    frame_index: int,
+    body_bottom_targets: dict[str, int] | None = None,
+) -> Image.Image:
+    character_source = cutout
+    if activity == "hydrate":
+        character_layer, character_bbox = usun_wode_z_podlania(cutout)
+        if character_bbox is not None:
+            character_source = character_layer.crop(character_bbox)
+
+    character, scale = dopasuj_do_etapu_ze_skala(character_source, stage, get_activity_layout_override(stage, activity))
+    character = zastosuj_transform_aktywnosci(character, stage, activity, frame_index)
+    plan = get_activity_frame_plan(stage, activity, frame_index)
+    base_target = get_body_bottom_target(stage, body_bottom_targets)
+    target_bottom = None if base_target is None else base_target + int(round(plan.get("bottom", 0)))
+    offset = (int(round(plan.get("x", 0))), 0 if target_bottom is not None else int(round(plan.get("bottom", 0))))
+    character_x, character_y = policz_pozycje_postaci(character, stage, offset, target_bottom)
+    frame, character_x, character_y = zloz_postac_i_trawe(character, grass, stage, character_x, character_y, target_bottom)
+    narysuj_akcesoria_aktywnosci(frame, stage, activity, character, character_x, character_y, frame_index, scale)
+    return frame
+
+
+def zastosuj_transform_aktywnosci(character: Image.Image, stage: str, activity: str, frame_index: int) -> Image.Image:
+    plan = get_activity_frame_plan(stage, activity, frame_index)
+    scale_x = float(plan.get("sx", 1.0))
+    scale_y = float(plan.get("sy", 1.0))
+    if abs(scale_x - 1) < 0.002 and abs(scale_y - 1) < 0.002:
+        return character
+
+    width = max(1, round(character.width * scale_x))
+    height = max(1, round(character.height * scale_y))
+    return character.resize((width, height), Image.Resampling.NEAREST)
+
+
+def get_activity_frame_plan(stage: str, activity: str, frame_index: int) -> dict[str, float]:
+    plans = SPORE_ACTIVITY_FRAME_PLANS if stage == "spore" else ACTIVITY_FRAME_PLANS
+    return plans[activity][frame_index % ACTIVITY_FRAME_COUNT]
+
+
+def narysuj_akcesoria_aktywnosci(
+    frame: Image.Image,
+    stage: str,
+    activity: str,
+    character: Image.Image,
+    character_x: int,
+    character_y: int,
+    frame_index: int,
+    scale: float,
+) -> None:
+    body_bbox = znajdz_bbox_korpusu_postaci(character, stage) or character.getchannel("A").getbbox()
+    if body_bbox is None:
+        return
+
+    bounds = {
+        "left": character_x + body_bbox[0],
+        "top": character_y + body_bbox[1],
+        "right": character_x + body_bbox[2],
+        "bottom": character_y + body_bbox[3],
+        "width": body_bbox[2] - body_bbox[0],
+        "height": body_bbox[3] - body_bbox[1],
+        "center_x": character_x + (body_bbox[0] + body_bbox[2]) / 2,
+        "center_y": character_y + (body_bbox[1] + body_bbox[3]) / 2,
+    }
+
+    if activity == "hydrate":
+        visible_top_y = character_y + znajdz_gorna_krawedz_postaci(character)
+        narysuj_zraszanie(frame, character_x, visible_top_y, character.width, character.height, frame_index, scale)
+    elif activity == "feed":
+        narysuj_karmienie(frame, bounds, frame_index)
+    elif activity == "clean":
+        narysuj_czyszczenie(frame, bounds, frame_index)
+    elif activity == "play":
+        narysuj_zabawe(frame, bounds, frame_index)
+    elif activity == "instrument":
+        narysuj_granie(frame, bounds, frame_index)
+    elif activity == "sing":
+        narysuj_spiew(frame, bounds, frame_index)
+    elif activity == "spores":
+        narysuj_emisje_zarodnikow(frame, bounds, frame_index)
+    elif activity == "harvest":
+        narysuj_zbiory(frame, bounds, frame_index)
 
 
 def usun_odklejone_blyski(cutout: Image.Image) -> Image.Image:
@@ -727,7 +997,7 @@ def znajdz_bbox_widocznego_korpusu_w_kadrze_z_filtrem(
             r, g, b, a = pixels[x, y]
             if a <= 8:
                 continue
-            if czy_piksel_wody(r, g, b, a) or czy_piksel_liscia(r, g, b, a):
+            if czy_piksel_wody(r, g, b, a) or czy_piksel_liscia(r, g, b, a) or czy_piksel_rekwizytu_aktywnosci(r, g, b, a):
                 continue
             if ignore_umbrella and czy_piksel_parasolki(r, g, b, a):
                 continue
@@ -800,7 +1070,12 @@ def znajdz_widoczny_bbox_korpusu(
                 continue
 
             r, g, b, a = pixels[local_x, local_y]
-            if a <= 8 or czy_piksel_wody(r, g, b, a) or czy_piksel_liscia(r, g, b, a):
+            if (
+                a <= 8
+                or czy_piksel_wody(r, g, b, a)
+                or czy_piksel_liscia(r, g, b, a)
+                or czy_piksel_rekwizytu_aktywnosci(r, g, b, a)
+            ):
                 continue
 
             points.add((screen_x, screen_y))
@@ -952,7 +1227,12 @@ def znajdz_bbox_korpusu_postaci(image: Image.Image, stage: str) -> tuple[int, in
     for y in range(image.height):
         for x in range(image.width):
             r, g, b, a = pixels[x, y]
-            if a <= 8 or czy_piksel_wody(r, g, b, a) or czy_piksel_liscia(r, g, b, a):
+            if (
+                a <= 8
+                or czy_piksel_wody(r, g, b, a)
+                or czy_piksel_liscia(r, g, b, a)
+                or czy_piksel_rekwizytu_aktywnosci(r, g, b, a)
+            ):
                 continue
             points.add((x, y))
 
@@ -980,7 +1260,13 @@ def znajdz_bbox_korpusu_postaci_bez_parasolki(image: Image.Image, stage: str) ->
     for y in range(image.height):
         for x in range(image.width):
             r, g, b, a = pixels[x, y]
-            if a <= 8 or czy_piksel_wody(r, g, b, a) or czy_piksel_liscia(r, g, b, a) or czy_piksel_parasolki(r, g, b, a):
+            if (
+                a <= 8
+                or czy_piksel_wody(r, g, b, a)
+                or czy_piksel_liscia(r, g, b, a)
+                or czy_piksel_parasolki(r, g, b, a)
+                or czy_piksel_rekwizytu_aktywnosci(r, g, b, a)
+            ):
                 continue
             if stage == "spore" and not czy_piksel_ciala_zarodnika(r, g, b, a):
                 continue
@@ -1220,7 +1506,7 @@ def narysuj_zraszanie(
     mist_width = max(42, round(character_width * 0.38))
     top_y = max(8, visible_top_y - max(22, round(character_height * 0.12)))
     bottom_y = max(top_y + 18, visible_top_y - 6)
-    phase = frame_index % 4
+    phase = frame_index % ACTIVITY_FRAME_COUNT
     size_scale = max(1.0, min(2.0, scale * 0.42))
     droplets = [
         (-0.42, 0.10, 1),
@@ -1234,14 +1520,184 @@ def narysuj_zraszanie(
 
     for index, (x_factor, y_factor, weight) in enumerate(droplets):
         drift = ((phase + index) % 3 - 1) * max(1, round(2 * size_scale))
-        progress = (y_factor + phase * 0.14 + index * 0.03) % 1
+        progress = (y_factor + phase * 0.11 + index * 0.03) % 1
         x = center_x + round(mist_width * x_factor) + drift
         y = top_y + round((bottom_y - top_y) * progress)
-        if y >= visible_top_y - 2:
+        if phase < 5 and y >= visible_top_y - 2:
             continue
 
         size = max(2, round((weight + 1) * size_scale))
         narysuj_pixelowa_krople(draw, x, y, size)
+
+    if phase >= 4:
+        runoff_progress = (phase - 4) / 3
+        cap_y = visible_top_y + round(character_height * 0.20)
+        for side, x_factor in enumerate((-0.26, 0.24)):
+            x = center_x + round(character_width * x_factor)
+            y = cap_y + round(runoff_progress * max(18, character_height * 0.18)) + side * 5
+            narysuj_pixelowa_krople(draw, x, y, max(2, round(3 * size_scale)))
+            if phase >= 6:
+                narysuj_pixelowa_krople(draw, x + (4 if side else -4), y + 13, max(2, round(2 * size_scale)))
+
+
+def narysuj_karmienie(frame: Image.Image, bounds: dict[str, float], frame_index: int) -> None:
+    draw = ImageDraw.Draw(frame, "RGBA")
+    mouth = get_face_anchor(bounds)
+    chew = frame_index in {2, 3, 4}
+    mouth_w = max(8, round(bounds["width"] * (0.09 if chew else 0.055)))
+    mouth_h = max(5, round(bounds["height"] * (0.045 if chew else 0.026)))
+    x = round(mouth[0] - mouth_w / 2)
+    y = round(mouth[1])
+    draw.rectangle((x, y, x + mouth_w, y + mouth_h), fill=(54, 28, 23, 235))
+    if chew:
+        draw.rectangle((x + 2, y + mouth_h - 2, x + mouth_w - 2, y + mouth_h), fill=(218, 73, 62, 220))
+
+    food_x = round(bounds["left"] + bounds["width"] * (0.18 + 0.07 * min(frame_index, 4)))
+    food_y = round(bounds["top"] + bounds["height"] * (0.58 - 0.05 * min(frame_index, 3)))
+    if frame_index < 6:
+        narysuj_kawalek_jedzenia(draw, food_x, food_y, max(5, round(bounds["width"] * 0.035)))
+
+    for index in range(3):
+        if frame_index < index + 2:
+            continue
+        crumb_x = round(food_x + 10 + index * 5)
+        crumb_y = round(food_y + 5 + ((frame_index + index) % 3) * 4)
+        draw.rectangle((crumb_x, crumb_y, crumb_x + 2, crumb_y + 2), fill=(238, 236, 214, 210))
+
+
+def narysuj_kawalek_jedzenia(draw: ImageDraw.ImageDraw, x: int, y: int, size: int) -> None:
+    outline = (178, 184, 190, 225)
+    filling = (244, 240, 220, 242)
+    light = (255, 253, 238, 235)
+    shadow = (150, 172, 196, 170)
+    draw.rectangle((x, y, x + size + 5, y + size + 3), fill=outline)
+    draw.rectangle((x + 2, y + 1, x + size + 3, y + size + 1), fill=filling)
+    draw.rectangle((x + 3, y + 2, max(x + 4, x + size - 1), y + 3), fill=light)
+    draw.rectangle((x + size, y + size, x + size + 3, y + size + 2), fill=shadow)
+
+
+def narysuj_czyszczenie(frame: Image.Image, bounds: dict[str, float], frame_index: int) -> None:
+    draw = ImageDraw.Draw(frame, "RGBA")
+    path = [
+        (0.18, 0.27),
+        (0.33, 0.20),
+        (0.52, 0.24),
+        (0.70, 0.31),
+        (0.58, 0.45),
+        (0.42, 0.55),
+        (0.27, 0.48),
+        (0.16, 0.35),
+    ]
+    px, py = path[frame_index % len(path)]
+    x = round(bounds["left"] + bounds["width"] * px)
+    y = round(bounds["top"] + bounds["height"] * py)
+    size = max(12, round(bounds["width"] * 0.055))
+    narysuj_gabke(draw, x, y, size, frame_index)
+    for index in range(4):
+        bubble_x = x + (index - 1) * max(5, size // 3)
+        bubble_y = y + size + (index % 2) * 5 - frame_index
+        narysuj_babel(draw, bubble_x, bubble_y, max(3, size // (3 + index % 2)))
+
+
+def narysuj_gabke(draw: ImageDraw.ImageDraw, x: int, y: int, size: int, frame_index: int) -> None:
+    outline = (92, 71, 47, 235)
+    sponge = (245, 203, 87, 244)
+    light = (255, 236, 143, 235)
+    handle = (91, 116, 172, 225)
+    tilt = -2 if frame_index % 2 else 2
+    draw.rectangle((x - size // 2, y - size // 3, x + size // 2, y + size // 3), fill=outline)
+    draw.rectangle((x - size // 2 + 2, y - size // 3 + 2, x + size // 2 - 2, y + size // 3 - 1), fill=sponge)
+    draw.rectangle((x - size // 3, y - size // 3 + 3, x + size // 4, y - size // 3 + 5), fill=light)
+    draw.rectangle((x + tilt, y - size, x + tilt + 4, y - size // 3), fill=handle)
+
+
+def narysuj_babel(draw: ImageDraw.ImageDraw, x: int, y: int, size: int) -> None:
+    color = (238, 253, 255, 172)
+    shine = (255, 255, 255, 210)
+    draw.rectangle((x, y, x + size, y + size), outline=color)
+    draw.point((x + 1, y + 1), fill=shine)
+
+
+def narysuj_zabawe(frame: Image.Image, bounds: dict[str, float], frame_index: int) -> None:
+    draw = ImageDraw.Draw(frame, "RGBA")
+    ball_path = [0.08, 0.18, 0.32, 0.52, 0.72, 0.86, 0.70, 0.42]
+    t = ball_path[frame_index % len(ball_path)]
+    x = round(bounds["left"] + bounds["width"] * t)
+    y = round(bounds["bottom"] - bounds["height"] * (0.14 + 0.18 * math.sin(t * math.pi)))
+    radius = max(5, round(bounds["width"] * 0.032))
+    draw.rectangle((x - radius, y - radius, x + radius, y + radius), fill=(88, 156, 105, 235))
+    draw.rectangle((x - radius + 2, y - radius + 2, x + radius - 2, y), fill=(183, 225, 103, 230))
+    if frame_index in {1, 2, 5}:
+        draw.line((x - radius * 2, y + radius, x - radius * 3, y + radius + 5), fill=(255, 253, 210, 180), width=2)
+
+
+def narysuj_granie(frame: Image.Image, bounds: dict[str, float], frame_index: int) -> None:
+    draw = ImageDraw.Draw(frame, "RGBA")
+    x = round(bounds["left"] + bounds["width"] * 0.24)
+    y = round(bounds["top"] + bounds["height"] * 0.62)
+    size = max(18, round(bounds["width"] * 0.09))
+    narysuj_maly_instrument(draw, x, y, size)
+    if frame_index % 2 == 0:
+        narysuj_pixelowa_nutke(draw, round(bounds["right"] - bounds["width"] * 0.22), round(bounds["top"] + bounds["height"] * 0.25))
+
+
+def narysuj_maly_instrument(draw: ImageDraw.ImageDraw, x: int, y: int, size: int) -> None:
+    outline = (72, 50, 39, 230)
+    reed = (190, 125, 59, 238)
+    light = (246, 198, 104, 225)
+    draw.rectangle((x, y, x + size * 2, y + max(5, size // 3)), fill=outline)
+    draw.rectangle((x + 3, y + 2, x + size * 2 - 3, y + max(4, size // 3 - 1)), fill=reed)
+    draw.rectangle((x + 5, y + 3, x + size, y + 4), fill=light)
+    for index in range(4):
+        hole_x = x + 8 + index * max(4, size // 3)
+        draw.rectangle((hole_x, y + max(3, size // 7), hole_x + 2, y + max(5, size // 7 + 2)), fill=outline)
+
+
+def narysuj_spiew(frame: Image.Image, bounds: dict[str, float], frame_index: int) -> None:
+    draw = ImageDraw.Draw(frame, "RGBA")
+    mouth = get_face_anchor(bounds)
+    size = max(7, round(bounds["width"] * (0.045 + (0.018 if frame_index in {2, 3, 4} else 0))))
+    draw.rectangle((round(mouth[0] - size / 2), round(mouth[1]), round(mouth[0] + size / 2), round(mouth[1] + size)), fill=(52, 27, 24, 235))
+    draw.rectangle((round(mouth[0] - size / 3), round(mouth[1] + size - 2), round(mouth[0] + size / 3), round(mouth[1] + size)), fill=(221, 74, 67, 220))
+    note_x = round(bounds["right"] - bounds["width"] * (0.22 + frame_index * 0.018))
+    note_y = round(bounds["top"] + bounds["height"] * (0.20 - min(frame_index, 5) * 0.018))
+    narysuj_pixelowa_nutke(draw, note_x, note_y)
+
+
+def narysuj_emisje_zarodnikow(frame: Image.Image, bounds: dict[str, float], frame_index: int) -> None:
+    draw = ImageDraw.Draw(frame, "RGBA")
+    burst = max(0, min(1, (frame_index - 1) / 5))
+    for index in range(9):
+        angle = -math.pi * 0.86 + index * math.pi * 0.21
+        distance = (10 + index % 3 * 5) + burst * (18 + index * 3)
+        x = round(bounds["center_x"] + math.cos(angle) * distance)
+        y = round(bounds["top"] + bounds["height"] * 0.34 + math.sin(angle) * distance * 0.55)
+        alpha = int(210 * (1 - burst * 0.55))
+        size = 2 + index % 3
+        draw.rectangle((x, y, x + size, y + size), fill=(238, 224, 129, alpha))
+
+
+def narysuj_zbiory(frame: Image.Image, bounds: dict[str, float], frame_index: int) -> None:
+    draw = ImageDraw.Draw(frame, "RGBA")
+    lift = max(0, math.sin(frame_index / (ACTIVITY_FRAME_COUNT - 1) * math.pi))
+    basket_x = round(bounds["right"] - bounds["width"] * 0.20)
+    basket_y = round(bounds["bottom"] - bounds["height"] * (0.10 + lift * 0.08))
+    size = max(12, round(bounds["width"] * 0.055))
+    draw.rectangle((basket_x, basket_y + size // 2, basket_x + size * 2, basket_y + size + 7), fill=(113, 70, 42, 226))
+    draw.rectangle((basket_x + 3, basket_y + size // 2 + 2, basket_x + size * 2 - 3, basket_y + size + 4), fill=(184, 117, 56, 232))
+    draw.arc((basket_x + 3, basket_y, basket_x + size * 2 - 3, basket_y + size), 180, 360, fill=(91, 55, 34, 230), width=2)
+    for index in range(3):
+        cap_x = basket_x + 5 + index * max(5, size // 2)
+        cap_y = basket_y + size // 2 - 2 - (index % 2) * 3
+        draw.rectangle((cap_x, cap_y, cap_x + 6, cap_y + 4), fill=(247, 213, 137, 235))
+        draw.rectangle((cap_x + 2, cap_y + 4, cap_x + 4, cap_y + 10), fill=(232, 178, 103, 225))
+
+
+def get_face_anchor(bounds: dict[str, float]) -> tuple[float, float]:
+    return (
+        bounds["left"] + bounds["width"] * 0.50,
+        bounds["top"] + bounds["height"] * 0.62,
+    )
 
 
 def narysuj_pixelowa_krople(draw: ImageDraw.ImageDraw, x: int, y: int, size: int) -> None:
@@ -1521,6 +1977,16 @@ def czy_piksel_liscia(r: int, g: int, b: int, a: int) -> bool:
     return green or yellow_green
 
 
+def czy_piksel_rekwizytu_aktywnosci(r: int, g: int, b: int, a: int) -> bool:
+    if a <= 8:
+        return False
+
+    shell = r > 135 and g > 145 and b > 175 and abs(r - g) < 65 and b >= g - 70
+    soap = r > 220 and g > 235 and b > 235 and a < 230
+    blue_tool = b > 135 and g > 75 and r < 135 and b > r + 28
+    return shell or soap or blue_tool
+
+
 def znajdz_cialo_zarodnika(image: Image.Image) -> tuple[tuple[int, int, int, int], int] | None:
     pixels = image.load()
     points: set[tuple[int, int]] = set()
@@ -1572,7 +2038,12 @@ def znajdz_cialo_zarodnika(image: Image.Image) -> tuple[tuple[int, int, int, int
 
 
 def czy_piksel_ciala_zarodnika(r: int, g: int, b: int, a: int) -> bool:
-    if a <= 8 or czy_piksel_wody(r, g, b, a) or czy_piksel_liscia(r, g, b, a):
+    if (
+        a <= 8
+        or czy_piksel_wody(r, g, b, a)
+        or czy_piksel_liscia(r, g, b, a)
+        or czy_piksel_rekwizytu_aktywnosci(r, g, b, a)
+    ):
         return False
 
     if r > 225 and g > 225 and b > 218 and max(r, g, b) - min(r, g, b) < 28:

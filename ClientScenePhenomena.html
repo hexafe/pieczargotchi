@@ -34,42 +34,88 @@
 
   function drawSunbeamPhenomenon(ctx, scene, phenomenon, now) {
     if (!phenomenon || !phenomenon.visible) {
+      recordSunbeamPhenomenonDiagnostics({ visible: false, reason: 'profile' });
       return;
     }
 
     const sun = typeof getSunPosition === 'function' ? getSunPosition(scene, getRuntimeDate()) : null;
     if (!sun) {
+      recordSunbeamPhenomenonDiagnostics({ visible: false, reason: 'sun' });
       return;
     }
 
     const intensity = clamp(Number(phenomenon.intensity), 0, 1, 0);
     const sunX = sun.x + sun.size / 2;
     const sunY = sun.y + sun.size / 2;
-    const direction = sunX < 256 ? 1 : -1;
+    const anchor = typeof getSunbeamCloudAnchor === 'function'
+      ? getSunbeamCloudAnchor(scene, sun, now)
+      : null;
+    if (!anchor) {
+      recordSunbeamPhenomenonDiagnostics({
+        visible: false,
+        reason: 'cloudAnchor',
+        sunX: Math.round(sunX),
+        sunY: Math.round(sunY),
+        intensity: Number(intensity.toFixed(3))
+      });
+      return;
+    }
+
+    const baseDirection = anchor.centerX >= sunX ? 1 : -1;
+    const strength = intensity * clamp(anchor.score * 1.85, 0.18, 1, 0.5);
+    recordSunbeamPhenomenonDiagnostics({
+      visible: true,
+      sunX: Math.round(sunX),
+      sunY: Math.round(sunY),
+      anchorX: Math.round(anchor.centerX),
+      anchorY: Math.round(anchor.centerY),
+      anchorScore: Number(anchor.score.toFixed(3)),
+      cloudLayer: anchor.layerIndex,
+      cloudForm: anchor.form,
+      intensity: Number(strength.toFixed(3))
+    });
+
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (let beam = 0; beam < 4; beam += 1) {
       const seed = phenomenon.seed + beam * 37;
-      const width = 32 + seededUnit(seed + 1) * 42;
-      const drift = Math.sin(now / (6200 + beam * 720) + seed) * 8;
-      const startX = sunX + direction * (beam * 11 + drift);
-      const endX = startX + direction * (72 + beam * 34 + seededUnit(seed + 2) * 38);
-      const endY = 340 + beam * 20 + seededUnit(seed + 3) * 42;
-      ctx.globalAlpha = intensity * (0.045 + beam * 0.008);
+      const width = 28 + seededUnit(seed + 1) * 38;
+      const cloudWindow = anchor.width * (0.18 + seededUnit(seed + 4) * 0.34);
+      const drift = Math.sin(now / (6200 + beam * 720) + seed) * 5;
+      const startX = clamp(
+        anchor.centerX + (seededUnit(seed + 5) - 0.5) * cloudWindow + drift,
+        anchor.x + 8,
+        anchor.x + anchor.width - 8,
+        anchor.centerX
+      );
+      const startY = anchor.y
+        + anchor.height * (0.58 + seededUnit(seed + 6) * 0.22)
+        + Math.sin(now / (7600 + beam * 640) + seed) * 3;
+      const direction = startX >= sunX ? 1 : baseDirection;
+      const endX = startX + direction * (86 + beam * 28 + seededUnit(seed + 2) * 36);
+      const endY = clamp(startY + 138 + beam * 24 + seededUnit(seed + 3) * 38, 226, 436, 360);
+      ctx.globalAlpha = strength * (0.035 + beam * 0.007);
       ctx.fillStyle = '#ffe0a1';
       ctx.beginPath();
-      ctx.moveTo(Math.round(startX), Math.round(sunY));
-      ctx.lineTo(Math.round(startX + direction * 10), Math.round(sunY + 8));
+      ctx.moveTo(Math.round(startX), Math.round(startY));
+      ctx.lineTo(Math.round(startX + direction * 8), Math.round(startY + 10));
       ctx.lineTo(Math.round(endX + direction * width), Math.round(endY));
       ctx.lineTo(Math.round(endX), Math.round(endY));
       ctx.closePath();
       ctx.fill();
-      ctx.globalAlpha = intensity * 0.04;
+      ctx.globalAlpha = strength * 0.032;
       const glintWidth = Math.round(width * 0.5);
       const glintX = direction > 0 ? endX - 8 : endX - glintWidth + 8;
       ctx.fillRect(Math.round(glintX), Math.round(endY), glintWidth, 2);
     }
     ctx.restore();
+  }
+
+  function recordSunbeamPhenomenonDiagnostics(sample) {
+    if (!runtime || !runtime.motionDiagnostics) {
+      return;
+    }
+    runtime.motionDiagnostics.sunbeams = sample;
   }
 
   function drawFogbowPhenomenon(ctx, scene, phenomenon, now) {

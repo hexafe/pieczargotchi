@@ -93,6 +93,7 @@ Te zasady są obowiązkowe dla wszystkich nowych sheetów.
 - Każda klatka runtime ma rozmiar `512x512`.
 - Każdy sheet jest układany poziomo.
 - Większość sheetów w paczce używa `4` klatek, czyli rozmiaru `2048x512`.
+- Dopracowane aktywności używają kontraktu `8` klatek, czyli rozmiaru `4096x512`; ruch akcji ma być w sprite'cie PNG, a renderer nie dokłada dodatkowego body-motion poza stanowym overlayem i efektami pomocniczymi.
 - `idle_fidget_sheet.png`, `idle_fidget_sway_sheet.png`, `idle_fidget_shift_sheet.png`, `idle_look_left_sheet.png`, `idle_look_right_sheet.png`, `watch_cursor_*_sheet.png` i `follow_cursor_*_sheet.png` używają `8` klatek, czyli rozmiaru `4096x512`.
 - `ponder_sheet.png`, `ponder_up_sheet.png`, `ponder_side_sheet.png`, `ponder_breath_sheet.png`, `watch_butterfly_sheet.png` i `watch_crawler_sheet.png` używają `10` klatek, czyli rozmiaru `5120x512`.
 - `watch_firefly_sheet.png` używa `12` klatek, czyli rozmiaru `6144x512`.
@@ -165,6 +166,7 @@ Nie skalujemy całej sceny między etapami. Trawa/mech jest wspólną kotwicą w
 - ten sam pas trawy co w pozostałych etapach,
 - prostsza sylwetka i najmniej detalu,
 - ekspresja bardziej delikatna niż u starszych etapów.
+- aktywności zarodnika mają być spokojniejsze niż u starszych etapów: mikrodrift, brak szybkiego naprzemiennego skakania lewo/prawo i brak długich jasnych poziomych pasów w rekwizytach.
 
 ### `baby`
 
@@ -265,8 +267,12 @@ Aktywności są stage-specific. Ten sam typ akcji musi mieć osobny sheet dla ka
 ### Zasady dla aktywności
 
 - Aktywność dalej pokazuje tę samą postać i ten sam etap, a nie osobny minigame sprite.
+- Aktywność jest sprite-first: podstawowy gest, mimika i rekwizyt należą do `8` klatek PNG dla danego etapu, zamiast do canvasowego retuszu postaci.
 - Rekwizyty i efekty są dodatkiem, nie nowym środkiem ciężkości.
 - `hydrate` nie skaluje całego cutoutu razem z wodą. Postać jest składana w rozmiarze etapu, a lekka mgiełka kropli jest nakładana nad nią jako osobna warstwa.
+- `clean` nie ma bake'ować trwałej brudnej warstwy na postaci. Niska `cleanliness` pozostaje wyborem renderera jako dirt cue / stan `dirty`, a aktywność `clean` pokazuje czyszczenie i połysk.
+- `spores` dla śpiącego lub małego zarodka nie może mieszać się z animacją snu; sen `spore` walidujemy osobno jako ciało PNG, a chmurki zarodników i `zZz` są osobnymi efektami/warstwami runtime.
+- `spore` używa wolniejszego one-shot timingu z holdem ostatniej klatki, żeby mała sylwetka nie wyglądała nerwowo przy krótkich pętlach.
 - Jeśli pojawia się obiekt pomocniczy, jego skala nie powinna dominować nad Pieczargotchi.
 - Aktywność ma pozostać czytelna także wtedy, gdy użytkownik widzi tylko jedną klatkę lub skrócony fragment sekwencji.
 
@@ -300,7 +306,7 @@ Plan implementacyjny mówi o manifeście z liczbą klatek, timingiem, pętlą i 
 - `idle`, `sleep`, `tired`, `dry`, `hungry`, `dirty`, `sick`:
   wolniejszy rytm i mała amplituda ruchu.
 - `wake`, `happy`, `clean`, `feed`, `hydrate`, `play`, `sing`, `spores`, `harvest`:
-  szybsza czytelna reakcja wejścia, potem powrót do spokoju.
+  szybsza czytelna reakcja wejścia, potem powrót do spokoju. Aktywności mają `8` klatek, więc timing powinien wykorzystać dodatkowe klatki na gest i wyciszenie, nie na przypadkowy drift.
 - `critical`:
   najmocniejsza czytelność, ale nie migotanie powodujące chaos.
 - warianty `idle_fidget`, warianty `ponder`, reakcje kursora, `watch_butterfly`, `watch_firefly`, `watch_crawler`:
@@ -317,6 +323,7 @@ Nowy sheet nie powinien trafiać do runtime bez tej listy kontrolnej.
 - plik jest w `PNG RGBA`,
 - rozmiar całego sheetu zgadza się z manifestem runtime (`frameCount * 512` na `512`),
 - liczba klatek zgadza się z `AnimationConfig.gs` i szerokością pliku,
+- dopracowane aktywności stage-specific mają `8` klatek (`4096x512`) i osobny plik dla każdego etapu,
 - tło jest przezroczyste,
 - nazwa pliku trzyma obowiązujący wzorzec,
 - plik trafia do właściwego katalogu: `assets/stages/<stage>/`, `assets/activities/<stage>/` albo `assets/effects/`.
@@ -328,6 +335,8 @@ Nowy sheet nie powinien trafiać do runtime bez tej listy kontrolnej.
 - oczy, usta i dodatki nie zmieniają stylu między klatkami,
 - czytelność działa na pełnym sheetcie i na pojedynczej klatce,
 - stan można odróżnić bez podpisu tekstowego.
+- `spore/sleep_sheet.png` nie zawiera wklejonych `zZz` ani chmury zarodników; ciało śpiącego zarodka, glyphy snu i efekt zarodników pozostają trzema oddzielnymi rzeczami.
+- Brud wynikający z niskiej `cleanliness` jest czytelny jako wybór renderera albo stan `dirty`, bez niszczenia bazowej czystości sheetów aktywności.
 
 ### Walidacja produktowa
 

@@ -160,6 +160,15 @@ function odczytajOczekiwanaLiczbeKlatek(wzglednaSciezka) {
     return frames;
   }
 
+  const fallbackActivity = wzglednaSciezka.match(/^activities\/([^/]+)_sheet\.png$/);
+  if (fallbackActivity) {
+    const adultAsset = manifestByFile.get(`activities/adult/${fallbackActivity[1]}_sheet.png`);
+    const adultFrames = Number(adultAsset && adultAsset.frames);
+    if (Number.isFinite(adultFrames) && adultFrames > 0) {
+      return adultFrames;
+    }
+  }
+
   return domyslnaLiczbaKlatek;
 }
 
