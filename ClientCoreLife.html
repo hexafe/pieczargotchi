@@ -8,6 +8,25 @@
     const temperatureFactor = getInsectTemperatureFactor(source);
     const windFactor = getInsectWindFactor(source);
     const dayFactor = getInsectDayFactor(source.dayPhase, date);
+    const butterflySeasonFactor = getButterflySeasonFactor(ecologicalMonth, date.getDate());
+    const butterflyWeatherFactor = getButterflyWeatherFactor(condition, source);
+    const butterflyTemperatureFactor = getButterflyTemperatureFactor(source);
+    const butterflyWindFactor = getButterflyWindFactor(source);
+    const butterflyHabitatFactor = getButterflyHabitatFactor(source, ecologicalMonth);
+    const flowerBloomFactor = getFlowerBloomFactor(ecologicalMonth, date.getDate());
+    const flowerWeatherFactor = getFlowerWeatherFactor(condition, source);
+    const flowerHabitatFactor = getFlowerHabitatFactor(source, ecologicalMonth);
+    const flowerIntensity = clampNumber(
+      flowerBloomFactor * flowerWeatherFactor * flowerHabitatFactor,
+      0,
+      1,
+      0
+    );
+    const beeSeasonFactor = getBeeSeasonFactor(ecologicalMonth, date.getDate());
+    const beeWeatherFactor = getBeeWeatherFactor(condition, source);
+    const beeTemperatureFactor = getBeeTemperatureFactor(source);
+    const beeWindFactor = getBeeWindFactor(source);
+    const beeFlowerFactor = getBeeFlowerFactor(flowerIntensity, source);
     const fireflySeasonFactor = getFireflySeasonFactor(ecologicalMonth, date.getDate());
     const fireflyTimeFactor = getFireflyTimeFactor(source.dayPhase, date);
     const fireflyWeatherFactor = getFireflyWeatherFactor(condition, source);
@@ -20,13 +39,48 @@
       1,
       0
     );
+    const butterflyBaseIntensity = clampNumber(
+      butterflySeasonFactor
+        * butterflyWeatherFactor
+        * butterflyTemperatureFactor
+        * butterflyWindFactor
+        * butterflyHabitatFactor,
+      0,
+      1,
+      0
+    );
+    const beeBaseIntensity = clampNumber(
+      beeSeasonFactor
+        * beeWeatherFactor
+        * beeTemperatureFactor
+        * beeWindFactor
+        * beeFlowerFactor,
+      0,
+      1,
+      0
+    );
 
     return {
       seasonFactor: roundAmbientLife(seasonFactor),
       weatherFactor: roundAmbientLife(weatherFactor),
       dayFactor: roundAmbientLife(dayFactor),
+      butterflySeasonFactor: roundAmbientLife(butterflySeasonFactor),
+      butterflyWeatherFactor: roundAmbientLife(butterflyWeatherFactor),
+      butterflyTemperatureFactor: roundAmbientLife(butterflyTemperatureFactor),
+      butterflyWindFactor: roundAmbientLife(butterflyWindFactor),
+      butterflyHabitatFactor: roundAmbientLife(butterflyHabitatFactor),
+      flowerBloomFactor: roundAmbientLife(flowerBloomFactor),
+      flowerWeatherFactor: roundAmbientLife(flowerWeatherFactor),
+      flowerHabitatFactor: roundAmbientLife(flowerHabitatFactor),
+      flowerIntensity: roundAmbientLife(flowerIntensity),
+      beeSeasonFactor: roundAmbientLife(beeSeasonFactor),
+      beeWeatherFactor: roundAmbientLife(beeWeatherFactor),
+      beeTemperatureFactor: roundAmbientLife(beeTemperatureFactor),
+      beeWindFactor: roundAmbientLife(beeWindFactor),
+      beeFlowerFactor: roundAmbientLife(beeFlowerFactor),
+      beeIntensity: roundAmbientLife(beeBaseIntensity * getBeeDayFactor(source.dayPhase, date)),
       generalIntensity: roundAmbientLife(baseIntensity * dayFactor),
-      butterflyIntensity: roundAmbientLife(baseIntensity * getButterflyDayFactor(source.dayPhase, date)),
+      butterflyIntensity: roundAmbientLife(butterflyBaseIntensity * getButterflyDayFactor(source.dayPhase, date)),
       flyingInsectIntensity: roundAmbientLife(baseIntensity * Math.max(dayFactor * 0.72, fireflyTimeFactor * 0.38)),
       crawlerIntensity: roundAmbientLife(baseIntensity * Math.max(0.28, dayFactor * 0.82)),
       mothIntensity: roundAmbientLife(
@@ -216,6 +270,54 @@
     return clampNumber(factor, 0, 1, 0);
   }
 
+  function getButterflySeasonFactor(month, day) {
+    const factors = [0, 0, 0.04, 0.14, 0.34, 0.64, 0.86, 0.76, 0.36, 0.11, 0.02, 0];
+    let factor = factors[month] || 0;
+    if (month === 2 && day < 20) {
+      factor *= 0.35;
+    } else if (month === 4 && day > 20) {
+      factor = Math.max(factor, 0.42);
+    } else if (month === 5 && day > 15) {
+      factor = Math.max(factor, 0.72);
+    } else if (month === 8 && day > 15) {
+      factor *= 0.72;
+    }
+
+    return clampNumber(factor, 0, 1, 0);
+  }
+
+  function getFlowerBloomFactor(month, day) {
+    const factors = [0, 0.01, 0.08, 0.36, 0.70, 0.92, 0.98, 0.86, 0.58, 0.24, 0.04, 0];
+    let factor = factors[month] || 0;
+    if (month === 2 && day < 20) {
+      factor *= 0.42;
+    } else if (month === 3 && day > 18) {
+      factor = Math.max(factor, 0.52);
+    } else if (month === 4 && day > 15) {
+      factor = Math.max(factor, 0.82);
+    } else if (month === 8 && day > 18) {
+      factor *= 0.72;
+    }
+
+    return clampNumber(factor, 0, 1, 0);
+  }
+
+  function getBeeSeasonFactor(month, day) {
+    const factors = [0, 0, 0.05, 0.28, 0.64, 0.86, 0.90, 0.82, 0.46, 0.14, 0.02, 0];
+    let factor = factors[month] || 0;
+    if (month === 2 && day < 20) {
+      factor *= 0.35;
+    } else if (month === 3 && day > 18) {
+      factor = Math.max(factor, 0.40);
+    } else if (month === 4 && day > 15) {
+      factor = Math.max(factor, 0.74);
+    } else if (month === 8 && day > 15) {
+      factor *= 0.70;
+    }
+
+    return clampNumber(factor, 0, 1, 0);
+  }
+
   function getFireflySeasonFactor(month, day) {
     if (month === 4) {
       return day >= 20 ? 0.34 : 0;
@@ -258,6 +360,99 @@
     return 1;
   }
 
+  function getButterflyWeatherFactor(condition, scene) {
+    const source = isPlainObject(scene) ? scene : {};
+    const precipitation = Math.max(0, Number(source.precipitation) || 0, Number(source.rain) || 0, Number(source.snowfall) || 0);
+    if (condition === 'snow' || condition === 'storm' || condition === 'rain' || precipitation > 0.025) {
+      return 0;
+    }
+    if (condition === 'fog') {
+      return 0.08;
+    }
+
+    const cloudCover = readButterflyCloudCover(source);
+    const temperature = readAmbientTemperature(source);
+    const effectiveCloudCover = cloudCover === null
+      ? (condition === 'cloudy' ? 68 : 12)
+      : cloudCover;
+
+    if (condition === 'cloudy' || effectiveCloudCover >= 45) {
+      const warmCloudFactor = temperature === null
+        ? 0.72
+        : clampNumber((temperature - 17) / 5, 0, 1, 0);
+      if (temperature !== null && temperature < 17) {
+        return effectiveCloudCover > 50 ? 0.04 : 0.16;
+      }
+      if (effectiveCloudCover > 80) {
+        return 0.06 + warmCloudFactor * 0.10;
+      }
+      if (effectiveCloudCover > 50) {
+        return 0.16 + warmCloudFactor * 0.24;
+      }
+      return 0.46 + warmCloudFactor * 0.30;
+    }
+
+    return clampNumber(1 - Math.max(0, effectiveCloudCover - 24) / 76 * 0.42, 0.58, 1, 1);
+  }
+
+  function getFlowerWeatherFactor(condition, scene) {
+    const source = isPlainObject(scene) ? scene : {};
+    const snowCover = clampNumber(Number(source.snowCoverTarget), 0, 1, condition === 'snow' ? Number(source.snowIntensity) || 0.32 : 0);
+    if (condition === 'snow' || snowCover > 0.16) {
+      return clampNumber(0.08 - snowCover * 0.06, 0.01, 0.08, 0.04);
+    }
+    if (condition === 'storm') {
+      return 0.56;
+    }
+    if (condition === 'rain') {
+      return 0.74;
+    }
+    if (condition === 'fog') {
+      return 0.82;
+    }
+
+    const cloudCover = readButterflyCloudCover(source);
+    if (cloudCover === null) {
+      return 1;
+    }
+    return clampNumber(1 - Math.max(0, cloudCover - 72) / 100 * 0.12, 0.86, 1, 1);
+  }
+
+  function getBeeWeatherFactor(condition, scene) {
+    const source = isPlainObject(scene) ? scene : {};
+    const precipitation = Math.max(0, Number(source.precipitation) || 0, Number(source.rain) || 0, Number(source.snowfall) || 0);
+    if (condition === 'snow' || condition === 'storm' || condition === 'rain' || precipitation > 0.018) {
+      return 0;
+    }
+    if (condition === 'fog') {
+      return 0.06;
+    }
+
+    const cloudCover = readButterflyCloudCover(source);
+    const temperature = readAmbientTemperature(source);
+    const effectiveCloudCover = cloudCover === null
+      ? (condition === 'cloudy' ? 66 : 14)
+      : cloudCover;
+
+    if (condition === 'cloudy' || effectiveCloudCover >= 45) {
+      const warmCloudFactor = temperature === null
+        ? 0.62
+        : clampNumber((temperature - 14) / 7, 0, 1, 0);
+      if (temperature !== null && temperature < 13) {
+        return 0.02;
+      }
+      if (effectiveCloudCover > 82) {
+        return 0.05 + warmCloudFactor * 0.10;
+      }
+      if (effectiveCloudCover > 58) {
+        return 0.14 + warmCloudFactor * 0.22;
+      }
+      return 0.42 + warmCloudFactor * 0.30;
+    }
+
+    return clampNumber(1 - Math.max(0, effectiveCloudCover - 28) / 72 * 0.34, 0.62, 1, 1);
+  }
+
   function getFireflyWeatherFactor(condition, scene) {
     const precipitation = Math.max(0, Number(scene.precipitation) || 0, Number(scene.rain) || 0, Number(scene.snowfall) || 0);
     if (precipitation > 0.04 || condition === 'rain' || condition === 'storm' || condition === 'snow') {
@@ -297,6 +492,60 @@
     return 0.48;
   }
 
+  function getButterflyTemperatureFactor(scene) {
+    const temperature = readAmbientTemperature(scene);
+    if (temperature === null) {
+      return 0.72;
+    }
+    if (temperature < 13) {
+      return 0;
+    }
+    if (temperature < 17) {
+      return 0.38 + (temperature - 13) / 4 * 0.34;
+    }
+    if (temperature < 20) {
+      return 0.78 + (temperature - 17) / 3 * 0.17;
+    }
+    if (temperature <= 27) {
+      return 1;
+    }
+    if (temperature <= 32) {
+      return 0.94 - (temperature - 27) / 5 * 0.22;
+    }
+    if (temperature <= 35) {
+      return 0.54;
+    }
+
+    return 0.26;
+  }
+
+  function getBeeTemperatureFactor(scene) {
+    const temperature = readAmbientTemperature(scene);
+    if (temperature === null) {
+      return 0.56;
+    }
+    if (temperature < 9) {
+      return 0;
+    }
+    if (temperature < 13) {
+      return 0.22 + (temperature - 9) / 4 * 0.34;
+    }
+    if (temperature < 18) {
+      return 0.58 + (temperature - 13) / 5 * 0.36;
+    }
+    if (temperature <= 29) {
+      return 1;
+    }
+    if (temperature <= 34) {
+      return 0.92 - (temperature - 29) / 5 * 0.26;
+    }
+    if (temperature <= 38) {
+      return 0.44;
+    }
+
+    return 0.18;
+  }
+
   function getFireflyTemperatureFactor(scene) {
     const temperature = readAmbientTemperature(scene);
     if (temperature === null) {
@@ -322,6 +571,101 @@
     const windLevel = clampNumber(Number(scene.windLevel), 0, 1, clampNumber(Number(scene.windSpeed) / 82, 0, 1, 0));
     const gustLevel = clampNumber(Number(scene.gustLevel), 0, 1, 0);
     return clampNumber(1 - windLevel * 0.58 - gustLevel * 0.18, 0.12, 1, 1);
+  }
+
+  function getButterflyWindFactor(scene) {
+    const source = isPlainObject(scene) ? scene : {};
+    const windSpeed = Number(source.windSpeed);
+    const windLevel = clampNumber(Number(source.windLevel), 0, 1, 0);
+    const inferredSpeed = windLevel > 0 ? windLevel * 82 : 0;
+    const effectiveSpeed = Number.isFinite(windSpeed) ? Math.max(0, windSpeed) : inferredSpeed;
+    let factor = 1;
+    if (effectiveSpeed <= 7) {
+      factor = 1;
+    } else if (effectiveSpeed <= 14) {
+      factor = 1 - (effectiveSpeed - 7) / 7 * 0.26;
+    } else if (effectiveSpeed <= 22) {
+      factor = 0.74 - (effectiveSpeed - 14) / 8 * 0.46;
+    } else if (effectiveSpeed <= 34) {
+      factor = 0.28 - (effectiveSpeed - 22) / 12 * 0.24;
+    } else {
+      factor = 0;
+    }
+
+    const gustLevel = clampNumber(Number(source.gustLevel), 0, 1, 0);
+    const windGusts = Number(source.windGusts);
+    const gustExcess = Number.isFinite(windGusts) ? Math.max(0, windGusts - effectiveSpeed) : 0;
+    return clampNumber(factor - gustLevel * 0.32 - gustExcess / 42 * 0.22, 0, 1, 1);
+  }
+
+  function getBeeWindFactor(scene) {
+    const source = isPlainObject(scene) ? scene : {};
+    const windSpeed = Number(source.windSpeed);
+    const windLevel = clampNumber(Number(source.windLevel), 0, 1, 0);
+    const inferredSpeed = windLevel > 0 ? windLevel * 82 : 0;
+    const effectiveSpeed = Number.isFinite(windSpeed) ? Math.max(0, windSpeed) : inferredSpeed;
+    let factor = 1;
+    if (effectiveSpeed <= 8) {
+      factor = 1;
+    } else if (effectiveSpeed <= 16) {
+      factor = 1 - (effectiveSpeed - 8) / 8 * 0.34;
+    } else if (effectiveSpeed <= 25) {
+      factor = 0.66 - (effectiveSpeed - 16) / 9 * 0.50;
+    } else if (effectiveSpeed <= 34) {
+      factor = 0.16 - (effectiveSpeed - 25) / 9 * 0.14;
+    } else {
+      factor = 0;
+    }
+
+    const gustLevel = clampNumber(Number(source.gustLevel), 0, 1, 0);
+    const windGusts = Number(source.windGusts);
+    const gustExcess = Number.isFinite(windGusts) ? Math.max(0, windGusts - effectiveSpeed) : 0;
+    return clampNumber(factor - gustLevel * 0.38 - gustExcess / 38 * 0.26, 0, 1, 1);
+  }
+
+  function getButterflyHabitatFactor(scene, month) {
+    const source = isPlainObject(scene) ? scene : {};
+    const explicit = Number(source.flowerDensity);
+    if (Number.isFinite(explicit)) {
+      const normalized = explicit > 1 ? explicit / 3 : explicit;
+      return clampNumber(0.34 + normalized * 0.66, 0.34, 1, 0.72);
+    }
+
+    const inferredFlowering = [0.24, 0.26, 0.34, 0.52, 0.66, 0.82, 0.86, 0.76, 0.54, 0.36, 0.26, 0.24];
+    return clampNumber(inferredFlowering[month] || 0.3, 0.2, 0.9, 0.62);
+  }
+
+  function getFlowerHabitatFactor(scene, month) {
+    const source = isPlainObject(scene) ? scene : {};
+    const explicit = Number(source.flowerDensity);
+    if (Number.isFinite(explicit)) {
+      const normalized = explicit > 1 ? explicit / 3 : explicit;
+      return clampNumber(normalized, 0, 1, 0.55);
+    }
+
+    const inferredFlowering = [0.10, 0.12, 0.22, 0.48, 0.74, 0.88, 0.90, 0.78, 0.56, 0.28, 0.12, 0.08];
+    return clampNumber(inferredFlowering[month] || 0.22, 0.08, 0.92, 0.5);
+  }
+
+  function getBeeFlowerFactor(flowerIntensity, scene) {
+    const explicit = isPlainObject(scene) ? Number(scene.flowerDensity) : NaN;
+    if (Number.isFinite(explicit) && explicit <= 0) {
+      return 0;
+    }
+
+    return clampNumber((Number(flowerIntensity) || 0) * 1.18, 0, 1, 0);
+  }
+
+  function readButterflyCloudCover(scene) {
+    const source = isPlainObject(scene) ? scene : {};
+    const fields = ['cloudCover', 'cloud', 'cloudDensity'];
+    for (let index = 0; index < fields.length; index += 1) {
+      const value = Number(source[fields[index]]);
+      if (Number.isFinite(value)) {
+        return value <= 1 ? clampNumber(value * 100, 0, 100, 0) : clampNumber(value, 0, 100, 0);
+      }
+    }
+    return null;
   }
 
   function getFireflyHumidityFactor(scene) {
@@ -447,6 +791,35 @@
     }
     if (hour >= 17 && hour < 19) {
       return 0.3;
+    }
+
+    return 0;
+  }
+
+  function getBeeDayFactor(dayPhase, date) {
+    const phaseFactors = {
+      sunrise: 0.04,
+      morning: 0.68,
+      noon: 1,
+      afternoon: 0.92,
+      evening: 0.18,
+      sunset: 0.03,
+      night: 0
+    };
+
+    if (dayPhase && Object.prototype.hasOwnProperty.call(phaseFactors, dayPhase)) {
+      return phaseFactors[dayPhase];
+    }
+
+    const hour = date.getHours() + date.getMinutes() / 60;
+    if (hour >= 10 && hour < 17.5) {
+      return 1;
+    }
+    if (hour >= 8 && hour < 10) {
+      return 0.56;
+    }
+    if (hour >= 17.5 && hour < 19) {
+      return 0.22;
     }
 
     return 0;

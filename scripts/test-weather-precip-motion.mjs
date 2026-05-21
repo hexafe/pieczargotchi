@@ -172,6 +172,77 @@ test('cloud layer motion is driven by wind strength and direction', () => {
   assert(windyEast.streakAlpha > calm.streakAlpha, `windy clouds should draw stronger wind wisps: ${calm.streakAlpha} -> ${windyEast.streakAlpha}`);
 });
 
+test('cloud form profiles preserve realistic altitude, thickness, and scale cues', () => {
+  const cirrus = context.getCloudFormProfile('cirrus', 0, 24, { condition: 'clear' });
+  const cumulus = context.getCloudFormProfile('cumulus', 2, 34, { condition: 'clear' });
+  const nimbostratus = context.getCloudFormProfile('nimbostratus', 1, 92, { condition: 'rain' });
+  const cumulonimbus = context.getCloudFormProfile('cumulonimbus', 2, 96, { condition: 'storm' });
+
+  assert(cirrus.yOffset < 0, `high cirrus should sit higher than its layer baseline, got ${cirrus.yOffset}`);
+  assert(cirrus.heightScale < cumulus.heightScale, `cirrus should be thinner than cumulus: ${cirrus.heightScale} >= ${cumulus.heightScale}`);
+  assert(nimbostratus.opticalThickness > cumulus.opticalThickness, `rain cloud should be optically heavier than fair cumulus: ${nimbostratus.opticalThickness} <= ${cumulus.opticalThickness}`);
+  assert(cumulonimbus.verticalGrowth > 0.8, `storm tower should carry strong vertical growth, got ${cumulonimbus.verticalGrowth}`);
+  assert(cumulonimbus.shadowStrength > nimbostratus.shadowStrength, `cumulonimbus should cast the strongest visual weight: ${cumulonimbus.shadowStrength} <= ${nimbostratus.shadowStrength}`);
+});
+
+test('cloud render layers apply profile-specific height and parallax traits', () => {
+  const palette = { cloud: '#b7c2c9', cloudLight: '#eef3e9' };
+  const fairScene = {
+    condition: 'clear',
+    cloudCoverHigh: 34,
+    cloudCoverMid: 42,
+    cloudCoverLow: 30,
+    cloudForms: {
+      high: 'cirrus',
+      mid: 'altocumulus',
+      low: 'cumulus'
+    }
+  };
+  const stormScene = {
+    condition: 'storm',
+    cloudCoverHigh: 76,
+    cloudCoverMid: 90,
+    cloudCoverLow: 96,
+    cloudForms: {
+      high: 'cirrostratus',
+      mid: 'nimbostratus',
+      low: 'cumulonimbus'
+    }
+  };
+
+  const fair = context.getCloudRenderLayers(fairScene, palette);
+  assert(fair[0].y < fair[1].y && fair[1].y < fair[2].y, `fair-weather cloud layers should stay ordered by altitude: ${fair.map((layer) => layer.y).join(', ')}`);
+  assert(fair[0].windResponse > fair[2].windResponse, `high clouds should respond more to upper flow than low cumulus: ${fair[0].windResponse} <= ${fair[2].windResponse}`);
+  assert(fair[0].heightScale < fair[2].heightScale, `high cirrus should render thinner than low cumulus: ${fair[0].heightScale} >= ${fair[2].heightScale}`);
+
+  const storm = context.getCloudRenderLayers(stormScene, palette);
+  assert(storm[2].form === 'cumulonimbus', `storm low layer should render as cumulonimbus, got ${storm[2].form}`);
+  assert(storm[2].y < 100, `storm tower should start visually higher than a normal low layer, got y=${storm[2].y}`);
+  assert(storm[2].opticalThickness > storm[0].opticalThickness, `storm tower should be optically heavier than high veil: ${storm[2].opticalThickness} <= ${storm[0].opticalThickness}`);
+  assert(storm[1].veilStrength > 0.4, `nimbostratus should expose rain/snow veil cue, got ${storm[1].veilStrength}`);
+});
+
+test('cloud slot lifecycle fades in and dissolves without abrupt popping', () => {
+  const slot = {
+    birthAt: 1000,
+    growthDuration: 5000,
+    lifeDuration: 26000,
+    dissolveDuration: 6000
+  };
+
+  const newborn = context.getCloudSlotLife(slot, 1000);
+  const growing = context.getCloudSlotLife(slot, 3500);
+  const mature = context.getCloudSlotLife(slot, 9000);
+  const dissolving = context.getCloudSlotLife(slot, 24000);
+  const finished = context.getCloudSlotLife(slot, 28050);
+
+  assert(newborn.alpha <= 0.02, `new cloud should begin almost invisible, got ${newborn.alpha}`);
+  assert(growing.alpha > newborn.alpha, `cloud should fade in during growth: ${newborn.alpha} -> ${growing.alpha}`);
+  assert(mature.alpha > 0.95, `mature cloud should be fully present, got ${mature.alpha}`);
+  assert(dissolving.alpha < mature.alpha, `cloud should fade out near the end of life: ${mature.alpha} -> ${dissolving.alpha}`);
+  assert(finished.done === true, 'cloud should report done after dissolve completes');
+});
+
 test('rain and snow land at varied grass heights instead of the canvas bottom', () => {
   const cases = [
     ['rain foreground', 'foreground', 'rain', 430, 472],

@@ -53,6 +53,58 @@ const scenarios = [
     }
   },
   {
+    id: 'cloud-profile-high-cirrostratus',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
+      PIECZARGOTCHI_DEBUG_CLOUD: '82',
+      PIECZARGOTCHI_DEBUG_CLOUD_LOW: '2',
+      PIECZARGOTCHI_DEBUG_CLOUD_MID: '8',
+      PIECZARGOTCHI_DEBUG_CLOUD_HIGH: '82',
+      PIECZARGOTCHI_DEBUG_WIND: '24',
+      PIECZARGOTCHI_DEBUG_WIND_DIRECTION: '255',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T16:20:00')
+    }
+  },
+  {
+    id: 'cloud-profile-mid-altocumulus',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
+      PIECZARGOTCHI_DEBUG_CLOUD: '54',
+      PIECZARGOTCHI_DEBUG_CLOUD_LOW: '10',
+      PIECZARGOTCHI_DEBUG_CLOUD_MID: '62',
+      PIECZARGOTCHI_DEBUG_CLOUD_HIGH: '18',
+      PIECZARGOTCHI_DEBUG_WIND: '18',
+      PIECZARGOTCHI_DEBUG_WIND_DIRECTION: '105',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T14:15:00')
+    }
+  },
+  {
+    id: 'cloud-profile-low-cumulus',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
+      PIECZARGOTCHI_DEBUG_CLOUD: '38',
+      PIECZARGOTCHI_DEBUG_CLOUD_LOW: '34',
+      PIECZARGOTCHI_DEBUG_CLOUD_MID: '14',
+      PIECZARGOTCHI_DEBUG_CLOUD_HIGH: '12',
+      PIECZARGOTCHI_DEBUG_WIND: '9',
+      PIECZARGOTCHI_DEBUG_WIND_DIRECTION: '270',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T13:05:00')
+    }
+  },
+  {
+    id: 'cloud-profile-low-stratus',
+    env: {
+      PIECZARGOTCHI_DEBUG_WEATHER: 'cloudy',
+      PIECZARGOTCHI_DEBUG_CLOUD: '90',
+      PIECZARGOTCHI_DEBUG_CLOUD_LOW: '88',
+      PIECZARGOTCHI_DEBUG_CLOUD_MID: '54',
+      PIECZARGOTCHI_DEBUG_CLOUD_HIGH: '22',
+      PIECZARGOTCHI_DEBUG_WIND: '11',
+      PIECZARGOTCHI_DEBUG_WIND_DIRECTION: '80',
+      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-10-08T09:10:00')
+    }
+  },
+  {
     id: 'transition-sunset-gold',
     env: {
       PIECZARGOTCHI_DEBUG_WEATHER: 'clear',

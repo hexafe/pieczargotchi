@@ -15,6 +15,7 @@ const scenarios = [
   {
     name: 'summer-day-life',
     fixedAt: Date.parse('2026-06-21T13:00:00+02:00'),
+    motionCaptureDelaysMs: [900, 6500, 11500, 16500],
     env: {
       PIECZARGOTCHI_CAPTURE_LIFE_PROFILE: '1',
       PIECZARGOTCHI_CAPTURE_DELAY_MS: '900',
@@ -24,9 +25,12 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_WIND: '6',
       PIECZARGOTCHI_DEBUG_WIND_DIRECTION: '90',
       PIECZARGOTCHI_DEBUG_TEMPERATURE: '26',
-      PIECZARGOTCHI_DEBUG_HUMIDITY: '66'
+      PIECZARGOTCHI_DEBUG_HUMIDITY: '66',
+      PIECZARGOTCHI_DEBUG_FLOWER_DENSITY: '3'
     },
     minimums: {
+      flowerIntensity: 0.60,
+      beeIntensity: 0.50,
       butterflyIntensity: 0.55,
       flyingInsectIntensity: 0.45,
       crawlerIntensity: 0.35
@@ -80,6 +84,7 @@ const scenarios = [
   {
     name: 'mobile-summer-life',
     fixedAt: Date.parse('2026-06-21T15:30:00+02:00'),
+    motionCaptureDelaysMs: [900, 6500, 11500, 16500],
     env: {
       PIECZARGOTCHI_CAPTURE_VIEWPORT: '1',
       PIECZARGOTCHI_CAPTURE_LIFE_PROFILE: '1',
@@ -93,9 +98,12 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_WIND: '5',
       PIECZARGOTCHI_DEBUG_WIND_DIRECTION: '110',
       PIECZARGOTCHI_DEBUG_TEMPERATURE: '25',
-      PIECZARGOTCHI_DEBUG_HUMIDITY: '64'
+      PIECZARGOTCHI_DEBUG_HUMIDITY: '64',
+      PIECZARGOTCHI_DEBUG_FLOWER_DENSITY: '3'
     },
     minimums: {
+      flowerIntensity: 0.56,
+      beeIntensity: 0.42,
       butterflyIntensity: 0.5,
       crawlerIntensity: 0.32
     }
@@ -279,6 +287,12 @@ function assertMotionDiagnostics(scenario, stdout) {
   if (Object.prototype.hasOwnProperty.call(scenario.minimums, 'butterflyIntensity')) {
     expectedFields.push('butterflies');
   }
+  if (Object.prototype.hasOwnProperty.call(scenario.minimums, 'beeIntensity')) {
+    expectedFields.push('bees');
+  }
+  if (Object.prototype.hasOwnProperty.call(scenario.minimums, 'flowerIntensity')) {
+    expectedFields.push('flowers');
+  }
   if (Object.prototype.hasOwnProperty.call(scenario.minimums, 'fireflyIntensity')) {
     expectedFields.push('fireflies');
   }
@@ -315,6 +329,12 @@ function assertMotionDiagnostics(scenario, stdout) {
   if (Object.prototype.hasOwnProperty.call(scenario.minimums, 'butterflyIntensity')) {
     assertButterflyMotionDiagnostics(scenario, diagnostics);
   }
+  if (Object.prototype.hasOwnProperty.call(scenario.minimums, 'beeIntensity')) {
+    assertBeeMotionDiagnostics(scenario, diagnostics);
+  }
+  if (Object.prototype.hasOwnProperty.call(scenario.minimums, 'flowerIntensity')) {
+    assertFlowerDiagnostics(scenario, diagnostics);
+  }
   if (Object.prototype.hasOwnProperty.call(scenario.minimums, 'fireflyIntensity')) {
     assertFireflyMotionDiagnostics(scenario, diagnostics);
   }
@@ -346,26 +366,142 @@ function assertButterflyMotionDiagnostics(scenario, diagnostics) {
     throw new Error(`${scenario.name}: expected butterfly motion diagnostics`);
   }
 
-  const maxYRange = Math.max(...butterflyDiagnostics.map((diagnostic) => Number(diagnostic.butterflySummary.yRange) || 0));
-  if (maxYRange < 54) {
+  const butterflySamples = butterflyDiagnostics.flatMap((diagnostic) => Array.isArray(diagnostic.butterflySamples) ? diagnostic.butterflySamples : []);
+  const maxYRange = Math.max(
+    ...butterflyDiagnostics.map((diagnostic) => Number(diagnostic.butterflySummary.yRange) || 0),
+    getSampleRange(butterflySamples, 'y')
+  );
+  if (maxYRange < 48) {
     throw new Error(`${scenario.name}: butterfly paths are too flat, yRange=${maxYRange}`);
   }
-  const maxVariantCount = Math.max(...butterflyDiagnostics.map((diagnostic) => countObjectKeys(diagnostic.butterflySummary.variants)));
+  const maxVariantCount = Math.max(
+    ...butterflyDiagnostics.map((diagnostic) => countObjectKeys(diagnostic.butterflySummary.variants)),
+    countSampleValues(butterflySamples, 'variant')
+  );
   if (maxVariantCount < 2) {
     throw new Error(`${scenario.name}: butterfly paths need multiple route variants`);
   }
-  const maxDirectionCount = Math.max(...butterflyDiagnostics.map((diagnostic) => countObjectKeys(diagnostic.butterflySummary.directions)));
+  const maxDirectionCount = Math.max(
+    ...butterflyDiagnostics.map((diagnostic) => countObjectKeys(diagnostic.butterflySummary.directions)),
+    countSampleValues(butterflySamples, 'direction')
+  );
   if (maxDirectionCount < 2) {
     throw new Error(`${scenario.name}: butterflies should not all fly in one direction`);
   }
-  const maxLayerCount = Math.max(...butterflyDiagnostics.map((diagnostic) => countObjectKeys(diagnostic.butterflySummary.layers)));
+  const maxTurnbacks = Math.max(
+    ...butterflyDiagnostics.map((diagnostic) => Number(diagnostic.butterflySummary.maxTurnbacks) || 0),
+    ...butterflySamples.map((sample) => Number(sample.turnbacks) || 0)
+  );
+  if (maxTurnbacks < 1) {
+    throw new Error(`${scenario.name}: butterflies should include occasional route turnbacks`);
+  }
+  const maxHeightWaves = Math.max(
+    ...butterflyDiagnostics.map((diagnostic) => Number(diagnostic.butterflySummary.maxHeightWaves) || 0),
+    ...butterflySamples.map((sample) => Number(sample.heightWaves) || 0)
+  );
+  if (maxHeightWaves < 3) {
+    throw new Error(`${scenario.name}: butterfly paths need varied height changes, waves=${maxHeightWaves}`);
+  }
+  const maxLayerCount = Math.max(
+    ...butterflyDiagnostics.map((diagnostic) => countObjectKeys(diagnostic.butterflySummary.layers)),
+    countSampleValues(butterflySamples, 'layer')
+  );
   if (maxLayerCount < 2) {
     throw new Error(`${scenario.name}: butterflies should render both behind and in front of the mushroom`);
   }
-  const maxDepthCount = Math.max(...butterflyDiagnostics.map((diagnostic) => countObjectKeys(diagnostic.butterflySummary.depths)));
+  const maxDepthCount = Math.max(
+    ...butterflyDiagnostics.map((diagnostic) => countObjectKeys(diagnostic.butterflySummary.depths)),
+    countSampleValues(butterflySamples, 'depth')
+  );
   if (maxDepthCount < 2) {
     throw new Error(`${scenario.name}: butterfly depth diagnostics should include front and back passes`);
   }
+}
+
+function assertBeeMotionDiagnostics(scenario, diagnostics) {
+  const beeDiagnostics = diagnostics.filter((diagnostic) => {
+    return Number(diagnostic.bees) > 0 && diagnostic.beeSummary;
+  });
+  if (beeDiagnostics.length === 0) {
+    throw new Error(`${scenario.name}: expected bee motion diagnostics`);
+  }
+
+  const beeSamples = beeDiagnostics.flatMap((diagnostic) => Array.isArray(diagnostic.beeSamples) ? diagnostic.beeSamples : []);
+  const maxXRange = Math.max(
+    ...beeDiagnostics.map((diagnostic) => Number(diagnostic.beeSummary.xRange) || 0),
+    getSampleRange(beeSamples, 'x')
+  );
+  if (maxXRange < 42) {
+    throw new Error(`${scenario.name}: bee routes are too static, xRange=${maxXRange}`);
+  }
+  const maxYRange = Math.max(
+    ...beeDiagnostics.map((diagnostic) => Number(diagnostic.beeSummary.yRange) || 0),
+    getSampleRange(beeSamples, 'y')
+  );
+  if (maxYRange < 12) {
+    throw new Error(`${scenario.name}: bee routes need visible approach/landing height changes, yRange=${maxYRange}`);
+  }
+  const maxPhaseCount = Math.max(
+    ...beeDiagnostics.map((diagnostic) => countObjectKeys(diagnostic.beeSummary.phases)),
+    countSampleValues(beeSamples, 'phase')
+  );
+  if (maxPhaseCount < 2) {
+    throw new Error(`${scenario.name}: bees should show flight plus flower-foraging phases`);
+  }
+  const hasLanding = beeDiagnostics.some((diagnostic) => {
+    return diagnostic.beeSummary
+      && diagnostic.beeSummary.landed
+      && Object.prototype.hasOwnProperty.call(diagnostic.beeSummary.landed, 'true');
+  }) || beeSamples.some((sample) => sample.landed === true || sample.landed === 'true');
+  if (!hasLanding) {
+    throw new Error(`${scenario.name}: bees should visibly land on flowers`);
+  }
+  const maxFlowerTargets = Math.max(
+    ...beeDiagnostics.map((diagnostic) => countObjectKeys(diagnostic.beeSummary.flowers)),
+    countSampleValues(beeSamples, 'flowerId')
+  );
+  if (maxFlowerTargets < 1) {
+    throw new Error(`${scenario.name}: bees should target flower anchors`);
+  }
+  const maxLayerCount = Math.max(
+    ...beeDiagnostics.map((diagnostic) => countObjectKeys(diagnostic.beeSummary.layers)),
+    countSampleValues(beeSamples, 'layer')
+  );
+  if (maxLayerCount < 2) {
+    throw new Error(`${scenario.name}: bees should render both behind and in front of the mushroom`);
+  }
+}
+
+function assertFlowerDiagnostics(scenario, diagnostics) {
+  const flowerDiagnostics = diagnostics.filter((diagnostic) => {
+    return Number(diagnostic.flowers) > 0 && diagnostic.flowerSummary;
+  });
+  if (flowerDiagnostics.length === 0) {
+    throw new Error(`${scenario.name}: expected flower diagnostics`);
+  }
+
+  const maxVariantCount = Math.max(...flowerDiagnostics.map((diagnostic) => countObjectKeys(diagnostic.flowerSummary.variants)));
+  if (maxVariantCount < 2) {
+    throw new Error(`${scenario.name}: flowering meadow needs multiple flower variants`);
+  }
+  const maxLayerCount = Math.max(...flowerDiagnostics.map((diagnostic) => countObjectKeys(diagnostic.flowerSummary.layers)));
+  if (maxLayerCount < 2) {
+    throw new Error(`${scenario.name}: flowers should render in both background and foreground grass`);
+  }
+}
+
+function getSampleRange(samples, field) {
+  const values = samples
+    .map((sample) => Number(sample[field]))
+    .filter(Number.isFinite);
+  if (values.length < 2) {
+    return 0;
+  }
+  return Math.max(...values) - Math.min(...values);
+}
+
+function countSampleValues(samples, field) {
+  return new Set(samples.map((sample) => sample[field]).filter((value) => value !== undefined && value !== null)).size;
 }
 
 function assertFireflyMotionDiagnostics(scenario, diagnostics) {

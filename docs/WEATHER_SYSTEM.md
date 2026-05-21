@@ -72,6 +72,9 @@ Pogoda nie tworzy obecnie care mistakes sama z siebie. Moze pogorszyc lub popraw
 ## Zaleznosci Srodowiskowe
 
 - Chmury przesuwaja sie z wiatrem i moga wychodzic poza ekran; nowe sloty pojawiaja sie poza kadrem zamiast nagle znikac na scenie.
+- Chmury maja profile formy, nie tylko gestosc: wysokie cirrus/cirrostratus sa cienkie i smuzyste, altocumulus sklada sie z drobnych kep, stratus/altostratus sa warstwowe, nimbostratus jest ciezszy i ma subtelne kurtyny opadu, a cumulonimbus tworzy wyzsza wieze z kowadlem.
+- Sloty chmur maja lifecycle `birth -> mature -> dissolve`; zmieniaja alfa, szerokosc, wysokosc, krawedzie i mikrosegmenty, zeby formowanie i rozpad nie wygladaly jak nagly pop-in/pop-out.
+- Profil chmury niesie optyczna grubosc i ciezar wizualny. Te wartosci powinny sterowac zaciemnieniem, przerwami dla promieni, widocznoscia cial niebieskich i subtelnym nastrojem sceny, ale nie gameplayem.
 - Slonce, ksiezyc i gwiazdy sa przygaszane przez zachmurzenie; slonce moze przebijac sie przez chmury przy sprzyjajacym oknie.
 - Deszcz przechyla sie zgodnie z wektorem wiatru; przy mocniejszym deszczu dochodza warstwy "sheet rain".
 - Snieg dryfuje wolniej i mocniej reaguje na wiatr przy stylu `blowing`; cieplejszy snieg jest mokry i ciezszy.

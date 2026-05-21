@@ -1320,12 +1320,26 @@ test('ambient life is strongest in warm clear summer daylight', () => {
     condition: 'clear',
     dayPhase: 'noon',
     latitude: 50.2649,
+    cloudCover: 12,
     temperature: 24,
     humidity: 68,
     windSpeed: 5,
     windLevel: 0.06,
+    flowerDensity: 3,
     precipitation: 0
   }, new Date(2026, 6, 8, 12, 0));
+  const lateMay = core.calculateAmbientLife({
+    condition: 'clear',
+    dayPhase: 'noon',
+    latitude: 50.2649,
+    cloudCover: 18,
+    temperature: 19,
+    humidity: 62,
+    windSpeed: 7,
+    windLevel: 0.08,
+    flowerDensity: 0.35,
+    precipitation: 0
+  }, new Date(2026, 4, 21, 12, 0));
   const winter = core.calculateAmbientLife({
     condition: 'clear',
     dayPhase: 'noon',
@@ -1338,8 +1352,110 @@ test('ambient life is strongest in warm clear summer daylight', () => {
   }, new Date(2026, 0, 8, 12, 0));
 
   assert(summer.generalIntensity > 0.7, `expected vivid summer life, got ${summer.generalIntensity}`);
+  assert(summer.flowerIntensity > 0.7, `expected flowering meadow, got ${summer.flowerIntensity}`);
+  assert(summer.beeIntensity > 0.65, `expected active summer bees, got ${summer.beeIntensity}`);
   assert(summer.butterflyIntensity > 0.7, `expected summer butterflies, got ${summer.butterflyIntensity}`);
+  assert(lateMay.flowerIntensity > 0.2, `expected some late-May flowers, got ${lateMay.flowerIntensity}`);
+  assert(lateMay.beeIntensity > 0.1 && lateMay.beeIntensity < 0.45, `expected sparse late-May bees, got ${lateMay.beeIntensity}`);
+  assert(lateMay.butterflyIntensity > 0.18 && lateMay.butterflyIntensity < 0.45, `expected sparse late-May butterflies, got ${lateMay.butterflyIntensity}`);
   assert(winter.generalIntensity < 0.05, `expected quiet winter life, got ${winter.generalIntensity}`);
+  assert(winter.flowerIntensity < 0.05, `expected winter flowers to be hidden, got ${winter.flowerIntensity}`);
+});
+
+test('butterflies are sparse outside warm calm sunny windows', () => {
+  const warmSunny = core.calculateAmbientLife({
+    condition: 'clear',
+    dayPhase: 'noon',
+    latitude: 50.2649,
+    cloudCover: 10,
+    temperature: 25,
+    windSpeed: 5,
+    windLevel: 0.06,
+    flowerDensity: 3,
+    precipitation: 0
+  }, new Date(2026, 6, 12, 12, 0));
+  const coolCloudy = core.calculateAmbientLife({
+    condition: 'cloudy',
+    dayPhase: 'noon',
+    latitude: 50.2649,
+    cloudCover: 72,
+    temperature: 16,
+    windSpeed: 5,
+    windLevel: 0.06,
+    flowerDensity: 3,
+    precipitation: 0
+  }, new Date(2026, 6, 12, 12, 0));
+  const windy = core.calculateAmbientLife({
+    condition: 'clear',
+    dayPhase: 'noon',
+    latitude: 50.2649,
+    cloudCover: 10,
+    temperature: 25,
+    windSpeed: 28,
+    windLevel: 0.34,
+    gustLevel: 0.4,
+    flowerDensity: 3,
+    precipitation: 0
+  }, new Date(2026, 6, 12, 12, 0));
+
+  assert(warmSunny.butterflyIntensity > 0.7, `expected warm sunny butterfly window, got ${warmSunny.butterflyIntensity}`);
+  assert(coolCloudy.butterflyIntensity < 0.08, `expected cool cloudy butterfly collapse, got ${coolCloudy.butterflyIntensity}`);
+  assert(windy.butterflyIntensity < 0.18, `expected windy butterfly suppression, got ${windy.butterflyIntensity}`);
+});
+
+test('bees require flowers and calm daytime weather', () => {
+  const warmFlowering = core.calculateAmbientLife({
+    condition: 'clear',
+    dayPhase: 'noon',
+    latitude: 50.2649,
+    cloudCover: 12,
+    temperature: 24,
+    windSpeed: 5,
+    windLevel: 0.06,
+    flowerDensity: 3,
+    precipitation: 0
+  }, new Date(2026, 6, 12, 12, 0));
+  const noFlowers = core.calculateAmbientLife({
+    condition: 'clear',
+    dayPhase: 'noon',
+    latitude: 50.2649,
+    cloudCover: 12,
+    temperature: 24,
+    windSpeed: 5,
+    windLevel: 0.06,
+    flowerDensity: 0,
+    precipitation: 0
+  }, new Date(2026, 6, 12, 12, 0));
+  const rain = core.calculateAmbientLife({
+    condition: 'rain',
+    dayPhase: 'noon',
+    latitude: 50.2649,
+    cloudCover: 82,
+    temperature: 22,
+    windSpeed: 5,
+    windLevel: 0.06,
+    flowerDensity: 3,
+    precipitation: 1.2,
+    rain: 1.2
+  }, new Date(2026, 6, 12, 12, 0));
+  const evening = core.calculateAmbientLife({
+    condition: 'clear',
+    dayPhase: 'night',
+    latitude: 50.2649,
+    cloudCover: 8,
+    temperature: 22,
+    windSpeed: 3,
+    windLevel: 0.04,
+    flowerDensity: 3,
+    precipitation: 0
+  }, new Date(2026, 6, 12, 22, 0));
+
+  assert(warmFlowering.flowerIntensity > 0.75, `expected flowering habitat, got ${warmFlowering.flowerIntensity}`);
+  assert(warmFlowering.beeIntensity > 0.65, `expected active bees near flowers, got ${warmFlowering.beeIntensity}`);
+  assert(noFlowers.flowerIntensity === 0, `expected no visible flowers when habitat has none, got ${noFlowers.flowerIntensity}`);
+  assert(noFlowers.beeIntensity === 0, `expected no bees without flowers, got ${noFlowers.beeIntensity}`);
+  assert(rain.beeIntensity === 0, `expected no bees in rain, got ${rain.beeIntensity}`);
+  assert(evening.beeIntensity === 0, `expected no night bees, got ${evening.beeIntensity}`);
 });
 
 test('ambient life treats missing temperature as neutral instead of freezing', () => {
@@ -1355,6 +1471,8 @@ test('ambient life treats missing temperature as neutral instead of freezing', (
   }, new Date(2026, 6, 8, 12, 0));
 
   assert(profile.generalIntensity > 0.6, `expected neutral-temperature summer life, got ${profile.generalIntensity}`);
+  assert(profile.beeIntensity < 0.55, `expected unknown-temperature bees to stay conservative, got ${profile.beeIntensity}`);
+  assert(profile.butterflyIntensity < 0.55, `expected unknown-temperature butterflies to stay conservative, got ${profile.butterflyIntensity}`);
 });
 
 test('ambient insects collapse during storm and snow', () => {

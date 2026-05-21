@@ -139,6 +139,7 @@ function createCaptureSceneOverrides() {
   const cloudCoverLow = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_CLOUD_LOW');
   const cloudCoverMid = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_CLOUD_MID');
   const cloudCoverHigh = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_CLOUD_HIGH');
+  const flowerDensity = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_FLOWER_DENSITY');
   const vaporPressureDeficit = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_VPD');
   const evapotranspiration = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_ET0');
   const snowDepth = readOptionalEnvNumber('PIECZARGOTCHI_DEBUG_SNOW_DEPTH');
@@ -153,6 +154,7 @@ function createCaptureSceneOverrides() {
     && cloudCoverLow === null
     && cloudCoverMid === null
     && cloudCoverHigh === null
+    && flowerDensity === null
     && vaporPressureDeficit === null
     && evapotranspiration === null
     && snowDepth === null
@@ -171,6 +173,7 @@ function createCaptureSceneOverrides() {
     cloudCoverLow,
     cloudCoverMid,
     cloudCoverHigh,
+    flowerDensity,
     vaporPressureDeficit,
     evapotranspiration,
     snowDepth,
@@ -716,12 +719,17 @@ async function captureCanvas(cdp, label, options) {
             maxLightRadius: Math.max(0, ...numbers('lightRadius')),
             maxLightAlpha: Math.max(0, ...numbers('lightAlpha')),
             maxExcursion: Math.max(0, ...numbers('excursion')),
+            maxTurnbacks: Math.max(0, ...numbers('turnbacks')),
+            maxHeightWaves: Math.max(0, ...numbers('heightWaves')),
             layers: counts('layer'),
             depths: counts('depth'),
             mushroomOverlaps: counts('mushroomOverlap'),
             routes: counts('route'),
             variants: counts('variant'),
-            directions: counts('direction')
+            directions: counts('direction'),
+            phases: counts('phase'),
+            flowers: counts('flowerId'),
+            landed: counts('landed')
           };
         };
         const sampleForLog = (sample) => ({
@@ -730,7 +738,13 @@ async function captureCanvas(cdp, label, options) {
           depth: sample.depth,
           route: sample.route,
           variant: sample.variant,
+          phase: sample.phase,
+          flowerId: sample.flowerId,
+          landed: sample.landed,
           direction: sample.direction,
+          routeDirection: sample.routeDirection,
+          turnbacks: sample.turnbacks,
+          heightWaves: sample.heightWaves,
           x: sample.x,
           y: sample.y,
           alpha: sample.alpha,
@@ -799,16 +813,26 @@ async function captureCanvas(cdp, label, options) {
           center: sampleGrassRegion(196, 426, 120, 86)
         };
         return {
+          flowers: Array.isArray(diagnostics.flowers) ? diagnostics.flowers.length : 0,
+          bees: Array.isArray(diagnostics.bees) ? diagnostics.bees.length : 0,
           butterflies: Array.isArray(diagnostics.butterflies) ? diagnostics.butterflies.length : 0,
           bats: Array.isArray(diagnostics.bats) ? diagnostics.bats.length : 0,
           moths: Array.isArray(diagnostics.moths) ? diagnostics.moths.length : 0,
           fireflies: Array.isArray(diagnostics.fireflies) ? diagnostics.fireflies.length : 0,
           crawlers: Array.isArray(diagnostics.crawlers) ? diagnostics.crawlers.length : 0,
+          flowerSummary: summarize(diagnostics.flowers),
+          beeSummary: summarize(diagnostics.bees),
           butterflySummary: summarize(diagnostics.butterflies),
           batSummary: summarize(diagnostics.bats),
           mothSummary: summarize(diagnostics.moths),
           fireflySummary: summarize(diagnostics.fireflies),
           crawlerSummary: summarize(diagnostics.crawlers),
+          flowerSamples: Array.isArray(diagnostics.flowers)
+            ? diagnostics.flowers.slice(0, 8).map(sampleForLog)
+            : [],
+          beeSamples: Array.isArray(diagnostics.bees)
+            ? diagnostics.bees.slice(0, 8).map(sampleForLog)
+            : [],
           butterflySamples: Array.isArray(diagnostics.butterflies)
             ? diagnostics.butterflies.slice(0, 8).map(sampleForLog)
             : [],
@@ -1062,6 +1086,7 @@ async function applyCaptureSceneOverrides(cdp) {
         ['cloudCoverLow', 'cloudCoverLow'],
         ['cloudCoverMid', 'cloudCoverMid'],
         ['cloudCoverHigh', 'cloudCoverHigh'],
+        ['flowerDensity', 'flowerDensity'],
         ['vaporPressureDeficit', 'vaporPressureDeficit'],
         ['evapotranspiration', 'evapotranspiration'],
         ['snowDepth', 'snowDepth']

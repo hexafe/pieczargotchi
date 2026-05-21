@@ -17,6 +17,11 @@
         }
 
         const position = getCloudSlotRenderPosition(layer, flow, slot, index, layerIndex, now, layerWave);
+        const slotLife = getCloudSlotLife(slot, now);
+        const alpha = cloudAlpha * slot.presence * slot.fade * slotLife.alpha;
+        if (alpha <= 0.01) {
+          return;
+        }
         drawWeatherCloud(
           ctx,
           position.x,
@@ -24,7 +29,7 @@
           layer.color,
           layer.light,
           position.scale,
-          cloudAlpha * slot.presence * slot.fade,
+          alpha,
           layer.form,
           position.motion
         );
@@ -65,17 +70,21 @@
       return slot.active;
     });
     const sampleSlots = activeSlots.slice(0, 4).map(function(slot) {
+      const life = getCloudSlotLife(slot, runtime.motionDiagnostics.clouds.now || 0);
       return {
         x: Number(slot.x.toFixed(2)),
         yLane: slot.yLane,
         fade: Number(slot.fade.toFixed(3)),
-        presence: Number(slot.presence.toFixed(3))
+        presence: Number(slot.presence.toFixed(3)),
+        life: Number(life.alpha.toFixed(3)),
+        variant: slot.shapeVariant || 0
       };
     });
     const motion = flow.motion || {};
     runtime.motionDiagnostics.clouds.layers.push({
       index: layerIndex,
       form: layer.form,
+      profile: layer.profileName || layer.form,
       cover: Number(cover.toFixed(2)),
       active: activeSlots.length,
       speed: Number((Number(motion.speed) || 0).toFixed(3)),
@@ -83,6 +92,8 @@
       shear: Number((Number(motion.shear) || 0).toFixed(3)),
       stretch: Number((Number(motion.stretch) || 1).toFixed(3)),
       streakAlpha: Number((Number(motion.streakAlpha) || 0).toFixed(3)),
+      opticalThickness: Number((Number(layer.opticalThickness) || 0).toFixed(3)),
+      laneStep: Number((Number(layer.laneStep) || 0).toFixed(2)),
       y: Number((Number(flow.y) || 0).toFixed(2)),
       samples: sampleSlots
     });
@@ -138,7 +149,252 @@
         color: colors.cloud,
         light: colors.cloudLight
       }
-    ];
+    ].map(function(layer, layerIndex) {
+      return applyCloudLayerProfile(layer, layerIndex, source);
+    });
+  }
+
+  function applyCloudLayerProfile(layer, layerIndex, scene) {
+    const cover = clamp(Number(layer.cover), 0, 100, 0);
+    const profile = getCloudFormProfile(layer.form, layerIndex, cover, scene);
+    const next = Object.assign({}, layer);
+    next.profileName = profile.name;
+    next.y += profile.yOffset;
+    next.spacing *= profile.spacingScale;
+    next.scale *= profile.scaleMultiplier;
+    next.speed *= profile.speedScale;
+    next.windResponse *= profile.windResponse;
+    next.depthResponse *= profile.depthResponse;
+    next.shearResponse *= profile.shearResponse;
+    next.alpha = clamp(next.alpha + profile.alphaBias, 0.12, 0.78, next.alpha);
+    next.laneStep = profile.laneStep;
+    next.yJitter = profile.yJitter;
+    next.widthScale = profile.widthScale;
+    next.heightScale = profile.heightScale;
+    next.edgeFadeMargin = profile.edgeFadeMargin;
+    next.slotCountBias = profile.slotCountBias;
+    next.slotActiveBias = profile.slotActiveBias;
+    next.morphStrength = profile.morphStrength;
+    next.edgeTexture = profile.edgeTexture;
+    next.opticalThickness = profile.opticalThickness;
+    next.shadowStrength = profile.shadowStrength;
+    next.verticalGrowth = profile.verticalGrowth;
+    next.anvilStrength = profile.anvilStrength;
+    next.veilStrength = profile.veilStrength;
+    return next;
+  }
+
+  function getCloudFormProfile(form, layerIndex, cover, scene) {
+    const normalized = form || 'cumulus';
+    const base = {
+      name: normalized,
+      yOffset: 0,
+      laneStep: 19,
+      yJitter: 10,
+      widthScale: 1,
+      heightScale: 1,
+      spacingScale: 1,
+      scaleMultiplier: 1,
+      speedScale: 1,
+      windResponse: 1,
+      depthResponse: 1,
+      shearResponse: 1,
+      alphaBias: 0,
+      slotCountBias: 0,
+      slotActiveBias: 0,
+      edgeFadeMargin: 24,
+      morphStrength: 0.48,
+      edgeTexture: 0.46,
+      opticalThickness: 0.42,
+      shadowStrength: 0.10,
+      verticalGrowth: 0.16,
+      anvilStrength: 0,
+      veilStrength: 0
+    };
+
+    const profiles = {
+      cirrus: {
+        yOffset: -8,
+        laneStep: 12,
+        yJitter: 8,
+        widthScale: 1.32,
+        heightScale: 0.62,
+        spacingScale: 1.12,
+        scaleMultiplier: 0.95,
+        speedScale: 1.16,
+        windResponse: 1.14,
+        depthResponse: 1.08,
+        shearResponse: 1.18,
+        alphaBias: -0.08,
+        slotCountBias: 1,
+        edgeFadeMargin: 42,
+        morphStrength: 0.30,
+        edgeTexture: 0.86,
+        opticalThickness: 0.14,
+        shadowStrength: 0.02,
+        verticalGrowth: 0.04
+      },
+      cirrostratus: {
+        yOffset: -6,
+        laneStep: 11,
+        yJitter: 7,
+        widthScale: 1.56,
+        heightScale: 0.70,
+        spacingScale: 1.04,
+        scaleMultiplier: 0.98,
+        speedScale: 1.08,
+        windResponse: 1.08,
+        depthResponse: 1.02,
+        shearResponse: 1.10,
+        alphaBias: -0.02,
+        slotCountBias: 1,
+        slotActiveBias: 1,
+        edgeFadeMargin: 48,
+        morphStrength: 0.26,
+        edgeTexture: 0.74,
+        opticalThickness: 0.26,
+        shadowStrength: 0.04,
+        verticalGrowth: 0.04
+      },
+      altocumulus: {
+        yOffset: -2,
+        laneStep: 16,
+        yJitter: 9,
+        widthScale: 0.96,
+        heightScale: 0.88,
+        spacingScale: 0.92,
+        speedScale: 1.04,
+        slotCountBias: 1,
+        edgeFadeMargin: 30,
+        morphStrength: 0.54,
+        edgeTexture: 0.68,
+        opticalThickness: 0.34,
+        shadowStrength: 0.08,
+        verticalGrowth: 0.10
+      },
+      altostratus: {
+        yOffset: 0,
+        laneStep: 14,
+        yJitter: 7,
+        widthScale: 1.38,
+        heightScale: 0.78,
+        spacingScale: 1.08,
+        speedScale: 0.88,
+        windResponse: 0.90,
+        depthResponse: 0.86,
+        alphaBias: 0.04,
+        slotCountBias: 1,
+        slotActiveBias: 1,
+        edgeFadeMargin: 54,
+        morphStrength: 0.34,
+        edgeTexture: 0.42,
+        opticalThickness: 0.52,
+        shadowStrength: 0.14,
+        verticalGrowth: 0.06
+      },
+      stratus: {
+        yOffset: 18,
+        laneStep: 12,
+        yJitter: 6,
+        widthScale: 1.48,
+        heightScale: 0.76,
+        spacingScale: 1.14,
+        speedScale: 0.74,
+        windResponse: 0.76,
+        depthResponse: 0.72,
+        shearResponse: 0.82,
+        alphaBias: 0.08,
+        slotCountBias: 1,
+        slotActiveBias: 1,
+        edgeFadeMargin: 60,
+        morphStrength: 0.30,
+        edgeTexture: 0.36,
+        opticalThickness: 0.64,
+        shadowStrength: 0.18,
+        verticalGrowth: 0.04
+      },
+      stratocumulus: {
+        yOffset: 10,
+        laneStep: 17,
+        yJitter: 11,
+        widthScale: 1.18,
+        heightScale: 1.04,
+        spacingScale: 0.96,
+        speedScale: 0.86,
+        windResponse: 0.90,
+        alphaBias: 0.06,
+        edgeFadeMargin: 36,
+        morphStrength: 0.60,
+        edgeTexture: 0.62,
+        opticalThickness: 0.58,
+        shadowStrength: 0.18,
+        verticalGrowth: 0.18
+      },
+      nimbostratus: {
+        yOffset: 20,
+        laneStep: 10,
+        yJitter: 5,
+        widthScale: 1.62,
+        heightScale: 1.06,
+        spacingScale: 1.18,
+        scaleMultiplier: 1.04,
+        speedScale: 0.68,
+        windResponse: 0.72,
+        depthResponse: 0.68,
+        shearResponse: 0.78,
+        alphaBias: 0.12,
+        slotCountBias: 2,
+        slotActiveBias: 1,
+        edgeFadeMargin: 70,
+        morphStrength: 0.34,
+        edgeTexture: 0.42,
+        opticalThickness: 0.84,
+        shadowStrength: 0.32,
+        verticalGrowth: 0.08,
+        veilStrength: 0.58
+      },
+      cumulonimbus: {
+        yOffset: -24,
+        laneStep: 24,
+        yJitter: 14,
+        widthScale: 1.18,
+        heightScale: 1.34,
+        spacingScale: 1.18,
+        scaleMultiplier: 1.08,
+        speedScale: 0.64,
+        windResponse: 0.82,
+        depthResponse: 1.12,
+        shearResponse: 1.22,
+        alphaBias: 0.14,
+        slotCountBias: -2,
+        slotActiveBias: -1,
+        edgeFadeMargin: 46,
+        morphStrength: 0.72,
+        edgeTexture: 0.70,
+        opticalThickness: 0.95,
+        shadowStrength: 0.38,
+        verticalGrowth: 0.92,
+        anvilStrength: 0.78,
+        veilStrength: 0.46
+      }
+    };
+
+    const selected = Object.assign({}, base, profiles[normalized] || {});
+    if (scene && scene.condition === 'storm') {
+      selected.opticalThickness = clamp(selected.opticalThickness + 0.08, 0, 1, selected.opticalThickness);
+      selected.shadowStrength = clamp(selected.shadowStrength + 0.06, 0, 0.46, selected.shadowStrength);
+      selected.edgeTexture = clamp(selected.edgeTexture + 0.08, 0, 1, selected.edgeTexture);
+    }
+    if (cover > 82 && selected.name !== 'cirrus') {
+      selected.widthScale *= 1.04;
+      selected.edgeFadeMargin += 8;
+      selected.opticalThickness = clamp(selected.opticalThickness + 0.06, 0, 1, selected.opticalThickness);
+    }
+    if (layerIndex === 0) {
+      selected.yOffset -= 2;
+      selected.shadowStrength *= 0.55;
+    }
+    return selected;
   }
 
   function getCloudSlotRenderPosition(layer, flow, slot, index, layerIndex, now, layerWave) {
@@ -156,7 +412,9 @@
     const liftOffset = Math.sin(localPhase * 0.58 + index) * verticalLift
       + Math.sin(now / (12800 + index * 520) + slot.phase) * depthLift;
     const scalePulse = Math.sin(localPhase * 0.46) * scalePulseAmount;
-    const scale = layer.scale + slot.scaleOffset + scalePulse;
+    const life = getCloudSlotLife(slot, now);
+    const growthScale = 0.92 + life.grow * 0.08 - (1 - life.dissolve) * 0.03;
+    const scale = (layer.scale + slot.scaleOffset + scalePulse) * growthScale;
     const x = slot.x + laneOffset;
     const y = layer.y
       + flow.y
@@ -176,7 +434,18 @@
         turbulence: Number(windMotion.turbulence) || 0,
         gust: gust,
         phase: localPhase,
-        seed: slot.seed + index * 43 + layerIndex * 101
+        seed: slot.seed + index * 43 + layerIndex * 101,
+        widthScale: (Number(layer.widthScale) || 1) * (Number(slot.widthOffset) || 1),
+        heightScale: (Number(layer.heightScale) || 1) * (Number(slot.heightOffset) || 1),
+        edgeTexture: Number(layer.edgeTexture) || 0,
+        morphStrength: Number(layer.morphStrength) || 0,
+        opticalThickness: Number(layer.opticalThickness) || 0,
+        shadowStrength: Number(layer.shadowStrength) || 0,
+        verticalGrowth: Number(layer.verticalGrowth) || 0,
+        anvilStrength: Number(layer.anvilStrength) || 0,
+        veilStrength: Number(layer.veilStrength) || 0,
+        shapeVariant: Number(slot.shapeVariant) || 0,
+        life: life
       }
     };
   }
@@ -206,7 +475,7 @@
 
         const position = getCloudSlotRenderPosition(layer, flow, slot, index, layerIndex, now, layerWave);
         const width = getCloudSlotWidth(layer, slot);
-        const height = getCloudFormHeight(layer.form) * position.scale;
+        const height = getCloudSlotHeight(layer, slot, position.scale);
         const cloudCenterX = position.x + width / 2;
         const cloudCenterY = position.y + height / 2;
         const horizontalDistance = Math.abs(cloudCenterX - sunX);
@@ -257,6 +526,12 @@
     return 46;
   }
 
+  function getCloudSlotHeight(layer, slot, scale) {
+    const base = getCloudFormHeight(layer.form);
+    const heightScale = (Number(layer.heightScale) || 1) * (Number(slot.heightOffset) || 1);
+    return base * (Number(scale) || 1) * heightScale;
+  }
+
   function getCloudPresence(index, cover) {
     const slotStart = index * 11.8;
     const slotFade = 18;
@@ -277,8 +552,13 @@
     state.yPhase += vectorY * speed * elapsed;
     state.gustPhase = (Number(state.gustPhase) || 0) + (0.18 + wind.level * 0.84 + wind.gustPulse * 0.62) * elapsed;
 
-    const desiredSlots = getDesiredCloudSlots(cover);
-    const desiredActive = Math.round(1 + cover / 100 * 6);
+    const desiredSlots = getDesiredCloudSlots(cover, layer);
+    const desiredActive = clamp(
+      Math.round(1 + cover / 100 * 6 + (Number(layer.slotActiveBias) || 0)),
+      1,
+      desiredSlots,
+      Math.min(3, desiredSlots)
+    );
     ensureCloudSlots(state, layer, layerIndex, desiredSlots, desiredActive, directionX, now);
     updateCloudSlots(state, layer, layerIndex, cover, desiredActive, directionX, speed, elapsed, now, motion);
 
@@ -338,8 +618,9 @@
     };
   }
 
-  function getDesiredCloudSlots(cover) {
-    return clamp(Math.round(2 + cover / 100 * 7), 2, 9, 4);
+  function getDesiredCloudSlots(cover, layer) {
+    const slotBias = layer ? Number(layer.slotCountBias) || 0 : 0;
+    return clamp(Math.round(2 + cover / 100 * 7 + slotBias), 2, 10, 4);
   }
 
   function ensureCloudSlots(state, layer, layerIndex, desiredSlots, desiredActive, directionX, now) {
@@ -369,18 +650,48 @@
       seed: seed,
       active: false,
       x: 0,
-      yLane: (index % 3) * 19,
-      yOffset: Math.round((seededUnit(seed + 1) - 0.5) * 10),
-      scaleOffset: (seededUnit(seed + 2) > 0.52 ? 0.12 : 0) + (seededUnit(seed + 3) - 0.5) * 0.08,
+      yLane: 0,
+      yOffset: 0,
+      scaleOffset: 0,
+      widthOffset: 1,
+      heightOffset: 1,
+      shapeVariant: 0,
       phase: seededUnit(seed + 4) * Math.PI * 2,
+      morphPhase: seededUnit(seed + 5) * Math.PI * 2,
       presence: 0,
       fade: 1,
+      birthAt: now,
+      growthDuration: 5200,
+      lifeDuration: 42000,
+      dissolveDuration: 7800,
       nextSpawnAt: now
     };
   }
 
+  function randomizeCloudSlot(slot, layer, index, now, mature) {
+    const seedStep = Math.floor(now / 17000);
+    const localSeed = slot.seed + index * 53 + seedStep * 97;
+    const laneStep = Number(layer.laneStep) || 19;
+    const yJitter = Number(layer.yJitter) || 10;
+    slot.yLane = (index % 3) * laneStep;
+    slot.yOffset = Math.round((seededUnit(localSeed + 1) - 0.5) * yJitter * 2);
+    slot.scaleOffset = (seededUnit(localSeed + 2) > 0.52 ? 0.12 : 0) + (seededUnit(localSeed + 3) - 0.5) * 0.08;
+    slot.widthOffset = 0.88 + seededUnit(localSeed + 4) * 0.26;
+    slot.heightOffset = 0.88 + seededUnit(localSeed + 5) * 0.24;
+    slot.shapeVariant = Math.floor(seededUnit(localSeed + 6) * 4);
+    slot.phase = seededUnit(localSeed + 7) * Math.PI * 2;
+    slot.morphPhase = seededUnit(localSeed + 8) * Math.PI * 2;
+    slot.growthDuration = 4200 + seededUnit(localSeed + 9) * 4200;
+    slot.lifeDuration = 36000 + seededUnit(localSeed + 10) * 38000;
+    slot.dissolveDuration = 7600 + seededUnit(localSeed + 11) * 6800;
+    slot.birthAt = mature
+      ? now - slot.growthDuration - seededUnit(localSeed + 12) * Math.max(8000, slot.lifeDuration * 0.38)
+      : now;
+  }
+
   function spawnInitialCloudSlot(slot, layer, layerIndex, index, desiredActive, directionX) {
     const direction = directionX >= 0 ? 1 : -1;
+    randomizeCloudSlot(slot, layer, index, 0, true);
     const width = getCloudSlotWidth(layer, slot);
     const startX = getCloudSpawnX(direction, width, layerIndex, index, slot.seed);
     const endX = getCloudDespawnX(direction, width);
@@ -392,6 +703,7 @@
     slot.x = startX + (endX - startX) * progress;
     slot.presence = 1;
     slot.fade = 1;
+    slot.birthAt = -slot.growthDuration - seededUnit(slot.seed + 17) * Math.max(8000, slot.lifeDuration * 0.42);
   }
 
   function updateCloudSlots(state, layer, layerIndex, cover, desiredActive, directionX, speed, elapsed, now, motion) {
@@ -406,12 +718,13 @@
       slot.presence = presence;
 
       if (slot.active) {
+        const life = getCloudSlotLife(slot, now);
         const localDrag = 0.84 + seededUnit(slot.seed + 61) * 0.32;
         const gustNudge = Math.sin(now / (980 + index * 73) + slot.phase) * (motion ? motion.gustPulse : 0) * 0.34;
         slot.x += directionX * speed * (localDrag + gustNudge) * elapsed;
         slot.fade = getCloudEdgeFade(slot, layer);
 
-        if (presence <= 0.01 || isCloudSlotPastScreen(slot, layer)) {
+        if (life.done || presence <= 0.01 || isCloudSlotPastScreen(slot, layer)) {
           slot.active = false;
           activeCount -= 1;
           scheduleCloudSlot(slot, now, layerIndex, index);
@@ -429,10 +742,8 @@
   }
 
   function spawnCloudSlot(slot, layer, layerIndex, index, direction) {
-    slot.yLane = (index % 3) * 19;
-    slot.yOffset = Math.round((seededUnit(slot.seed + index + 11) - 0.5) * 12);
-    slot.scaleOffset = (seededUnit(slot.seed + index + 12) > 0.52 ? 0.12 : 0) + (seededUnit(slot.seed + index + 13) - 0.5) * 0.08;
-    slot.phase = seededUnit(slot.seed + index + 14) * Math.PI * 2;
+    const now = typeof getRuntimeNow === 'function' ? getRuntimeNow() : 0;
+    randomizeCloudSlot(slot, layer, index, now, false);
     const width = getCloudSlotWidth(layer, slot);
     slot.x = getCloudSpawnX(direction, width, layerIndex, index, slot.seed);
     slot.fade = 0;
@@ -447,7 +758,8 @@
   }
 
   function getCloudSlotWidth(layer, slot) {
-    return getCloudFormWidth(layer.form) * (layer.scale + slot.scaleOffset);
+    const widthScale = (Number(layer.widthScale) || 1) * (Number(slot.widthOffset) || 1);
+    return getCloudFormWidth(layer.form) * (layer.scale + slot.scaleOffset) * widthScale;
   }
 
   function getCloudSpawnX(direction, width, layerIndex, index, seed) {
@@ -466,9 +778,31 @@
 
   function getCloudEdgeFade(slot, layer) {
     const width = getCloudSlotWidth(layer, slot);
-    const leftVisibility = smoothStep(0, 1, (slot.x + width + 20) / (width + 40));
-    const rightVisibility = smoothStep(0, 1, (512 + 20 - slot.x) / (width + 40));
+    const margin = Number(layer.edgeFadeMargin) || 24;
+    const leftVisibility = smoothStep(0, 1, (slot.x + width + margin) / (width + margin * 2));
+    const rightVisibility = smoothStep(0, 1, (512 + margin - slot.x) / (width + margin * 2));
     return clamp(Math.min(leftVisibility, rightVisibility), 0, 1, 0);
+  }
+
+  function getCloudSlotLife(slot, now) {
+    const birthAt = Number(slot.birthAt) || 0;
+    const age = Math.max(0, Number(now) - birthAt);
+    const growthDuration = Math.max(1, Number(slot.growthDuration) || 5200);
+    const lifeDuration = Math.max(growthDuration + 1, Number(slot.lifeDuration) || 42000);
+    const dissolveDuration = Math.max(1, Number(slot.dissolveDuration) || 7800);
+    const grow = smoothStep(0, 1, age / growthDuration);
+    const dissolveStart = Math.max(growthDuration, lifeDuration - dissolveDuration);
+    const dissolve = age <= dissolveStart
+      ? 1
+      : 1 - smoothStep(0, 1, (age - dissolveStart) / dissolveDuration);
+    const alpha = clamp(grow * dissolve, 0, 1, 0);
+    return {
+      age: age,
+      grow: grow,
+      dissolve: dissolve,
+      alpha: alpha,
+      done: age > lifeDuration && alpha <= 0.02
+    };
   }
 
   function getCloudFormWidth(form) {
@@ -770,20 +1104,26 @@
     const stretch = clamp(Number(cloudMotion.stretch), 0.96, 1.22, 1);
     const turbulence = clamp(Number(cloudMotion.turbulence), 0, 4.2, 0);
     const phase = Number(cloudMotion.phase) || 0;
-    const heightBase = Math.max(1, Number(heightRef) || 56);
+    const widthScale = clamp(Number(cloudMotion.widthScale), 0.62, 1.9, 1);
+    const heightScale = clamp(Number(cloudMotion.heightScale), 0.54, 1.7, 1);
+    const heightBase = Math.max(1, (Number(heightRef) || 56) * heightScale);
 
     return function(left, top, width, height, weight) {
       const influence = clamp(Number(weight), 0.18, 1.35, 1);
-      const verticalFactor = clamp((top + height * 0.5) / heightBase, 0, 1, 0.5);
+      const scaledLeft = left * widthScale;
+      const scaledTop = top * heightScale;
+      const scaledWidth = width * widthScale;
+      const scaledHeight = height * heightScale;
+      const verticalFactor = clamp((scaledTop + scaledHeight * 0.5) / heightBase, 0, 1, 0.5);
       const windOffset = shear * (0.22 + verticalFactor * 0.82) * influence;
-      const flutter = Math.sin(phase + left * 0.11 + top * 0.19) * turbulence * influence;
+      const flutter = Math.sin(phase + scaledLeft * 0.11 + scaledTop * 0.19) * turbulence * influence;
       const widthStretch = 1 + (stretch - 1) * (0.55 + influence * 0.45);
-      const extraWidth = Math.max(0, width * (widthStretch - 1));
+      const extraWidth = Math.max(0, scaledWidth * (widthStretch - 1));
       ctx.fillRect(
-        Math.round(x + (left + windOffset + flutter - direction * extraWidth * 0.34) * size),
-        Math.round(y + top * size),
-        Math.max(1, Math.round((width + extraWidth) * size)),
-        Math.max(1, Math.round(height * size))
+        Math.round(x + (scaledLeft + windOffset + flutter - direction * extraWidth * 0.34) * size),
+        Math.round(y + scaledTop * size),
+        Math.max(1, Math.round((scaledWidth + extraWidth) * size)),
+        Math.max(1, Math.round(scaledHeight * size))
       );
     };
   }
@@ -800,8 +1140,10 @@
     const phase = Number(cloudMotion.phase) || 0;
     const seed = Number(cloudMotion.seed) || 0;
     const gust = clamp(Number(cloudMotion.gust), 0, 1, 0);
-    const widthPx = Math.max(18, formWidth * size);
-    const heightPx = Math.max(8, formHeight * size);
+    const widthScale = clamp(Number(cloudMotion.widthScale), 0.62, 1.9, 1);
+    const heightScale = clamp(Number(cloudMotion.heightScale), 0.54, 1.7, 1);
+    const widthPx = Math.max(18, formWidth * size * widthScale);
+    const heightPx = Math.max(8, formHeight * size * heightScale);
     const tailBaseX = direction >= 0 ? x - widthPx * 0.08 : x + widthPx * 0.90;
     const lineCount = 2 + Math.round(gust * 2);
 
@@ -826,6 +1168,70 @@
     }
   }
 
+  function drawCloudPixelTexture(ctx, x, y, color, lightColor, scale, alpha, motion, formWidth, formHeight, density, placement) {
+    const cloudMotion = motion || {};
+    const texture = clamp((Number(cloudMotion.edgeTexture) || 0) * (Number(density) || 1), 0, 1.2, 0);
+    if (texture <= 0.02) {
+      return;
+    }
+
+    const size = scale || 1;
+    const seed = Number(cloudMotion.seed) || 0;
+    const phase = Number(cloudMotion.phase) || 0;
+    const morph = clamp(Number(cloudMotion.morphStrength), 0, 1, 0.4);
+    const widthScale = clamp(Number(cloudMotion.widthScale), 0.62, 1.9, 1);
+    const heightScale = clamp(Number(cloudMotion.heightScale), 0.54, 1.7, 1);
+    const widthPx = formWidth * size * widthScale;
+    const heightPx = formHeight * size * heightScale;
+    const count = Math.round(3 + texture * 8);
+    const life = cloudMotion.life || {};
+    const raggedBoost = 0.66 + (1 - clamp(Number(life.grow), 0, 1, 1)) * 0.22 + (1 - clamp(Number(life.dissolve), 0, 1, 1)) * 0.34;
+
+    for (let part = 0; part < count; part += 1) {
+      const localSeed = seed + part * 67 + (placement === 'base' ? 503 : 211);
+      const slot = count <= 1 ? 0.5 : part / Math.max(1, count - 1);
+      const wave = Math.sin(phase * (0.55 + part * 0.04) + localSeed * 0.019) * morph;
+      const px = x + widthPx * (slot * 0.86 + 0.06) + wave * 9 * size;
+      const baseY = placement === 'base'
+        ? y + heightPx * (0.72 + seededUnit(localSeed + 1) * 0.18)
+        : y + heightPx * (0.08 + seededUnit(localSeed + 2) * 0.26);
+      const py = baseY + Math.sin(phase + localSeed * 0.013) * 3 * size * morph;
+      const width = Math.max(1, Math.round((2 + seededUnit(localSeed + 3) * 9) * size * (placement === 'base' ? 1.2 : 0.9)));
+      const height = Math.max(1, Math.round((1 + seededUnit(localSeed + 4) * 4) * size));
+      ctx.globalAlpha = (alpha || 1) * texture * raggedBoost * (0.07 + seededUnit(localSeed + 5) * 0.08);
+      ctx.fillStyle = part % 3 === 0 ? lightColor : color;
+      ctx.fillRect(Math.round(px), Math.round(py), width, height);
+    }
+  }
+
+  function drawCloudVeil(ctx, x, y, color, scale, alpha, motion, formWidth, formHeight) {
+    const cloudMotion = motion || {};
+    const strength = clamp(Number(cloudMotion.veilStrength), 0, 1, 0);
+    if (strength <= 0.04) {
+      return;
+    }
+
+    const size = scale || 1;
+    const seed = Number(cloudMotion.seed) || 0;
+    const phase = Number(cloudMotion.phase) || 0;
+    const widthScale = clamp(Number(cloudMotion.widthScale), 0.62, 1.9, 1);
+    const heightScale = clamp(Number(cloudMotion.heightScale), 0.54, 1.7, 1);
+    const widthPx = formWidth * size * widthScale;
+    const heightPx = formHeight * size * heightScale;
+    const count = 5 + Math.round(strength * 6);
+    ctx.fillStyle = color;
+
+    for (let line = 0; line < count; line += 1) {
+      const localSeed = seed + line * 89 + 1301;
+      const drift = Math.sin(phase + localSeed * 0.017) * 7 * size;
+      const xLine = x + widthPx * (0.08 + seededUnit(localSeed + 1) * 0.82) + drift;
+      const yLine = y + heightPx * (0.70 + seededUnit(localSeed + 2) * 0.18);
+      const length = (10 + seededUnit(localSeed + 3) * 22) * size * (0.7 + strength * 0.6);
+      ctx.globalAlpha = (alpha || 1) * strength * (0.025 + seededUnit(localSeed + 4) * 0.035);
+      ctx.fillRect(Math.round(xLine), Math.round(yLine), Math.max(1, Math.round(size)), Math.max(4, Math.round(length)));
+    }
+  }
+
   function drawPixelCloud(ctx, x, y, color, lightColor, scale, alpha, motion) {
     const rect = createWindCloudRect(ctx, x, y, scale, motion, 48);
     ctx.save();
@@ -837,6 +1243,8 @@
     ctx.fillStyle = lightColor;
     rect(16, 20, 32, 8, 0.66);
     rect(58, 18, 34, 8, 0.62);
+    drawCloudPixelTexture(ctx, x, y, color, lightColor, scale, alpha, motion, 112, 48, 0.72, 'top');
+    drawCloudPixelTexture(ctx, x, y, color, lightColor, scale, alpha, motion, 112, 48, 0.56, 'base');
     drawCloudWindWisps(ctx, x, y, color, lightColor, scale, alpha, motion, 112, 48);
     ctx.restore();
   }
@@ -853,6 +1261,7 @@
     ctx.fillStyle = color;
     rect(10, 24, broad ? 118 : 88, 3, 0.70);
     rect(52, 11, broad ? 50 : 34, 2, 1.12);
+    drawCloudPixelTexture(ctx, x, y, color, lightColor, scale, alpha, motion, broad ? 152 : 128, 34, broad ? 0.72 : 0.92, 'top');
     drawCloudWindWisps(ctx, x, y, color, lightColor, scale, alpha, motion, broad ? 152 : 128, 34);
     ctx.restore();
   }
@@ -874,6 +1283,10 @@
     ctx.fillStyle = '#5f7180';
     rect(8, form === 'nimbostratus' ? 43 : 36, 132, 5, 0.40);
     rect(66, form === 'nimbostratus' ? 50 : 41, 54, 4, 0.36);
+    drawCloudPixelTexture(ctx, x, y, color, lightColor, scale, alpha, motion, 168, form === 'nimbostratus' ? 76 : 52, 0.64, 'base');
+    if (form === 'nimbostratus') {
+      drawCloudVeil(ctx, x, y, '#5f7180', scale, alpha, motion, 168, 76);
+    }
     drawCloudWindWisps(ctx, x, y, color, lightColor, scale, alpha, motion, 168, form === 'nimbostratus' ? 76 : 52);
     ctx.restore();
   }
@@ -894,6 +1307,8 @@
     rect(7, 21, 14, 5, 0.58);
     rect(42, 18, 18, 5, 0.62);
     rect(84, 21, 16, 5, 0.58);
+    drawCloudPixelTexture(ctx, x, y, color, lightColor, scale, alpha, motion, form === 'stratocumulus' ? 164 : 112, 46, 0.82, 'top');
+    drawCloudPixelTexture(ctx, x, y, color, lightColor, scale, alpha, motion, form === 'stratocumulus' ? 164 : 112, 46, 0.58, 'base');
     drawCloudWindWisps(ctx, x, y, color, lightColor, scale, alpha, motion, form === 'stratocumulus' ? 164 : 112, 46);
     ctx.restore();
   }
@@ -903,6 +1318,10 @@
     ctx.save();
     ctx.globalAlpha = alpha || 1;
     ctx.fillStyle = color;
+    ctx.globalAlpha = (alpha || 1) * (0.46 + clamp(Number(motion && motion.anvilStrength), 0, 1, 0) * 0.26);
+    rect(50, 4, 84, 14, 0.52);
+    rect(104, 10, 48, 10, 0.34);
+    ctx.globalAlpha = alpha || 1;
     rect(2, 38, 118, 34, 0.42);
     rect(22, 18, 54, 34, 0.76);
     rect(48, 0, 42, 30, 1.18);
@@ -915,6 +1334,9 @@
     ctx.fillStyle = '#4e6578';
     rect(10, 66, 100, 8, 0.28);
     rect(40, 74, 56, 5, 0.24);
+    drawCloudPixelTexture(ctx, x, y, color, lightColor, scale, alpha, motion, 154, 92, 0.86, 'top');
+    drawCloudPixelTexture(ctx, x, y, color, lightColor, scale, alpha, motion, 154, 92, 0.74, 'base');
+    drawCloudVeil(ctx, x, y, '#4e6578', scale, alpha, motion, 154, 92);
     drawCloudWindWisps(ctx, x, y, color, lightColor, scale, alpha, motion, 134, 86);
     ctx.restore();
   }
