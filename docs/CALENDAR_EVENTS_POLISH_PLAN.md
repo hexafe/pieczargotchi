@@ -1,6 +1,6 @@
 # Calendar Events Polish Plan
 
-Build slice: `0.1.4`
+Build slice: `0.1.5`
 
 ## Implemented Baseline
 
@@ -11,6 +11,8 @@ The game now has a deterministic `Święta świata` calendar layer:
 - purchasable `Kalendarz grzybni` decoration for 12 spores;
 - checklist UI in `Dziennik świata`, unlocked by owning the calendar decoration;
 - subtle canvas accents for selected active events;
+- reusable code-native pixel sprite pack for event props, insects, drops, mycelium, telescope, and mushroom-day badge;
+- capture tooling for `PIECZARGOTCHI_DEBUG_CALENDAR_EVENT=<id>`, `PIECZARGOTCHI_CAPTURE_CALENDAR_MATRIX=1`, and mobile checklist validation;
 - static build and core tests covering calendar dates, journal integration, and unlock behavior.
 
 The dates are intentionally local-date based, matching the existing daily rhythm logic rather than UTC cutovers.
@@ -97,7 +99,7 @@ Use these as the canonical baseline before adding more event dates:
 
 ## QA Gates For Next Iteration
 
-- Add browser capture mode for forced `PIECZARGOTCHI_DEBUG_CALENDAR_EVENT=<id>`.
+- Browser capture mode for forced `PIECZARGOTCHI_DEBUG_CALENDAR_EVENT=<id>` is implemented; extend it when new event families are added.
 - Capture at least Tea Day, Bee Day, Biodiversity Day, Soil Day, Space Week.
 - Confirm calendar checklist remains unlocked after buying more than three decorations.
 - Confirm active event discovery logs only once per event, while yearly count increments.

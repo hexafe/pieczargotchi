@@ -86,6 +86,8 @@ test('world journal exposes hover notes and polaroid keepsakes', () => {
   assert(clientJs.includes('function drawWorldJournalPolaroidScene('), 'static client should render journal polaroid scenes');
   assert(clientJs.includes('function renderCalendarChecklist()'), 'static client should render the event checklist');
   assert(clientJs.includes('function drawCalendarEventForeground('), 'static client should render calendar event accents');
+  assert(clientJs.includes('calendarPixelSprites'), 'static client should include the event pixel sprite pack');
+  assert(clientJs.includes('function drawCalendarPixelSprite('), 'static client should draw reusable calendar pixel sprites');
   assert(clientJs.includes('data-discovery-id'), 'journal discovery cards should expose stable discovery ids');
   assert(coreJs.includes('getCalendarChecklist'), 'core should export the calendar checklist API');
   assert(coreJs.includes('worldBeeDay'), 'core calendar should include World Bee Day');
@@ -93,6 +95,15 @@ test('world journal exposes hover notes and polaroid keepsakes', () => {
   assert(distConfig.rules.decorations.some((item) => item.id === 'myceliumCalendar'), 'static config should expose purchasable calendar decoration');
   assert(coreJs.includes('photoCaption'), 'core journal entries should expose photo captions');
   assert(coreJs.includes('conditionNote'), 'core journal entries should expose condition notes');
+});
+
+test('capture tooling can force calendar event screenshots', () => {
+  const captureScript = readFileSync(path.join(rootDir, 'scripts', 'capture-app-render.mjs'), 'utf8');
+  assert(captureScript.includes('PIECZARGOTCHI_DEBUG_CALENDAR_EVENT'), 'capture script should accept a forced calendar event id');
+  assert(captureScript.includes('PIECZARGOTCHI_CAPTURE_CALENDAR_MATRIX'), 'capture script should expose calendar screenshot matrix mode');
+  assert(captureScript.includes('PIECZARGOTCHI_CAPTURE_CALENDAR_CHECKLIST'), 'capture script should expose calendar checklist viewport mode');
+  assert(captureScript.includes('calendarCaptureSamples'), 'capture script should define calendar matrix samples');
+  assert(captureScript.includes('getCalendarEventCaptureTimestamp'), 'capture script should map event ids to deterministic dates');
 });
 
 test('dew catch minigame uses bucket catching instead of click-to-collect drops', () => {

@@ -16,6 +16,9 @@ const captureAppsScriptNoAssets = process.env.PIECZARGOTCHI_CAPTURE_APPS_SCRIPT_
 const captureBeforeAssets = process.env.PIECZARGOTCHI_CAPTURE_BEFORE_ASSETS === '1';
 const captureAllMinigames = process.env.PIECZARGOTCHI_CAPTURE_ALL_MINIGAMES === '1';
 const captureJournal = process.env.PIECZARGOTCHI_CAPTURE_JOURNAL === '1';
+const debugCalendarEvent = String(process.env.PIECZARGOTCHI_DEBUG_CALENDAR_EVENT || '').trim();
+const captureCalendarMatrix = process.env.PIECZARGOTCHI_CAPTURE_CALENDAR_MATRIX === '1';
+const captureCalendarChecklist = process.env.PIECZARGOTCHI_CAPTURE_CALENDAR_CHECKLIST === '1';
 const blockedAssetPatterns = readListEnv('PIECZARGOTCHI_CAPTURE_BLOCK_ASSETS');
 const captureGrassPointer = process.env.PIECZARGOTCHI_CAPTURE_GRASS_POINTER === '1';
 const captureCleanlinessOverride = readOptionalEnvNumber('PIECZARGOTCHI_CAPTURE_CLEANLINESS');
@@ -27,6 +30,13 @@ const userDataDir = path.join(tmpdir(), `pieczargotchi-cdp-${Date.now()}`);
 const captureDebugSettings = createCaptureDebugSettings();
 const captureSceneOverrides = createCaptureSceneOverrides();
 const captureDecorations = readListEnv('PIECZARGOTCHI_CAPTURE_DECORATIONS');
+const calendarCaptureSamples = [
+  'teaDay',
+  'worldBeeDay',
+  'biodiversityDay',
+  'soilDay',
+  'spaceWeek'
+];
 const stageSamples = [
   ['spore', 0],
   ['baby', 12],
@@ -75,6 +85,7 @@ function createCaptureDebugSettings() {
   const constellation = process.env.PIECZARGOTCHI_DEBUG_CONSTELLATION || 'auto';
   const skyEffect = process.env.PIECZARGOTCHI_DEBUG_SKY_EFFECT || 'auto';
   const rainbow = process.env.PIECZARGOTCHI_DEBUG_RAINBOW || 'auto';
+  const calendarTimestamp = debugCalendarEvent ? getCalendarEventCaptureTimestamp(debugCalendarEvent) : null;
   const hasDebugWeather = deterministicBaseline
     || weather !== 'auto'
     || cloud !== null
@@ -87,7 +98,8 @@ function createCaptureDebugSettings() {
     || moonPhase !== 'auto'
     || constellation !== 'auto'
     || skyEffect !== 'auto'
-    || rainbow !== 'auto';
+    || rainbow !== 'auto'
+    || calendarTimestamp !== null;
 
   if (!hasDebugWeather) {
     return null;
@@ -96,7 +108,7 @@ function createCaptureDebugSettings() {
   return {
     enabled: true,
     fixedAt: fixedAt === null
-      ? (deterministicBaseline ? Date.parse('2026-05-14T12:00:00.000Z') : Date.now())
+      ? (calendarTimestamp !== null ? calendarTimestamp : deterministicBaseline ? Date.parse('2026-05-14T12:00:00.000Z') : Date.now())
       : fixedAt,
     weather,
     cloudCoverOverride: cloud === null && deterministicBaseline ? 18 : cloud,
@@ -110,9 +122,53 @@ function createCaptureDebugSettings() {
     skyEffectOverride: skyEffect,
     forcedAnimation: 'auto',
     forcedAnimationStartedAt: 0,
-    neutralEasterEggOverride: easterEgg,
+    neutralEasterEggOverride: calendarTimestamp !== null && easterEgg === 'auto' ? 'off' : easterEgg,
+    calendarEventOverride: debugCalendarEvent || 'auto',
     panelOpen: false
   };
+}
+
+function getCalendarEventCaptureTimestamp(eventId) {
+  const dates = {
+    worldWildlifeDay: '2026-03-03T10:00:00.000Z',
+    forestDay: '2026-03-21T10:00:00.000Z',
+    waterDay: '2026-03-22T10:00:00.000Z',
+    earthDay: '2026-04-22T10:00:00.000Z',
+    migratoryBirdDaySpring: '2026-05-09T10:00:00.000Z',
+    worldBeeDay: '2026-05-20T10:00:00.000Z',
+    teaDay: '2026-05-21T10:00:00.000Z',
+    biodiversityDay: '2026-05-22T10:00:00.000Z',
+    asteroidDay: '2026-06-30T20:00:00.000Z',
+    moonDay: '2026-07-20T20:00:00.000Z',
+    perseidNights: '2026-08-12T21:00:00.000Z',
+    migratoryBirdDayAutumn: '2026-10-10T10:00:00.000Z',
+    spaceWeek: '2026-10-06T20:00:00.000Z',
+    mushroomDay: '2026-10-15T10:00:00.000Z',
+    soilDay: '2026-12-05T10:00:00.000Z'
+  };
+  const value = dates[eventId];
+  if (!value) {
+    return null;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function getCaptureDebugSettingsForCalendarEvent(eventId) {
+  const timestamp = getCalendarEventCaptureTimestamp(eventId);
+  if (timestamp === null) {
+    return null;
+  }
+  return Object.assign({}, captureDebugSettings || createCaptureDebugSettings() || {}, {
+    enabled: true,
+    fixedAt: timestamp,
+    weather: eventId === 'soilDay' ? 'cloudy' : 'clear',
+    cloudCoverOverride: eventId === 'soilDay' ? 44 : eventId === 'spaceWeek' ? 10 : 18,
+    precipitationOverride: 0,
+    windSpeedOverride: eventId === 'worldBeeDay' ? 1.4 : 1.0,
+    neutralEasterEggOverride: 'off',
+    calendarEventOverride: eventId
+  });
 }
 
 function readOptionalEnvNumber(name) {
@@ -260,6 +316,13 @@ try {
   }
   if (captureJournal) {
     await captureWorldJournal(cdp);
+  }
+  if (captureCalendarMatrix) {
+    for (const eventId of calendarCaptureSamples) {
+      await captureCalendarEvent(cdp, eventId);
+    }
+  } else if (debugCalendarEvent) {
+    await captureCalendarEvent(cdp, debugCalendarEvent);
   }
   await captureState(cdp, 'sleeping');
   await captureState(cdp, 'wake');
@@ -801,6 +864,18 @@ async function setCaptureGrowth(cdp, growth) {
       state.stats.happiness = 80;
       state.stats.cleanliness = 80;
       state.stats.health = 100;
+      if (${JSON.stringify(captureCalendarChecklist || Boolean(debugCalendarEvent))}) {
+        state.decorations.owned = ['myceliumCalendar', 'cloverPatch', 'sporeLantern'];
+        state.decorations.active = ['cloverPatch', 'sporeLantern'];
+        state.inventory.spores = 24;
+        state.coins = 24;
+        state.discoveries = state.discoveries || {};
+        state.discoveries.calendar = Object.assign({}, state.discoveries.calendar || {}, {
+          teaDay: { id: 'teaDay', label: 'Międzynarodowy Dzień Herbaty', firstSeenAt: iso, lastSeenAt: iso, lastSeenDateKey: iso.slice(0, 10), count: 1 },
+          worldBeeDay: { id: 'worldBeeDay', label: 'Światowy Dzień Pszczół', firstSeenAt: iso, lastSeenAt: iso, lastSeenDateKey: iso.slice(0, 10), count: 1 },
+          biodiversityDay: { id: 'biodiversityDay', label: 'Międzynarodowy Dzień Bioróżnorodności', firstSeenAt: iso, lastSeenAt: iso, lastSeenDateKey: iso.slice(0, 10), count: 1 }
+        });
+      }
       localStorage.setItem(config.storageKey, JSON.stringify(state));
     })()`,
     awaitPromise: true
@@ -920,7 +995,7 @@ function rectsHorizontallyOverlap(first, second) {
 }
 
 function getExpectedAwakeIdleAnimationKey(stage) {
-  if (!captureDebugSettings || captureDebugSettings.neutralEasterEggOverride === 'auto') {
+  if (!captureDebugSettings || captureDebugSettings.neutralEasterEggOverride === 'auto' || captureDebugSettings.neutralEasterEggOverride === 'off') {
     if (isCaptureRainy()) {
       return `${stage}.rain`;
     }
@@ -938,6 +1013,23 @@ function getExpectedAwakeIdleAnimationKey(stage) {
   }
 
   return `${stage}.easter.neutral`;
+}
+
+async function captureCalendarEvent(cdp, eventId) {
+  const debugSettings = getCaptureDebugSettingsForCalendarEvent(eventId);
+  if (!debugSettings) {
+    throw new Error(`Nieznany event kalendarza do capture: ${eventId}`);
+  }
+
+  await captureCanvas(cdp, `calendar-${eventId}`, {
+    mode: 'awake',
+    growth: eventId === 'teaDay' ? 12 : eventId === 'soilDay' ? 35 : 70,
+    activity: 'null',
+    expectedAnimationKey: eventId === 'teaDay' ? 'baby.idle' : eventId === 'soilDay' ? 'young.idle' : 'adult.idle',
+    debugSettings,
+    decorations: ['myceliumCalendar', 'cloverPatch', 'sporeLantern'],
+    discoverCalendarEvent: eventId
+  });
 }
 
 function isCaptureRainy() {
@@ -960,10 +1052,12 @@ function isCaptureSnowy() {
 
 async function captureCanvas(cdp, label, options) {
   const now = Date.now();
+  const debugSettings = options.debugSettings || captureDebugSettings;
+  const decorations = Array.isArray(options.decorations) ? options.decorations : captureDecorations;
   const stateExpression = `(() => {
     const config = window.PIECZARGOTCHI_CONFIG;
     const state = JSON.parse(JSON.stringify(config.state.defaultState));
-    const debugSettings = ${JSON.stringify(captureDebugSettings)};
+    const debugSettings = ${JSON.stringify(debugSettings)};
     const runtimeNow = debugSettings && Number.isFinite(Number(debugSettings.fixedAt))
       ? Number(debugSettings.fixedAt)
       : ${now};
@@ -984,8 +1078,21 @@ async function captureCanvas(cdp, label, options) {
     state.stats.health = 100;
     state.patch.quality = 72;
     state.patch.mycelium = 0;
-    state.decorations.owned = ${JSON.stringify(captureDecorations)};
-    state.decorations.active = ${JSON.stringify(captureDecorations.slice(0, 3))};
+    state.decorations.owned = ${JSON.stringify(decorations)};
+    state.decorations.active = ${JSON.stringify(decorations.filter((item) => item !== 'myceliumCalendar').slice(0, 3))};
+    state.discoveries = state.discoveries || {};
+    state.discoveries.calendar = state.discoveries.calendar || {};
+    if (${JSON.stringify(options.discoverCalendarEvent || '')}) {
+      const eventId = ${JSON.stringify(options.discoverCalendarEvent || '')};
+      state.discoveries.calendar[eventId] = {
+        id: eventId,
+        label: eventId,
+        firstSeenAt: iso,
+        lastSeenAt: iso,
+        lastSeenDateKey: iso.slice(0, 10),
+        count: 1
+      };
+    }
     state.attention.activeNeed = null;
     state.attention.severity = null;
     state.currentActivity = ${options.activity};
@@ -1533,6 +1640,23 @@ async function captureViewport(cdp) {
         actions: rectOf('.panel-block--actions'),
         status: rectOf('.panel-block--status'),
         resources: rectOf('.panel-block--resources'),
+        discoveries: rectOf('.panel-block--discoveries'),
+        calendar: rectOf('[data-calendar-checklist]'),
+        calendarList: rectOf('[data-calendar-list]'),
+        calendarRows: Array.from(document.querySelectorAll('.calendar-event')).map((row) => {
+          const rect = row.getBoundingClientRect();
+          const label = row.querySelector('strong');
+          const meta = row.querySelector('span:last-child');
+          return {
+            top: rect.top,
+            left: rect.left,
+            width: rect.width,
+            height: rect.height,
+            labelText: label ? label.textContent : '',
+            labelClipped: label ? label.scrollWidth > label.clientWidth + 1 || label.scrollHeight > label.clientHeight + 1 : false,
+            metaClipped: meta ? meta.scrollWidth > meta.clientWidth + 1 || meta.scrollHeight > meta.clientHeight + 1 : false
+          };
+        }),
         log: rectOf('.panel-block--log'),
         debug: rectOf('.panel-block--debug'),
         canvas: rectOf('.canvas-wrap'),
@@ -1608,6 +1732,20 @@ function assertMobileLayout(info) {
 
   if (info.innerWidth >= 390 && info.innerWidth <= 430 && info.innerHeight >= 844 && info.actions.bottom > info.innerHeight + 24) {
     throw new Error(`Pełny panel akcji nie mieści się wystarczająco wysoko na 390x844: bottom=${Math.round(info.actions.bottom)}px`);
+  }
+
+  if (captureCalendarChecklist && info.calendar) {
+    if (info.calendar.width > info.innerWidth - 12) {
+      throw new Error(`Kalendarz wychodzi poza mobile viewport: width=${Math.round(info.calendar.width)}px`);
+    }
+    const shortRows = info.calendarRows.filter((row) => row.height < 38);
+    if (shortRows.length) {
+      throw new Error(`Za niskie wiersze kalendarza: ${shortRows.map((row) => `${row.labelText}:${Math.round(row.height)}px`).join(', ')}`);
+    }
+    const clippedRows = info.calendarRows.filter((row) => row.labelClipped || row.metaClipped);
+    if (clippedRows.length) {
+      throw new Error(`Ucięte etykiety kalendarza: ${clippedRows.map((row) => row.labelText).join(', ')}`);
+    }
   }
 }
 

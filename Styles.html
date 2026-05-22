@@ -1751,6 +1751,38 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
+    .calendar-checklist {
+      gap: 6px;
+      margin-top: 6px;
+      padding-top: 7px;
+    }
+
+    .calendar-checklist__heading {
+      align-items: start;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .calendar-checklist__heading span {
+      text-align: left;
+    }
+
+    .calendar-checklist__list {
+      max-height: 190px;
+      padding-right: 0;
+    }
+
+    .calendar-event {
+      grid-template-columns: 20px minmax(0, 1fr);
+      min-height: 44px;
+      padding: 6px;
+    }
+
+    .calendar-event__marker {
+      width: 20px;
+      height: 20px;
+    }
+
     .event-log {
       min-height: 60px;
       max-height: 132px;
@@ -1797,6 +1829,20 @@
     .history-grid,
     .discovery-group__items {
       grid-template-columns: 1fr;
+    }
+
+    .calendar-event {
+      min-height: 46px;
+    }
+
+    .calendar-event strong {
+      font-size: 11px;
+      line-height: 1.15;
+    }
+
+    .calendar-event span {
+      font-size: 10px;
+      line-height: 1.15;
     }
 
     .stat-row {

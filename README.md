@@ -146,7 +146,7 @@ python3 scripts/audit-spore-sprites.py
 bash scripts/run-local-linux.sh --check-only
 ```
 
-For repeatable scene-life screenshots, `scripts/capture-app-render.mjs` accepts the existing debug weather/date variables plus capture-only `PIECZARGOTCHI_DEBUG_TEMPERATURE`, `PIECZARGOTCHI_DEBUG_HUMIDITY`, `PIECZARGOTCHI_CAPTURE_DELAY_MS`, and `PIECZARGOTCHI_CAPTURE_LIFE_PROFILE=1`.
+For repeatable scene-life screenshots, `scripts/capture-app-render.mjs` accepts the existing debug weather/date variables plus capture-only `PIECZARGOTCHI_DEBUG_TEMPERATURE`, `PIECZARGOTCHI_DEBUG_HUMIDITY`, `PIECZARGOTCHI_CAPTURE_DELAY_MS`, and `PIECZARGOTCHI_CAPTURE_LIFE_PROFILE=1`. Calendar event QA can force a single event with `PIECZARGOTCHI_DEBUG_CALENDAR_EVENT=<id>`, run the event matrix with `PIECZARGOTCHI_CAPTURE_CALENDAR_MATRIX=1`, and include the checklist in viewport checks with `PIECZARGOTCHI_CAPTURE_CALENDAR_CHECKLIST=1`.
 
 Focused browser capture gates:
 
@@ -160,4 +160,6 @@ With that preview server running:
 ```sh
 PIECZARGOTCHI_CAPTURE_ARENA=1 node scripts/capture-app-render.mjs http://127.0.0.1:8092/ /tmp/pieczargotchi-arena
 PIECZARGOTCHI_CAPTURE_ARENA=1 PIECZARGOTCHI_VIEWPORT_WIDTH=390 PIECZARGOTCHI_VIEWPORT_HEIGHT=844 PIECZARGOTCHI_EMULATE_MOBILE=1 node scripts/capture-app-render.mjs http://127.0.0.1:8092/ /tmp/pieczargotchi-arena-mobile
+PIECZARGOTCHI_CAPTURE_CALENDAR_MATRIX=1 node scripts/capture-app-render.mjs http://127.0.0.1:8092/ /tmp/pieczargotchi-calendar
+PIECZARGOTCHI_CAPTURE_VIEWPORT=1 PIECZARGOTCHI_CAPTURE_CALENDAR_CHECKLIST=1 PIECZARGOTCHI_VIEWPORT_WIDTH=390 PIECZARGOTCHI_VIEWPORT_HEIGHT=844 PIECZARGOTCHI_EMULATE_MOBILE=1 node scripts/capture-app-render.mjs http://127.0.0.1:8092/ /tmp/pieczargotchi-calendar-mobile
 ```
