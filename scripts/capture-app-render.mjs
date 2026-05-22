@@ -1615,19 +1615,38 @@ async function captureViewport(cdp) {
       const actionButtons = Array.from(document.querySelectorAll('.action-button')).map((button) => {
         const rect = button.getBoundingClientRect();
         const label = button.querySelector('.action-label');
+        const style = getComputedStyle(button);
         return {
           top: rect.top,
+          bottom: rect.bottom,
           left: rect.left,
           width: rect.width,
           height: rect.height,
           labelText: label ? label.textContent : '',
+          visible: style.display !== 'none' && rect.width > 0 && rect.height > 0,
+          hiddenByContext: button.classList.contains('is-mobile-context-hidden'),
           labelClipped: label ? label.scrollWidth > label.clientWidth + 1 || label.scrollHeight > label.clientHeight + 1 : false
         };
       });
       const actionsGrid = document.querySelector('.actions-grid');
+      const actionsPanel = document.querySelector('.panel-block--actions');
+      const actionsStyle = actionsPanel ? getComputedStyle(actionsPanel) : null;
+      const getOverlapRatio = (base, overlay) => {
+        if (!base || !overlay) {
+          return 0;
+        }
+        const left = Math.max(base.left, overlay.left);
+        const right = Math.min(base.right, overlay.right);
+        const top = Math.max(base.top, overlay.top);
+        const bottom = Math.min(base.bottom, overlay.bottom);
+        const area = Math.max(1, base.width * base.height);
+        return (Math.max(0, right - left) * Math.max(0, bottom - top)) / area;
+      };
       const actionColumns = actionsGrid
         ? getComputedStyle(actionsGrid).gridTemplateColumns.split(' ').filter(Boolean).length
         : 0;
+      const canvasRect = rectOf('.canvas-wrap');
+      const actionsRect = rectOf('.panel-block--actions');
       return {
         innerWidth,
         innerHeight,
@@ -1637,7 +1656,7 @@ async function captureViewport(cdp) {
         stage: rectOf('.stage-panel'),
         message: rectOf('.message-panel'),
         side: rectOf('.side-panel'),
-        actions: rectOf('.panel-block--actions'),
+        actions: actionsRect,
         status: rectOf('.panel-block--status'),
         resources: rectOf('.panel-block--resources'),
         discoveries: rectOf('.panel-block--discoveries'),
@@ -1659,7 +1678,11 @@ async function captureViewport(cdp) {
         }),
         log: rectOf('.panel-block--log'),
         debug: rectOf('.panel-block--debug'),
-        canvas: rectOf('.canvas-wrap'),
+        canvas: canvasRect,
+        actionsPosition: actionsStyle ? actionsStyle.position : '',
+        actionsDockActive: actionsPanel ? actionsPanel.classList.contains('is-adaptive-docked') : false,
+        actionsDockPlacement: actionsPanel ? actionsPanel.dataset.adaptiveDock || 'flow' : 'missing',
+        actionsCanvasOverlapRatio: getOverlapRatio(canvasRect, actionsRect),
         actionColumns,
         actionButtons
       };
@@ -1675,7 +1698,7 @@ async function captureViewport(cdp) {
     throw new Error(`Panel boczny wychodzi poza viewport: right=${info.side.right}, width=${info.innerWidth}`);
   }
 
-  if (viewportWidth <= 640 || emulateMobile) {
+  if (viewportWidth <= 640) {
     assertMobileLayout(info);
   }
 
@@ -1690,6 +1713,9 @@ async function captureViewport(cdp) {
   });
   const filePath = `${outputPrefix}-viewport-${viewportWidth}x${viewportHeight}.png`;
   writeFileSync(filePath, Buffer.from(screenshot.data, 'base64'));
+  if ((viewportWidth <= 880 || viewportHeight <= 700) && info.actionsDockActive) {
+    await assertAdaptiveDockReleasesBelowScene(cdp);
+  }
   console.log(`viewport: ${filePath}`);
   console.log(`viewport layout: side=${Math.round(info.side.width)}x${Math.round(info.side.height)}, canvas=${Math.round(info.canvas.width)}x${Math.round(info.canvas.height)}, actionColumns=${info.actionColumns}`);
 }
@@ -1704,34 +1730,37 @@ function assertMobileLayout(info) {
     throw new Error(`Canvas jest zbyt nisko na mobile: top=${Math.round(info.canvas.top)}px, limit=${canvasTopLimit}px`);
   }
 
-  if (info.actions.top < info.stage.bottom - 1) {
-    throw new Error('Panel akcji nakłada się na scenę.');
+  if (!info.actionsDockActive) {
+    throw new Error('Mobilny panel akcji powinien przejść w aktywny dock, gdy scena jest w widoku.');
   }
 
-  if (info.actions.top - info.stage.bottom > 18) {
-    throw new Error(`Akcje są za daleko od sceny: gap=${Math.round(info.actions.top - info.stage.bottom)}px`);
+  if (info.actionsDockActive && info.actionsPosition !== 'fixed') {
+    throw new Error(`Aktywny dock akcji powinien być fixed, wykryto ${info.actionsPosition}.`);
   }
 
-  if (info.status.top < info.actions.bottom - 1) {
-    throw new Error('Status powinien być pod akcjami w układzie mobilnym.');
+  if (info.actionsDockActive && !['bottom', 'top'].includes(info.actionsDockPlacement)) {
+    throw new Error(`Mobilny dock akcji powinien być na dole albo u góry, wykryto ${info.actionsDockPlacement}.`);
   }
 
-  if (info.actionColumns < 2) {
-    throw new Error(`Akcje mobilne powinny mieć 2 kolumny, wykryto ${info.actionColumns}.`);
+  if (info.actionColumns !== 5) {
+    throw new Error(`Kompaktowy panel akcji powinien mieć 5 kolumn, wykryto ${info.actionColumns}.`);
   }
 
-  const shortButtons = info.actionButtons.filter((button) => button.height < 48);
+  assertAdaptiveDockBounds(info);
+
+  const visibleActionButtons = info.actionButtons.filter((button) => button.visible);
+  if (visibleActionButtons.length > 8) {
+    throw new Error(`Kompaktowy panel akcji pokazuje za dużo przycisków naraz: ${visibleActionButtons.length}.`);
+  }
+
+  const shortButtons = visibleActionButtons.filter((button) => button.height < 48);
   if (shortButtons.length) {
     throw new Error(`Za niskie touch targety akcji: ${shortButtons.map((button) => `${button.labelText}:${Math.round(button.height)}px`).join(', ')}`);
   }
 
-  const clippedLabels = info.actionButtons.filter((button) => button.labelClipped);
+  const clippedLabels = visibleActionButtons.filter((button) => button.labelClipped);
   if (clippedLabels.length) {
     throw new Error(`Ucięte etykiety akcji: ${clippedLabels.map((button) => button.labelText).join(', ')}`);
-  }
-
-  if (info.innerWidth >= 390 && info.innerWidth <= 430 && info.innerHeight >= 844 && info.actions.bottom > info.innerHeight + 24) {
-    throw new Error(`Pełny panel akcji nie mieści się wystarczająco wysoko na 390x844: bottom=${Math.round(info.actions.bottom)}px`);
   }
 
   if (captureCalendarChecklist && info.calendar) {
@@ -1766,12 +1795,90 @@ function assertShortViewportLayout(info) {
     throw new Error(`Canvas jest za duży dla krótkiego viewportu: ${Math.round(info.canvas.width)}x${Math.round(info.canvas.height)}px`);
   }
 
-  if (info.actionColumns !== 2) {
-    throw new Error(`Akcje w krótkim layoucie powinny mieć 2 kolumny, wykryto ${info.actionColumns}.`);
+  if (!info.actionsDockActive) {
+    throw new Error('Akcje w krótkim layoucie powinny przejść w aktywny dock, gdy scena jest w widoku.');
   }
 
-  if (info.actions.top - info.side.top > 28) {
-    throw new Error(`Akcje są za nisko w panelu bocznym: gap=${Math.round(info.actions.top - info.side.top)}px`);
+  if (info.actionsPosition !== 'fixed') {
+    throw new Error(`Aktywny dock akcji w krótkim layoucie powinien być fixed, wykryto ${info.actionsPosition}.`);
+  }
+
+  if (info.actionColumns !== 2 && info.actionColumns !== 5) {
+    throw new Error(`Dock akcji w krótkim layoucie powinien mieć 2 albo 5 kolumn, wykryto ${info.actionColumns}.`);
+  }
+
+  assertAdaptiveDockBounds(info);
+}
+
+function assertAdaptiveDockBounds(info) {
+  if (!info.actionsDockActive) {
+    return;
+  }
+
+  if (!info.actions || !info.canvas) {
+    throw new Error('Brakuje geometrii aktywnego docka.');
+  }
+
+  if (info.actions.left < -1 || info.actions.right > info.innerWidth + 1) {
+    throw new Error(`Dock akcji wychodzi poza viewport: left=${Math.round(info.actions.left)}, right=${Math.round(info.actions.right)}, width=${info.innerWidth}`);
+  }
+
+  if (info.actions.top < -1 || info.actions.bottom > info.innerHeight + 1) {
+    throw new Error(`Dock akcji wychodzi pionowo poza viewport: top=${Math.round(info.actions.top)}, bottom=${Math.round(info.actions.bottom)}, height=${info.innerHeight}`);
+  }
+
+  if (info.actionsCanvasOverlapRatio > 0.18) {
+    throw new Error(`Dock akcji zasłania zbyt dużo sceny: ${(info.actionsCanvasOverlapRatio * 100).toFixed(1)}%.`);
+  }
+}
+
+async function assertAdaptiveDockReleasesBelowScene(cdp) {
+  const scrollResult = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const stage = document.querySelector('.stage-panel');
+      const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      if (!stage || maxScroll < 80) {
+        return { skipped: true, reason: 'no-scroll' };
+      }
+      const target = Math.min(maxScroll, stage.getBoundingClientRect().bottom + window.scrollY + 120);
+      window.scrollTo(0, target);
+      return { skipped: false, target };
+    })()`,
+    returnByValue: true
+  });
+
+  const scrollInfo = scrollResult.result.value || {};
+  if (scrollInfo.skipped) {
+    return;
+  }
+
+  await delay(180);
+  const dockResult = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const canvas = document.querySelector('.canvas-wrap');
+      const actions = document.querySelector('.panel-block--actions');
+      const rect = canvas ? canvas.getBoundingClientRect() : null;
+      const visibleWidth = rect ? Math.max(0, Math.min(rect.right, innerWidth) - Math.max(rect.left, 0)) : 0;
+      const visibleHeight = rect ? Math.max(0, Math.min(rect.bottom, innerHeight) - Math.max(rect.top, 0)) : 0;
+      const ratio = rect ? (visibleWidth * visibleHeight) / Math.max(1, rect.width * rect.height) : 0;
+      return {
+        active: actions ? actions.classList.contains('is-adaptive-docked') : false,
+        placement: actions ? actions.dataset.adaptiveDock || 'flow' : 'missing',
+        sceneRatio: ratio
+      };
+    })()`,
+    returnByValue: true
+  });
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `window.scrollTo(0, 0)`,
+    awaitPromise: true
+  });
+  await delay(80);
+
+  const dockInfo = dockResult.result.value || {};
+  if (dockInfo.sceneRatio < 0.15 && dockInfo.active) {
+    throw new Error(`Dock akcji powinien wrócić do flow poza sceną, wykryto ${dockInfo.placement}.`);
   }
 }
 

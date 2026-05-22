@@ -35,6 +35,7 @@
     renderMessage();
     renderAssetStatus();
     renderDebugControls();
+    scheduleAdaptiveActionDockUpdate();
   }
 
   function renderNameGate() {
@@ -210,6 +211,7 @@
 
       button.disabled = !check.ok;
       button.title = check.ok ? action.label + ' (' + action.shortcut + ')' : formatMushroomText(check.reason);
+      button.classList.toggle('is-mobile-context-hidden', shouldHideActionInMobilePanel(action, now));
 
       const oldChip = button.querySelector('.cooldown-chip');
       if (oldChip) {
@@ -228,6 +230,273 @@
     dom.cooldownLabel.textContent = !hasNamedMushroom(runtime.state)
       ? 'Najpierw imię'
       : soonestRemaining ? 'Za ' + formatRemainingLabel(soonestRemaining) : 'Gotowe';
+  }
+
+  function shouldHideActionInMobilePanel(action, now) {
+    if (!action || !runtime.state) {
+      return false;
+    }
+
+    if (action.requiresStage && !isStageAtLeast(runtime.state.stage, action.requiresStage)) {
+      return true;
+    }
+
+    const recoveryActive = isRecoveryActiveForRuntime(now);
+    if (recoveryActive) {
+      return Boolean(action.recoveryBlocked) || isActionBlockedDuringRecovery(action.id);
+    }
+
+    if (action.recoveryOnly) {
+      const threshold = getManualRecoveryHealthThreshold();
+      const health = Number(runtime.state.stats && runtime.state.stats.health) || 0;
+      return health > threshold;
+    }
+
+    return false;
+  }
+
+  function isActionBlockedDuringRecovery(actionId) {
+    const source = rules && rules.recovery ? rules.recovery : {};
+    const blocked = Array.isArray(source.blockedActionIds)
+      ? source.blockedActionIds
+      : ['sleepWake', 'play', 'instrument', 'sing', 'spores'];
+    return blocked.indexOf(actionId) !== -1;
+  }
+
+  function getManualRecoveryHealthThreshold() {
+    const source = rules && rules.recovery ? rules.recovery : {};
+    const threshold = Number(source.manualHealthThreshold);
+    return Number.isFinite(threshold) ? threshold : 45;
+  }
+
+  function initAdaptiveActionDock() {
+    const dock = runtime.adaptiveDock;
+    if (!dock || dock.observer || !dom.actionsPanel || !dom.canvasWrap) {
+      return;
+    }
+
+    dom.actionsPanel.dataset.adaptiveDock = 'flow';
+    if ('IntersectionObserver' in window) {
+      dock.observer = new IntersectionObserver(function(entries) {
+        const entry = entries && entries[0];
+        dock.sceneVisible = Boolean(entry && entry.isIntersecting);
+        dock.sceneRatio = entry ? Number(entry.intersectionRatio) || 0 : 0;
+        scheduleAdaptiveActionDockUpdate();
+      }, {
+        threshold: [0, 0.15, 0.25, 0.35, 0.5, 0.75, 1]
+      });
+      dock.observer.observe(dom.canvasWrap);
+    } else {
+      dock.sceneVisible = true;
+      dock.sceneRatio = 1;
+    }
+
+    if ('ResizeObserver' in window) {
+      dock.resizeObserver = new ResizeObserver(scheduleAdaptiveActionDockUpdate);
+      dock.resizeObserver.observe(dom.canvasWrap);
+      dock.resizeObserver.observe(dom.actionsPanel);
+      if (dom.stagePanel) {
+        dock.resizeObserver.observe(dom.stagePanel);
+      }
+    }
+
+    window.addEventListener('scroll', scheduleAdaptiveActionDockUpdate, { passive: true });
+    window.addEventListener('resize', scheduleAdaptiveActionDockUpdate, { passive: true });
+    window.addEventListener('orientationchange', scheduleAdaptiveActionDockUpdate, { passive: true });
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', scheduleAdaptiveActionDockUpdate, { passive: true });
+      window.visualViewport.addEventListener('scroll', scheduleAdaptiveActionDockUpdate, { passive: true });
+    }
+    scheduleAdaptiveActionDockUpdate();
+  }
+
+  function scheduleAdaptiveActionDockUpdate() {
+    const dock = runtime && runtime.adaptiveDock;
+    if (!dock || dock.scheduled || typeof window.requestAnimationFrame !== 'function') {
+      return;
+    }
+
+    dock.scheduled = true;
+    window.requestAnimationFrame(updateAdaptiveActionDock);
+  }
+
+  function updateAdaptiveActionDock() {
+    const dock = runtime.adaptiveDock;
+    dock.scheduled = false;
+
+    const panel = dom.actionsPanel;
+    const canvas = dom.canvasWrap;
+    if (!panel || !canvas || shouldDisableAdaptiveActionDock()) {
+      resetAdaptiveActionDock();
+      return;
+    }
+
+    const viewport = getAdaptiveDockViewport();
+    const canvasRect = canvas.getBoundingClientRect();
+    const visibleRatio = Math.max(dock.sceneRatio || 0, getRectVisibleRatio(canvasRect, viewport));
+    const compactLayout = viewport.width <= 880 || viewport.height <= 700;
+    const visibilityThreshold = viewport.height <= 500 ? 0.2 : 0.35;
+    if (!compactLayout || visibleRatio < visibilityThreshold) {
+      resetAdaptiveActionDock();
+      return;
+    }
+
+    const placement = selectAdaptiveActionDockPlacement(canvasRect, viewport);
+    applyAdaptiveActionDockPlacement(panel, canvasRect, viewport, placement);
+  }
+
+  function shouldDisableAdaptiveActionDock() {
+    if (!runtime.state || runtime.viewMode !== 'care' || !hasNamedMushroom(runtime.state)) {
+      return true;
+    }
+
+    return isMinigameActive();
+  }
+
+  function getAdaptiveDockViewport() {
+    const visual = window.visualViewport;
+    const width = visual && Number.isFinite(Number(visual.width)) ? Number(visual.width) : window.innerWidth;
+    const height = visual && Number.isFinite(Number(visual.height)) ? Number(visual.height) : window.innerHeight;
+    const left = visual && Number.isFinite(Number(visual.offsetLeft)) ? Number(visual.offsetLeft) : 0;
+    const top = visual && Number.isFinite(Number(visual.offsetTop)) ? Number(visual.offsetTop) : 0;
+    return {
+      left,
+      top,
+      width,
+      height,
+      right: left + width,
+      bottom: top + height
+    };
+  }
+
+  function getRectVisibleRatio(rect, viewport) {
+    const left = Math.max(rect.left, viewport.left);
+    const right = Math.min(rect.right, viewport.right);
+    const top = Math.max(rect.top, viewport.top);
+    const bottom = Math.min(rect.bottom, viewport.bottom);
+    const visibleWidth = Math.max(0, right - left);
+    const visibleHeight = Math.max(0, bottom - top);
+    const area = Math.max(1, rect.width * rect.height);
+    return (visibleWidth * visibleHeight) / area;
+  }
+
+  function selectAdaptiveActionDockPlacement(canvasRect, viewport) {
+    const bottomSpace = viewport.bottom - canvasRect.bottom;
+    const topSpace = canvasRect.top - viewport.top;
+    const rightSpace = viewport.right - canvasRect.right;
+    const leftSpace = canvasRect.left - viewport.left;
+    const bottomNeeded = getAdaptiveDockBottomHeight();
+    const sideSpace = Math.max(leftSpace, rightSpace);
+
+    if (viewport.width <= 640) {
+      if (bottomSpace >= bottomNeeded || viewport.height >= 620) {
+        return 'bottom';
+      }
+      return topSpace >= bottomNeeded ? 'top' : 'bottom';
+    }
+
+    if (sideSpace >= 104 && viewport.height >= 320) {
+      return rightSpace >= leftSpace ? 'right' : 'left';
+    }
+
+    if (bottomSpace >= bottomNeeded) {
+      return 'bottom';
+    }
+
+    return topSpace >= bottomNeeded ? 'top' : 'bottom';
+  }
+
+  function getAdaptiveDockBottomHeight() {
+    const visibleCount = getVisibleActionButtonCount();
+    return visibleCount > 5 ? 112 : 58;
+  }
+
+  function getVisibleActionButtonCount() {
+    if (!runtime.actionButtons || typeof runtime.actionButtons.forEach !== 'function') {
+      return actions.length;
+    }
+
+    let count = 0;
+    runtime.actionButtons.forEach(function(button) {
+      if (!button.classList.contains('is-mobile-context-hidden')) {
+        count += 1;
+      }
+    });
+    return count || actions.length;
+  }
+
+  function applyAdaptiveActionDockPlacement(panel, canvasRect, viewport, placement) {
+    const sidePlacement = placement === 'left' || placement === 'right';
+    const horizontalGap = 8;
+    const bottomWidth = Math.min(Math.max(canvasRect.width, 280), Math.min(440, viewport.width - 16));
+    const sideWidth = Math.min(168, Math.max(104, Math.max(canvasRect.left - viewport.left, viewport.right - canvasRect.right) - 12));
+    const width = sidePlacement ? sideWidth : bottomWidth;
+    let left = canvasRect.left + (canvasRect.width - width) / 2;
+    let top = Math.max(viewport.top + 8, canvasRect.top + 8);
+
+    if (placement === 'right') {
+      left = Math.min(canvasRect.right + horizontalGap, viewport.right - width - horizontalGap);
+    } else if (placement === 'left') {
+      left = Math.max(viewport.left + horizontalGap, canvasRect.left - width - horizontalGap);
+    } else {
+      left = clampDockValue(left, viewport.left + horizontalGap, viewport.right - width - horizontalGap, viewport.left + horizontalGap);
+      if (placement === 'top') {
+        const estimatedHeight = getAdaptiveDockBottomHeight();
+        top = clampDockValue(canvasRect.top - estimatedHeight - horizontalGap, viewport.top + horizontalGap, viewport.bottom - estimatedHeight - horizontalGap, viewport.top + horizontalGap);
+      }
+    }
+
+    if (sidePlacement) {
+      const estimatedHeight = Math.min(248, viewport.height - 16);
+      top = clampDockValue(top, viewport.top + horizontalGap, viewport.bottom - estimatedHeight - horizontalGap, viewport.top + horizontalGap);
+    }
+
+    panel.classList.add('is-adaptive-docked');
+    panel.classList.toggle('actions-dock--bottom', placement === 'bottom');
+    panel.classList.toggle('actions-dock--top', placement === 'top');
+    panel.classList.toggle('actions-dock--side', sidePlacement);
+    panel.classList.toggle('actions-dock--left', placement === 'left');
+    panel.classList.toggle('actions-dock--right', placement === 'right');
+    panel.style.setProperty('--actions-dock-left', Math.round(left) + 'px');
+    panel.style.setProperty('--actions-dock-width', Math.round(width) + 'px');
+    panel.style.setProperty('--actions-dock-top', Math.round(top) + 'px');
+    panel.dataset.adaptiveDock = placement;
+    runtime.adaptiveDock.placement = placement;
+  }
+
+  function clampDockValue(value, min, max, fallback) {
+    const number = Number(value);
+    const low = Number(min);
+    const high = Number(max);
+    const safeLow = Number.isFinite(low) ? low : 0;
+    const safeHigh = Number.isFinite(high) ? Math.max(high, safeLow) : safeLow;
+    if (!Number.isFinite(number)) {
+      return Number.isFinite(Number(fallback)) ? Number(fallback) : safeLow;
+    }
+    return Math.min(safeHigh, Math.max(safeLow, number));
+  }
+
+  function resetAdaptiveActionDock() {
+    const panel = dom.actionsPanel;
+    if (!panel) {
+      return;
+    }
+
+    panel.classList.remove(
+      'is-adaptive-docked',
+      'actions-dock--bottom',
+      'actions-dock--top',
+      'actions-dock--side',
+      'actions-dock--left',
+      'actions-dock--right'
+    );
+    panel.style.removeProperty('--actions-dock-left');
+    panel.style.removeProperty('--actions-dock-width');
+    panel.style.removeProperty('--actions-dock-top');
+    panel.dataset.adaptiveDock = 'flow';
+    if (runtime.adaptiveDock) {
+      runtime.adaptiveDock.placement = 'flow';
+    }
   }
 
   function renderAttentionChip() {

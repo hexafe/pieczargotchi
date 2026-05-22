@@ -220,7 +220,15 @@
     renderStarted: false,
     booted: false,
     resetConfirmUntil: 0,
-    resetConfirmTimer: null
+    resetConfirmTimer: null,
+    adaptiveDock: {
+      observer: null,
+      resizeObserver: null,
+      sceneVisible: false,
+      sceneRatio: 0,
+      scheduled: false,
+      placement: 'flow'
+    }
   };
 
   function normalizeMushroomNameValue(value) {
@@ -330,6 +338,7 @@
 
     renderBuildBadge();
     renderActions();
+    initAdaptiveActionDock();
     renderDebugControls();
     bindControls();
     bindImmersionInput();
@@ -349,6 +358,10 @@
 
   function bindDom() {
     dom.app = document.querySelector('[data-app]');
+    dom.stagePanel = document.querySelector('.stage-panel');
+    dom.canvasWrap = document.querySelector('.canvas-wrap');
+    dom.sidePanel = document.querySelector('.side-panel');
+    dom.actionsPanel = document.querySelector('.panel-block--actions');
     dom.buildBadge = document.querySelector('[data-build-badge]');
     dom.modePill = document.querySelector('[data-mode-pill]');
     dom.resetButton = document.querySelector('[data-reset-button]');
