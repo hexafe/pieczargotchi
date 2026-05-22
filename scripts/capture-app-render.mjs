@@ -14,6 +14,8 @@ const captureDelayOverride = Number(process.env.PIECZARGOTCHI_CAPTURE_DELAY_MS);
 const captureDelayMs = Number.isFinite(captureDelayOverride) ? Math.max(0, captureDelayOverride) : 350;
 const captureAppsScriptNoAssets = process.env.PIECZARGOTCHI_CAPTURE_APPS_SCRIPT_NO_ASSETS === '1';
 const captureBeforeAssets = process.env.PIECZARGOTCHI_CAPTURE_BEFORE_ASSETS === '1';
+const captureAllMinigames = process.env.PIECZARGOTCHI_CAPTURE_ALL_MINIGAMES === '1';
+const captureJournal = process.env.PIECZARGOTCHI_CAPTURE_JOURNAL === '1';
 const blockedAssetPatterns = readListEnv('PIECZARGOTCHI_CAPTURE_BLOCK_ASSETS');
 const captureGrassPointer = process.env.PIECZARGOTCHI_CAPTURE_GRASS_POINTER === '1';
 const captureCleanlinessOverride = readOptionalEnvNumber('PIECZARGOTCHI_CAPTURE_CLEANLINESS');
@@ -256,6 +258,9 @@ try {
     await setCaptureGrowth(cdp, 70);
     await captureViewport(cdp);
   }
+  if (captureJournal) {
+    await captureWorldJournal(cdp);
+  }
   await captureState(cdp, 'sleeping');
   await captureState(cdp, 'wake');
   await captureState(cdp, 'awake');
@@ -284,8 +289,47 @@ try {
     await captureArena(cdp);
   }
 
-  if (process.env.PIECZARGOTCHI_CAPTURE_DEW_MINIGAME === '1') {
+  if (process.env.PIECZARGOTCHI_CAPTURE_DEW_MINIGAME === '1' || captureAllMinigames) {
     await captureDewMinigame(cdp);
+  }
+
+  if (captureAllMinigames) {
+    await captureConfiguredMinigame(cdp, {
+      id: 'sporePop',
+      label: 'Pękanie zarodników',
+      fileLabel: 'spore-pop',
+      canvasSelector: '[data-spore-pop-canvas]',
+      seed: 474747,
+      habitatTags: { spores: 1 },
+      detailKey: 'spores',
+      detailMin: 10,
+      domainPixelName: 'sporePixels',
+      domainPixelExpression: `(r > 110 && r < 255 && g > 80 && g < 225 && b < 150)`
+    });
+    await captureConfiguredMinigame(cdp, {
+      id: 'compostSort',
+      label: 'Sortowanie kompostu',
+      fileLabel: 'compost-sort',
+      canvasSelector: '[data-compost-sort-canvas]',
+      seed: 515151,
+      habitatTags: { shelter: 1, insects: 1 },
+      detailKey: 'pieces',
+      detailMin: 12,
+      domainPixelName: 'compostPixels',
+      domainPixelExpression: `(r > 58 && r < 160 && g > 35 && g < 125 && b < 100)`
+    });
+    await captureConfiguredMinigame(cdp, {
+      id: 'rhythmHum',
+      label: 'Rytmiczne nucenie',
+      fileLabel: 'rhythm-hum',
+      canvasSelector: '[data-rhythm-hum-canvas]',
+      seed: 616161,
+      habitatTags: { music: 1 },
+      detailKey: 'pattern',
+      detailMin: 5,
+      domainPixelName: 'padPixels',
+      domainPixelExpression: `(r > 95 && g > 55 && b < 230 && (r - b > 12 || b - g > 24))`
+    });
   }
 
   await cdp.close();
@@ -307,7 +351,7 @@ async function captureState(cdp, mode) {
     mode: mode === 'sleeping' ? 'sleeping' : 'awake',
     growth: 0,
     activity: mode === 'wake'
-      ? `{ type: 'wake', label: 'O_O', startedAt: runtimeNow, until: runtimeNow + 1800 }`
+      ? `{ type: 'wake_surprise', label: 'Przebudzenie', startedAt: runtimeNow, until: runtimeNow + 1800 }`
       : 'null',
     expectedAnimationKey: mode === 'sleeping'
       ? 'spore.sleep'
@@ -413,6 +457,117 @@ async function captureArena(cdp) {
   console.log(`arena layout: moves=${info.moveColumns}, minMoveHeight=${Math.round(info.minMoveHeight)}px, arenaHidden=${info.arenaHidden}`);
 }
 
+async function captureWorldJournal(cdp) {
+  const now = captureDebugSettings && Number.isFinite(Number(captureDebugSettings.fixedAt))
+    ? Number(captureDebugSettings.fixedAt)
+    : Date.parse('2026-05-21T21:20:00.000Z');
+  const stateExpression = `(() => {
+    const config = window.PIECZARGOTCHI_CONFIG;
+    const state = JSON.parse(JSON.stringify(config.state.defaultState));
+    const iso = new Date(${now}).toISOString();
+    state.version = config.stateVersion;
+    state.playerId = 'journal-audit';
+    state.mushroomName = 'Auditka';
+    state.flags = Object.assign({}, state.flags || {}, { nameConfirmed: true });
+    state.createdAt = iso;
+    state.lastUpdatedAt = iso;
+    state.mode = 'awake';
+    state.stage = 'adult';
+    state.stats.growth = 70;
+    state.stats.hydration = 82;
+    state.stats.nutrients = 82;
+    state.stats.energy = 88;
+    state.stats.happiness = 92;
+    state.stats.cleanliness = 88;
+    state.stats.health = 100;
+    state.patch.quality = 86;
+    state.discoveries = {
+      sky: {
+        aurora: {
+          id: 'aurora',
+          label: 'Zorza polarna',
+          firstSeenAt: '2026-01-12T22:30:00.000Z',
+          lastSeenAt: iso,
+          count: 3
+        }
+      },
+      environment: {
+        dew: {
+          id: 'dew',
+          label: 'Rosa na trawie',
+          firstSeenAt: '2026-05-21T04:30:00.000Z',
+          lastSeenAt: iso,
+          count: 2
+        }
+      },
+      instruments: {
+        rareInstrument_adult: {
+          id: 'rareInstrument_adult',
+          label: 'Kometowa harfa',
+          stage: 'adult',
+          firstSeenAt: '2026-05-20T20:30:00.000Z',
+          lastSeenAt: iso,
+          count: 1
+        }
+      }
+    };
+    state.journal = { entries: [] };
+    localStorage.setItem(config.storageKey, JSON.stringify(state));
+  })()`;
+
+  await cdp.send('Runtime.evaluate', { expression: stateExpression, awaitPromise: true });
+  await waitForLoad(cdp, () => cdp.send('Page.reload', { ignoreCache: true }));
+  await waitForExpression(cdp, getAssetStatusReadyExpression(), 6000);
+  await waitForExpression(cdp, `Boolean(document.querySelector('[data-discovery-id="aurora"][data-discovered="true"]'))`, 3000);
+  const diagnostics = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const button = document.querySelector('[data-discovery-id="aurora"][data-discovered="true"]');
+      const panel = document.querySelector('.panel-block--discoveries');
+      if (!button || !panel) {
+        return { ok: false };
+      }
+      panel.scrollIntoView({ block: 'center', inline: 'nearest' });
+      const rect = button.getBoundingClientRect();
+      const x = Math.round(rect.left + Math.min(36, rect.width / 2));
+      const y = Math.round(rect.top + Math.min(18, rect.height / 2));
+      button.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, clientX: x, clientY: y }));
+      const tooltipVisible = !document.querySelector('[data-journal-tooltip]').hidden;
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+      const polaroid = document.querySelector('[data-journal-polaroid]');
+      const canvas = document.querySelector('[data-journal-polaroid-canvas]');
+      const ctx = canvas.getContext('2d');
+      const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      let nonBlank = 0;
+      for (let index = 0; index < pixels.length; index += 4) {
+        if (pixels[index + 3] > 0 && (pixels[index] !== 0 || pixels[index + 1] !== 0 || pixels[index + 2] !== 0)) {
+          nonBlank += 1;
+        }
+      }
+      return {
+        ok: true,
+        tooltipVisible,
+        polaroidVisible: !polaroid.hidden,
+        title: document.querySelector('[data-journal-polaroid-title]').textContent,
+        nonBlank
+      };
+    })()`,
+    returnByValue: true
+  });
+  const info = diagnostics.result.value || {};
+  if (!info.ok || !info.tooltipVisible || !info.polaroidVisible || !info.title || info.nonBlank < 1000) {
+    throw new Error(`Dziennik świata nie otworzył pamiątki poprawnie: ${JSON.stringify(info)}`);
+  }
+
+  const screenshot = await cdp.send('Page.captureScreenshot', {
+    format: 'png',
+    fromSurface: true
+  });
+  const filePath = `${outputPrefix}-journal-polaroid-${viewportWidth}x${viewportHeight}.png`;
+  writeFileSync(filePath, Buffer.from(screenshot.data, 'base64'));
+  console.log(`journal-polaroid: ${filePath}`);
+  console.log(`journal diagnostics: title=${info.title}, canvasPixels=${info.nonBlank}, tooltip=${info.tooltipVisible}`);
+}
+
 async function captureDewMinigame(cdp) {
   const now = captureDebugSettings && Number.isFinite(Number(captureDebugSettings.fixedAt))
     ? Number(captureDebugSettings.fixedAt)
@@ -514,6 +669,101 @@ async function captureDewMinigame(cdp) {
   writeFileSync(filePath, png);
   console.log(`dew-catch: ${filePath}`);
   console.log(`dew-catch diagnostics: ${JSON.stringify(info)}`);
+}
+
+async function captureConfiguredMinigame(cdp, sample) {
+  const now = captureDebugSettings && Number.isFinite(Number(captureDebugSettings.fixedAt))
+    ? Number(captureDebugSettings.fixedAt)
+    : Date.now();
+  const startedAt = now - 3600;
+  const stateExpression = `(() => {
+    const config = window.PIECZARGOTCHI_CONFIG;
+    const state = JSON.parse(JSON.stringify(config.state.defaultState));
+    const iso = new Date(${now}).toISOString();
+    state.version = config.stateVersion;
+    state.playerId = ${JSON.stringify(sample.fileLabel + '-audit')};
+    state.mushroomName = 'Auditka';
+    state.flags = Object.assign({}, state.flags || {}, { nameConfirmed: true });
+    state.createdAt = iso;
+    state.lastUpdatedAt = iso;
+    state.mode = 'awake';
+    state.stats.growth = 70;
+    state.stats.hydration = 70;
+    state.stats.nutrients = 70;
+    state.stats.energy = 80;
+    state.stats.happiness = 70;
+    state.stats.cleanliness = 80;
+    state.stats.health = 100;
+    state.minigames.active = {
+      id: ${JSON.stringify(sample.id)},
+      label: ${JSON.stringify(sample.label)},
+      seed: ${Number(sample.seed) || 1},
+      startedAt: ${startedAt},
+      until: ${now + 16000},
+      score: 0,
+      caught: [],
+      missed: [],
+      mistakes: 0,
+      nextBeat: 0,
+      habitatTags: ${JSON.stringify(sample.habitatTags || {})}
+    };
+    localStorage.setItem(config.storageKey, JSON.stringify(state));
+  })()`;
+
+  await cdp.send('Runtime.evaluate', { expression: stateExpression, awaitPromise: true });
+  await waitForLoad(cdp, () => cdp.send('Page.reload', { ignoreCache: true }));
+  await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.booted && window.__pieczargotchiRuntime.minigame && window.__pieczargotchiRuntime.minigame.session && window.__pieczargotchiRuntime.minigame.session.id === ${JSON.stringify(sample.id)})`, 6000);
+  await delay(Math.max(captureDelayMs, 650));
+  const diagnostics = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const canvas = document.querySelector(${JSON.stringify(sample.canvasSelector)});
+      const runtime = window.__pieczargotchiRuntime || {};
+      const minigame = runtime.minigame || {};
+      const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+      let nonBlank = 0;
+      let domainPixels = 0;
+      for (let index = 0; index < imageData.length; index += 4) {
+        const r = imageData[index];
+        const g = imageData[index + 1];
+        const b = imageData[index + 2];
+        const a = imageData[index + 3];
+        if (a) {
+          nonBlank += 1;
+        }
+        if (${sample.domainPixelExpression}) {
+          domainPixels += 1;
+        }
+      }
+      return {
+        nonBlank,
+        domainPixels,
+        hidden: canvas.hidden || getComputedStyle(canvas).display === 'none',
+        spores: Array.isArray(minigame.spores) ? minigame.spores.length : 0,
+        pieces: Array.isArray(minigame.pieces) ? minigame.pieces.length : 0,
+        pattern: Array.isArray(minigame.pattern) ? minigame.pattern.length : 0,
+        score: minigame.session && minigame.session.score
+      };
+    })()`,
+    returnByValue: true
+  });
+  const info = diagnostics.result.value || {};
+  const detail = Number(info[sample.detailKey]) || 0;
+  if (info.hidden || info.nonBlank < 8000 || info.domainPixels < 70 || detail < Number(sample.detailMin || 1)) {
+    throw new Error(`${sample.label} render looks incomplete: ${JSON.stringify(info)}`);
+  }
+
+  const result = await cdp.send('Runtime.evaluate', {
+    expression: `document.querySelector(${JSON.stringify(sample.canvasSelector)}).toDataURL('image/png')`,
+    returnByValue: true
+  });
+  const png = Buffer.from(result.result.value.replace(/^data:image\/png;base64,/, ''), 'base64');
+  const filePath = `${outputPrefix}-${sample.fileLabel}.png`;
+  writeFileSync(filePath, png);
+  const outputInfo = Object.assign({}, info);
+  outputInfo[sample.domainPixelName] = outputInfo.domainPixels;
+  delete outputInfo.domainPixels;
+  console.log(`${sample.fileLabel}: ${filePath}`);
+  console.log(`${sample.fileLabel} diagnostics: ${JSON.stringify(outputInfo)}`);
 }
 
 async function assertArenaUnlockVisibility(cdp) {

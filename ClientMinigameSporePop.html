@@ -10,10 +10,14 @@
     runtime.minigame = {
       session: Object.assign({}, session, {
         score: Number(session.score) || 0,
-        caught: Array.isArray(session.caught) ? session.caught.slice() : []
+        caught: Array.isArray(session.caught) ? session.caught.slice() : [],
+        combo: Number(session.combo) || 0,
+        bestCombo: Number(session.bestCombo) || 0,
+        mistakes: Number(session.mistakes) || 0
       }),
       ctx: ctx,
       spores: buildSporePopSpores(session),
+      bursts: [],
       animationFrame: 0
     };
     ctx.imageSmoothingEnabled = false;
@@ -36,15 +40,18 @@
     const canvas = dom.sporePopCanvas;
     const progress = (now - Number(session.startedAt)) / Math.max(1, Number(session.until) - Number(session.startedAt));
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawSporePopBackground(ctx, canvas.width, canvas.height, progress);
+    drawSporePopBackground(ctx, canvas.width, canvas.height, now, progress);
     runtime.minigame.spores.forEach(function(spore) {
       if (session.caught.indexOf(spore.id) !== -1) {
         return;
       }
 
       const position = getSporePopPosition(spore, progress, canvas.width, canvas.height);
-      drawSporePopTarget(ctx, position.x, position.y, spore.size, spore.phase + now / 310);
+      if (position.visible) {
+        drawSporePopTarget(ctx, position.x, position.y, spore, position, spore.phase + now / 310);
+      }
     });
+    drawSporePopBursts(ctx, now);
 
     updateMinigameHud(now);
     runtime.minigame.animationFrame = window.requestAnimationFrame(renderSporePopFrame);
@@ -71,21 +78,36 @@
 
       const position = getSporePopPosition(spore, progress, canvas.width, canvas.height);
       const radius = spore.size + 10;
-      return Math.abs(position.x - x) <= radius && Math.abs(position.y - y) <= radius;
+      return position.visible && Math.abs(position.x - x) <= radius && Math.abs(position.y - y) <= radius;
     });
 
     if (!popped) {
+      runtime.minigame.bursts.push({
+        x: x,
+        y: y,
+        kind: 'miss',
+        startedAt: now
+      });
+      session.combo = 0;
+      session.mistakes = (Number(session.mistakes) || 0) + 1;
+      syncSporePopActiveSession(true);
       return;
     }
 
     event.preventDefault();
     session.caught.push(popped.id);
-    session.score += 1;
-    runtime.state.minigames.active = Object.assign({}, session, {
-      caught: session.caught.slice()
+    session.score += Number(popped.points) || 1;
+    session.combo = (Number(session.combo) || 0) + 1;
+    session.bestCombo = Math.max(Number(session.bestCombo) || 0, Number(session.combo) || 0);
+    runtime.minigame.bursts.push({
+      x: x,
+      y: y,
+      kind: popped.kind,
+      points: popped.points,
+      startedAt: now
     });
-    saveState(runtime.state);
     triggerEffect('spores');
+    syncSporePopActiveSession(true);
     updateMinigameHud(now);
   }
 
@@ -96,15 +118,19 @@
     const spores = [];
 
     for (let index = 0; index < count; index += 1) {
+      const kindRoll = seededSporeUnit(seed, index, 9);
+      const kind = kindRoll > 0.92 ? 'golden' : kindRoll < 0.14 ? 'quick' : 'spore';
       spores.push({
         id: 'spore_' + index,
+        kind: kind,
+        points: kind === 'golden' ? 3 : kind === 'quick' ? 2 : 1,
         x: Math.round(20 + seededSporeUnit(seed, index, 1) * 200),
         y: Math.round(18 + seededSporeUnit(seed, index, 2) * 96),
         driftX: -12 + seededSporeUnit(seed, index, 3) * 24,
         driftY: -8 + seededSporeUnit(seed, index, 4) * 18,
         start: seededSporeUnit(seed, index, 5) * 0.46,
-        speed: 0.46 + seededSporeUnit(seed, index, 6) * 0.34,
-        size: 5 + Math.round(seededSporeUnit(seed, index, 7) * 5),
+        speed: (kind === 'quick' ? 0.36 : 0.46) + seededSporeUnit(seed, index, 6) * 0.34,
+        size: (kind === 'golden' ? 7 : 5) + Math.round(seededSporeUnit(seed, index, 7) * 5),
         phase: seededSporeUnit(seed, index, 8) * Math.PI * 2
       });
     }
@@ -113,36 +139,121 @@
   }
 
   function getSporePopPosition(spore, progress, width, height) {
-    const local = Math.max(0, Math.min(1, (progress - spore.start) / Math.max(0.1, spore.speed)));
+    const raw = (progress - spore.start) / Math.max(0.1, spore.speed);
+    const local = Math.max(0, Math.min(1, raw));
     const pulse = Math.sin(local * Math.PI * 2 + spore.phase);
+    const fadeIn = smoothSporeStep(0, 0.14, local);
+    const fadeOut = 1 - smoothSporeStep(0.78, 1, local);
     return {
       x: Math.round(Math.max(10, Math.min(width - 10, spore.x + spore.driftX * local + pulse * 4))),
-      y: Math.round(Math.max(10, Math.min(height - 18, spore.y + spore.driftY * local + Math.cos(local * 5 + spore.phase) * 5)))
+      y: Math.round(Math.max(10, Math.min(height - 18, spore.y + spore.driftY * local + Math.cos(local * 5 + spore.phase) * 5))),
+      local: local,
+      visible: raw >= 0 && raw <= 1,
+      alpha: fadeIn * fadeOut,
+      scale: 0.78 + Math.sin(local * Math.PI) * 0.28
     };
   }
 
-  function drawSporePopBackground(ctx, width, height, progress) {
+  function drawSporePopBackground(ctx, width, height, now, progress) {
     ctx.fillStyle = '#efe2bc';
     ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = '#f5e9c8';
+    ctx.fillRect(0, 0, width, 34);
     ctx.fillStyle = '#cda766';
     ctx.fillRect(0, height - 24, width, 24);
+    ctx.globalAlpha = 0.2;
+    ctx.fillStyle = '#8f6335';
+    for (let index = 0; index < 6; index += 1) {
+      const x = Math.round(index * 44 - 8 + Math.sin(progress * 5 + index) * 4);
+      const y = 26 + index % 3 * 16;
+      ctx.fillRect(x, y, 34, 2);
+      ctx.fillRect(x + 10, y - 8, 2, 18);
+      ctx.fillRect(x + 24, y + 1, 2, 13);
+    }
+    ctx.globalAlpha = 1;
     ctx.fillStyle = 'rgba(60, 43, 32, 0.12)';
     for (let x = -12; x < width + 16; x += 20) {
       const sway = Math.sin(progress * 10 + x * 0.12) * 4;
       ctx.fillRect(Math.round(x + sway), height - 38, 4, 28);
     }
+    drawSporePopHaze(ctx, width, height, now);
   }
 
-  function drawSporePopTarget(ctx, x, y, size, phase) {
+  function drawSporePopHaze(ctx, width, height, now) {
+    ctx.save();
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = '#fff2a5';
+    for (let index = 0; index < 8; index += 1) {
+      const x = 8 + index * 31 + Math.sin(now / 1000 + index) * 5;
+      const y = 20 + Math.cos(now / 1300 + index) * 10 + index % 3 * 18;
+      ctx.fillRect(Math.round(x), Math.round(y), 5, 2);
+      ctx.fillRect(Math.round(x + 2), Math.round(y - 2), 1, 6);
+    }
+    ctx.restore();
+  }
+
+  function drawSporePopTarget(ctx, x, y, spore, position, phase) {
+    const size = Math.max(3, Math.round(spore.size * position.scale));
     const glow = Math.sin(phase) * 0.5 + 0.5;
-    ctx.fillStyle = '#8f6335';
+    ctx.save();
+    ctx.globalAlpha = Math.max(0.16, position.alpha);
+    ctx.fillStyle = spore.kind === 'golden' ? '#9b6d1f' : spore.kind === 'quick' ? '#5f6f3c' : '#8f6335';
     ctx.fillRect(Math.round(x - size / 2), Math.round(y - size / 2), size, size);
-    ctx.fillStyle = '#d8a356';
+    ctx.fillStyle = spore.kind === 'golden' ? '#f0b947' : spore.kind === 'quick' ? '#b7d071' : '#d8a356';
     ctx.fillRect(Math.round(x - size / 2 + 2), Math.round(y - size / 2 + 1), Math.max(2, size - 3), 2);
-    if (glow > 0.55) {
+    ctx.globalAlpha = Math.max(0.14, position.alpha * 0.38);
+    ctx.fillStyle = spore.kind === 'golden' ? '#fff0a8' : '#fff2a5';
+    ctx.fillRect(Math.round(x - size - 3), Math.round(y - size - 3), size * 2 + 6, 1);
+    ctx.fillRect(Math.round(x - size - 3), Math.round(y + size + 3), size * 2 + 6, 1);
+    ctx.globalAlpha = position.alpha;
+    if (glow > 0.55 || spore.kind === 'golden') {
       ctx.fillStyle = '#fff2a5';
       ctx.fillRect(Math.round(x + size / 2), Math.round(y - size / 2 - 1), 2, 2);
     }
+    ctx.restore();
+  }
+
+  function drawSporePopBursts(ctx, now) {
+    runtime.minigame.bursts = runtime.minigame.bursts.filter(function(burst) {
+      return now - Number(burst.startedAt) < 520;
+    });
+    runtime.minigame.bursts.forEach(function(burst) {
+      const progress = Math.max(0, now - Number(burst.startedAt)) / 520;
+      const color = burst.kind === 'golden' ? '#fff0a8' : burst.kind === 'miss' ? '#7f8f86' : '#d8a356';
+      ctx.save();
+      ctx.globalAlpha = 1 - progress;
+      ctx.fillStyle = color;
+      for (let index = 0; index < 6; index += 1) {
+        const angle = index / 6 * Math.PI * 2;
+        const radius = 3 + progress * (burst.kind === 'golden' ? 20 : 14);
+        const x = Math.round(burst.x + Math.cos(angle) * radius);
+        const y = Math.round(burst.y + Math.sin(angle) * radius);
+        ctx.fillRect(x, y, burst.kind === 'miss' ? 1 : 2, burst.kind === 'miss' ? 1 : 2);
+      }
+      ctx.restore();
+    });
+  }
+
+  function syncSporePopActiveSession(shouldSave) {
+    if (!runtime.state || !runtime.state.minigames || !runtime.minigame) {
+      return;
+    }
+
+    const session = runtime.minigame.session;
+    runtime.state.minigames.active = Object.assign({}, session, {
+      caught: session.caught.slice(),
+      mistakes: session.mistakes,
+      combo: session.combo,
+      bestCombo: session.bestCombo
+    });
+    if (shouldSave) {
+      saveState(runtime.state);
+    }
+  }
+
+  function smoothSporeStep(edge0, edge1, value) {
+    const t = Math.max(0, Math.min(1, (value - edge0) / Math.max(0.001, edge1 - edge0)));
+    return t * t * (3 - 2 * t);
   }
 
   function seededSporeUnit(seed, index, salt) {

@@ -1,0 +1,267 @@
+  function startCompostSortRuntime(session) {
+    if (!session || session.id !== 'compostSort' || !dom.compostSortCanvas) {
+      return;
+    }
+
+    stopMinigameRuntime();
+    const canvas = dom.compostSortCanvas;
+    const ctx = canvas.getContext('2d');
+    setActiveMinigameCanvas('compostSort');
+    runtime.minigame = {
+      session: Object.assign({}, session, {
+        score: Number(session.score) || 0,
+        caught: Array.isArray(session.caught) ? session.caught.slice() : [],
+        mistakes: Number(session.mistakes) || 0,
+        combo: Number(session.combo) || 0,
+        bestCombo: Number(session.bestCombo) || 0
+      }),
+      ctx: ctx,
+      pieces: buildCompostSortPieces(session),
+      pulses: [],
+      animationFrame: 0
+    };
+    ctx.imageSmoothingEnabled = false;
+    renderCompostSortFrame();
+  }
+
+  function renderCompostSortFrame() {
+    if (!runtime.minigame || runtime.minigame.session.id !== 'compostSort' || !dom.compostSortCanvas) {
+      return;
+    }
+
+    const now = getRuntimeNow();
+    const session = runtime.minigame.session;
+    if (now >= Number(session.until)) {
+      handleMinigameEnd('timeout');
+      return;
+    }
+
+    const ctx = runtime.minigame.ctx;
+    const canvas = dom.compostSortCanvas;
+    const progress = (now - Number(session.startedAt)) / Math.max(1, Number(session.until) - Number(session.startedAt));
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawCompostSortBackground(ctx, canvas.width, canvas.height, now, progress);
+    runtime.minigame.pieces.forEach(function(piece) {
+      if (session.caught.indexOf(piece.id) !== -1) {
+        return;
+      }
+
+      const position = getCompostPiecePosition(piece, progress, canvas.width, canvas.height);
+      if (position.visible) {
+        drawCompostPiece(ctx, position.x, position.y, piece, now);
+      }
+    });
+    drawCompostBasket(ctx, canvas.width, canvas.height, now);
+    drawCompostSortPulses(ctx, now);
+    updateMinigameHud(now);
+    runtime.minigame.animationFrame = window.requestAnimationFrame(renderCompostSortFrame);
+  }
+
+  function handleCompostSortPointer(event) {
+    if (!runtime.minigame || runtime.minigame.session.id !== 'compostSort' || !dom.compostSortCanvas) {
+      return;
+    }
+
+    const canvas = dom.compostSortCanvas;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / Math.max(1, rect.width);
+    const scaleY = canvas.height / Math.max(1, rect.height);
+    const x = (event.clientX - rect.left) * scaleX;
+    const y = (event.clientY - rect.top) * scaleY;
+    const now = getRuntimeNow();
+    const session = runtime.minigame.session;
+    const progress = (now - Number(session.startedAt)) / Math.max(1, Number(session.until) - Number(session.startedAt));
+    const picked = runtime.minigame.pieces.find(function(piece) {
+      if (session.caught.indexOf(piece.id) !== -1) {
+        return false;
+      }
+
+      const position = getCompostPiecePosition(piece, progress, canvas.width, canvas.height);
+      return position.visible && Math.abs(position.x - x) <= piece.size + 8 && Math.abs(position.y - y) <= piece.size + 8;
+    });
+
+    if (!picked) {
+      return;
+    }
+
+    event.preventDefault();
+    session.caught.push(picked.id);
+    if (picked.good) {
+      session.score += Number(picked.points) || 1;
+      session.combo = (Number(session.combo) || 0) + 1;
+      session.bestCombo = Math.max(Number(session.bestCombo) || 0, Number(session.combo) || 0);
+      triggerEffect('hearts');
+    } else {
+      session.mistakes = (Number(session.mistakes) || 0) + 1;
+      session.combo = 0;
+      session.score = Math.max(0, Number(session.score) - 1);
+    }
+    runtime.minigame.pulses.push({
+      x: x,
+      y: y,
+      good: picked.good,
+      kind: picked.kind,
+      points: picked.points,
+      startedAt: now
+    });
+    runtime.state.minigames.active = Object.assign({}, session, {
+      caught: session.caught.slice(),
+      mistakes: session.mistakes,
+      combo: session.combo,
+      bestCombo: session.bestCombo
+    });
+    saveState(runtime.state);
+    updateMinigameHud(now);
+  }
+
+  function buildCompostSortPieces(session) {
+    const config = rules.minigames && rules.minigames.compostSort ? rules.minigames.compostSort : {};
+    const habitatTags = session && session.habitatTags ? session.habitatTags : {};
+    const count = Math.max(12, (Number(config.pieceCount) || 18) + Math.min(4, Number(habitatTags.shelter) || 0));
+    const seed = Number(session.seed) || 1;
+    const pieces = [];
+
+    for (let index = 0; index < count; index += 1) {
+      const contaminantRoll = seededDewUnit(seed, index, 2);
+      const good = contaminantRoll > 0.26;
+      const rare = good && contaminantRoll > 0.92;
+      const kind = !good
+        ? contaminantRoll < 0.14 ? 'stone' : 'mold'
+        : rare ? 'mycelium'
+        : seededDewUnit(seed, index, 9) > 0.62 ? 'leaf' : 'crumb';
+      pieces.push({
+        id: 'compost_' + index,
+        good: good,
+        kind: kind,
+        points: rare ? 2 : good ? 1 : 0,
+        x: 20 + seededDewUnit(seed, index, 3) * 200,
+        lane: Math.floor(seededDewUnit(seed, index, 4) * 3),
+        start: seededDewUnit(seed, index, 5) * 0.74,
+        speed: 0.30 + seededDewUnit(seed, index, 6) * 0.22,
+        size: 8 + Math.round(seededDewUnit(seed, index, 7) * 4),
+        variant: Math.floor(seededDewUnit(seed, index, 8) * 4)
+      });
+    }
+
+    return pieces;
+  }
+
+  function getCompostPiecePosition(piece, progress, width, height) {
+    const local = (progress - piece.start) / Math.max(0.1, piece.speed);
+    const eased = Math.max(0, Math.min(1, local));
+    return {
+      x: Math.round(Math.max(12, Math.min(width - 12, piece.x + Math.sin(local * 5 + piece.variant) * 9))),
+      y: Math.round(22 + piece.lane * 30 + eased * 38),
+      visible: local >= 0 && local <= 1.08
+    };
+  }
+
+  function drawCompostSortBackground(ctx, width, height, now, progress) {
+    ctx.fillStyle = '#d9e6d7';
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = '#c9d9bb';
+    ctx.fillRect(0, 0, width, 24);
+    ctx.fillStyle = '#ead7ad';
+    ctx.fillRect(0, height - 46, width, 46);
+    ctx.globalAlpha = 0.36;
+    ctx.fillStyle = '#8c613d';
+    for (let lane = 0; lane < 3; lane += 1) {
+      const y = 27 + lane * 30;
+      ctx.fillRect(8, y, width - 16, 2);
+      ctx.fillRect(8, y + 21, width - 16, 2);
+      for (let x = 10; x < width - 12; x += 18) {
+        ctx.fillRect(x + Math.round(Math.sin(progress * 6 + x) * 2), y + 6, 10, 3);
+      }
+    }
+    ctx.globalAlpha = 1;
+    drawDewGrassLayer(ctx, width, height, now, {
+      count: 58,
+      seedBase: 5311,
+      baseY: height - 18,
+      baseJitter: 10,
+      heightMin: 18,
+      heightMax: 34,
+      bend: 3.5,
+      width: 2,
+      alpha: 0.58,
+      palette: ['#24582c', '#2f7134', '#4f8f39', '#9fd96a']
+    });
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = '#8c613d';
+    for (let x = -12; x < width + 18; x += 16) {
+      ctx.fillRect(x + Math.round(Math.sin(progress * 8 + x) * 2), height - 24, 12, 3);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawCompostPiece(ctx, x, y, piece, now) {
+    const size = piece.size;
+    const wobble = Math.round(Math.sin(now / 240 + piece.variant) * 1);
+    if (piece.kind === 'mycelium') {
+      ctx.fillStyle = '#3c2b20';
+      ctx.fillRect(x - size, y - size + wobble, size * 2, size * 2);
+      ctx.fillStyle = '#fff0a8';
+      ctx.fillRect(x - size + 3, y - size + 3 + wobble, size * 2 - 6, 3);
+      ctx.fillStyle = '#d6e65a';
+      ctx.fillRect(x - 2, y - 2 + wobble, 4, 4);
+      ctx.fillRect(x + size - 5, y - size + 2 + wobble, 3, 3);
+      return;
+    }
+    if (piece.kind === 'leaf') {
+      ctx.fillStyle = '#24582c';
+      ctx.fillRect(x - size, y - 2 + wobble, size * 2, 5);
+      ctx.fillStyle = '#9fd96a';
+      ctx.fillRect(x - 1, y - size + wobble, 3, size + 2);
+      return;
+    }
+    if (piece.kind === 'crumb') {
+      ctx.fillStyle = '#4b2f1f';
+      ctx.fillRect(x - size, y - size + wobble, size * 2, size * 2);
+      ctx.fillStyle = '#8a5b32';
+      ctx.fillRect(x - size + 2, y - size + 2 + wobble, size * 2 - 4, size);
+      ctx.fillStyle = '#d6e65a';
+      ctx.fillRect(x + size - 4, y - size + 1 + wobble, 3, 3);
+      return;
+    }
+
+    ctx.fillStyle = piece.kind === 'mold' ? '#4d5a55' : '#3f4640';
+    ctx.fillRect(x - size, y - size + wobble, size * 2, size * 2);
+    ctx.fillStyle = piece.kind === 'mold' ? '#7f8f86' : '#899188';
+    ctx.fillRect(x - size + 2, y - size + 2 + wobble, size * 2 - 3, size - 1);
+    ctx.fillStyle = piece.kind === 'mold' ? '#9b2f33' : '#d6d0b5';
+    ctx.fillRect(x - 2, y - size - 2 + wobble, 4, 4);
+  }
+
+  function drawCompostBasket(ctx, width, height, now) {
+    const session = runtime.minigame && runtime.minigame.session ? runtime.minigame.session : {};
+    const fill = Math.min(1, (Number(session.score) || 0) / 18);
+    const pulse = Math.sin(now / 260) * 0.5 + 0.5;
+    ctx.save();
+    ctx.globalAlpha = 0.82;
+    ctx.fillStyle = '#3c2b20';
+    ctx.fillRect(70, height - 26, width - 140, 15);
+    ctx.fillStyle = '#8a5b32';
+    ctx.fillRect(74, height - 23, width - 148, 9);
+    ctx.fillStyle = '#4f8f39';
+    ctx.fillRect(76, height - 22, Math.round((width - 152) * fill), 7);
+    if (session.combo >= 3) {
+      ctx.globalAlpha = 0.28 + pulse * 0.2;
+      ctx.fillStyle = '#fff0a8';
+      ctx.fillRect(74, height - 28, width - 148, 2);
+    }
+    ctx.restore();
+  }
+
+  function drawCompostSortPulses(ctx, now) {
+    runtime.minigame.pulses = runtime.minigame.pulses.filter(function(pulse) {
+      return now - Number(pulse.startedAt) < 420;
+    });
+    runtime.minigame.pulses.forEach(function(pulse) {
+      const progress = Math.max(0, now - Number(pulse.startedAt)) / 420;
+      ctx.globalAlpha = 1 - progress;
+      ctx.fillStyle = pulse.good ? pulse.kind === 'mycelium' ? '#fff0a8' : '#d6e65a' : '#9b2f33';
+      ctx.fillRect(Math.round(pulse.x - 5 - progress * 8), Math.round(pulse.y - 1), 10 + Math.round(progress * 16), 2);
+      ctx.fillRect(Math.round(pulse.x - 1), Math.round(pulse.y - 5 - progress * 8), 2, 10 + Math.round(progress * 16));
+      ctx.globalAlpha = 1;
+    });
+  }

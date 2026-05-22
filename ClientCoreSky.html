@@ -1,12 +1,100 @@
   const skyDiscoveryCatalog = [
-    { id: 'shootingStar', label: 'Spadająca gwiazda', kind: 'meteor' },
-    { id: 'comet', label: 'Kometa', kind: 'meteor' },
-    { id: 'aurora', label: 'Zorza polarna', kind: 'aurora' },
-    { id: 'perseids', label: 'Perseidy', kind: 'shower' },
-    { id: 'geminids', label: 'Geminidy', kind: 'shower' },
-    { id: 'quadrantids', label: 'Kwadrantydy', kind: 'shower' },
-    { id: 'orionids', label: 'Orionidy', kind: 'shower' },
-    { id: 'leonids', label: 'Leonidy', kind: 'shower' }
+    {
+      id: 'shootingStar',
+      label: 'Spadająca gwiazda',
+      kind: 'meteor',
+      rarity: 'rzadkie',
+      reaction: 'awe',
+      photoScene: 'shootingStar',
+      description: 'Krótki błysk meteoru przecina ciemne niebo i gaśnie zanim Pieczarka zdąży wypowiedzieć życzenie.',
+      scienceNote: 'To drobny meteoroid spalający się wysoko w atmosferze.',
+      conditionNote: 'Najłatwiej wypatrzyć przy ciemnym niebie i małym zachmurzeniu.',
+      photoCaption: 'Niebo mrugnęło tylko raz.'
+    },
+    {
+      id: 'comet',
+      label: 'Kometa',
+      kind: 'meteor',
+      rarity: 'bardzo rzadkie',
+      reaction: 'awe',
+      photoScene: 'comet',
+      description: 'Powolna jasna smuga z ogonem wisi nad grzybnią jak cichy gość z daleka.',
+      scienceNote: 'Komety zostawiają po sobie pył, z którego później mogą powstawać roje meteorów.',
+      conditionNote: 'Potrzebna jest spokojna, ciemna noc.',
+      photoCaption: 'Pieczarka długo patrzyła w ślad za ogonem.'
+    },
+    {
+      id: 'aurora',
+      label: 'Zorza polarna',
+      kind: 'aurora',
+      rarity: 'legendarne',
+      reaction: 'awe',
+      photoScene: 'aurora',
+      description: 'Zielonkawe i różowe światło faluje nad trawą, jakby noc oddychała razem z grzybnią.',
+      scienceNote: 'Zorza pojawia się, gdy aktywność geomagnetyczna pozwala cząstkom ze Słońca rozświetlić górne warstwy atmosfery.',
+      conditionNote: 'Ciemna noc, mało chmur, wysoki Kp i dobra szerokość geograficzna.',
+      photoCaption: 'Tego światła nie da się pomylić z niczym innym.'
+    },
+    {
+      id: 'perseids',
+      label: 'Perseidy',
+      kind: 'shower',
+      rarity: 'sezonowe',
+      reaction: 'awe',
+      photoScene: 'meteorShower',
+      description: 'Letnie niebo sypie drobnymi smugami, a Pieczarka liczy błyski między jednym szelestem trawy a drugim.',
+      scienceNote: 'Perseidy wracają co roku, gdy Ziemia przechodzi przez pył pozostawiony przez kometę Swift-Tuttle.',
+      conditionNote: 'Najlepsze noce przypadają w okolicy sierpniowego maksimum.',
+      photoCaption: 'Letnia kolekcja życzeń.'
+    },
+    {
+      id: 'geminids',
+      label: 'Geminidy',
+      kind: 'shower',
+      rarity: 'sezonowe',
+      reaction: 'awe',
+      photoScene: 'meteorShower',
+      description: 'Zimowe niebo potrafi wtedy rozbłysnąć seriami jasnych, spokojnych smug.',
+      scienceNote: 'Geminidy są jednym z najpewniejszych rojów meteorów i wiążą się z obiektem 3200 Phaethon.',
+      conditionNote: 'Największa szansa wypada zwykle w połowie grudnia.',
+      photoCaption: 'Zimna noc, ciepłe światło.'
+    },
+    {
+      id: 'quadrantids',
+      label: 'Kwadrantydy',
+      kind: 'shower',
+      rarity: 'sezonowe',
+      reaction: 'curious',
+      photoScene: 'meteorShower',
+      description: 'Krótki styczniowy spektakl: dużo drobnych błysków, ale tylko wtedy, gdy Pieczarka trafi w okno z dobrą pogodą.',
+      scienceNote: 'Kwadrantydy mają bardzo wąskie maksimum, dlatego łatwo je przegapić.',
+      conditionNote: 'Początek stycznia, ciemna noc i mało chmur.',
+      photoCaption: 'Mały noworoczny sekret nieba.'
+    },
+    {
+      id: 'orionids',
+      label: 'Orionidy',
+      kind: 'shower',
+      rarity: 'sezonowe',
+      reaction: 'awe',
+      photoScene: 'meteorShower',
+      description: 'Jesienne meteory przemykają szybko, jakby noc grała w chowanego z gwiazdami.',
+      scienceNote: 'Orionidy są związane z pyłem komety Halleya.',
+      conditionNote: 'Największa szansa przypada w drugiej połowie października.',
+      photoCaption: 'Jesień zostawiła smugę nad kapeluszem.'
+    },
+    {
+      id: 'leonids',
+      label: 'Leonidy',
+      kind: 'shower',
+      rarity: 'sezonowe',
+      reaction: 'startled',
+      photoScene: 'meteorShower',
+      description: 'Listopadowe smugi bywają szybkie i nagłe, więc Pieczarka patrzy z zachwytem, ale trochę bez mrugania.',
+      scienceNote: 'Leonidy pochodzą od komety Tempel-Tuttle i słyną z historycznie bardzo intensywnych lat.',
+      conditionNote: 'Największa szansa przypada zwykle w połowie listopada.',
+      photoCaption: 'Niebo zrobiło nagły skok.'
+    }
   ];
 
   const meteorShowerCatalog = [
@@ -55,7 +143,10 @@
     return {
       sky: normalizeSkyDiscoveryMap(source.sky),
       environment: normalizeEnvironmentDiscoveryMap(source.environment),
-      instruments: normalizeInstrumentDiscoveryMap(source.instruments)
+      instruments: normalizeInstrumentDiscoveryMap(source.instruments),
+      calendar: typeof normalizeCalendarDiscoveryMap === 'function'
+        ? normalizeCalendarDiscoveryMap(source.calendar)
+        : {}
     };
   }
 

@@ -28,6 +28,7 @@ const requiredSourceFiles = [
   'ClientCoreLife.html',
   'ClientCoreSky.html',
   'ClientCorePhenomena.html',
+  'ClientCoreCalendar.html',
   'ClientCoreCare.html',
   'ClientCoreBattle.html',
   'ClientCoreShared.html',
@@ -44,7 +45,10 @@ const requiredSourceFiles = [
   'ClientActions.html',
   'ClientMinigameDewCatch.html',
   'ClientMinigameSporePop.html',
+  'ClientMinigameCompostSort.html',
+  'ClientMinigameRhythmHum.html',
   'ClientBackup.html',
+  'ClientJournalPopover.html',
   'ClientUi.html',
   'ClientBattleScene.html',
   'ClientInteraction.html',
@@ -54,6 +58,7 @@ const requiredSourceFiles = [
   'ClientSceneCelestial.html',
   'ClientSceneRainbow.html',
   'ClientScenePhenomena.html',
+  'ClientSceneCalendar.html',
   'ClientSceneWeather.html',
   'ClientSceneWeatherClouds.html',
   'ClientSceneWeatherPrecip.html',
@@ -70,6 +75,7 @@ const expectedCoreIncludes = [
   'ClientCoreLife',
   'ClientCoreSky',
   'ClientCorePhenomena',
+  'ClientCoreCalendar',
   'ClientCoreCare',
   'ClientCoreBattle',
   'ClientCoreShared',
@@ -89,7 +95,10 @@ const expectedClientIncludes = [
   'ClientActions',
   'ClientMinigameDewCatch',
   'ClientMinigameSporePop',
+  'ClientMinigameCompostSort',
+  'ClientMinigameRhythmHum',
   'ClientBackup',
+  'ClientJournalPopover',
   'ClientUi',
   'ClientBattleScene',
   'ClientInteraction',
@@ -99,6 +108,7 @@ const expectedClientIncludes = [
   'ClientSceneCelestial',
   'ClientSceneRainbow',
   'ClientScenePhenomena',
+  'ClientSceneCalendar',
   'ClientSceneWeather',
   'ClientSceneLife',
   'ClientSceneGround',
@@ -273,7 +283,7 @@ function checkStaticConfig() {
   if (config.storageKey !== 'pieczargotchi_state_v2') {
     fail(`Unexpected storage key: ${config.storageKey}`);
   }
-  if (config.stateVersion !== 12) {
+  if (config.stateVersion !== 13) {
     fail(`Unexpected state version: ${config.stateVersion}`);
   }
   if (!config.runtime || config.runtime.debugEnabled !== false) {
@@ -382,8 +392,10 @@ function checkLocalPreviewConfig() {
 
   try {
     const config = context.getClientConfig();
-    if (!config.rules || !config.rules.minigames || !config.rules.minigames.dewCatch || !config.rules.minigames.sporePop) {
-      fail('Local preview config is missing configured minigames.');
+    const requiredMinigames = ['dewCatch', 'sporePop', 'compostSort', 'rhythmHum'];
+    const missingMinigames = requiredMinigames.filter((id) => !config.rules || !config.rules.minigames || !config.rules.minigames[id]);
+    if (missingMinigames.length) {
+      fail(`Local preview config is missing configured minigames: ${missingMinigames.join(', ')}.`);
     }
     if (!config.rules || !config.rules.evolution || !config.rules.evolution.variants) {
       fail('Local preview config is missing evolution variants.');
@@ -428,8 +440,8 @@ function checkGameplayLoopIteration2Config(config) {
     return;
   }
 
-  if (config.stateVersion !== 12 || config.state.version !== config.stateVersion || state.version !== config.stateVersion) {
-    fail('Named first-run flow requires state version 12 across static config and default state.');
+  if (config.stateVersion !== 13 || config.state.version !== config.stateVersion || state.version !== config.stateVersion) {
+    fail('Named first-run flow requires state version 13 across static config and default state.');
   }
 
   if (state.mushroomName !== '') {
@@ -465,14 +477,17 @@ function checkGameplayLoopIteration2Config(config) {
   if (!state.returnRecap || !Array.isArray(state.returnRecap.entries)) {
     fail('Default state is missing return recap entries.');
   }
-  if (!state.discoveries || !state.discoveries.instruments) {
-    fail('Default state is missing rare instrument discoveries.');
+  if (!state.discoveries || !state.discoveries.instruments || !state.discoveries.calendar) {
+    fail('Default state is missing rare instrument or calendar discoveries.');
   }
 
   const decorations = Array.isArray(config.rules && config.rules.decorations) ? config.rules.decorations : [];
   const taggedDecorations = decorations.filter((item) => Array.isArray(item.tags) && item.tags.length);
-  if (decorations.length < 6 || taggedDecorations.length !== decorations.length) {
+  if (decorations.length < 7 || taggedDecorations.length !== decorations.length) {
     fail('Gameplay loop iteration 2 expects all decorations to carry habitat tags.');
+  }
+  if (!decorations.some((item) => item.id === 'myceliumCalendar' && Number(item.cost) > 0)) {
+    fail('Calendar event checklist expects a purchasable myceliumCalendar decoration.');
   }
 
   const instrumentCatalog = config.rules && config.rules.instrumentCatalog && config.rules.instrumentCatalog.stages;

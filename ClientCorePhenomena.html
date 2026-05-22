@@ -1,12 +1,100 @@
   const environmentDiscoveryCatalog = [
-    { id: 'dew', label: 'Rosa na trawie', kind: 'moisture' },
-    { id: 'frost', label: 'Szron o poranku', kind: 'moisture' },
-    { id: 'fogbow', label: 'Biała tęcza we mgle', kind: 'optics' },
-    { id: 'moonHalo', label: 'Halo księżycowe', kind: 'optics' },
-    { id: 'sunbeams', label: 'Promienie przez chmury', kind: 'light' },
-    { id: 'steam', label: 'Parowanie po deszczu', kind: 'moisture' },
-    { id: 'heatHaze', label: 'Drżące powietrze', kind: 'heat' },
-    { id: 'clearingAfterRain', label: 'Przejaśnienie po deszczu', kind: 'weather' }
+    {
+      id: 'dew',
+      label: 'Rosa na trawie',
+      kind: 'moisture',
+      rarity: 'częste',
+      reaction: 'curious',
+      photoScene: 'dew',
+      description: 'Drobne krople osiadają na źdźbłach i świecą jak miniaturowe szkiełka.',
+      scienceNote: 'Rosa tworzy się, gdy wilgotne powietrze przy ziemi ochładza się do punktu rosy.',
+      conditionNote: 'Poranek, wilgoć, spokojny wiatr i brak opadu.',
+      photoCaption: 'Pieczarka znalazła lustra na trawie.'
+    },
+    {
+      id: 'frost',
+      label: 'Szron o poranku',
+      kind: 'moisture',
+      rarity: 'sezonowe',
+      reaction: 'curious',
+      photoScene: 'frost',
+      description: 'Trawa robi się srebrna, a grzybnia wygląda jak cichy zimowy ogród.',
+      scienceNote: 'Szron powstaje, gdy para wodna osadza się jako kryształki lodu na chłodnych powierzchniach.',
+      conditionNote: 'Zimny poranek, wilgoć i spokojny wiatr.',
+      photoCaption: 'Każde źdźbło miało własny kryształ.'
+    },
+    {
+      id: 'fogbow',
+      label: 'Biała tęcza we mgle',
+      kind: 'optics',
+      rarity: 'rzadkie',
+      reaction: 'awe',
+      photoScene: 'fogbow',
+      description: 'Blady łuk pojawia się we mgle, prawie bez kolorów, jak wspomnienie tęczy.',
+      scienceNote: 'Kropelki mgły są tak drobne, że rozmywają barwy i zostawiają jasny, mleczny łuk.',
+      conditionNote: 'Mgła, niskie słońce i przerwa w niskich chmurach.',
+      photoCaption: 'Tęcza, która mówiła szeptem.'
+    },
+    {
+      id: 'moonHalo',
+      label: 'Halo księżycowe',
+      kind: 'optics',
+      rarity: 'rzadkie',
+      reaction: 'awe',
+      photoScene: 'moonHalo',
+      description: 'Wokół księżyca pojawia się jasny pierścień, a noc robi się trochę bardziej tajemnicza.',
+      scienceNote: 'Halo powstaje, gdy światło załamuje się w kryształkach lodu wysoko w chmurach.',
+      conditionNote: 'Noc, księżyc i wysokie cienkie chmury bez silnego opadu.',
+      photoCaption: 'Księżyc założył świetlistą obrączkę.'
+    },
+    {
+      id: 'sunbeams',
+      label: 'Promienie przez chmury',
+      kind: 'light',
+      rarity: 'częste',
+      reaction: 'warm',
+      photoScene: 'sunbeams',
+      description: 'Niskie słońce przebija się przez szczeliny w chmurach i układa jasne pasma nad trawą.',
+      scienceNote: 'Promienie są widoczne, gdy światło rozprasza się na drobinach w powietrzu i przechodzi przez przerwy w chmurach.',
+      conditionNote: 'Wschód lub zachód, niskie słońce i nierówna warstwa chmur.',
+      photoCaption: 'Światło znalazło własną ścieżkę.'
+    },
+    {
+      id: 'steam',
+      label: 'Parowanie po deszczu',
+      kind: 'moisture',
+      rarity: 'częste',
+      reaction: 'calm',
+      photoScene: 'steam',
+      description: 'Po ciepłym deszczu nad grzybnią unoszą się delikatne smugi pary.',
+      scienceNote: 'Ciepła, mokra powierzchnia oddaje wilgoć do powietrza, szczególnie gdy deszcz właśnie minął.',
+      conditionNote: 'Ciepło, mokra trawa, niedawny deszcz i spokojniejszy wiatr.',
+      photoCaption: 'Grzybnia cicho oddychała po deszczu.'
+    },
+    {
+      id: 'heatHaze',
+      label: 'Drżące powietrze',
+      kind: 'heat',
+      rarity: 'sezonowe',
+      reaction: 'curious',
+      photoScene: 'heatHaze',
+      description: 'Powietrze nad trawą faluje i lekko rozmywa krawędzie świata.',
+      scienceNote: 'Gorące warstwy powietrza załamują światło inaczej niż chłodniejsze, dlatego obraz drży.',
+      conditionNote: 'Upalny, suchy dzień bez opadu.',
+      photoCaption: 'Nawet cień wyglądał, jakby się ruszał.'
+    },
+    {
+      id: 'clearingAfterRain',
+      label: 'Przejaśnienie po deszczu',
+      kind: 'weather',
+      rarity: 'częste',
+      reaction: 'happy',
+      photoScene: 'clearingAfterRain',
+      description: 'Chmury odsuwają się po deszczu, trawa błyszczy, a Pieczarka wygląda jak po dobrej kąpieli.',
+      scienceNote: 'Po opadzie powietrze bywa czystsze, a mokre powierzchnie odbijają więcej światła.',
+      conditionNote: 'Niedawny deszcz, mokra powierzchnia i powracające światło.',
+      photoCaption: 'Po deszczu wszystko było świeższe.'
+    }
   ];
 
   function calculateAmbientPhenomena(scene, dateInput, nowInput) {

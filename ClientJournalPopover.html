@@ -1,0 +1,617 @@
+  function bindWorldJournalInteractions() {
+    if (!dom.skyDiscoveries || runtime.journalInteractionsBound) {
+      return;
+    }
+
+    runtime.journalInteractionsBound = true;
+    dom.skyDiscoveries.addEventListener('mouseover', handleWorldJournalItemEnter);
+    dom.skyDiscoveries.addEventListener('mousemove', handleWorldJournalItemMove, true);
+    dom.skyDiscoveries.addEventListener('mouseout', handleWorldJournalItemLeave);
+    dom.skyDiscoveries.addEventListener('focusin', handleWorldJournalItemFocus);
+    dom.skyDiscoveries.addEventListener('focusout', handleWorldJournalItemBlur);
+    dom.skyDiscoveries.addEventListener('click', handleWorldJournalItemClick);
+
+    if (dom.journalPolaroidClose) {
+      dom.journalPolaroidClose.addEventListener('click', closeWorldJournalPolaroid);
+    }
+
+    document.addEventListener('keydown', function(event) {
+      if (event.key === 'Escape') {
+        hideWorldJournalTooltip();
+        closeWorldJournalPolaroid();
+      }
+    });
+
+    document.addEventListener('pointerdown', function(event) {
+      if (!dom.journalPolaroid || dom.journalPolaroid.hidden) {
+        return;
+      }
+      if (dom.journalPolaroid.contains(event.target) || getWorldJournalTrigger(event.target)) {
+        return;
+      }
+      closeWorldJournalPolaroid();
+    });
+  }
+
+  function handleWorldJournalItemEnter(event) {
+    const trigger = getWorldJournalTrigger(event.target);
+    if (!trigger) {
+      return;
+    }
+    const item = getWorldJournalItemFromTrigger(trigger);
+    if (!item || !item.discovered) {
+      return;
+    }
+    showWorldJournalTooltip(item, event);
+  }
+
+  function handleWorldJournalItemMove(event) {
+    if (!dom.journalTooltip || dom.journalTooltip.hidden) {
+      return;
+    }
+    positionWorldJournalBubble(dom.journalTooltip, event.clientX, event.clientY, 14);
+  }
+
+  function handleWorldJournalItemLeave(event) {
+    const trigger = getWorldJournalTrigger(event.target);
+    if (!trigger) {
+      return;
+    }
+    if (event.relatedTarget && trigger.contains(event.relatedTarget)) {
+      return;
+    }
+    hideWorldJournalTooltip();
+  }
+
+  function handleWorldJournalItemFocus(event) {
+    const trigger = getWorldJournalTrigger(event.target);
+    if (!trigger) {
+      return;
+    }
+    const item = getWorldJournalItemFromTrigger(trigger);
+    if (!item || !item.discovered) {
+      return;
+    }
+    showWorldJournalTooltip(item, null, trigger);
+  }
+
+  function handleWorldJournalItemBlur(event) {
+    if (!getWorldJournalTrigger(event.target)) {
+      return;
+    }
+    hideWorldJournalTooltip();
+  }
+
+  function handleWorldJournalItemClick(event) {
+    const trigger = getWorldJournalTrigger(event.target);
+    if (!trigger) {
+      return;
+    }
+    const item = getWorldJournalItemFromTrigger(trigger);
+    if (!item || !item.discovered) {
+      return;
+    }
+
+    event.preventDefault();
+    openWorldJournalPolaroid(item, event, trigger);
+  }
+
+  function getWorldJournalTrigger(target) {
+    if (!target || !dom.skyDiscoveries) {
+      return null;
+    }
+    const trigger = target.closest ? target.closest('[data-discovery-id][data-discovered="true"]') : null;
+    return trigger && dom.skyDiscoveries.contains(trigger) ? trigger : null;
+  }
+
+  function getWorldJournalItemFromTrigger(trigger) {
+    const groupId = trigger && trigger.getAttribute('data-discovery-group');
+    const discoveryId = trigger && trigger.getAttribute('data-discovery-id');
+    if (!groupId || !discoveryId) {
+      return null;
+    }
+
+    const core = window.PieczargotchiCore;
+    const journal = core && typeof core.getWorldJournal === 'function'
+      ? core.getWorldJournal(runtime.state, rules)
+      : null;
+    const group = journal && Array.isArray(journal.groups)
+      ? journal.groups.find(function(candidate) {
+        return candidate.id === groupId;
+      })
+      : null;
+    const item = group && Array.isArray(group.items)
+      ? group.items.find(function(candidate) {
+        return candidate.id === discoveryId;
+      })
+      : null;
+
+    if (!item) {
+      return null;
+    }
+
+    return Object.assign({ groupId: group.id, groupTitle: group.title }, item);
+  }
+
+  function showWorldJournalTooltip(item, event, trigger) {
+    if (!dom.journalTooltip) {
+      return;
+    }
+
+    const countText = item.count > 1 ? item.count + ' obserwacje' : 'Pierwsza obserwacja';
+    dom.journalTooltip.innerHTML = '<strong></strong><span></span>';
+    dom.journalTooltip.querySelector('strong').textContent = formatMushroomText(item.label);
+    dom.journalTooltip.querySelector('span').textContent = formatMushroomText(item.description || item.hint || '') + ' · ' + countText;
+    dom.journalTooltip.hidden = false;
+    dom.journalTooltip.setAttribute('aria-hidden', 'false');
+
+    if (event && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
+      positionWorldJournalBubble(dom.journalTooltip, event.clientX, event.clientY, 14);
+      return;
+    }
+
+    const rect = trigger.getBoundingClientRect();
+    positionWorldJournalBubble(dom.journalTooltip, rect.left + rect.width / 2, rect.top, 12);
+  }
+
+  function hideWorldJournalTooltip() {
+    if (!dom.journalTooltip) {
+      return;
+    }
+    dom.journalTooltip.hidden = true;
+    dom.journalTooltip.setAttribute('aria-hidden', 'true');
+  }
+
+  function openWorldJournalPolaroid(item, event, trigger) {
+    if (!dom.journalPolaroid) {
+      return;
+    }
+
+    hideWorldJournalTooltip();
+    runtime.activeJournalPolaroid = {
+      groupId: item.groupId,
+      id: item.id
+    };
+
+    const firstSeen = formatWorldJournalDate(item.firstSeenAt);
+    const meta = [
+      item.groupTitle || 'Dziennik',
+      item.rarity || '',
+      item.count > 1 ? item.count + ' razy' : 'odkryte'
+    ].filter(Boolean).join(' · ');
+
+    if (dom.journalPolaroidTitle) {
+      dom.journalPolaroidTitle.textContent = formatMushroomText(item.label);
+    }
+    if (dom.journalPolaroidMeta) {
+      dom.journalPolaroidMeta.textContent = meta;
+    }
+    if (dom.journalPolaroidCaption) {
+      dom.journalPolaroidCaption.textContent = formatMushroomText(item.photoCaption || 'Mała pamiątka z grzybni.');
+    }
+    if (dom.journalPolaroidDescription) {
+      dom.journalPolaroidDescription.textContent = formatMushroomText(item.description || '');
+    }
+    if (dom.journalPolaroidNote) {
+      dom.journalPolaroidNote.textContent = [
+        firstSeen ? 'Pierwszy raz: ' + firstSeen : '',
+        item.conditionNote ? 'Warunki: ' + item.conditionNote : '',
+        item.scienceNote || ''
+      ].filter(Boolean).join(' ');
+    }
+
+    drawWorldJournalPolaroidScene(dom.journalPolaroidCanvas, item);
+    dom.journalPolaroid.hidden = false;
+
+    if (event && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
+      positionWorldJournalBubble(dom.journalPolaroid, event.clientX, event.clientY, 18);
+    } else {
+      const rect = trigger.getBoundingClientRect();
+      positionWorldJournalBubble(dom.journalPolaroid, rect.left + rect.width / 2, rect.top + rect.height / 2, 18);
+    }
+
+    if (dom.journalPolaroidClose) {
+      dom.journalPolaroidClose.focus({ preventScroll: true });
+    }
+  }
+
+  function closeWorldJournalPolaroid() {
+    if (!dom.journalPolaroid) {
+      return;
+    }
+    dom.journalPolaroid.hidden = true;
+    runtime.activeJournalPolaroid = null;
+  }
+
+  function positionWorldJournalBubble(node, clientX, clientY, gap) {
+    if (!node) {
+      return;
+    }
+
+    const margin = 8;
+    const rect = node.getBoundingClientRect();
+    const width = rect.width || node.offsetWidth || 240;
+    const height = rect.height || node.offsetHeight || 120;
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 512;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 512;
+    let left = clientX + gap;
+    let top = clientY + gap;
+
+    if (left + width + margin > viewportWidth) {
+      left = clientX - width - gap;
+    }
+    if (top + height + margin > viewportHeight) {
+      top = clientY - height - gap;
+    }
+
+    node.style.left = Math.round(clampJournalValue(left, margin, Math.max(margin, viewportWidth - width - margin))) + 'px';
+    node.style.top = Math.round(clampJournalValue(top, margin, Math.max(margin, viewportHeight - height - margin))) + 'px';
+  }
+
+  function drawWorldJournalPolaroidScene(canvas, item) {
+    if (!canvas || !canvas.getContext) {
+      return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    drawJournalPhotoSky(ctx, width, height, item);
+    drawJournalPhotoPhenomenon(ctx, width, height, item);
+    drawJournalPhotoGrass(ctx, width, height, item);
+    drawJournalPhotoMushroom(ctx, width, height, item);
+    ctx.restore();
+  }
+
+  function drawJournalPhotoSky(ctx, width, height, item) {
+    const scene = item.photoScene || item.id || '';
+    const night = ['aurora', 'moonHalo', 'comet', 'shootingStar', 'meteorShower', 'asteroidDay', 'moonDay', 'spaceWeek'].includes(scene);
+    const warm = scene === 'sunbeams' || scene === 'clearingAfterRain' || scene === 'teaDay' || scene === 'beeDay' || scene === 'biodiversityDay' || scene === 'earthDay' || scene === 'mushroomDay';
+    const frost = scene === 'frost';
+    const top = night ? '#222c54' : warm ? '#d9987c' : frost ? '#cbd7d5' : '#9fb8c4';
+    const bottom = night ? '#4b4d70' : warm ? '#f0be85' : frost ? '#e7ebdc' : '#d8d8b3';
+
+    ctx.fillStyle = top;
+    ctx.fillRect(0, 0, width, Math.ceil(height * 0.5));
+    ctx.fillStyle = bottom;
+    ctx.fillRect(0, Math.floor(height * 0.5), width, height);
+
+    for (let y = 0; y < height; y += 4) {
+      const alpha = y / height * 0.18;
+      ctx.fillStyle = 'rgba(255,255,255,' + alpha.toFixed(2) + ')';
+      ctx.fillRect(0, y, width, 2);
+    }
+
+    if (night) {
+      ctx.fillStyle = 'rgba(255,255,226,0.72)';
+      for (let index = 0; index < 16; index += 1) {
+        const x = 12 + seededJournalValue(item.id, index) * (width - 24);
+        const y = 8 + seededJournalValue(item.id, index + 29) * 58;
+        ctx.fillRect(Math.round(x), Math.round(y), index % 4 === 0 ? 2 : 1, 1);
+      }
+    }
+  }
+
+  function drawJournalPhotoPhenomenon(ctx, width, height, item) {
+    const scene = item.photoScene || item.id || '';
+    if (scene === 'aurora') {
+      drawJournalAurora(ctx, width);
+    } else if (scene === 'moonHalo') {
+      drawJournalMoonHalo(ctx, width);
+    } else if (scene === 'comet') {
+      drawJournalComet(ctx, width);
+    } else if (scene === 'shootingStar') {
+      drawJournalShootingStar(ctx, width);
+    } else if (scene === 'meteorShower') {
+      drawJournalMeteorShower(ctx, width);
+    } else if (scene === 'fogbow') {
+      drawJournalFogbow(ctx, width, height);
+    } else if (scene === 'sunbeams') {
+      drawJournalSunbeams(ctx, width, height);
+    } else if (scene === 'dew' || scene === 'frost') {
+      drawJournalGroundGlints(ctx, width, height, scene === 'frost');
+    } else if (scene === 'steam') {
+      drawJournalSteam(ctx, width, height);
+    } else if (scene === 'heatHaze') {
+      drawJournalHeatHaze(ctx, width, height);
+    } else if (scene === 'clearingAfterRain') {
+      drawJournalClearing(ctx, width, height);
+    } else if (scene === 'instrument') {
+      drawJournalMusicNotes(ctx, width, height);
+    } else if (scene === 'teaDay') {
+      drawJournalTeaDay(ctx, width, height);
+    } else if (scene === 'beeDay') {
+      drawJournalBeeDay(ctx, width, height);
+    } else if (scene === 'biodiversityDay' || scene === 'earthDay' || scene === 'forestDay' || scene === 'wildlifeDay') {
+      drawJournalBiodiversityDay(ctx, width, height, scene);
+    } else if (scene === 'waterDay') {
+      drawJournalGroundGlints(ctx, width, height, false);
+    } else if (scene === 'birdMigration') {
+      drawJournalBirdMigration(ctx, width, height);
+    } else if (scene === 'mushroomDay') {
+      drawJournalSporeDay(ctx, width, height);
+    } else if (scene === 'soilDay') {
+      drawJournalSoilDay(ctx, width, height);
+    }
+  }
+
+  function drawJournalAurora(ctx, width) {
+    ['rgba(113,232,157,0.34)', 'rgba(230,128,216,0.24)'].forEach(function(color, layer) {
+      ctx.fillStyle = color;
+      for (let x = -8; x < width; x += 10) {
+        const y = 20 + Math.round(Math.sin((x + layer * 16) / 18) * 8);
+        ctx.fillRect(x, y, 12, 28 - layer * 6);
+      }
+    });
+  }
+
+  function drawJournalMoonHalo(ctx, width) {
+    const x = width - 46;
+    const y = 30;
+    ctx.strokeStyle = 'rgba(244,238,203,0.48)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x - 18, y - 18, 36, 36);
+    ctx.fillStyle = '#f7edbf';
+    ctx.fillRect(x - 5, y - 5, 10, 10);
+  }
+
+  function drawJournalComet(ctx, width) {
+    ctx.fillStyle = 'rgba(230,221,178,0.42)';
+    for (let step = 0; step < 5; step += 1) {
+      ctx.fillRect(width - 78 + step * 8, 26 + step * 2, 34 - step * 5, 3);
+    }
+    ctx.fillStyle = '#fff9c8';
+    ctx.fillRect(width - 30, 34, 5, 5);
+  }
+
+  function drawJournalShootingStar(ctx, width) {
+    ctx.fillStyle = 'rgba(255,242,180,0.58)';
+    ctx.fillRect(width - 100, 28, 52, 2);
+    ctx.fillRect(width - 78, 31, 28, 1);
+    ctx.fillStyle = '#fff6bb';
+    ctx.fillRect(width - 48, 26, 4, 4);
+  }
+
+  function drawJournalMeteorShower(ctx, width) {
+    for (let index = 0; index < 4; index += 1) {
+      const x = 32 + index * 34;
+      const y = 18 + index * 9;
+      ctx.fillStyle = 'rgba(255,238,174,0.48)';
+      ctx.fillRect(x, y, 28, 2);
+      ctx.fillStyle = '#fff2b0';
+      ctx.fillRect(x + 28, y - 1, 3, 3);
+    }
+  }
+
+  function drawJournalFogbow(ctx, width, height) {
+    ctx.strokeStyle = 'rgba(255,255,241,0.44)';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(width / 2, height + 18, 86, Math.PI * 1.08, Math.PI * 1.92);
+    ctx.stroke();
+  }
+
+  function drawJournalSunbeams(ctx, width, height) {
+    ctx.fillStyle = '#f3c579';
+    ctx.fillRect(width - 34, 24, 12, 12);
+    ctx.fillStyle = 'rgba(255,225,165,0.26)';
+    for (let beam = 0; beam < 4; beam += 1) {
+      ctx.beginPath();
+      ctx.moveTo(width - 28, 31);
+      ctx.lineTo(width - 80 - beam * 12, height - 36 + beam * 5);
+      ctx.lineTo(width - 58 - beam * 11, height - 30 + beam * 5);
+      ctx.fill();
+    }
+  }
+
+  function drawJournalGroundGlints(ctx, width, height, frost) {
+    ctx.fillStyle = frost ? 'rgba(238,252,255,0.8)' : 'rgba(214,248,255,0.82)';
+    for (let index = 0; index < 18; index += 1) {
+      const x = 8 + index * 11;
+      const y = height - 36 - (index % 4) * 3;
+      ctx.fillRect(x, y, index % 3 === 0 ? 3 : 2, 2);
+    }
+  }
+
+  function drawJournalSteam(ctx, width, height) {
+    ctx.fillStyle = 'rgba(255,255,245,0.3)';
+    for (let index = 0; index < 6; index += 1) {
+      const x = 24 + index * 24;
+      ctx.fillRect(x, height - 62 - index % 3 * 5, 4, 18);
+      ctx.fillRect(x + 4, height - 66 - index % 2 * 5, 3, 10);
+    }
+  }
+
+  function drawJournalHeatHaze(ctx, width, height) {
+    ctx.fillStyle = 'rgba(255,245,186,0.24)';
+    for (let band = 0; band < 6; band += 1) {
+      ctx.fillRect(18 + band * 28, height - 74 + band % 2 * 5, 18, 3);
+    }
+  }
+
+  function drawJournalClearing(ctx, width, height) {
+    ctx.fillStyle = 'rgba(255,255,220,0.42)';
+    ctx.fillRect(width - 52, 26, 18, 18);
+    drawJournalGroundGlints(ctx, width, height, false);
+  }
+
+  function drawJournalMusicNotes(ctx, width, height) {
+    ctx.fillStyle = 'rgba(117,90,174,0.72)';
+    [[46, 58], [132, 48], [150, 66]].forEach(function(point, index) {
+      ctx.fillRect(point[0], point[1], 4, 12);
+      ctx.fillRect(point[0] + 4, point[1] + 10, 7, 4);
+      if (index === 1) {
+        ctx.fillRect(point[0] + 4, point[1], 8, 3);
+      }
+    });
+  }
+
+  function drawJournalTeaDay(ctx, width, height) {
+    const x = width - 62;
+    const y = height - 68;
+    ctx.fillStyle = '#f1dca8';
+    ctx.fillRect(x, y, 28, 18);
+    ctx.fillStyle = '#b88454';
+    ctx.fillRect(x + 5, y + 5, 18, 8);
+    ctx.fillStyle = '#fff1c4';
+    ctx.fillRect(x + 5, y + 2, 18, 3);
+    ctx.fillStyle = 'rgba(255,250,222,0.48)';
+    [0, 1, 2].forEach(function(index) {
+      ctx.fillRect(x + 8 + index * 7, y - 12 - index * 4, 3, 10);
+    });
+  }
+
+  function drawJournalBeeDay(ctx, width, height) {
+    ctx.fillStyle = '#fff0a2';
+    [[42, height - 80], [width - 66, height - 92], [width - 98, height - 56]].forEach(function(point) {
+      ctx.fillRect(point[0], point[1], 8, 5);
+      ctx.fillStyle = '#4a3226';
+      ctx.fillRect(point[0] + 2, point[1], 1, 5);
+      ctx.fillRect(point[0] + 5, point[1], 1, 5);
+      ctx.fillStyle = 'rgba(226,248,255,0.72)';
+      ctx.fillRect(point[0] + 1, point[1] - 4, 4, 3);
+      ctx.fillStyle = '#fff0a2';
+    });
+  }
+
+  function drawJournalBiodiversityDay(ctx, width, height, scene) {
+    const colors = scene === 'forestDay'
+      ? ['#2f6f3a', '#5fa947', '#8bc65b']
+      : ['#8bc65b', '#ffd96c', '#e88aa8'];
+    for (let index = 0; index < 18; index += 1) {
+      ctx.fillStyle = colors[index % colors.length];
+      ctx.fillRect(18 + index * 10, height - 62 - index % 5 * 7, 4, 3);
+      if (index % 4 === 0) {
+        ctx.fillRect(20 + index * 10, height - 66 - index % 5 * 7, 2, 3);
+      }
+    }
+  }
+
+  function drawJournalBirdMigration(ctx, width, height) {
+    ctx.fillStyle = 'rgba(50,58,72,0.5)';
+    for (let index = 0; index < 8; index += 1) {
+      const x = 42 + index * 16;
+      const y = 32 + index % 4 * 8;
+      ctx.fillRect(x, y, 5, 1);
+      ctx.fillRect(x - 2, y + 1, 2, 1);
+      ctx.fillRect(x + 5, y + 1, 2, 1);
+    }
+  }
+
+  function drawJournalSporeDay(ctx, width, height) {
+    ctx.fillStyle = 'rgba(255,240,168,0.72)';
+    for (let index = 0; index < 24; index += 1) {
+      ctx.fillRect(18 + seededJournalValue('spore-day', index) * (width - 36), 28 + seededJournalValue('spore-day-y', index) * (height - 70), 2, 2);
+    }
+  }
+
+  function drawJournalSoilDay(ctx, width, height) {
+    ctx.fillStyle = 'rgba(94,62,39,0.62)';
+    for (let index = 0; index < 8; index += 1) {
+      ctx.fillRect(10 + index * 24, height - 47 + index % 2 * 5, 18, 4);
+    }
+  }
+
+  function drawJournalPhotoGrass(ctx, width, height, item) {
+    const frost = item.photoScene === 'frost';
+    ctx.fillStyle = frost ? '#9cb08c' : '#4f8a3d';
+    ctx.fillRect(0, height - 33, width, 33);
+    for (let x = -4; x < width + 4; x += 5) {
+      const seed = seededJournalValue(item.id || 'grass', x + 101);
+      const bladeHeight = 13 + Math.floor(seed * 18);
+      ctx.fillStyle = seed > 0.62 ? '#9bd156' : seed > 0.28 ? '#5fa947' : '#2f6f3a';
+      if (frost) {
+        ctx.fillStyle = seed > 0.54 ? '#dfead5' : '#8ba77a';
+      }
+      ctx.fillRect(x, height - 22 - bladeHeight, 2, bladeHeight + 22);
+      if (seed > 0.78) {
+        ctx.fillRect(x + 2, height - 28 - bladeHeight, 1, Math.max(4, bladeHeight - 5));
+      }
+    }
+  }
+
+  function drawJournalPhotoMushroom(ctx, width, height, item) {
+    const stage = runtime.state && runtime.state.stage ? runtime.state.stage : 'adult';
+    const stateName = getJournalReactionState(item.reaction);
+    const animation = typeof findStageAnimation === 'function'
+      ? findStageAnimation(stage, stateName)
+      : null;
+    const image = animation && runtime.assets ? runtime.assets[animation.key] : null;
+    if (animation && !image && typeof ensureAssetLoaded === 'function') {
+      ensureAssetLoaded(animation.key);
+    }
+
+    if (animation && image) {
+      const frameWidth = animation.frameWidth || canvasSize;
+      const frameHeight = animation.frameHeight || canvasSize;
+      ctx.drawImage(image, 0, 0, frameWidth, frameHeight, 24, height - 146, 144, 144);
+      return;
+    }
+
+    drawJournalFallbackMushroom(ctx, width / 2, height - 40, item.reaction);
+  }
+
+  function drawJournalFallbackMushroom(ctx, centerX, baseY, reaction) {
+    ctx.fillStyle = '#f4c98d';
+    ctx.fillRect(centerX - 18, baseY - 32, 36, 32);
+    ctx.fillStyle = '#fff0b9';
+    ctx.fillRect(centerX - 34, baseY - 60, 68, 20);
+    ctx.fillRect(centerX - 24, baseY - 72, 48, 18);
+    ctx.fillStyle = '#4c2d24';
+    if (reaction === 'startled') {
+      ctx.fillRect(centerX - 12, baseY - 24, 6, 6);
+      ctx.fillRect(centerX + 6, baseY - 24, 6, 6);
+      ctx.fillRect(centerX - 4, baseY - 12, 8, 8);
+    } else {
+      ctx.fillRect(centerX - 12, baseY - 24, 5, 5);
+      ctx.fillRect(centerX + 7, baseY - 24, 5, 5);
+      ctx.fillRect(centerX - 7, baseY - 12, 14, 3);
+    }
+  }
+
+  function getJournalReactionState(reaction) {
+    const mapping = {
+      awe: 'stargaze',
+      curious: 'curious',
+      startled: 'wake',
+      proud: 'happy',
+      calm: 'idle',
+      warm: 'sun',
+      happy: 'happy'
+    };
+    return mapping[reaction] || 'curious';
+  }
+
+  function seededJournalValue(seedText, index) {
+    const text = String(seedText || 'journal');
+    let seed = 2166136261 + Math.floor(Number(index) || 0) * 374761393;
+    for (let i = 0; i < text.length; i += 1) {
+      seed ^= text.charCodeAt(i);
+      seed = Math.imul(seed, 16777619);
+    }
+    seed ^= seed >>> 13;
+    seed = Math.imul(seed, 1274126177);
+    return ((seed >>> 0) % 10000) / 10000;
+  }
+
+  function formatWorldJournalDate(value) {
+    if (!value) {
+      return '';
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return '';
+    }
+    return date.toLocaleDateString('pl-PL', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+  }
+
+  function clampJournalValue(value, min, max) {
+    const next = Number.isFinite(Number(value)) ? Number(value) : min;
+    return Math.max(min, Math.min(max, next));
+  }

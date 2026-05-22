@@ -43,6 +43,8 @@ Use subagents for broad audits, parallel research, or clearly separable implemen
 
 Keep delegated tasks concrete, bounded, and non-overlapping. Prefer read-only explorer subagents for codebase discovery and worker subagents only when the write scope is explicit. The main agent owns sequencing, integration, final review, and validation. Do not spawn subagents for simple single-file edits or for immediate blocking work that is faster and safer to do locally.
 
+Every repository change must include a visible build-number bump. Update `PIECZARGOTCHI_APP_VERSION` in `Config.gs` and `version` in `package.json` together so Apps Script, Cloudflare config, and the in-app build badge show the same new version. Do not rely only on automatic content hashes; after the bump, rebuild or run the Cloudflare static test when the change is intended for deployment.
+
 ## Coding Style & Naming Conventions
 
 Use two-space indentation for JavaScript, Apps Script, HTML, and CSS. Prefer small named functions over large inline handlers. Use `camelCase` for functions, variables, state fields, and action IDs; use `UPPER_SNAKE_CASE` for constants.

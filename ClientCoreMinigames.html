@@ -1,4 +1,4 @@
-  function createMinigameSessionCore(minigameId, rules, now, seedInput) {
+  function createMinigameSessionCore(minigameId, rules, now, seedInput, rawState, scene) {
     const minigames = rules && rules.minigames ? rules.minigames : {};
     const config = minigames[minigameId];
     const timestamp = Number(now) || Date.now();
@@ -7,6 +7,7 @@
     }
 
     const seed = clampInteger(seedInput || timestamp, 1, 2147483646, 1);
+    const habitat = rawState ? getHabitatInfluenceCore(rawState, rules) : { tags: {} };
     return {
       ok: true,
       session: {
@@ -16,7 +17,10 @@
         startedAt: timestamp,
         until: timestamp + (Number(config.durationMs) || 20000),
         score: 0,
-        caught: []
+        caught: [],
+        mistakes: 0,
+        habitatTags: Object.assign({}, habitat.tags || {}),
+        sceneTone: scene && scene.dayPhase ? scene.dayPhase : null
       }
     };
   }
@@ -40,6 +44,13 @@
       state.inventory = Object.assign({ spores: 0 }, state.inventory || {});
       state.inventory.spores = (Number(state.inventory.spores) || 0) + rewards.spores;
       state.coins = (Number(state.coins) || 0) + rewards.spores;
+    }
+    if (rewards.inventory) {
+      state.inventory = Object.assign({ spores: 0 }, state.inventory || {});
+      Object.keys(rewards.inventory).forEach(function(itemId) {
+        state.inventory[itemId] = (Number(state.inventory[itemId]) || 0) + rewards.inventory[itemId];
+      });
+      state.coins = Number(state.inventory.spores) || Number(state.coins) || 0;
     }
 
     state.history = normalizeHistoryCore(state.history);
@@ -65,8 +76,12 @@
   function calculateMinigameRewardsCore(config, score) {
     const rewardRules = config.rewards || {};
     const stats = {};
+    const inventory = {};
     const hydrationPerPoint = Number(rewardRules.hydrationPerCatch) || Number(rewardRules.hydrationPerPoint) || 0;
     const happinessPerPoint = Number(rewardRules.happinessPerCatch) || Number(rewardRules.happinessPerPop) || Number(rewardRules.happinessPerPoint) || 0;
+    const nutrientsPerPoint = Number(rewardRules.nutrientsPerPoint) || 0;
+    const cleanlinessPerPoint = Number(rewardRules.cleanlinessPerPoint) || 0;
+    const energyPerPoint = Number(rewardRules.energyPerPoint) || 0;
 
     if (hydrationPerPoint || rewardRules.hydrationBase || rewardRules.hydrationMax) {
       stats.hydration = Math.min(
@@ -81,9 +96,34 @@
         (Number(rewardRules.happinessBase) || 0) + score * happinessPerPoint
       );
     }
+    if (nutrientsPerPoint || rewardRules.nutrientsBase || rewardRules.nutrientsMax) {
+      stats.nutrients = Math.min(
+        Number(rewardRules.nutrientsMax) || 10,
+        (Number(rewardRules.nutrientsBase) || 0) + score * nutrientsPerPoint
+      );
+    }
+    if (cleanlinessPerPoint || rewardRules.cleanlinessBase || rewardRules.cleanlinessMax) {
+      stats.cleanliness = Math.min(
+        Number(rewardRules.cleanlinessMax) || 4,
+        (Number(rewardRules.cleanlinessBase) || 0) + score * cleanlinessPerPoint
+      );
+    }
+    if (energyPerPoint || rewardRules.energyBase || rewardRules.energyMax) {
+      stats.energy = Math.min(
+        Number(rewardRules.energyMax) || 3,
+        (Number(rewardRules.energyBase) || 0) + score * energyPerPoint
+      );
+    }
+    if (rewardRules.substratePerPoint || rewardRules.substrateMax) {
+      inventory.substrate = Math.max(0, Math.min(
+        Number(rewardRules.substrateMax) || 1,
+        Math.floor(score * (Number(rewardRules.substratePerPoint) || 0))
+      ));
+    }
 
     return {
       stats: removeZeroDeltas(stats),
+      inventory: removeZeroDeltas(inventory),
       spores: calculateMinigameSporeRewardCore(rewardRules, score)
     };
   }

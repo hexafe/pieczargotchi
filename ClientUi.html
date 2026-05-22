@@ -27,7 +27,9 @@
     renderCareHistory();
     renderRelationshipHistory();
     renderInventory();
+    syncCalendarDiscoveries();
     renderWorldJournal();
+    renderCalendarChecklist();
     renderLog();
     renderBattleUi();
     renderMessage();
@@ -104,11 +106,18 @@
       const variant = state.evolution && state.evolution.variant;
       const core = window.PieczargotchiCore;
       const trait = variant && core && core.getEvolutionTrait ? core.getEvolutionTrait(variant, rules) : null;
+      const visual = variant && core && core.getEvolutionVisualIdentity ? core.getEvolutionVisualIdentity(variant, rules) : null;
       dom.evolutionLabel.hidden = !variant;
       dom.evolutionLabel.textContent = variant && core && core.getEvolutionLabel
         ? core.getEvolutionLabel(variant, rules)
         : '';
-      dom.evolutionLabel.title = trait && trait.message ? trait.message : '';
+      dom.evolutionLabel.title = visual && visual.cue ? visual.cue : trait && trait.message ? trait.message : '';
+      dom.evolutionLabel.style.borderColor = visual && visual.accent ? visual.accent : '';
+      dom.evolutionLabel.style.boxShadow = visual && visual.glow ? '0 0 0 2px ' + visual.glow : '';
+    }
+    if (dom.app) {
+      const variant = state.evolution && state.evolution.variant;
+      dom.app.dataset.evolutionVariant = variant || '';
     }
     dom.dayLabel.textContent = 'Dzień ' + day;
     dom.healthLabel.textContent = Math.round(state.stats.health) + '%';
@@ -515,6 +524,9 @@
     }
 
     const compass = core.getEvolutionCompass(runtime.state, rules);
+    const visual = compass.variant && core.getEvolutionVisualIdentity
+      ? core.getEvolutionVisualIdentity(compass.variant, rules)
+      : null;
     dom.characterCompass.innerHTML = '';
     dom.characterCompass.hidden = false;
 
@@ -532,6 +544,14 @@
 
     dom.characterCompass.appendChild(title);
     dom.characterCompass.appendChild(body);
+    if (visual) {
+      const identity = document.createElement('span');
+      identity.className = 'evolution-identity';
+      identity.textContent = visual.symbol + ' · ' + visual.cue;
+      identity.style.borderColor = visual.accent;
+      identity.style.background = visual.glow;
+      dom.characterCompass.appendChild(identity);
+    }
     dom.characterCompass.appendChild(cues);
   }
 
@@ -768,14 +788,22 @@
       section.appendChild(items);
 
       group.items.forEach(function(item) {
-        const row = document.createElement('div');
+        const row = document.createElement('button');
         const label = document.createElement('strong');
         const meta = document.createElement('span');
         row.className = 'discovery-item' + (item.discovered ? '' : ' discovery-item--locked');
+        row.type = 'button';
+        row.setAttribute('data-discovery-group', group.id);
+        row.setAttribute('data-discovery-id', item.id);
+        row.setAttribute('data-discovered', item.discovered ? 'true' : 'false');
+        row.disabled = !item.discovered;
         label.textContent = item.discovered ? formatMushroomText(item.label) : '???';
         meta.textContent = item.discovered
           ? (item.count > 1 ? item.count + ' razy' : 'Odkryte')
           : formatMushroomText(item.hint);
+        row.setAttribute('aria-label', item.discovered
+          ? formatMushroomText(item.label + '. Otwórz pamiątkę odkrycia.')
+          : 'Nieodkryte. ' + formatMushroomText(item.hint));
         row.appendChild(label);
         row.appendChild(meta);
         items.appendChild(row);
@@ -783,6 +811,113 @@
 
       dom.skyDiscoveries.appendChild(section);
     });
+  }
+
+  function syncCalendarDiscoveries() {
+    const core = window.PieczargotchiCore;
+    if (!runtime.state || !core || typeof core.getCalendarEventsForDate !== 'function' || typeof core.recordCalendarDiscovery !== 'function') {
+      return;
+    }
+    if (!hasNamedMushroom(runtime.state)) {
+      return;
+    }
+
+    const now = getRuntimeNow();
+    const events = core.getCalendarEventsForDate(getRuntimeDate(), runtime.state, rules).filter(function(event) {
+      return event && event.active;
+    });
+    let changed = false;
+
+    events.forEach(function(event) {
+      const result = core.recordCalendarDiscovery(runtime.state, event.id, now);
+      runtime.state = result.state || runtime.state;
+      if (result.ok && result.newlyDiscovered) {
+        addLog(runtime.state, result.message, now);
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      runtime.state.lastUpdatedAt = new Date(now).toISOString();
+      saveState(runtime.state);
+    }
+  }
+
+  function renderCalendarChecklist() {
+    if (!dom.calendarChecklist || !dom.calendarList) {
+      return;
+    }
+
+    const core = window.PieczargotchiCore;
+    const checklist = core && typeof core.getCalendarChecklist === 'function'
+      ? core.getCalendarChecklist(runtime.state, rules, getRuntimeDate())
+      : null;
+    if (!checklist) {
+      dom.calendarChecklist.hidden = true;
+      dom.calendarList.innerHTML = '';
+      return;
+    }
+
+    dom.calendarChecklist.hidden = false;
+    dom.calendarChecklist.classList.toggle('calendar-checklist--locked', !checklist.unlocked);
+    if (dom.calendarStatus) {
+      dom.calendarStatus.textContent = formatMushroomText(checklist.status);
+    }
+
+    dom.calendarList.innerHTML = '';
+    const events = checklist.unlocked
+      ? checklist.events
+      : checklist.events.filter(function(event) {
+        return event.active || event.checked;
+      }).slice(0, 3);
+
+    if (!checklist.unlocked) {
+      const teaser = document.createElement('div');
+      teaser.className = 'calendar-checklist__teaser';
+      teaser.textContent = 'W dekoracjach: 12 zarodników';
+      dom.calendarList.appendChild(teaser);
+      if (!events.length) {
+        return;
+      }
+    }
+
+    events.forEach(function(event) {
+      const row = document.createElement('div');
+      const marker = document.createElement('span');
+      const body = document.createElement('div');
+      const label = document.createElement('strong');
+      const meta = document.createElement('span');
+      row.className = 'calendar-event';
+      row.classList.toggle('calendar-event--active', Boolean(event.active));
+      row.classList.toggle('calendar-event--checked', Boolean(event.checked));
+      marker.className = 'calendar-event__marker';
+      marker.textContent = event.checked ? '✓' : event.active ? '!' : '·';
+      body.className = 'calendar-event__body';
+      label.textContent = checklist.unlocked || event.checked || event.active
+        ? formatMushroomText(event.label)
+        : '???';
+      meta.textContent = getCalendarEventMetaLabel(event, checklist.unlocked);
+      body.appendChild(label);
+      body.appendChild(meta);
+      row.appendChild(marker);
+      row.appendChild(body);
+      dom.calendarList.appendChild(row);
+    });
+  }
+
+  function getCalendarEventMetaLabel(event, unlocked) {
+    if (event.checked) {
+      return 'odhaczone · ' + formatMushroomText(event.dateLabel || '');
+    }
+    if (event.active) {
+      return 'dziś · ' + formatMushroomText(event.dateLabel || '');
+    }
+    if (!unlocked) {
+      return formatMushroomText(event.unlockHint || event.dateLabel || '');
+    }
+    const days = Number(event.daysUntil);
+    const prefix = days === 0 ? 'dziś' : days === 1 ? 'jutro' : 'za ' + days + ' dni';
+    return prefix + ' · ' + formatMushroomText(event.dateLabel || '');
   }
 
   function appendInventoryItem(label, value) {
@@ -1021,10 +1156,10 @@
         };
       }
 
-      if (state.currentActivity.type === 'wake') {
+      if (state.currentActivity.type === 'wake' || state.currentActivity.type === 'wake_surprise') {
         return {
-          title: 'Szeroko otwarte oczka',
-          body: 'Pieczarka mrugnęła po przebudzeniu i zrobiła minę O_O.'
+          title: 'Przebudzenie',
+          body: 'Pieczarka przeciąga się i mruga po przebudzeniu.'
         };
       }
 

@@ -9,7 +9,7 @@ This plan is for turning the MVP into a real, fun virtual-pet app. It is not a n
 
 - `assets/sleeping_sheet.png` is now centered frame-by-frame.
 - `assets/awake.png` now uses the same cap, grass, body placement, and palette as the sleeping sheet, with only the default awake eyes redrawn.
-- The current `O_O` wake face is still a temporary canvas overlay. It works for now, but a polished app should move this into a real runtime sprite sheet.
+- Wake reactions now use the stage `wake_sheet.png` animation path through `wake_surprise`; the old canvas face overlay is removed.
 - Ambient scene life is now renderer-native: butterflies fly on smooth irregular paths, fireflies drift calmly in a bounded range, and ground bugs enter/leave through screen edges or tall grass.
 - Detailed next implementation plan for all growth-stage sprites and activity animations: `docs/ASSET_ANIMATION_IMPLEMENTATION_PLAN.md`.
 
@@ -103,7 +103,14 @@ Implemented gameplay-loop iteration 2:
 - Instrument activity keeps the restored expressive sprite sheets and adds three common instrument variants plus one rare discoverable instrument per growth stage.
 - Mobile layout was rebalanced so the rhythm row, daily plan, and full action panel fit the 390x844 smoke viewport.
 
-Focused QA now covers v12 migration, first-run naming contracts, daily rhythm selection, habitat synergies, combined journal rendering contracts, one-shot return recaps, Cloudflare static build, and mobile viewport capture.
+Implemented gameplay-loop iteration 3:
+
+- Decorations now affect real habitat behavior, not only mood text: moisture helps dew play, music pushes rhythm goals, flowers/insects lift bees/butterflies/ground guests, and night/spore tags make nocturnal moments stronger.
+- Two new shared-contract minigames are available: `Sortowanie kompostu` for nutrients/cleanliness/substrate and `Rytmiczne nucenie` for happiness/energy.
+- Evolution variants now expose a small visual identity contract used by UI chips and subtle scene overlays, so Dewcap, Songcap, Wildcap, Ghostcap, Royalcap, and Compostcap read differently after branching.
+- Wake polish now routes through sprite-backed `wake_surprise` activity selection; there is no separate canvas-drawn wake face.
+
+Focused QA now covers v13 migration, first-run naming contracts, daily rhythm selection, habitat synergies, the new habitat minigames, evolution identity, combined journal rendering contracts, calendar events, one-shot return recaps, Cloudflare static build, and mobile viewport capture.
 
 ## Real App Systems Plan
 
@@ -222,7 +229,7 @@ Possible systems:
 
 ### 5. Interaction And Minigames
 
-Checkpoint: `Łapanie rosy` and `Pękanie zarodników` exist on the shared session/reward contract from `ClientCoreMinigames.html`. New games should keep using that contract.
+Checkpoint: `Łapanie rosy`, `Pękanie zarodników`, `Sortowanie kompostu`, and `Rytmiczne nucenie` exist on the shared session/reward contract from `ClientCoreMinigames.html`. New games should keep using that contract.
 
 The app needs small moments of play beyond clicking care buttons.
 
@@ -230,8 +237,8 @@ Initial minigames:
 
 - Dew catch: catch falling drops to hydrate.
 - Spore pop: click drifting spores in time. Implemented as `Pękanie zarodników`.
-- Compost sort: choose good substrate pieces, avoid contaminants.
-- Rhythm hum: simple 3-5 beat music pattern for happiness.
+- Compost sort: choose good substrate pieces, avoid contaminants. Implemented as `Sortowanie kompostu`.
+- Rhythm hum: simple 3-5 beat music pattern for happiness. Implemented as `Rytmiczne nucenie`.
 
 Design rules:
 
@@ -242,7 +249,7 @@ Design rules:
 
 ### 6. Evolution And Long-Term Progression
 
-Checkpoint: the first deterministic branch selector exists and variants now expose short trait messages plus a favorite-action bonus. The next step is visual identity per variant.
+Checkpoint: the first deterministic branch selector exists and variants now expose short trait messages, a favorite-action bonus, and a small visual identity used by UI and scene overlays. The next step is per-variant sprite/idle treatment.
 
 Growth should branch based on care style, not only time.
 
@@ -333,7 +340,7 @@ Suggested scripts:
 1. Create `docs/SPRITE_BIBLE.md`.
 2. Add `scripts/validate-assets.mjs`.
 3. Convert awake idle from a single PNG to `awake_idle_sheet.png`.
-4. Convert the current canvas `O_O` overlay into `wake_surprise_sheet.png`.
+4. Keep wake reactions on the stage `wake_sheet.png` path; do not restore canvas face overlays.
 5. Add animation manifest and `selectAnimation()`.
 
 ### Phase B - Maintainable Core And Need Signaling
@@ -349,7 +356,7 @@ Suggested scripts:
 
 ### Phase C - More Fun Interactions
 
-1. Add one minigame: dew catch.
+1. Extend short minigames on the shared session contract.
 2. Add short post-action reaction sheets.
 3. Add music and singing animations.
 4. Add unlockable patch decorations.

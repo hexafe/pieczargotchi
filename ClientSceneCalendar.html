@@ -1,0 +1,217 @@
+  function drawCalendarEventBackground(ctx, now, wallNow) {
+    const events = getActiveCalendarSceneEvents(wallNow);
+    if (!events.length) {
+      return;
+    }
+
+    events.forEach(function(event) {
+      if (event.id === 'biodiversityDay' || event.id === 'earthDay' || event.id === 'forestDay') {
+        drawCalendarLeafMotes(ctx, now, event.id);
+      } else if (event.id === 'spaceWeek' || event.id === 'asteroidDay' || event.id === 'moonDay') {
+        drawCalendarSkyMotes(ctx, now, event.id);
+      } else if (event.id === 'migratoryBirdDaySpring' || event.id === 'migratoryBirdDayAutumn') {
+        drawCalendarBirdSilhouettes(ctx, now, event.id);
+      }
+    });
+  }
+
+  function drawCalendarEventForeground(ctx, now, wallNow) {
+    const events = getActiveCalendarSceneEvents(wallNow);
+    if (!events.length) {
+      return;
+    }
+
+    events.forEach(function(event) {
+      if (event.id === 'teaDay') {
+        drawCalendarTeaCup(ctx, now);
+      } else if (event.id === 'worldBeeDay') {
+        drawCalendarExtraBees(ctx, now);
+      } else if (event.id === 'waterDay') {
+        drawCalendarWaterDrops(ctx, now);
+      } else if (event.id === 'soilDay') {
+        drawCalendarSoilGlow(ctx, now);
+      } else if (event.id === 'mushroomDay') {
+        drawCalendarSporeConfetti(ctx, now);
+      } else if (event.id === 'perseidNights') {
+        drawCalendarPerseidGlints(ctx, now);
+      }
+    });
+  }
+
+  function getActiveCalendarSceneEvents(wallNow) {
+    const core = window.PieczargotchiCore;
+    if (!core || typeof core.getCalendarEventsForDate !== 'function' || !runtime || !runtime.state) {
+      return [];
+    }
+    return core.getCalendarEventsForDate(new Date(Number(wallNow) || getRuntimeNow()), runtime.state, rules).filter(function(event) {
+      return event && event.active;
+    });
+  }
+
+  function drawCalendarTeaCup(ctx, now) {
+    const x = 424;
+    const y = 420;
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = '#6d4b35';
+    ctx.fillRect(x + 10, y + 25, 44, 5);
+    ctx.fillStyle = '#f4dfaf';
+    ctx.fillRect(x + 16, y + 7, 30, 21);
+    ctx.fillStyle = '#d7a36e';
+    ctx.fillRect(x + 20, y + 11, 22, 11);
+    ctx.fillStyle = '#fff1c4';
+    ctx.fillRect(x + 21, y + 9, 20, 4);
+    ctx.fillStyle = '#f4dfaf';
+    ctx.fillRect(x + 45, y + 12, 8, 10);
+    ctx.fillStyle = '#8f6849';
+    ctx.fillRect(x + 48, y + 15, 4, 5);
+    ctx.fillStyle = 'rgba(255,246,210,0.58)';
+    for (let index = 0; index < 5; index += 1) {
+      const phase = now / 760 + index * 0.9;
+      const sx = x + 22 + index * 5 + Math.sin(phase) * 2;
+      const sy = y + 4 - (now / (34 + index * 4) % 18);
+      ctx.fillRect(Math.round(sx), Math.round(sy), 2, 5);
+      ctx.fillRect(Math.round(sx + 2), Math.round(sy - 3), 1, 3);
+    }
+    ctx.restore();
+  }
+
+  function drawCalendarExtraBees(ctx, now) {
+    ctx.save();
+    for (let index = 0; index < 5; index += 1) {
+      const seed = calendarSceneSeed('bee', index);
+      const direction = seed > 0.5 ? 1 : -1;
+      const loop = now / (2100 + index * 260) + seed * 12;
+      const x = 54 + ((loop * 68 * direction + seed * 380) % 450 + 450) % 450;
+      const y = 330 + Math.sin(loop * 1.8 + seed * 9) * 22 + Math.sin(loop * 3.7) * 6;
+      drawCalendarBee(ctx, x, y, direction);
+    }
+    ctx.restore();
+  }
+
+  function drawCalendarBee(ctx, x, y, direction) {
+    ctx.globalAlpha = 0.86;
+    ctx.fillStyle = 'rgba(255,245,156,0.28)';
+    ctx.fillRect(Math.round(x - 4), Math.round(y - 4), 12, 10);
+    ctx.fillStyle = '#ffd94f';
+    ctx.fillRect(Math.round(x), Math.round(y), 8, 5);
+    ctx.fillStyle = '#4d362b';
+    ctx.fillRect(Math.round(x + 2), Math.round(y), 1, 5);
+    ctx.fillRect(Math.round(x + 5), Math.round(y), 1, 5);
+    ctx.fillStyle = 'rgba(229,249,255,0.72)';
+    ctx.fillRect(Math.round(x + (direction > 0 ? 1 : 4)), Math.round(y - 4), 4, 3);
+    ctx.fillRect(Math.round(x + (direction > 0 ? 5 : -1)), Math.round(y - 3), 4, 2);
+  }
+
+  function drawCalendarWaterDrops(ctx, now) {
+    ctx.save();
+    ctx.globalAlpha = 0.72;
+    for (let index = 0; index < 14; index += 1) {
+      const seed = calendarSceneSeed('water', index);
+      const x = 24 + seed * 464;
+      const y = 365 + ((now / (38 + index) + seed * 120) % 90);
+      ctx.fillStyle = '#9de7ff';
+      ctx.fillRect(Math.round(x), Math.round(y), 2, 4);
+      ctx.fillStyle = '#e9fbff';
+      ctx.fillRect(Math.round(x), Math.round(y), 1, 1);
+    }
+    ctx.restore();
+  }
+
+  function drawCalendarLeafMotes(ctx, now, seedText) {
+    ctx.save();
+    for (let index = 0; index < 18; index += 1) {
+      const seed = calendarSceneSeed(seedText, index);
+      const x = 18 + ((seed * 480 + now / (92 + index * 7)) % 486);
+      const y = 120 + seed * 235 + Math.sin(now / 900 + index) * 8;
+      const alpha = 0.12 + (Math.sin(now / 740 + seed * 8) + 1) * 0.12;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = seed > 0.64 ? '#d8e772' : seed > 0.32 ? '#8bc65b' : '#61a760';
+      ctx.fillRect(Math.round(x), Math.round(y), 3, 2);
+      ctx.fillRect(Math.round(x + 1), Math.round(y + 2), 2, 1);
+    }
+    ctx.restore();
+  }
+
+  function drawCalendarSkyMotes(ctx, now, seedText) {
+    ctx.save();
+    for (let index = 0; index < 16; index += 1) {
+      const seed = calendarSceneSeed(seedText, index);
+      const x = 28 + seed * 456;
+      const y = 22 + calendarSceneSeed(seedText, index + 31) * 150;
+      const pulse = (Math.sin(now / (480 + index * 18) + seed * 8) + 1) / 2;
+      ctx.globalAlpha = 0.14 + pulse * 0.28;
+      ctx.fillStyle = '#fff2b7';
+      ctx.fillRect(Math.round(x), Math.round(y), 2, 2);
+      if (pulse > 0.7) {
+        ctx.fillRect(Math.round(x - 2), Math.round(y), 1, 1);
+        ctx.fillRect(Math.round(x + 3), Math.round(y), 1, 1);
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawCalendarBirdSilhouettes(ctx, now, seedText) {
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = '#3f4656';
+    for (let index = 0; index < 7; index += 1) {
+      const seed = calendarSceneSeed(seedText, index);
+      const x = ((now / 42 + seed * 540 + index * 18) % 610) - 48;
+      const y = 72 + index * 7 + Math.sin(now / 1200 + index) * 6;
+      ctx.fillRect(Math.round(x), Math.round(y), 4, 1);
+      ctx.fillRect(Math.round(x - 2), Math.round(y + 1), 2, 1);
+      ctx.fillRect(Math.round(x + 4), Math.round(y + 1), 2, 1);
+    }
+    ctx.restore();
+  }
+
+  function drawCalendarSoilGlow(ctx, now) {
+    ctx.save();
+    ctx.globalAlpha = 0.18 + Math.sin(now / 1200) * 0.04;
+    ctx.fillStyle = '#6c4b32';
+    for (let index = 0; index < 8; index += 1) {
+      ctx.fillRect(28 + index * 62, 468 + index % 2 * 7, 38, 4);
+    }
+    ctx.restore();
+  }
+
+  function drawCalendarSporeConfetti(ctx, now) {
+    ctx.save();
+    for (let index = 0; index < 18; index += 1) {
+      const seed = calendarSceneSeed('mushroom', index);
+      const pulse = (Math.sin(now / (520 + index * 17) + seed * 9) + 1) / 2;
+      ctx.globalAlpha = 0.18 + pulse * 0.42;
+      ctx.fillStyle = seed > 0.6 ? '#fff0a8' : '#e4a766';
+      ctx.fillRect(Math.round(72 + seed * 370), Math.round(245 + calendarSceneSeed('mushroomY', index) * 150), 2, 2);
+    }
+    ctx.restore();
+  }
+
+  function drawCalendarPerseidGlints(ctx, now) {
+    ctx.save();
+    ctx.globalAlpha = 0.42;
+    for (let index = 0; index < 3; index += 1) {
+      const seed = calendarSceneSeed('perseid', index);
+      const travel = (now / (2600 + index * 540) + seed) % 1;
+      const x = 470 - travel * 380;
+      const y = 42 + travel * 92 + index * 22;
+      ctx.fillStyle = 'rgba(255,238,174,0.46)';
+      ctx.fillRect(Math.round(x), Math.round(y), 36, 2);
+      ctx.fillStyle = '#fff0a8';
+      ctx.fillRect(Math.round(x - 3), Math.round(y - 1), 4, 4);
+    }
+    ctx.restore();
+  }
+
+  function calendarSceneSeed(seedText, index) {
+    const text = String(seedText || 'calendar');
+    let seed = 2166136261 + Math.floor(Number(index) || 0) * 2246822519;
+    for (let i = 0; i < text.length; i += 1) {
+      seed ^= text.charCodeAt(i);
+      seed = Math.imul(seed, 16777619);
+    }
+    seed ^= seed >>> 15;
+    seed = Math.imul(seed, 2246822519);
+    return ((seed >>> 0) % 10000) / 10000;
+  }

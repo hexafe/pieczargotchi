@@ -35,7 +35,10 @@
   function getAmbientLifeProfile(scene) {
     const core = window.PieczargotchiCore;
     if (core && typeof core.calculateAmbientLife === 'function') {
-      return core.calculateAmbientLife(scene, getRuntimeDate());
+      const habitatScene = core.getHabitatLifeScene
+        ? core.getHabitatLifeScene(runtime.state, scene, rules)
+        : scene;
+      return core.calculateAmbientLife(habitatScene, getRuntimeDate());
     }
 
     const isDay = scene && scene.isDay !== false;

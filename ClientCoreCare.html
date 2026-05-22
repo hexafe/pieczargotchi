@@ -226,9 +226,10 @@
     const timestamp = Number(now) || 0;
     const activity = getActiveActivityCore(state, timestamp);
     if (activity) {
+      const isWake = activity.type === 'wake' || activity.type === 'wake_surprise';
       return {
-        type: activity.type === 'wake' ? 'wake' : 'activity',
-        state: activity.type === 'wake' ? 'wake' : activity.type
+        type: isWake ? 'wake' : 'activity',
+        state: isWake ? 'wake' : activity.type
       };
     }
 

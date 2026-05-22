@@ -20,7 +20,7 @@ Kazdy etap ma osobny sheet w `assets/stages/<etap>/`:
 
 - `idle_sheet.png` - domyslne czuwanie.
 - `sleep_sheet.png` - sen tego samego etapu, bez skoku rozmiaru.
-- `wake_sheet.png` - krotkie `O_O` po wybudzeniu.
+- `wake_sheet.png` - krotka reakcja po wybudzeniu, renderowana jako sprite danego etapu bez canvasowej doklejki twarzy.
 - `happy_sheet.png` - zadowolenie.
 - `excellent_sheet.png` - bardzo dobra opieka.
 - `tired_sheet.png` - senna, slabsza postawa.
@@ -69,7 +69,7 @@ Aktualny stan repo: `5` sheetow efektow z imagegenowego atlasu. Sa walidowane ra
 - `sleep`, `wake` i `idle` w jednym etapie musza trzymac ten sam rozmiar i srodek.
 - `spore` musi bazowac na kompletnych wygenerowanych sprite'ach z atlasu, bez wklejania twarzy z innego etapu i bez nakladania osobnego kapelusza w builderze.
 - `sleep` dla `spore` musi miec zamkniete oczy z wygenerowanego sprite'a i nie powinien miec wklejonych `Z` w PNG; `zZz` rysuje runtime przez anchor etapu, zeby nie duplikowac efektu przy malym zarodku.
-- `wake` dla `spore` musi miec wygenerowana zaskoczona mine `O_O`.
+- `wake` dla `spore` musi miec wygenerowana zaskoczona mine i nie moze polegac na canvasowej doklejce twarzy.
 - `instrument` i `sing` dla `spore` musza miec osobna wygenerowana mine/rekwizyt, nie tylko zwykly idle z nutkami.
 - `instrument` nie moze przewijac kolejnych instrumentow w klatkach sheetu; instrument jest losowany raz przy akcji i trzymany stabilnie do konca animacji.
 - `legendary` ma miec pelerynke widoczna w canvasie, ale nie moze zaslaniac twarzy.

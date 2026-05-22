@@ -160,7 +160,7 @@ Status legend: `[ ]` not started, `[~]` in progress, `[x]` complete.
   - Model: GPT-5.5 main integration, matching the plan's `gpt-5.4-mini` docs/checklist role locally.
   - Scope: update README/setup notes and run static/manual validation checks available without Apps Script deployment.
 
-Wake-face requirement: the post-wake `O_O` expression is a temporary wake effect. It must trigger only immediately after `sleepWake` changes mode from `sleeping` to `awake`, then expire automatically into the default awake sprite state. The current MVP implements this as a short canvas overlay on top of `awake.png` because there is no separate 512x512 runtime `O_O` sprite asset yet.
+Wake-face requirement: the post-wake expression is a temporary wake activity. It must trigger only immediately after `sleepWake` changes mode from `sleeping` to `awake`, then expire automatically into the default awake sprite state. Current runtime routes this through the stage `wake_sheet.png` animation path via `wake_surprise`; do not reintroduce a canvas-drawn face overlay.
 
 ## Local Preview Follow-Up - 2026-05-09
 

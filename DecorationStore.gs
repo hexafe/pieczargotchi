@@ -47,6 +47,14 @@ function getDecorationCatalog() {
       happinessBonus: 1,
       tags: ['shelter', 'insects', 'spores'],
       description: 'Ciepły zakamarek dla małych nocnych gości.'
+    },
+    {
+      id: 'myceliumCalendar',
+      label: 'Kalendarz grzybni',
+      cost: 12,
+      happinessBonus: 1,
+      tags: ['calendar', 'comfort', 'spores'],
+      description: 'Lista świąt świata do odhaczania, gdy grzybnia trafi na właściwy dzień.'
     }
   ];
 }

@@ -44,7 +44,8 @@
         * butterflyWeatherFactor
         * butterflyTemperatureFactor
         * butterflyWindFactor
-        * butterflyHabitatFactor,
+        * butterflyHabitatFactor
+        * (1 + clampNumber(Number(source.butterflyHabitatBoost), 0, 0.6, 0)),
       0,
       1,
       0
@@ -54,7 +55,8 @@
         * beeWeatherFactor
         * beeTemperatureFactor
         * beeWindFactor
-        * beeFlowerFactor,
+        * beeFlowerFactor
+        * (1 + clampNumber(Number(source.beeHabitatBoost), 0, 0.7, 0)),
       0,
       1,
       0
@@ -82,7 +84,11 @@
       generalIntensity: roundAmbientLife(baseIntensity * dayFactor),
       butterflyIntensity: roundAmbientLife(butterflyBaseIntensity * getButterflyDayFactor(source.dayPhase, date)),
       flyingInsectIntensity: roundAmbientLife(baseIntensity * Math.max(dayFactor * 0.72, fireflyTimeFactor * 0.38)),
-      crawlerIntensity: roundAmbientLife(baseIntensity * Math.max(0.28, dayFactor * 0.82)),
+      crawlerIntensity: roundAmbientLife(
+        baseIntensity
+          * Math.max(0.28, dayFactor * 0.82)
+          * (1 + clampNumber(Number(source.crawlerHabitatBoost), 0, 0.6, 0))
+      ),
       mothIntensity: roundAmbientLife(
         baseIntensity
           * nocturnalFlightFactor
@@ -102,6 +108,7 @@
           * fireflyTemperatureFactor
           * fireflyHumidityFactor
           * windFactor
+          * (1 + clampNumber(Number(source.fireflyHabitatBoost), 0, 0.7, 0))
       )
     };
   }

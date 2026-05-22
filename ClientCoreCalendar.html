@@ -1,0 +1,469 @@
+  const calendarEventCatalog = [
+    {
+      id: 'worldWildlifeDay',
+      label: 'Światowy Dzień Dzikiej Przyrody',
+      kind: 'nature',
+      rarity: 'roczne',
+      dateRule: { type: 'fixed', month: 3, day: 3 },
+      dateLabel: '3 marca',
+      reaction: 'curious',
+      photoScene: 'wildlifeDay',
+      description: 'Grzybnia robi się uważniejsza na małych gości, ślady w trawie i ciche poruszenia przy ziemi.',
+      scienceNote: 'To dobry dzień na przypomnienie, że nawet mały habitat jest siecią zależności.',
+      conditionNote: 'Wraca co roku 3 marca.',
+      photoCaption: 'Ktoś ruszył trawą, zanim Pieczarka zdążyła mrugnąć.',
+      unlockHint: 'początek marca'
+    },
+    {
+      id: 'forestDay',
+      label: 'Międzynarodowy Dzień Lasów',
+      kind: 'forest',
+      rarity: 'roczne',
+      dateRule: { type: 'fixed', month: 3, day: 21 },
+      dateLabel: '21 marca',
+      reaction: 'calm',
+      photoScene: 'forestDay',
+      description: 'Trawa pachnie cieniem i liśćmi, jakby grzybnia pamiętała większy las za krawędzią sceny.',
+      scienceNote: 'Lasy tworzą mikroklimat, magazynują wodę i dają schronienie ogromnej liczbie gatunków.',
+      conditionNote: 'Wraca co roku 21 marca.',
+      photoCaption: 'Mały patch poczuł się jak skraj lasu.',
+      unlockHint: 'pierwszy dzień wiosny'
+    },
+    {
+      id: 'waterDay',
+      label: 'Światowy Dzień Wody',
+      kind: 'water',
+      rarity: 'roczne',
+      dateRule: { type: 'fixed', month: 3, day: 22 },
+      dateLabel: '22 marca',
+      reaction: 'happy',
+      photoScene: 'waterDay',
+      description: 'Krople na trawie są tego dnia bardziej zauważalne, a Pieczarka wygląda, jakby pilnowała każdej z nich.',
+      scienceNote: 'Woda steruje rytmem gleby, roślin i grzybni; bez niej opieka szybko traci równowagę.',
+      conditionNote: 'Wraca co roku 22 marca.',
+      photoCaption: 'Jedna kropla wystarczyła na całą opowieść.',
+      unlockHint: 'koniec marca'
+    },
+    {
+      id: 'earthDay',
+      label: 'Międzynarodowy Dzień Matki Ziemi',
+      kind: 'earth',
+      rarity: 'roczne',
+      dateRule: { type: 'fixed', month: 4, day: 22 },
+      dateLabel: '22 kwietnia',
+      reaction: 'warm',
+      photoScene: 'earthDay',
+      description: 'Podłoże łagodnie pulsuje, a mały świat przypomina, że jest częścią większego ogrodu.',
+      scienceNote: 'Żywe gleby, woda, rośliny i owady pracują razem dużo ciszej niż widać na pierwszy rzut oka.',
+      conditionNote: 'Wraca co roku 22 kwietnia.',
+      photoCaption: 'Grzybnia zrobiła bardzo ciche święto.',
+      unlockHint: 'kwiecień'
+    },
+    {
+      id: 'migratoryBirdDaySpring',
+      label: 'Wiosenny Dzień Ptaków Wędrownych',
+      kind: 'migration',
+      rarity: 'sezonowe',
+      dateRule: { type: 'nthWeekday', month: 5, weekday: 6, occurrence: 2 },
+      dateLabel: 'druga sobota maja',
+      reaction: 'awe',
+      photoScene: 'birdMigration',
+      description: 'Wysoko nad sceną miga drobny klucz ptaków, zostawiając w powietrzu wrażenie podróży.',
+      scienceNote: 'Wędrówki ptaków łączą odległe siedliska i zależą od pogody, światła oraz dostępności pokarmu.',
+      conditionNote: 'Druga sobota maja.',
+      photoCaption: 'Nad kapeluszem przeleciała mapa.',
+      unlockHint: 'majowy weekend'
+    },
+    {
+      id: 'worldBeeDay',
+      label: 'Światowy Dzień Pszczół',
+      kind: 'pollinator',
+      rarity: 'roczne',
+      dateRule: { type: 'fixed', month: 5, day: 20 },
+      dateLabel: '20 maja',
+      reaction: 'happy',
+      photoScene: 'beeDay',
+      description: 'Przy kwiatach robi się ruchliwiej: pszczoły siadają, kręcą się chwilę i wracają do swojego lotu.',
+      scienceNote: 'Pszczoły i inne zapylacze pomagają wielu roślinom tworzyć owoce i nasiona.',
+      conditionNote: 'Wraca co roku 20 maja.',
+      photoCaption: 'Najmniejsi goście mieli największy plan.',
+      unlockHint: 'maj i kwiaty'
+    },
+    {
+      id: 'teaDay',
+      label: 'Międzynarodowy Dzień Herbaty',
+      kind: 'cozy',
+      rarity: 'roczne',
+      dateRule: { type: 'fixed', month: 5, day: 21 },
+      dateLabel: '21 maja',
+      reaction: 'calm',
+      photoScene: 'teaDay',
+      description: 'W trawie pojawia się maleńka filiżanka, a para układa się w spokojne piksele nad grzybnią.',
+      scienceNote: 'Herbata to rytuał uważności: w grze może wzmacniać spokojny, opiekuńczy nastrój dnia.',
+      conditionNote: 'Wraca co roku 21 maja.',
+      photoCaption: 'Pieczarka znalazła moment na łyk ciszy.',
+      unlockHint: 'dzień po pszczołach'
+    },
+    {
+      id: 'biodiversityDay',
+      label: 'Międzynarodowy Dzień Bioróżnorodności',
+      kind: 'biodiversity',
+      rarity: 'roczne',
+      dateRule: { type: 'fixed', month: 5, day: 22 },
+      dateLabel: '22 maja',
+      reaction: 'awe',
+      photoScene: 'biodiversityDay',
+      description: 'Scena łagodnie gęstnieje od małych akcentów: listków, pyłków i życia, które nie musi krzyczeć.',
+      scienceNote: 'Bioróżnorodność zwiększa odporność ekosystemu i sprawia, że siedlisko potrafi wracać do równowagi.',
+      conditionNote: 'Wraca co roku 22 maja.',
+      photoCaption: 'Wszystko było małe, ale nic nie było samotne.',
+      unlockHint: 'majowa grzybnia'
+    },
+    {
+      id: 'asteroidDay',
+      label: 'Dzień Asteroid',
+      kind: 'space',
+      rarity: 'roczne',
+      dateRule: { type: 'fixed', month: 6, day: 30 },
+      dateLabel: '30 czerwca',
+      reaction: 'curious',
+      photoScene: 'asteroidDay',
+      description: 'Wieczorem niebo częściej mruga drobnym pyłem, a Pieczarka spogląda w górę trochę odważniej.',
+      scienceNote: 'Asteroidy i meteoroidy przypominają, że ziemski ogród jest częścią większego kosmicznego sąsiedztwa.',
+      conditionNote: 'Wraca co roku 30 czerwca.',
+      photoCaption: 'Mała scena spojrzała poza siebie.',
+      unlockHint: 'koniec czerwca'
+    },
+    {
+      id: 'moonDay',
+      label: 'Międzynarodowy Dzień Księżyca',
+      kind: 'moon',
+      rarity: 'roczne',
+      dateRule: { type: 'fixed', month: 7, day: 20 },
+      dateLabel: '20 lipca',
+      reaction: 'awe',
+      photoScene: 'moonDay',
+      description: 'Nocny patch staje się bardziej srebrny, jakby księżyc zostawił na trawie własny podpis.',
+      scienceNote: 'Księżyc porządkuje wiele nocnych obserwacji: światło, cienie i rytm zwierząt.',
+      conditionNote: 'Wraca co roku 20 lipca.',
+      photoCaption: 'Trawa miała księżycowy odcień.',
+      unlockHint: 'lipcowa noc'
+    },
+    {
+      id: 'perseidNights',
+      label: 'Noce Perseidów',
+      kind: 'meteor',
+      rarity: 'sezonowe',
+      dateRule: { type: 'range', start: { month: 8, day: 11 }, end: { month: 8, day: 13 } },
+      dateLabel: '11-13 sierpnia',
+      reaction: 'awe',
+      photoScene: 'meteorShower',
+      description: 'Kilka letnich nocy ma większą szansę na smugi meteorów i ciche życzenia między źdźbłami.',
+      scienceNote: 'Perseidy powstają z pyłu pozostawionego przez kometę Swift-Tuttle.',
+      conditionNote: 'Okolice maksimum Perseidów, najlepiej przy ciemnym niebie.',
+      photoCaption: 'Letnie życzenia wpadały jedno po drugim.',
+      unlockHint: 'sierpniowe noce'
+    },
+    {
+      id: 'migratoryBirdDayAutumn',
+      label: 'Jesienny Dzień Ptaków Wędrownych',
+      kind: 'migration',
+      rarity: 'sezonowe',
+      dateRule: { type: 'nthWeekday', month: 10, weekday: 6, occurrence: 2 },
+      dateLabel: 'druga sobota października',
+      reaction: 'curious',
+      photoScene: 'birdMigration',
+      description: 'Jesienny klucz ptaków znika za krawędzią nieba, zostawiając po sobie krótką ciszę.',
+      scienceNote: 'Jesienne migracje zależą od światła dnia, zapasów energii i pogody na trasie.',
+      conditionNote: 'Druga sobota października.',
+      photoCaption: 'Ktoś wracał daleko, daleko stąd.',
+      unlockHint: 'październikowy weekend'
+    },
+    {
+      id: 'spaceWeek',
+      label: 'Światowy Tydzień Kosmosu',
+      kind: 'space',
+      rarity: 'sezonowe',
+      dateRule: { type: 'range', start: { month: 10, day: 4 }, end: { month: 10, day: 10 } },
+      dateLabel: '4-10 października',
+      reaction: 'awe',
+      photoScene: 'spaceWeek',
+      description: 'Przez kilka dni nocne niebo wydaje się bardziej odkrywcze, a gwiazdy częściej proszą o spojrzenie.',
+      scienceNote: 'To tygodniowe święto nauki, technologii kosmicznych i patrzenia wysoko nad własny patch.',
+      conditionNote: 'Wraca co roku od 4 do 10 października.',
+      photoCaption: 'Grzybnia przez chwilę miała własne obserwatorium.',
+      unlockHint: 'początek października'
+    },
+    {
+      id: 'mushroomDay',
+      label: 'Dzień Grzyba',
+      kind: 'mushroom',
+      rarity: 'nieformalne',
+      dateRule: { type: 'fixed', month: 10, day: 15 },
+      dateLabel: '15 października',
+      reaction: 'proud',
+      photoScene: 'mushroomDay',
+      description: 'Nieformalne święto małego bohatera: więcej zarodnikowych błysków, więcej dumy i bardzo dużo kapelusza.',
+      scienceNote: 'To okazja do pokazania grzybów jako rozkładaczy, partnerów roślin i cichych architektów gleby.',
+      conditionNote: 'Nieformalne święto ustawione na 15 października.',
+      photoCaption: 'Kapelusz był dziś tematem dnia.',
+      unlockHint: 'jesień grzybowa'
+    },
+    {
+      id: 'soilDay',
+      label: 'Światowy Dzień Gleby',
+      kind: 'soil',
+      rarity: 'roczne',
+      dateRule: { type: 'fixed', month: 12, day: 5 },
+      dateLabel: '5 grudnia',
+      reaction: 'calm',
+      photoScene: 'soilDay',
+      description: 'Podłoże wygląda ciemniej i pełniej, jakby cały patch przypominał sobie, że życie zaczyna się pod stopami.',
+      scienceNote: 'Gleba przechowuje wodę, składniki odżywcze i ogromną część niewidocznego życia.',
+      conditionNote: 'Wraca co roku 5 grudnia.',
+      photoCaption: 'Najważniejsze działo się pod trawą.',
+      unlockHint: 'początek grudnia'
+    }
+  ];
+
+  function getCalendarEventCatalog() {
+    return calendarEventCatalog.map(function(item) {
+      return Object.assign({}, item, { dateRule: deepCloneCalendarRule(item.dateRule) });
+    });
+  }
+
+  function getCalendarEventDefinition(eventId) {
+    return calendarEventCatalog.find(function(item) {
+      return item.id === eventId;
+    }) || null;
+  }
+
+  function getCalendarEventsForDate(dateInput, rawState, rules) {
+    const date = normalizeDate(dateInput || Date.now());
+    const discoveries = normalizeCalendarDiscoveryMap(rawState && rawState.discoveries && rawState.discoveries.calendar);
+    return calendarEventCatalog.map(function(item) {
+      const active = isCalendarEventActiveOnDate(item, date);
+      const nextOccurrence = getNextCalendarOccurrence(item, date);
+      const discovery = discoveries[item.id] || null;
+      return Object.assign({}, item, {
+        active: active,
+        discovered: Boolean(discovery),
+        checked: Boolean(discovery),
+        count: discovery ? Number(discovery.count) || 1 : 0,
+        firstSeenAt: discovery ? discovery.firstSeenAt || null : null,
+        lastSeenAt: discovery ? discovery.lastSeenAt || discovery.firstSeenAt || null : null,
+        nextDateKey: nextOccurrence ? getCalendarDateKey(nextOccurrence) : '',
+        daysUntil: nextOccurrence ? getCalendarDayDifference(date, nextOccurrence) : null,
+        unlocked: isCalendarChecklistUnlockedCore(rawState, rules)
+      });
+    });
+  }
+
+  function getCalendarChecklistCore(rawState, rules, dateInput) {
+    const unlocked = isCalendarChecklistUnlockedCore(rawState, rules);
+    const events = getCalendarEventsForDate(dateInput || Date.now(), rawState, rules)
+      .sort(function(a, b) {
+        const aActive = a.active ? 0 : 1;
+        const bActive = b.active ? 0 : 1;
+        if (aActive !== bActive) {
+          return aActive - bActive;
+        }
+        return Number(a.daysUntil) - Number(b.daysUntil);
+      });
+    const checkedCount = events.filter(function(item) {
+      return item.checked;
+    }).length;
+
+    return {
+      unlocked: unlocked,
+      title: 'Kalendarz grzybni',
+      status: unlocked
+        ? checkedCount + '/' + events.length + ' odhaczone'
+        : 'Kup w dekoracjach za zarodniki',
+      checkedCount: checkedCount,
+      totalCount: events.length,
+      events: events
+    };
+  }
+
+  function isCalendarChecklistUnlockedCore(rawState, rules) {
+    const state = isPlainObject(rawState) ? rawState : {};
+    const owned = state.decorations && Array.isArray(state.decorations.owned) ? state.decorations.owned : [];
+    return owned.indexOf('myceliumCalendar') !== -1;
+  }
+
+  function recordCalendarDiscovery(rawState, eventId, nowInput) {
+    const state = isPlainObject(rawState) ? rawState : {};
+    const item = getCalendarEventDefinition(eventId);
+    if (!item) {
+      return { state: state, ok: false, newlyDiscovered: false, label: '', message: '' };
+    }
+
+    const date = normalizeDate(nowInput || Date.now());
+    const now = date.toISOString();
+    const dateKey = getCalendarDateKey(date);
+    state.discoveries = normalizeDiscoveriesState(state.discoveries);
+    const existing = state.discoveries.calendar[item.id];
+    if (existing && existing.lastSeenDateKey === dateKey) {
+      return {
+        state: state,
+        ok: true,
+        newlyDiscovered: false,
+        label: item.label,
+        message: 'Święto jest już odhaczone: ' + item.label + '.'
+      };
+    }
+    const isNewDate = !existing || existing.lastSeenDateKey !== dateKey;
+    state.discoveries.calendar[item.id] = {
+      id: item.id,
+      label: item.label,
+      firstSeenAt: existing && existing.firstSeenAt ? existing.firstSeenAt : now,
+      lastSeenAt: now,
+      lastSeenDateKey: dateKey,
+      count: clampInteger(existing && existing.count && isNewDate ? existing.count + 1 : existing && existing.count || 1, 1, 999999, 1)
+    };
+
+    if (!existing && typeof addWorldJournalDiscoveryEntryCore === 'function') {
+      addWorldJournalDiscoveryEntryCore(state, 'calendar', item, Date.parse(now));
+    }
+
+    return {
+      state: state,
+      ok: true,
+      newlyDiscovered: !existing,
+      label: item.label,
+      message: 'Nowe święto w kalendarzu: ' + item.label + '.'
+    };
+  }
+
+  function normalizeCalendarDiscoveryMap(source) {
+    const result = {};
+    if (!isPlainObject(source)) {
+      return result;
+    }
+
+    Object.keys(source).forEach(function(id) {
+      const definition = getCalendarEventDefinition(id);
+      const item = isPlainObject(source[id]) ? source[id] : {};
+      if (!definition) {
+        return;
+      }
+      result[definition.id] = {
+        id: definition.id,
+        label: definition.label,
+        firstSeenAt: item.firstSeenAt || null,
+        lastSeenAt: item.lastSeenAt || item.firstSeenAt || null,
+        lastSeenDateKey: item.lastSeenDateKey || '',
+        count: clampInteger(item.count, 1, 999999, 1)
+      };
+    });
+    return result;
+  }
+
+  function isCalendarEventActiveOnDate(item, dateInput) {
+    const date = normalizeDate(dateInput || Date.now());
+    const rule = item && item.dateRule ? item.dateRule : null;
+    if (!rule) {
+      return false;
+    }
+    if (rule.type === 'fixed') {
+      return date.getMonth() + 1 === Number(rule.month) && date.getDate() === Number(rule.day);
+    }
+    if (rule.type === 'range') {
+      return isCalendarDateWithinRange(date, rule.start, rule.end);
+    }
+    if (rule.type === 'nthWeekday') {
+      const occurrence = getCalendarNthWeekday(date.getFullYear(), rule.month, rule.weekday, rule.occurrence);
+      return Boolean(occurrence) && getCalendarDateKey(date) === getCalendarDateKey(occurrence);
+    }
+    return false;
+  }
+
+  function getNextCalendarOccurrence(item, fromDateInput) {
+    const fromDate = normalizeDate(fromDateInput || Date.now());
+    const currentYear = fromDate.getFullYear();
+    for (let offset = 0; offset <= 1; offset += 1) {
+      const candidate = getCalendarOccurrenceStart(item, currentYear + offset);
+      if (candidate && getCalendarDayDifference(fromDate, candidate) >= 0) {
+        return candidate;
+      }
+    }
+    return getCalendarOccurrenceStart(item, currentYear + 1);
+  }
+
+  function getCalendarOccurrenceStart(item, year) {
+    const rule = item && item.dateRule ? item.dateRule : null;
+    if (!rule) {
+      return null;
+    }
+    if (rule.type === 'fixed') {
+      return new Date(year, Number(rule.month) - 1, Number(rule.day), 12, 0, 0, 0);
+    }
+    if (rule.type === 'range' && rule.start) {
+      return new Date(year, Number(rule.start.month) - 1, Number(rule.start.day), 12, 0, 0, 0);
+    }
+    if (rule.type === 'nthWeekday') {
+      return getCalendarNthWeekday(year, rule.month, rule.weekday, rule.occurrence);
+    }
+    return null;
+  }
+
+  function isCalendarDateWithinRange(date, start, end) {
+    if (!start || !end) {
+      return false;
+    }
+    const year = date.getFullYear();
+    const day = getCalendarOrdinalDay(date);
+    const startDay = getCalendarOrdinalDay(new Date(year, Number(start.month) - 1, Number(start.day), 12));
+    const endDay = getCalendarOrdinalDay(new Date(year, Number(end.month) - 1, Number(end.day), 12));
+    if (startDay <= endDay) {
+      return day >= startDay && day <= endDay;
+    }
+    return day >= startDay || day <= endDay;
+  }
+
+  function getCalendarNthWeekday(year, month, weekday, occurrence) {
+    const targetWeekday = clampInteger(weekday, 0, 6, 6);
+    const targetOccurrence = clampInteger(occurrence, 1, 5, 1);
+    const date = new Date(year, Number(month) - 1, 1, 12, 0, 0, 0);
+    let seen = 0;
+    while (date.getMonth() === Number(month) - 1) {
+      if (date.getDay() === targetWeekday) {
+        seen += 1;
+        if (seen === targetOccurrence) {
+          return new Date(date.getTime());
+        }
+      }
+      date.setDate(date.getDate() + 1);
+    }
+    return null;
+  }
+
+  function getCalendarDateKey(dateInput) {
+    const date = normalizeDate(dateInput || Date.now());
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return date.getFullYear() + '-' + month + '-' + day;
+  }
+
+  function getCalendarDayDifference(fromDateInput, toDateInput) {
+    const from = normalizeDate(fromDateInput || Date.now());
+    const to = normalizeDate(toDateInput || Date.now());
+    const fromNoon = new Date(from.getFullYear(), from.getMonth(), from.getDate(), 12, 0, 0, 0);
+    const toNoon = new Date(to.getFullYear(), to.getMonth(), to.getDate(), 12, 0, 0, 0);
+    return Math.round((toNoon.getTime() - fromNoon.getTime()) / 86400000);
+  }
+
+  function getCalendarOrdinalDay(dateInput) {
+    const date = normalizeDate(dateInput || Date.now());
+    const start = new Date(date.getFullYear(), 0, 0, 12, 0, 0, 0);
+    const noon = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0);
+    return Math.floor((noon.getTime() - start.getTime()) / 86400000);
+  }
+
+  function deepCloneCalendarRule(rule) {
+    if (!isPlainObject(rule)) {
+      return {};
+    }
+    return JSON.parse(JSON.stringify(rule));
+  }

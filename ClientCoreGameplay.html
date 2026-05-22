@@ -65,7 +65,7 @@
   function normalizeJournalEntryCore(entry) {
     const source = isPlainObject(entry) ? entry : {};
     const id = source.id ? String(source.id).slice(0, 48) : '';
-    const type = source.type === 'sky' || source.type === 'environment' || source.type === 'instrument' || source.type === 'habitat'
+    const type = source.type === 'sky' || source.type === 'environment' || source.type === 'instrument' || source.type === 'calendar' || source.type === 'habitat'
       ? source.type
       : 'environment';
     const label = String(source.label || source.title || '').slice(0, 80);
@@ -268,10 +268,12 @@
     const journal = normalizeWorldJournalCore(state.journal);
     const skyCatalog = typeof getSkyDiscoveryCatalog === 'function' ? getSkyDiscoveryCatalog() : [];
     const environmentCatalog = typeof getEnvironmentDiscoveryCatalog === 'function' ? getEnvironmentDiscoveryCatalog() : [];
+    const calendarCatalog = typeof getCalendarEventCatalog === 'function' ? getCalendarEventCatalog() : [];
     const instrumentCatalog = getRareInstrumentDiscoveryCatalogCore(rules);
     const groups = [
       buildWorldJournalGroupCore('sky', 'Niebo', skyCatalog, discoveries.sky),
       buildWorldJournalGroupCore('environment', 'Siedlisko', environmentCatalog, discoveries.environment),
+      buildWorldJournalGroupCore('calendar', 'Święta świata', calendarCatalog, discoveries.calendar || {}),
       buildWorldJournalGroupCore('instrument', 'Instrumenty', instrumentCatalog, discoveries.instruments)
     ];
     const discoveredCount = groups.reduce(function(total, group) {
@@ -306,13 +308,15 @@
       return state;
     }
 
-    const typeLabel = type === 'sky' ? 'Niebo' : type === 'instrument' ? 'Instrumenty' : 'Siedlisko';
+    const typeLabel = type === 'sky' ? 'Niebo' : type === 'instrument' ? 'Instrumenty' : type === 'calendar' ? 'Święta świata' : 'Siedlisko';
     journal.entries = [{
       id: entryId,
-      type: type === 'sky' ? 'sky' : type === 'instrument' ? 'instrument' : 'environment',
+      type: type === 'sky' ? 'sky' : type === 'instrument' ? 'instrument' : type === 'calendar' ? 'calendar' : 'environment',
       label: source.label,
       at: new Date(timestamp).toISOString(),
-      body: typeLabel + ' dopisało nowe odkrycie do dziennika.',
+      body: type === 'calendar'
+        ? 'Kalendarz dopisał nowe święto do dziennika.'
+        : typeLabel + ' dopisało nowe odkrycie do dziennika.',
       category: source.kind || typeLabel
     }].concat(journal.entries).slice(0, 24);
     state.journal = journal;
@@ -377,7 +381,8 @@
     const discoveries = normalizeDiscoveriesState(state.discoveries);
     const discoveryCount = Object.keys(discoveries.sky).length
       + Object.keys(discoveries.environment).length
-      + Object.keys(discoveries.instruments || {}).length;
+      + Object.keys(discoveries.instruments || {}).length
+      + Object.keys(discoveries.calendar || {}).length;
     const habitat = getDecorationHabitatSummaryCore(state, rules);
     const lowestStat = getLowestReturnStatCore(stats);
     const entries = [];
@@ -485,6 +490,65 @@
     };
   }
 
+  function getEvolutionVisualIdentityCore(variant, rules) {
+    const id = String(variant || '');
+    const trait = getEvolutionTraitCore(id, rules) || {};
+    const visuals = {
+      dewcap: {
+        accent: '#77c9df',
+        glow: '#dff7ff',
+        cue: 'Krople zbierają się bliżej kapelusza.',
+        scene: 'dew',
+        symbol: 'H2O'
+      },
+      compostcap: {
+        accent: '#9b6a3e',
+        glow: '#e6c18a',
+        cue: 'Podłoże wygląda żyźniej i spokojniej.',
+        scene: 'substrate',
+        symbol: 'NPK'
+      },
+      songcap: {
+        accent: '#8c7ad9',
+        glow: '#e6dcff',
+        cue: 'Wokół grzybni czasem drży cichy takt.',
+        scene: 'music',
+        symbol: 'MUZ'
+      },
+      wildcap: {
+        accent: '#65a847',
+        glow: '#d8f6b0',
+        cue: 'Trawa i mali goście są odważniejsi.',
+        scene: 'wild',
+        symbol: 'DZ'
+      },
+      ghostcap: {
+        accent: '#a9b8c4',
+        glow: '#eef7ff',
+        cue: 'Przy kapeluszu snuje się chłodna mgiełka.',
+        scene: 'mist',
+        symbol: 'MG'
+      },
+      royalcap: {
+        accent: '#d2a54b',
+        glow: '#fff0a8',
+        cue: 'Równy rytm zostawia złote, spokojne błyski.',
+        scene: 'royal',
+        symbol: 'KR'
+      }
+    };
+    const visual = visuals[id] || null;
+    if (!visual) {
+      return null;
+    }
+
+    return Object.assign({
+      id: id,
+      title: trait.title || getEvolutionLabelCore(id, rules),
+      favoriteAction: trait.favoriteAction || null
+    }, visual);
+  }
+
   function getMinigameOpportunitiesCore(rawState, rules, scene, now) {
     const timestamp = Number(now) || Date.now();
     const state = isPlainObject(rawState) ? rawState : {};
@@ -533,7 +597,44 @@
       });
     }
 
-    return opportunities.slice(0, 2).map(function(item) {
+    if (
+      Number(stats.nutrients) < 74
+      || (Number(state.inventory && state.inventory.substrate) || 0) < 2
+      || Number(habitat.tags.shelter) > 0
+      || Number(habitat.tags.comfort) > 0
+    ) {
+      opportunities.push({
+        id: 'compostSort',
+        label: 'Sortowanie kompostu',
+        reason: Number(habitat.tags.shelter) > 0
+          ? 'Osłonięte siedlisko odsłania dobre kawałki podłoża.'
+          : Number(stats.nutrients) < 74
+          ? 'Podłoże prosi o lepszy kompost.'
+          : 'W grzybni można wybrać kilka dobrych drobinek.',
+        tone: 'substrate',
+        minigameId: 'compostSort',
+        recommended: opportunities.length === 0
+      });
+    }
+
+    if (
+      Number(stats.happiness) < 76
+      || Number(habitat.tags.music) > 0
+      || Number(state.history && state.history.actionsPerformed && state.history.actionsPerformed.sing) > 0
+    ) {
+      opportunities.push({
+        id: 'rhythmHum',
+        label: 'Rytmiczne nucenie',
+        reason: Number(habitat.tags.music) > 0
+          ? 'Muzyczne dekoracje łapią dziś równy puls.'
+          : 'Krótki rytm pomaga wrócić do dobrego nastroju.',
+        tone: 'music',
+        minigameId: 'rhythmHum',
+        recommended: opportunities.length === 0
+      });
+    }
+
+    return opportunities.slice(0, 4).map(function(item) {
       const cooldownUntil = Number(state.cooldowns && state.cooldowns['minigame.' + item.minigameId]) || 0;
       return Object.assign({}, item, {
         available: !cooldownUntil || cooldownUntil <= timestamp,
@@ -590,22 +691,43 @@
     };
   }
 
+  function getHabitatLifeSceneCore(rawState, scene, rules) {
+    const source = isPlainObject(scene) ? Object.assign({}, scene) : {};
+    const habitat = getHabitatInfluenceCore(rawState, rules);
+    const tags = habitat.tags || {};
+    const flowerBoost = (Number(tags.flowers) || 0) * 0.48 + (Number(tags.wild) || 0) * 0.18;
+    const insectBoost = (Number(tags.insects) || 0) * 0.18 + (Number(tags.shelter) || 0) * 0.12;
+    const nightBoost = (Number(tags.night) || 0) * 0.18 + (Number(tags.spores) || 0) * 0.12;
+    const moistureBoost = (Number(tags.moisture) || 0) * 0.10;
+
+    if (flowerBoost > 0) {
+      const base = Number(source.flowerDensity);
+      source.flowerDensity = clampNumber((Number.isFinite(base) ? base : 0.28) + flowerBoost, 0, 3, 0);
+    }
+    source.habitatTags = Object.assign({}, tags);
+    source.butterflyHabitatBoost = clampNumber(flowerBoost * 0.28 + insectBoost * 0.18, 0, 0.42, 0);
+    source.beeHabitatBoost = clampNumber(flowerBoost * 0.36, 0, 0.5, 0);
+    source.fireflyHabitatBoost = clampNumber(nightBoost + moistureBoost, 0, 0.44, 0);
+    source.crawlerHabitatBoost = clampNumber(insectBoost + (Number(tags.wild) || 0) * 0.08, 0, 0.36, 0);
+    return source;
+  }
+
   function getHabitatEffectLabelsCore(tags) {
     const effects = [];
     if (Number(tags.moisture) > 0) {
-      effects.push('Rosa pojawia się łatwiej.');
+      effects.push('Rosa pojawia się łatwiej i ma więcej kropli w minigrze.');
     }
     if (Number(tags.music) > 0) {
-      effects.push('Muzyka częściej trafia do planu dnia.');
+      effects.push('Muzyka częściej trafia do planu dnia i wzmacnia rytmiczne nucenie.');
     }
     if (Number(tags.night) > 0 || Number(tags.spores) > 0) {
-      effects.push('Nocne i zarodnikowe chwile są bardziej widoczne.');
+      effects.push('Nocne, zarodnikowe i świetlikowe chwile są bardziej widoczne.');
     }
     if (Number(tags.wild) > 0 || Number(tags.flowers) > 0 || Number(tags.insects) > 0) {
-      effects.push('Goście mają więcej powodów, żeby zajrzeć do trawy.');
+      effects.push('Kwiaty, pszczoły, motyle i mali goście mają więcej powodów, żeby zajrzeć.');
     }
     if (Number(tags.wind) > 0) {
-      effects.push('Wiatr mocniej zapisuje się w siedlisku.');
+      effects.push('Wiatr mocniej porusza dzwonkiem i zapisuje się w siedlisku.');
     }
     return effects.slice(0, 3);
   }
@@ -697,7 +819,7 @@
         label: 'Rytm muzyki',
         body: 'Ciche dźwięki wzmacniają relację z Pieczarką.',
         tone: 'music',
-        goals: ['action-instrument', 'action-sing'],
+        goals: ['action-instrument', 'minigame-rhythmHum'],
         tags: ['music']
       },
       {
@@ -705,7 +827,7 @@
         label: 'Rytm siedliska',
         body: 'Mech, czystość i dekoracje prowadzą dzisiejszy plan.',
         tone: 'habitat',
-        goals: ['action-clean', 'decoration'],
+        goals: ['action-clean', 'minigame-compostSort'],
         tags: ['comfort']
       },
       {
@@ -813,10 +935,16 @@
       const opportunity = opportunities.find(function(item) {
         return item.minigameId === minigameId;
       }) || {};
-      const title = minigameId === 'sporePop' ? 'Rozrusz zarodniki' : 'Złap trochę rosy';
-      return makeDailyGoalCore(goalId, 'Mała gra', title, opportunity.reason || 'Krótka gra dobrze rozrusza grzybnię.', {
+      const minigameGoals = {
+        dewCatch: ['Rosa', 'Złap trochę rosy', { patchQuality: 0.8, happiness: 1, mycelium: 0.8 }],
+        sporePop: ['Zarodniki', 'Rozrusz zarodniki', { patchQuality: 0.8, happiness: 1, mycelium: 0.8 }],
+        compostSort: ['Podłoże', 'Przesortuj kompost', { patchQuality: 1.1, mycelium: 0.9, happiness: 0.5 }],
+        rhythmHum: ['Muzyka', 'Powtórz miękki rytm', { happiness: 1.2, mycelium: 0.6 }]
+      };
+      const goal = minigameGoals[minigameId] || ['Mała gra', 'Zagraj chwilę', { happiness: 0.8 }];
+      return makeDailyGoalCore(goalId, 'Mała gra', goal[1], opportunity.reason || 'Krótka gra dobrze rozrusza grzybnię.', {
         minigameId: minigameId
-      }, { patchQuality: 0.8, happiness: 1, mycelium: 0.8 }, minigameId === 'sporePop' ? 'Zarodniki' : 'Rosa');
+      }, goal[2], goal[0]);
     }
 
     if (goalId === 'decoration') {
@@ -915,16 +1043,119 @@
           count: entry ? Number(entry.count) || 1 : 0,
           firstSeenAt: entry ? entry.firstSeenAt || null : null,
           lastSeenAt: entry ? entry.lastSeenAt || entry.firstSeenAt || null : null,
-          hint: getWorldJournalHintCore(type, item)
+          hint: getWorldJournalHintCore(type, item),
+          rarity: item.rarity || getWorldJournalDefaultRarityCore(type, item),
+          reaction: item.reaction || getWorldJournalDefaultReactionCore(type, item),
+          photoScene: item.photoScene || getWorldJournalDefaultPhotoSceneCore(type, item),
+          description: item.description || getWorldJournalDescriptionCore(type, item),
+          scienceNote: item.scienceNote || getWorldJournalScienceNoteCore(type, item),
+          conditionNote: item.conditionNote || getWorldJournalConditionNoteCore(type, item),
+          photoCaption: item.photoCaption || getWorldJournalPhotoCaptionCore(type, item)
         };
       })
     };
+  }
+
+  function getWorldJournalDefaultRarityCore(type, item) {
+    if (type === 'instrument') {
+      return 'rzadkie';
+    }
+    if (type === 'calendar') {
+      return item && item.rarity ? item.rarity : 'roczne';
+    }
+    if (type === 'sky') {
+      return item && item.kind === 'aurora' ? 'legendarne' : item && item.kind === 'shower' ? 'sezonowe' : 'rzadkie';
+    }
+    return item && item.kind === 'optics' ? 'rzadkie' : 'pogodowe';
+  }
+
+  function getWorldJournalDefaultReactionCore(type, item) {
+    if (type === 'instrument') {
+      return 'proud';
+    }
+    if (type === 'calendar') {
+      return item && item.reaction ? item.reaction : 'curious';
+    }
+    if (type === 'sky') {
+      return item && item.kind === 'meteor' ? 'awe' : item && item.kind === 'aurora' ? 'awe' : 'curious';
+    }
+    if (item && item.kind === 'light') {
+      return 'warm';
+    }
+    if (item && item.kind === 'weather') {
+      return 'happy';
+    }
+    return 'curious';
+  }
+
+  function getWorldJournalDefaultPhotoSceneCore(type, item) {
+    if (type === 'instrument') {
+      return 'instrument';
+    }
+    if (type === 'calendar') {
+      return item && item.photoScene ? item.photoScene : item && item.id ? item.id : 'calendar';
+    }
+    if (type === 'sky') {
+      return item && item.kind === 'aurora' ? 'aurora' : item && item.kind === 'shower' ? 'meteorShower' : item && item.id === 'comet' ? 'comet' : 'shootingStar';
+    }
+    return item && item.id ? item.id : 'environment';
+  }
+
+  function getWorldJournalDescriptionCore(type, item) {
+    if (type === 'instrument') {
+      return (item && item.label ? item.label : 'Rzadki instrument') + ' zapisał się w dzienniku jako melodia, której nie da się wymusić.';
+    }
+    if (type === 'calendar') {
+      return (item && item.label ? item.label : 'Święto') + ' pojawia się w kalendarzu grzybni raz do roku albo w krótkim sezonowym oknie.';
+    }
+    return (item && item.label ? item.label : 'Odkrycie') + ' pojawia się tylko wtedy, gdy pogoda, pora dnia i grzybnia trafią na dobry moment.';
+  }
+
+  function getWorldJournalScienceNoteCore(type, item) {
+    if (type === 'instrument') {
+      return 'To pamiątka z wyjątkowo rzadkiego wariantu aktywności muzycznej.';
+    }
+    if (type === 'calendar') {
+      return 'To małe święto świata jest pretekstem do sezonowych niespodzianek, spriteów i pamiątek w dzienniku.';
+    }
+    if (type === 'sky') {
+      return item && item.kind === 'shower'
+        ? 'Roje meteorów wracają sezonowo, gdy Ziemia przechodzi przez strumień pyłu w przestrzeni.'
+        : 'Niebo zapisuje krótkie zjawiska tylko przy dobrej widoczności.';
+    }
+    return 'To zjawisko zależy od światła, wilgoci, temperatury i ruchu powietrza.';
+  }
+
+  function getWorldJournalConditionNoteCore(type, item) {
+    if (type === 'instrument') {
+      return item && item.hint ? item.hint : 'rzadki nastrój i odpowiedni etap rozwoju';
+    }
+    if (type === 'calendar') {
+      return item && (item.unlockHint || item.dateLabel) ? item.unlockHint || item.dateLabel : 'sprawdź kalendarz';
+    }
+    return getWorldJournalHintCore(type, item);
+  }
+
+  function getWorldJournalPhotoCaptionCore(type, item) {
+    if (type === 'instrument') {
+      return 'Pieczarka zapamiętała ten dźwięk.';
+    }
+    if (type === 'calendar') {
+      return 'Kalendarz zostawił małą pamiątkę.';
+    }
+    if (type === 'sky') {
+      return 'Niebo zostawiło małą pamiątkę.';
+    }
+    return 'Grzybnia wyglądała tego dnia inaczej.';
   }
 
   function getWorldJournalHintCore(type, item) {
     const kind = item && item.kind;
     if (type === 'instrument') {
       return item && item.hint ? item.hint : 'rzadkie granie';
+    }
+    if (type === 'calendar') {
+      return item && (item.unlockHint || item.dateLabel) ? item.unlockHint || item.dateLabel : 'dzień specjalny';
     }
     if (type === 'sky') {
       if (kind === 'aurora') {
@@ -1037,7 +1268,8 @@
       wild: 'dzikie',
       flowers: 'kwitnące',
       insects: 'pełne gości',
-      shelter: 'osłonięte'
+      shelter: 'osłonięte',
+      calendar: 'świąteczne'
     };
     return labels[tag] || tag;
   }

@@ -68,6 +68,103 @@
     }
   }
 
+  function drawEvolutionIdentityOverlay(ctx, now) {
+    const state = runtime.state;
+    const variant = state && state.evolution && state.evolution.variant;
+    const core = window.PieczargotchiCore;
+    const visual = variant && core && core.getEvolutionVisualIdentity
+      ? core.getEvolutionVisualIdentity(variant, rules)
+      : null;
+    if (!visual || state.mode === 'sleeping') {
+      return;
+    }
+
+    const phase = now / 1000;
+    ctx.save();
+    if (visual.scene === 'dew') {
+      drawEvolutionDewAccent(ctx, phase, visual);
+    } else if (visual.scene === 'substrate') {
+      drawEvolutionSubstrateAccent(ctx, phase, visual);
+    } else if (visual.scene === 'music') {
+      drawEvolutionMusicAccent(ctx, phase, visual);
+    } else if (visual.scene === 'wild') {
+      drawEvolutionWildAccent(ctx, phase, visual);
+    } else if (visual.scene === 'mist') {
+      drawEvolutionMistAccent(ctx, phase, visual);
+    } else if (visual.scene === 'royal') {
+      drawEvolutionRoyalAccent(ctx, phase, visual);
+    }
+    ctx.restore();
+  }
+
+  function drawEvolutionDewAccent(ctx, phase, visual) {
+    ctx.globalAlpha = 0.42 + Math.sin(phase * 1.8) * 0.12;
+    ctx.fillStyle = visual.accent;
+    [[168, 420], [346, 424], [388, 438]].forEach(function(point, index) {
+      const y = point[1] + Math.sin(phase * 1.4 + index) * 2;
+      ctx.fillRect(point[0], Math.round(y), 3, 5);
+      ctx.fillStyle = visual.glow;
+      ctx.fillRect(point[0] + 1, Math.round(y) + 1, 1, 1);
+      ctx.fillStyle = visual.accent;
+    });
+  }
+
+  function drawEvolutionSubstrateAccent(ctx, phase, visual) {
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = visual.accent;
+    for (let index = 0; index < 6; index += 1) {
+      const x = 150 + index * 38 + Math.sin(phase + index) * 3;
+      const y = 424 + (index % 2) * 12;
+      ctx.fillRect(Math.round(x), Math.round(y), 10, 4);
+    }
+  }
+
+  function drawEvolutionMusicAccent(ctx, phase, visual) {
+    ctx.globalAlpha = 0.32 + Math.sin(phase * 2.4) * 0.08;
+    ctx.fillStyle = visual.accent;
+    [[162, 262], [386, 284], [348, 220]].forEach(function(point, index) {
+      const y = point[1] + Math.sin(phase * 2 + index) * 5;
+      ctx.fillRect(point[0], Math.round(y), 10, 3);
+      ctx.fillRect(point[0] + 8, Math.round(y - 8), 3, 10);
+    });
+  }
+
+  function drawEvolutionWildAccent(ctx, phase, visual) {
+    ctx.globalAlpha = 0.36;
+    ctx.fillStyle = visual.accent;
+    for (let index = 0; index < 5; index += 1) {
+      const x = 126 + index * 64;
+      const sway = Math.sin(phase * 1.7 + index) * 5;
+      ctx.fillRect(Math.round(x + sway), 398 - index % 2 * 10, 5, 18);
+      ctx.fillStyle = visual.glow;
+      ctx.fillRect(Math.round(x + sway + 2), 396 - index % 2 * 10, 4, 4);
+      ctx.fillStyle = visual.accent;
+    }
+  }
+
+  function drawEvolutionMistAccent(ctx, phase, visual) {
+    ctx.globalAlpha = 0.24;
+    ctx.fillStyle = visual.glow;
+    for (let index = 0; index < 4; index += 1) {
+      const x = 138 + index * 62 + Math.sin(phase * 0.9 + index) * 9;
+      const y = 244 + index % 2 * 34 + Math.cos(phase * 0.8 + index) * 5;
+      ctx.fillRect(Math.round(x), Math.round(y), 48, 3);
+      ctx.fillRect(Math.round(x + 14), Math.round(y + 5), 26, 2);
+    }
+  }
+
+  function drawEvolutionRoyalAccent(ctx, phase, visual) {
+    ctx.globalAlpha = 0.42 + Math.sin(phase * 2) * 0.1;
+    ctx.fillStyle = visual.accent;
+    [[212, 166], [256, 148], [300, 166]].forEach(function(point, index) {
+      const y = point[1] + Math.sin(phase * 1.8 + index) * 2;
+      ctx.fillRect(point[0] - 2, Math.round(y), 5, 12);
+      ctx.fillStyle = visual.glow;
+      ctx.fillRect(point[0] - 4, Math.round(y) - 4, 9, 4);
+      ctx.fillStyle = visual.accent;
+    });
+  }
+
   function drawDryCue(ctx, pulse, severity) {
     ctx.save();
     ctx.globalAlpha = severity === 'critical' ? 0.75 + pulse * 0.25 : 0.55;
@@ -357,33 +454,6 @@
     ctx.fillRect(216, 260, 24, 32);
     ctx.fillRect(296, 260, 24, 32);
     ctx.fillRect(246, 310, 42, 8);
-  }
-
-  function drawWakeSurpriseFace(ctx) {
-    drawSkinPatch(ctx, 178, 238, 78, 88);
-    drawSkinPatch(ctx, 270, 238, 78, 88);
-    drawSkinPatch(ctx, 238, 294, 60, 44);
-
-    drawBlockyEye(ctx, 188, 248);
-    drawBlockyEye(ctx, 282, 248);
-
-    ctx.fillStyle = '#2c1d17';
-    ctx.fillRect(256, 302, 14, 14);
-    ctx.fillRect(260, 298, 6, 22);
-  }
-
-  function drawSkinPatch(ctx, x, y, width, height) {
-    ctx.fillStyle = 'rgba(248, 202, 149, 0.92)';
-    ctx.fillRect(x + 10, y, width - 20, height);
-    ctx.fillRect(x, y + 12, width, height - 24);
-  }
-
-  function drawBlockyEye(ctx, x, y) {
-    ctx.fillStyle = '#fffaf0';
-    ctx.fillRect(x + 12, y, 38, 64);
-    ctx.fillRect(x, y + 12, 62, 40);
-    ctx.fillStyle = '#2c1d17';
-    ctx.fillRect(x + 28, y + 30, 10, 14);
   }
 
   function drawSleepAmbient(ctx, now) {

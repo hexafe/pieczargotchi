@@ -19,6 +19,7 @@
     drawStageBackground(ctx, now);
     updateImmersionReaction(wallNow);
     drawImmersionBackground(ctx, now, wallNow);
+    drawCalendarEventBackground(ctx, now, wallNow);
 
     const selectedAnimation = selectAnimation(runtime.state, wallNow);
     const drewAnimation = drawSelectedAnimation(ctx, selectedAnimation, wallNow);
@@ -31,6 +32,7 @@
     drawGroundForeground(ctx, now);
     drawPatchDecorationsForeground(ctx, now);
     drawAmbientLifeForeground(ctx, now);
+    drawCalendarEventForeground(ctx, now, wallNow);
     if (typeof updateGrassLocalReactionSnapshot === 'function') {
       updateGrassLocalReactionSnapshot(now);
     }
@@ -77,7 +79,7 @@
     const activity = getActiveActivity(state, now);
 
     if (activity) {
-      if (activity.type === 'wake') {
+      if (activity.type === 'wake' || activity.type === 'wake_surprise') {
         return buildAnimationSelection(findStageAnimation(stage, 'wake'), getActivityStartedAt(activity, now));
       }
 
@@ -593,6 +595,8 @@
     if (!need && selectedAnimation && selectedAnimation.animation.state === 'idle') {
       drawAwakeIdleDetails(ctx, now);
     }
+
+    drawEvolutionIdentityOverlay(ctx, now);
 
     if (need && need.severity === 'critical') {
       const pulse = 0.5 + Math.sin(now / 220) * 0.5;

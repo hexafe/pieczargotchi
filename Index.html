@@ -114,6 +114,20 @@
               </div>
               <button class="ghost-button" type="button" data-minigame-start="sporePop">Start</button>
             </div>
+            <div class="minigame-card">
+              <div>
+                <strong>Sortowanie kompostu</strong>
+                <span data-minigame-last="compostSort">0 kawałków</span>
+              </div>
+              <button class="ghost-button" type="button" data-minigame-start="compostSort">Start</button>
+            </div>
+            <div class="minigame-card">
+              <div>
+                <strong>Rytmiczne nucenie</strong>
+                <span data-minigame-last="rhythmHum">0 nut</span>
+              </div>
+              <button class="ghost-button" type="button" data-minigame-start="rhythmHum">Start</button>
+            </div>
             <div class="minigame-playfield" data-minigame-playfield hidden>
               <canvas
                 class="dew-catch-canvas"
@@ -128,6 +142,22 @@
                 width="240"
                 height="144"
                 aria-label="Minigra pękania zarodników"
+                hidden
+              ></canvas>
+              <canvas
+                class="compost-sort-canvas"
+                data-compost-sort-canvas
+                width="240"
+                height="144"
+                aria-label="Minigra sortowania kompostu"
+                hidden
+              ></canvas>
+              <canvas
+                class="rhythm-hum-canvas"
+                data-rhythm-hum-canvas
+                width="240"
+                height="144"
+                aria-label="Minigra rytmicznego nucenia"
                 hidden
               ></canvas>
               <div class="minigame-hud">
@@ -152,6 +182,13 @@
               <span data-sky-discovery-count>0/0</span>
             </div>
             <div class="discovery-grid" data-sky-discoveries></div>
+            <div class="calendar-checklist" data-calendar-checklist hidden>
+              <div class="calendar-checklist__heading">
+                <strong>Kalendarz grzybni</strong>
+                <span data-calendar-status>Nie kupiono</span>
+              </div>
+              <div class="calendar-checklist__list" data-calendar-list></div>
+            </div>
           </section>
 
           <section class="panel-block panel-block--decorations" data-care-panel>
@@ -387,6 +424,33 @@
           </section>
         </aside>
       </main>
+
+      <div class="journal-tooltip" data-journal-tooltip role="tooltip" hidden></div>
+      <section
+        class="journal-polaroid"
+        data-journal-polaroid
+        role="dialog"
+        aria-modal="false"
+        aria-labelledby="journalPolaroidTitle"
+        hidden
+      >
+        <div class="journal-polaroid__photo">
+          <canvas
+            data-journal-polaroid-canvas
+            width="192"
+            height="144"
+            aria-label="Pamiątkowy kadr odkrycia"
+          ></canvas>
+        </div>
+        <div class="journal-polaroid__body">
+          <p class="journal-polaroid__eyebrow" data-journal-polaroid-meta></p>
+          <h3 id="journalPolaroidTitle" data-journal-polaroid-title>Odkrycie</h3>
+          <p data-journal-polaroid-caption></p>
+          <p data-journal-polaroid-description></p>
+          <p class="journal-polaroid__note" data-journal-polaroid-note></p>
+        </div>
+        <button class="journal-polaroid__close" type="button" data-journal-polaroid-close aria-label="Zamknij pamiątkę">×</button>
+      </section>
     </div>
 
     <script src="?bundle=config"></script>

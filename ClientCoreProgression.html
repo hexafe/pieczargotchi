@@ -120,7 +120,7 @@
     const source = isPlainObject(decorations) ? decorations : {};
     return {
       owned: uniqueStringList(source.owned),
-      active: uniqueStringList(source.active)
+      active: uniqueStringList(source.active).filter(isDisplayDecorationCore)
     };
   }
 
@@ -301,7 +301,7 @@
     state.inventory.spores -= item.cost;
     state.coins = Math.max(0, Number(state.inventory.spores) || 0);
     state.decorations.owned.push(item.id);
-    state.decorations.active = state.decorations.owned.slice(-3);
+    state.decorations.active = getActiveDisplayDecorationsCore(state.decorations.owned);
     state.stats = Object.assign({}, state.stats || {});
     state.stats.happiness = clampNumber(Number(state.stats.happiness) + (Number(item.happinessBonus) || 0), 0, 100, 60);
     state.minigames.lastResult = {
@@ -310,6 +310,14 @@
       at: new Date(Number(now) || Date.now()).toISOString()
     };
     return { ok: true, state: state, decoration: item };
+  }
+
+  function getActiveDisplayDecorationsCore(ownedIds) {
+    return uniqueStringList(ownedIds).filter(isDisplayDecorationCore).slice(-3);
+  }
+
+  function isDisplayDecorationCore(decorationId) {
+    return decorationId !== 'myceliumCalendar';
   }
 
   function buildStateExportEnvelopeCore(state, now) {

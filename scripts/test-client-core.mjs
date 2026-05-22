@@ -369,15 +369,15 @@ test('corrupted save shape falls back to a normal migration target', () => {
   assert(migrated.battle && migrated.battle.rewards.wins === 0, 'expected normalized battle rewards');
 });
 
-test('v2 saves migrate to v12 progression history, discoveries, evolution, minigames, decorations, daily rhythm, journal, return recap, relationship, and naming gate', () => {
+test('v2 saves migrate to v13 progression history, discoveries, evolution, minigames, decorations, daily rhythm, journal, return recap, relationship, naming gate, and calendar', () => {
   const migrated = core.migrateStateVersion({
     version: 2,
     stage: 'adult',
     stats: { growth: 70 },
     history: { actionsPerformed: { hydrate: 2 } }
-  }, 12);
+  }, 13);
 
-  assert(migrated.version === 12, `expected version 12, got ${migrated.version}`);
+  assert(migrated.version === 13, `expected version 13, got ${migrated.version}`);
   assert(migrated.mushroomName === '', 'expected unnamed default mushroom for first-run naming gate');
   assert(migrated.flags && migrated.flags.nameConfirmed === false, 'expected name confirmation flag to default to false');
   assert(migrated.history.actionsPerformed.hydrate === 2, 'expected action history to survive migration');
@@ -389,6 +389,7 @@ test('v2 saves migrate to v12 progression history, discoveries, evolution, minig
   assert(migrated.discoveries && migrated.discoveries.sky, 'expected sky discoveries subtree');
   assert(migrated.discoveries && migrated.discoveries.environment, 'expected environment discoveries subtree');
   assert(migrated.discoveries && migrated.discoveries.instruments, 'expected instrument discoveries subtree');
+  assert(migrated.discoveries && migrated.discoveries.calendar, 'expected calendar discoveries subtree');
   assert(migrated.recovery && migrated.recovery.active === false, 'expected empty recovery state');
   assert(migrated.gameOver && migrated.gameOver.active === false, 'expected empty game-over state');
   assert(migrated.dailyPlan && Array.isArray(migrated.dailyPlan.activeIds), 'expected daily plan defaults');
@@ -403,9 +404,9 @@ test('custom mushroom names survive migration as confirmed names', () => {
     version: 11,
     mushroomName: 'Borowik',
     flags: {}
-  }, 12);
+  }, 13);
 
-  assert(migrated.version === 12, `expected version 12, got ${migrated.version}`);
+  assert(migrated.version === 13, `expected version 13, got ${migrated.version}`);
   assert(migrated.mushroomName === 'Borowik', `expected custom name to survive, got ${migrated.mushroomName}`);
   assert(migrated.flags && migrated.flags.nameConfirmed === true, 'expected custom legacy name to count as confirmed');
 });
@@ -478,7 +479,7 @@ test('habitat tags influence minigame opportunities and expose effects', () => {
   const state = getGameplayLoopTestState({
     stage: 'young',
     stats: { hydration: 65 },
-    decorations: { owned: ['dewStone', 'sporeLantern'], active: ['dewStone', 'sporeLantern'] },
+    decorations: { owned: ['dewStone', 'sporeLantern', 'mossBell', 'cloverPatch'], active: ['dewStone', 'sporeLantern', 'mossBell', 'cloverPatch'] },
     inventory: { spores: 0 },
     patch: { quality: 74, mycelium: 24, harvests: 0, careStreak: 0 }
   });
@@ -489,10 +490,20 @@ test('habitat tags influence minigame opportunities and expose effects', () => {
     rain: 0
   }, now);
   const habitat = core.getDecorationHabitatSummary(state, rules);
+  const lifeScene = core.getHabitatLifeScene(state, {
+    condition: 'clear',
+    dayPhase: 'noon',
+    humidity: 66,
+    temperature: 23,
+    flowerDensity: 0.05
+  }, rules);
 
   assert(opportunities.some((item) => item.minigameId === 'dewCatch'), 'expected moisture habitat to make dew catch viable');
   assert(opportunities.some((item) => item.minigameId === 'sporePop'), 'expected spore habitat to unlock young-stage spore pop');
+  assert(opportunities.some((item) => item.minigameId === 'rhythmHum'), 'expected music habitat to recommend rhythm hum');
   assert(habitat.effects.some((effect) => effect.includes('Rosa')), 'expected habitat summary to describe moisture effect');
+  assert(lifeScene.flowerDensity > 0.5, `expected flower habitat to enrich scene, got ${lifeScene.flowerDensity}`);
+  assert(lifeScene.fireflyHabitatBoost > 0, 'expected night/spore habitat to boost fireflies');
 });
 
 test('relationship log is bounded and decoration habitat aggregates tags', () => {
@@ -529,10 +540,13 @@ test('evolution compass summarizes current care direction without deciding evolu
     }
   });
   const compass = core.getEvolutionCompass(state, rules);
+  const visual = core.getEvolutionVisualIdentity(compass.variant, rules);
 
   assert(compass.variant === 'dewcap', `expected dewcap direction, got ${compass.variant}`);
   assert(!compass.decided, 'expected compass to remain a preview before evolution');
   assert(compass.cues.length > 0, 'expected visible compass cues');
+  assert(visual && visual.scene === 'dew', 'expected dewcap visual identity');
+  assert(visual.cue.includes('Krople'), `expected dew visual cue, got ${visual.cue}`);
 });
 
 test('arena unlocks only at legendary stage', () => {
@@ -863,8 +877,8 @@ test('animation intent keeps activity and wake above sleep, need above happy, th
   }, rules, now).state === 'play', 'activity should outrank sleep');
   assert(core.getAnimationIntent({
     ...excellentState,
-    currentActivity: { type: 'wake', until: now + 1000 }
-  }, rules, now).state === 'wake', 'wake should be explicit');
+    currentActivity: { type: 'wake_surprise', until: now + 1000 }
+  }, rules, now).state === 'wake', 'wake surprise should use the wake sheet');
   assert(core.getAnimationIntent({
     ...excellentState,
     mode: 'sleeping',
@@ -1392,6 +1406,63 @@ test('spore pop grants bounded happiness and spores without hydration', () => {
   assert(result.state.inventory.spores === 5, `expected capped spore reward, got ${result.state.inventory.spores}`);
   assert(result.state.history.minigames.sporePop.plays === 1, 'expected spore pop history');
   assert(result.state.minigames.lastResult.id === 'sporePop', 'expected spore pop last result');
+});
+
+test('new habitat minigames grant bounded substrate and rhythm rewards', () => {
+  const rules = {
+    minigames: {
+      compostSort: {
+        id: 'compostSort',
+        label: 'Sortowanie kompostu',
+        rewards: {
+          nutrientsBase: 2,
+          nutrientsPerPoint: 1.2,
+          nutrientsMax: 12,
+          cleanlinessPerPoint: 0.4,
+          cleanlinessMax: 5,
+          substratePerPoint: 0.08,
+          substrateMax: 1
+        }
+      },
+      rhythmHum: {
+        id: 'rhythmHum',
+        label: 'Rytmiczne nucenie',
+        rewards: {
+          happinessBase: 2,
+          happinessPerPoint: 1.1,
+          happinessMax: 12,
+          energyPerPoint: 0.25,
+          energyMax: 3
+        }
+      }
+    }
+  };
+  const now = Date.parse('2026-05-21T15:00:00.000Z');
+  const compostSession = core.createMinigameSession('compostSort', rules, now, 789).session;
+  compostSession.score = 18;
+  const compost = core.finishMinigame({
+    stats: { nutrients: 50, cleanliness: 60, happiness: 50 },
+    inventory: { spores: 0, substrate: 0 },
+    history: {},
+    minigames: {}
+  }, compostSession, rules, now + 22000);
+
+  const rhythmSession = core.createMinigameSession('rhythmHum', rules, now, 790).session;
+  rhythmSession.score = 10;
+  const rhythm = core.finishMinigame({
+    stats: { happiness: 50, energy: 60 },
+    inventory: { spores: 0 },
+    history: {},
+    minigames: {}
+  }, rhythmSession, rules, now + 18000);
+
+  assert(compost.ok, 'expected compost sort finish success');
+  assert(compost.state.stats.nutrients === 62, `expected capped nutrients, got ${compost.state.stats.nutrients}`);
+  assert(compost.state.stats.cleanliness === 65, `expected capped cleanliness, got ${compost.state.stats.cleanliness}`);
+  assert(compost.state.inventory.substrate === 1, `expected substrate reward, got ${compost.state.inventory.substrate}`);
+  assert(rhythm.ok, 'expected rhythm hum finish success');
+  assert(rhythm.state.stats.happiness === 62, `expected capped rhythm happiness, got ${rhythm.state.stats.happiness}`);
+  assert(rhythm.state.stats.energy === 62.5, `expected small rhythm energy reward, got ${rhythm.state.stats.energy}`);
 });
 
 test('evolution variant reacts to care history and legendary threshold', () => {
@@ -1933,8 +2004,82 @@ test('world journal combines sky, environment, and rare instrument discoveries w
   assert(aurora.discovered, 'expected aurora to be discovered');
   assert(dew.discovered, 'expected dew to be discovered');
   assert(rare.discovered, 'expected rare instrument to be discovered');
+  assert(aurora.photoScene === 'aurora', `expected aurora photo scene, got ${aurora.photoScene}`);
+  assert(aurora.reaction === 'awe', `expected aurora awe reaction, got ${aurora.reaction}`);
+  assert(aurora.description.includes('Zielonkawe'), 'expected aurora to expose journal description');
+  assert(aurora.scienceNote.includes('geomagnetyczna'), 'expected aurora to expose science note');
+  assert(dew.photoScene === 'dew', `expected dew photo scene, got ${dew.photoScene}`);
+  assert(dew.conditionNote.includes('Poranek'), 'expected dew to expose condition note');
+  assert(rare.photoScene === 'instrument', `expected rare instrument photo scene, got ${rare.photoScene}`);
+  assert(rare.reaction === 'proud', `expected rare instrument proud reaction, got ${rare.reaction}`);
   assert(comet && !comet.discovered && comet.hint, 'expected locked sky item to keep a hint');
   assert(state.journal.entries.length === 3, 'expected first sightings to create journal entries');
+});
+
+test('calendar events use local deterministic dates and checklist unlocks through owned decoration', () => {
+  const rules = getGameplayLoopTestRules();
+  const state = getGameplayLoopTestState({
+    inventory: { spores: 40 },
+    coins: 40,
+    discoveries: { sky: {}, environment: {}, instruments: {}, calendar: {} },
+    decorations: { owned: ['dewStone', 'mossBell', 'sporeLantern'], active: ['dewStone', 'mossBell', 'sporeLantern'] }
+  });
+
+  const teaEvents = core.getCalendarEventsForDate(new Date(2026, 4, 21, 9), state, rules);
+  const tea = teaEvents.find((item) => item.id === 'teaDay');
+  const bees = teaEvents.find((item) => item.id === 'worldBeeDay');
+  const springBirds = core.getCalendarEventsForDate(new Date(2026, 4, 9, 9), state, rules)
+    .find((item) => item.id === 'migratoryBirdDaySpring');
+
+  assert(tea && tea.active, 'expected International Tea Day to be active on May 21');
+  assert(bees && !bees.active, 'expected World Bee Day not to be active on May 21');
+  assert(springBirds && springBirds.active, 'expected migratory bird day to match second Saturday in May 2026');
+
+  const lockedChecklist = core.getCalendarChecklist(state, rules, new Date(2026, 4, 21, 9));
+  assert(!lockedChecklist.unlocked, 'expected checklist to start locked');
+
+  const purchase = core.buyDecoration(state, 'myceliumCalendar', rules, Date.parse('2026-05-21T09:00:00.000Z'));
+  assert(purchase.ok, 'expected calendar decoration purchase');
+  assert(purchase.state.decorations.owned.includes('myceliumCalendar'), 'expected owned calendar decoration');
+  assert(!purchase.state.decorations.active.includes('myceliumCalendar'), 'calendar should unlock UI without occupying a visible decoration slot');
+  assert(purchase.state.decorations.active.includes('dewStone'), 'calendar purchase should not evict visible decorations');
+  assert(purchase.state.inventory.spores === 28, `expected spores to be spent, got ${purchase.state.inventory.spores}`);
+
+  const unlockedChecklist = core.getCalendarChecklist(purchase.state, rules, new Date(2026, 4, 21, 9));
+  assert(unlockedChecklist.unlocked, 'expected owned calendar to unlock checklist');
+  assert(unlockedChecklist.events.length >= 12, 'expected calendar to list annual and seasonal events');
+});
+
+test('calendar discoveries record once per event and join the world journal', () => {
+  const state = getGameplayLoopTestState({
+    discoveries: { sky: {}, environment: {}, instruments: {}, calendar: {} },
+    journal: { entries: [] }
+  });
+  const first = core.recordCalendarDiscovery(state, 'teaDay', new Date(2026, 4, 21, 9));
+  const second = core.recordCalendarDiscovery(state, 'teaDay', new Date(2026, 4, 21, 12));
+  const nextYear = core.recordCalendarDiscovery(state, 'teaDay', new Date(2027, 4, 21, 9));
+  const unknown = core.recordCalendarDiscovery(state, 'fakeDay', new Date(2026, 4, 21, 9));
+  const normalized = core.normalizeDiscoveriesState({
+    calendar: {
+      teaDay: { firstSeenAt: '2026-05-21T07:00:00.000Z', count: 2 },
+      bogus: { firstSeenAt: '2026-05-21T07:00:00.000Z', count: 1 }
+    }
+  });
+  const journal = core.getWorldJournal(state, getGameplayLoopTestRules());
+  const calendar = journal.groups.find((group) => group.id === 'calendar');
+  const tea = calendar.items.find((item) => item.id === 'teaDay');
+
+  assert(first.newlyDiscovered, 'expected first calendar discovery');
+  assert(!second.newlyDiscovered, 'expected repeated same-day calendar sighting to be known');
+  assert(!nextYear.newlyDiscovered, 'expected next-year sighting to keep known discovery status');
+  assert(!unknown.ok, 'unknown calendar discovery should be rejected');
+  assert(state.discoveries.calendar.teaDay.count === 2, `expected tea day count 2 after next year, got ${state.discoveries.calendar.teaDay.count}`);
+  assert(normalized.calendar.teaDay.count === 2, 'expected normalized calendar discovery');
+  assert(!normalized.calendar.bogus, 'expected unknown calendar discovery to be dropped');
+  assert(tea.discovered, 'expected tea day to be discoverable in journal');
+  assert(tea.photoScene === 'teaDay', `expected tea polaroid scene, got ${tea.photoScene}`);
+  assert(journal.discoveredCount === 1, `expected one calendar discovery, got ${journal.discoveredCount}`);
+  assert(state.journal.entries.some((entry) => entry.type === 'calendar'), 'expected calendar journal entry');
 });
 
 test('return recap is generated once for long offline windows', () => {
@@ -1998,8 +2143,16 @@ function getGameplayLoopTestRules() {
       { id: 'dewStone', label: 'Kamień rosy', cost: 6, happinessBonus: 2, tags: ['moisture', 'comfort'] },
       { id: 'mossBell', label: 'Mchowy dzwonek', cost: 10, happinessBonus: 3, tags: ['music', 'wind', 'comfort'] },
       { id: 'sporeLantern', label: 'Latarenka zarodników', cost: 16, happinessBonus: 4, tags: ['night', 'spores'] },
-      { id: 'cloverPatch', label: 'Kępa koniczyny', cost: 5, happinessBonus: 1, tags: ['wild', 'flowers', 'insects'] }
+      { id: 'cloverPatch', label: 'Kępa koniczyny', cost: 5, happinessBonus: 1, tags: ['wild', 'flowers', 'insects'] },
+      { id: 'fallenTwig', label: 'Próchniejąca gałązka', cost: 7, happinessBonus: 1, tags: ['shelter', 'insects', 'spores'] },
+      { id: 'myceliumCalendar', label: 'Kalendarz grzybni', cost: 12, happinessBonus: 1, tags: ['calendar', 'comfort', 'spores'] }
     ],
+    minigames: {
+      dewCatch: { id: 'dewCatch', label: 'Łapanie rosy' },
+      sporePop: { id: 'sporePop', label: 'Pękanie zarodników' },
+      compostSort: { id: 'compostSort', label: 'Sortowanie kompostu' },
+      rhythmHum: { id: 'rhythmHum', label: 'Rytmiczne nucenie' }
+    },
     instrumentCatalog: {
       stages: {
         adult: [
@@ -2015,7 +2168,7 @@ function getGameplayLoopTestRules() {
 
 function getGameplayLoopTestState(overrides = {}) {
   return {
-    version: 12,
+    version: 13,
     playerId: 'test-player',
     mushroomName: overrides.mushroomName || 'Testek',
     createdAt: overrides.createdAt || '2026-05-20T08:00:00.000Z',
@@ -2051,7 +2204,7 @@ function getGameplayLoopTestState(overrides = {}) {
     relationship: overrides.relationship || { entries: [] },
     journal: overrides.journal || { entries: [] },
     decorations: overrides.decorations || { owned: [], active: [] },
-    discoveries: overrides.discoveries || { sky: {}, environment: {}, instruments: {} },
+    discoveries: overrides.discoveries || { sky: {}, environment: {}, instruments: {}, calendar: {} },
     returnRecap: overrides.returnRecap || { lastSeenAt: null, lastDigestAt: null, entries: [] },
     inventory: overrides.inventory || { spores: 12 },
     coins: overrides.coins ?? 12,

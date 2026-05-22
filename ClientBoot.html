@@ -205,7 +205,6 @@
     effects: [],
     input: createDefaultInputState(),
     immersion: createDefaultImmersionState(),
-    wakeSurpriseUntil: 0,
     weatherLocation: null,
     weatherScene: createLocalWeatherScene(defaultWeatherLocation),
     spaceWeather: null,
@@ -349,6 +348,7 @@
   }
 
   function bindDom() {
+    dom.app = document.querySelector('[data-app]');
     dom.buildBadge = document.querySelector('[data-build-badge]');
     dom.modePill = document.querySelector('[data-mode-pill]');
     dom.resetButton = document.querySelector('[data-reset-button]');
@@ -376,6 +376,15 @@
     dom.inventoryRow = document.querySelector('[data-inventory-row]');
     dom.skyDiscoveries = document.querySelector('[data-sky-discoveries]');
     dom.skyDiscoveryCount = document.querySelector('[data-sky-discovery-count]');
+    dom.journalTooltip = document.querySelector('[data-journal-tooltip]');
+    dom.journalPolaroid = document.querySelector('[data-journal-polaroid]');
+    dom.journalPolaroidCanvas = document.querySelector('[data-journal-polaroid-canvas]');
+    dom.journalPolaroidTitle = document.querySelector('[data-journal-polaroid-title]');
+    dom.journalPolaroidMeta = document.querySelector('[data-journal-polaroid-meta]');
+    dom.journalPolaroidCaption = document.querySelector('[data-journal-polaroid-caption]');
+    dom.journalPolaroidDescription = document.querySelector('[data-journal-polaroid-description]');
+    dom.journalPolaroidNote = document.querySelector('[data-journal-polaroid-note]');
+    dom.journalPolaroidClose = document.querySelector('[data-journal-polaroid-close]');
     dom.coinsLabel = document.querySelector('[data-coins-label]');
     dom.eventLog = document.querySelector('[data-event-log]');
     dom.assetStatus = document.querySelector('[data-asset-status]');
@@ -432,9 +441,14 @@
     dom.minigameTime = document.querySelector('[data-minigame-time]');
     dom.dewCatchCanvas = document.querySelector('[data-dew-catch-canvas]');
     dom.sporePopCanvas = document.querySelector('[data-spore-pop-canvas]');
+    dom.compostSortCanvas = document.querySelector('[data-compost-sort-canvas]');
+    dom.rhythmHumCanvas = document.querySelector('[data-rhythm-hum-canvas]');
     dom.decorationList = document.querySelector('[data-decoration-list]');
     dom.decorationCount = document.querySelector('[data-decoration-count]');
     dom.habitatSummary = document.querySelector('[data-habitat-summary]');
+    dom.calendarChecklist = document.querySelector('[data-calendar-checklist]');
+    dom.calendarStatus = document.querySelector('[data-calendar-status]');
+    dom.calendarList = document.querySelector('[data-calendar-list]');
     dom.historyScore = document.querySelector('[data-history-score]');
     dom.careHistory = document.querySelector('[data-care-history]');
     dom.characterCompass = document.querySelector('[data-character-compass]');
@@ -522,6 +536,12 @@
     if (dom.sporePopCanvas) {
       dom.sporePopCanvas.addEventListener('pointerdown', handleSporePopPointer);
     }
+    if (dom.compostSortCanvas) {
+      dom.compostSortCanvas.addEventListener('pointerdown', handleCompostSortPointer);
+    }
+    if (dom.rhythmHumCanvas) {
+      dom.rhythmHumCanvas.addEventListener('pointerdown', handleRhythmHumPointer);
+    }
     if (dom.exportButton) {
       dom.exportButton.addEventListener('click', handleExportState);
     }
@@ -530,6 +550,9 @@
     }
     if (dom.importInput) {
       dom.importInput.addEventListener('change', handleImportFile);
+    }
+    if (typeof bindWorldJournalInteractions === 'function') {
+      bindWorldJournalInteractions();
     }
     bindDebugControls();
   }

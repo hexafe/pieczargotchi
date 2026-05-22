@@ -283,16 +283,14 @@
     runtime.state.cooldowns[action.id] = now + action.cooldownSeconds * 1000;
     recordActionHistory(runtime.state, action.id);
     runtime.state.currentActivity = waking
-      ? { type: 'wake', label: 'O_O', startedAt: now, until: now + (rules.wakeSurpriseMs || 1800) }
+      ? { type: 'wake_surprise', label: 'Przebudzenie', startedAt: now, until: now + (rules.wakeSurpriseMs || 1800) }
       : null;
 
     if (waking) {
       runtime.state.flags.firstWakeDone = true;
-      runtime.wakeSurpriseUntil = now + (rules.wakeSurpriseMs || 1800);
       triggerEffect('wake');
-      addLog(runtime.state, 'Pieczarka obudziła się z miną O_O.', now);
+      addLog(runtime.state, 'Pieczarka przeciąga się po przebudzeniu.', now);
     } else {
-      runtime.wakeSurpriseUntil = 0;
       triggerEffect('sleep');
       rewardCareIfNeeded(runtime.state, action, now);
       addLog(runtime.state, 'Pieczarka wtuliła się pod mech.', now);
@@ -424,7 +422,8 @@
       return;
     }
 
-    const result = core.createMinigameSession(minigameId, rules, now, buildMinigameSeed(minigameId, now));
+    const scene = typeof getCurrentWeatherScene === 'function' ? getCurrentWeatherScene() : null;
+    const result = core.createMinigameSession(minigameId, rules, now, buildMinigameSeed(minigameId, now), runtime.state, scene);
     if (!result.ok) {
       setTransientMessage('Gry', result.reason);
       renderUi();
@@ -465,7 +464,7 @@
         minigameId: session.id,
         score: session.score
       }, now);
-      triggerEffect(session.id === 'sporePop' ? 'spores' : 'water');
+      triggerEffect(getMinigameEffectType(session.id));
     }
 
     runtime.state.lastUpdatedAt = new Date(now).toISOString();
@@ -554,6 +553,19 @@
     return config ? Number(config.cooldownMs) || 0 : 0;
   }
 
+  function getMinigameEffectType(minigameId) {
+    if (minigameId === 'sporePop') {
+      return 'spores';
+    }
+    if (minigameId === 'rhythmHum') {
+      return 'hearts';
+    }
+    if (minigameId === 'compostSort') {
+      return 'clean';
+    }
+    return 'water';
+  }
+
   function formatMinigameRewardLog(session, rewards, reason) {
     const config = rules.minigames && rules.minigames[session.id] ? rules.minigames[session.id] : {};
     const stats = rewards && rewards.stats ? rewards.stats : {};
@@ -577,6 +589,20 @@
     });
     if (rewards && rewards.spores) {
       rewardParts.push('+' + rewards.spores + ' zarodników');
+    }
+    if (rewards && rewards.inventory) {
+      const inventoryLabels = {
+        substrate: 'podłoża',
+        compost: 'kompostu',
+        water: 'wody',
+        toys: 'zabawek'
+      };
+      Object.keys(rewards.inventory).forEach(function(itemId) {
+        const value = Math.round(Number(rewards.inventory[itemId]) || 0);
+        if (value) {
+          rewardParts.push('+' + value + ' ' + (inventoryLabels[itemId] || itemId));
+        }
+      });
     }
 
     return prefix + label + ': ' + getMinigameScoreLabel(session.id, session.score)

@@ -14,6 +14,10 @@
       startDewCatchRuntime(session);
     } else if (session.id === 'sporePop' && typeof startSporePopRuntime === 'function') {
       startSporePopRuntime(session);
+    } else if (session.id === 'compostSort' && typeof startCompostSortRuntime === 'function') {
+      startCompostSortRuntime(session);
+    } else if (session.id === 'rhythmHum' && typeof startRhythmHumRuntime === 'function') {
+      startRhythmHumRuntime(session);
     }
   }
 
@@ -30,7 +34,10 @@
       session: Object.assign({}, session, {
         score: Number(session.score) || 0,
         caught: Array.isArray(session.caught) ? session.caught.slice() : [],
-        missed: Array.isArray(session.missed) ? session.missed.slice() : []
+        missed: Array.isArray(session.missed) ? session.missed.slice() : [],
+        mistakes: Number(session.mistakes) || 0,
+        combo: Number(session.combo) || 0,
+        bestCombo: Number(session.bestCombo) || 0
       }),
       ctx: ctx,
       drops: buildDewCatchDrops(session),
@@ -90,16 +97,17 @@
         return;
       }
       if (canDewBucketCatchDrop(position, drop.size)) {
-        catchDewDrop(drop.id, position, now);
+        catchDewDrop(drop, position, now);
         return;
       }
       if (position.y < -16) {
         return;
       }
 
-      drawDewDrop(ctx, position.x, position.y, drop.size, drop.sparklePhase + now / 260);
+      drawDewDrop(ctx, position.x, position.y, drop, drop.sparklePhase + now / 260);
       runtime.minigame.drawnDrops += 1;
     });
+    drawDewCatchCombo(ctx, canvas.width, now);
     drawDewBucket(ctx, runtime.minigame.bucket, canvas.width, canvas.height, now);
     drawDewCatchForegroundGrass(ctx, canvas.width, canvas.height, now, progress);
     updateDewCatchSplashes(ctx, now);
@@ -134,20 +142,35 @@
 
   function buildDewCatchDrops(session) {
     const config = rules.minigames && rules.minigames.dewCatch ? rules.minigames.dewCatch : {};
-    const count = Math.max(12, Number(config.dropCount) || 24);
+    const habitatTags = session && session.habitatTags ? session.habitatTags : {};
+    const count = Math.max(12, (Number(config.dropCount) || 24) + Math.min(6, (Number(habitatTags.moisture) || 0) * 3));
     const seed = Number(session.seed) || 1;
     const drops = [];
 
     for (let index = 0; index < count; index += 1) {
+      const kindRoll = seededDewUnit(seed, index, 9);
+      const moisture = Number(habitatTags.moisture) || 0;
+      const leafThreshold = Math.max(0.03, 0.08 - moisture * 0.015);
+      const glintThreshold = 0.93 - Math.min(0.04, moisture * 0.015);
+      const kind = kindRoll < leafThreshold
+        ? 'leaf'
+        : kindRoll > glintThreshold
+        ? 'glint'
+        : kindRoll > 0.80
+        ? 'heavy'
+        : 'dew';
       drops.push({
         id: 'drop_' + index,
+        kind: kind,
+        points: kind === 'glint' ? 3 : kind === 'heavy' ? 2 : kind === 'leaf' ? 0 : 1,
         x: Math.round(18 + seededDewUnit(seed, index, 1) * 204),
         start: seededDewUnit(seed, index, 2) * 0.56,
         speed: 0.54 + seededDewUnit(seed, index, 3) * 0.28,
         sway: 5 + seededDewUnit(seed, index, 4) * 15,
-        size: 6 + Math.round(seededDewUnit(seed, index, 5) * 3),
+        size: (kind === 'heavy' ? 8 : 6) + Math.round(seededDewUnit(seed, index, 5) * 3),
         driftPhase: seededDewUnit(seed, index, 6) * Math.PI * 2,
-        sparklePhase: seededDewUnit(seed, index, 7) * Math.PI * 2
+        sparklePhase: seededDewUnit(seed, index, 7) * Math.PI * 2,
+        wind: -4 + seededDewUnit(seed, index, 8) * 8
       });
     }
 
@@ -159,8 +182,9 @@
     const fall = -18 + local * (height + 34);
     const sway = Math.sin(local * Math.PI * 2.2 + drop.driftPhase) * drop.sway;
     const slowSway = Math.sin(local * Math.PI * 0.9 + drop.driftPhase * 0.6) * drop.sway * 0.34;
+    const wind = Math.sin(progress * Math.PI * 2.6 + drop.driftPhase) * drop.wind;
     return {
-      x: Math.max(8, Math.min(width - 8, drop.x + sway + slowSway)),
+      x: Math.max(8, Math.min(width - 8, drop.x + sway + slowSway + wind)),
       y: fall
     };
   }
@@ -200,21 +224,34 @@
       && position.y <= bucketY + 13;
   }
 
-  function catchDewDrop(dropId, position, now) {
+  function catchDewDrop(drop, position, now) {
     const session = runtime.minigame.session;
-    if (isDewDropResolved(session, dropId)) {
+    if (!drop || isDewDropResolved(session, drop.id)) {
       return;
     }
 
-    session.caught.push(dropId);
-    session.score += 1;
-    runtime.minigame.bucket.catchPulseUntil = now + 260;
+    session.caught.push(drop.id);
+    if (drop.kind === 'leaf') {
+      session.mistakes = (Number(session.mistakes) || 0) + 1;
+      session.combo = 0;
+      runtime.minigame.bucket.catchPulseUntil = now + 180;
+    } else {
+      session.score += Number(drop.points) || 1;
+      session.combo = (Number(session.combo) || 0) + 1;
+      session.bestCombo = Math.max(Number(session.bestCombo) || 0, Number(session.combo) || 0);
+      runtime.minigame.bucket.catchPulseUntil = now + (drop.kind === 'glint' ? 420 : 260);
+    }
     runtime.minigame.splashes.push({
       x: position.x,
       y: getDewBucketY(dom.dewCatchCanvas.height, runtime.minigame.bucket) + 4,
       startedAt: now,
-      seed: Math.round(position.x * 17 + session.score * 31)
+      seed: Math.round(position.x * 17 + session.score * 31),
+      kind: drop.kind,
+      points: drop.points
     });
+    if (drop.kind === 'glint') {
+      triggerEffect('hearts');
+    }
     syncDewCatchActiveSession(true);
     updateMinigameHud(now);
   }
@@ -238,7 +275,10 @@
     const session = runtime.minigame.session;
     runtime.state.minigames.active = Object.assign({}, session, {
       caught: session.caught.slice(),
-      missed: (session.missed || []).slice()
+      missed: (session.missed || []).slice(),
+      mistakes: session.mistakes,
+      combo: session.combo,
+      bestCombo: session.bestCombo
     });
     if (shouldSave) {
       saveState(runtime.state);
@@ -370,28 +410,53 @@
     }
   }
 
-  function drawDewDrop(ctx, x, y, size, phase) {
+  function drawDewDrop(ctx, x, y, drop, phase) {
+    const size = Number(drop && drop.size) || 7;
     const sparkle = Math.sin(phase) * 0.5 + 0.5;
     const cx = Math.round(x);
     const top = Math.round(y);
+    if (drop && drop.kind === 'leaf') {
+      drawDewLeaf(ctx, cx, top, size, phase);
+      return;
+    }
+
     const dropHeight = size + 5;
-    ctx.fillStyle = '#1d5f86';
+    const rare = drop && drop.kind === 'glint';
+    const heavy = drop && drop.kind === 'heavy';
+    ctx.fillStyle = rare ? '#9b6d1f' : heavy ? '#164e76' : '#1d5f86';
     ctx.fillRect(cx - 1, top, 3, 2);
     ctx.fillRect(cx - 3, top + 2, 7, 3);
     ctx.fillRect(cx - 4, top + 5, 9, dropHeight - 6);
     ctx.fillRect(cx - 3, top + dropHeight - 1, 7, 2);
-    ctx.fillStyle = '#2d8fc7';
+    ctx.fillStyle = rare ? '#f0b947' : heavy ? '#247daf' : '#2d8fc7';
     ctx.fillRect(cx - 1, top + 2, 4, 3);
     ctx.fillRect(cx - 3, top + 5, 7, dropHeight - 6);
-    ctx.fillStyle = '#82d7f0';
+    ctx.fillStyle = rare ? '#fff0a8' : '#82d7f0';
     ctx.fillRect(cx - 2, top + 4, 3, 3);
     ctx.fillRect(cx - 1, top + dropHeight - 3, 4, 1);
     ctx.fillStyle = '#f8ffff';
     ctx.fillRect(cx - 2, top + 5, 2, 2);
-    if (sparkle > 0.70) {
+    if (sparkle > 0.70 || rare) {
       ctx.fillRect(cx + 4, top + 2, 1, 1);
       ctx.fillRect(cx + 5, top + 1, 1, 1);
     }
+    if (rare && sparkle > 0.25) {
+      ctx.fillStyle = '#fffdf7';
+      ctx.fillRect(cx - 7, top + 6, 3, 1);
+      ctx.fillRect(cx - 6, top + 5, 1, 3);
+      ctx.fillRect(cx + 6, top + 9, 3, 1);
+      ctx.fillRect(cx + 7, top + 8, 1, 3);
+    }
+  }
+
+  function drawDewLeaf(ctx, x, y, size, phase) {
+    const tilt = Math.round(Math.sin(phase) * 2);
+    ctx.fillStyle = '#24582c';
+    ctx.fillRect(x - size + tilt, y + 4, size * 2 - 2, 4);
+    ctx.fillStyle = '#4f8f39';
+    ctx.fillRect(x - size + 2 + tilt, y + 2, size + 4, 3);
+    ctx.fillStyle = '#9fd96a';
+    ctx.fillRect(x - 2 + tilt, y + 3, 4, 2);
   }
 
   function getDewBucketY(height, bucket) {
@@ -437,7 +502,7 @@
     ctx.fillStyle = '#6b4729';
     ctx.fillRect(x + half - 12, y + 8, 4, bucket.height - 13);
 
-    const waterWidth = Math.min(bucket.width - 12, 8 + runtime.minigame.session.score * 2);
+    const waterWidth = Math.min(bucket.width - 12, 8 + runtime.minigame.session.score * 1.4);
     ctx.fillStyle = '#1d5f86';
     ctx.fillRect(x - Math.round(waterWidth / 2), y + 5, waterWidth, 2);
     ctx.fillStyle = '#82d7f0';
@@ -445,10 +510,33 @@
 
     if (pulse) {
       ctx.globalAlpha = 0.42 * pulse;
-      ctx.fillStyle = '#f8ffff';
+      ctx.fillStyle = runtime.minigame.session.combo >= 4 ? '#fff0a8' : '#f8ffff';
       ctx.fillRect(x - half + 6, y - 3, bucket.width - 12, 2);
       ctx.globalAlpha = 1;
     }
+  }
+
+  function drawDewCatchCombo(ctx, width, now) {
+    const combo = Number(runtime.minigame && runtime.minigame.session && runtime.minigame.session.combo) || 0;
+    if (combo < 3) {
+      return;
+    }
+
+    const pulse = Math.sin(now / 170) * 0.5 + 0.5;
+    const meter = Math.min(10, combo);
+    const x = width - 58;
+    ctx.save();
+    ctx.globalAlpha = 0.82;
+    ctx.fillStyle = '#3c2b20';
+    ctx.fillRect(x, 9, 46, 13);
+    ctx.fillStyle = '#1d5f86';
+    ctx.fillRect(x + 3, 12, 40, 7);
+    ctx.fillStyle = '#82d7f0';
+    ctx.fillRect(x + 3, 12, Math.round(meter * 4), 7);
+    ctx.globalAlpha = 0.28 + pulse * 0.24;
+    ctx.fillStyle = '#fffdf7';
+    ctx.fillRect(x + 3 + Math.min(36, Math.round(meter * 4)), 10, 3, 11);
+    ctx.restore();
   }
 
   function updateDewCatchSplashes(ctx, now) {
@@ -461,12 +549,12 @@
       const progress = age / 430;
       const alpha = 1 - progress;
       ctx.globalAlpha = alpha;
-      ctx.fillStyle = '#f8ffff';
+      ctx.fillStyle = splash.kind === 'glint' ? '#fff0a8' : splash.kind === 'leaf' ? '#9fd96a' : '#f8ffff';
       for (let i = 0; i < 5; i += 1) {
         const direction = -1 + i * 0.5;
         const x = Math.round(splash.x + direction * (3 + progress * 12) + (seededDewUnit(splash.seed, i, 1) - 0.5) * 3);
         const y = Math.round(splash.y - 2 - Math.sin(progress * Math.PI) * (5 + i % 2 * 3) + progress * 5);
-        ctx.fillRect(x, y, 2, 2);
+        ctx.fillRect(x, y, splash.kind === 'leaf' ? 3 : 2, splash.kind === 'leaf' ? 1 : 2);
       }
       ctx.globalAlpha = 1;
     });
@@ -494,12 +582,24 @@
     if (dom.sporePopCanvas) {
       dom.sporePopCanvas.hidden = minigameId !== 'sporePop';
     }
+    if (dom.compostSortCanvas) {
+      dom.compostSortCanvas.hidden = minigameId !== 'compostSort';
+    }
+    if (dom.rhythmHumCanvas) {
+      dom.rhythmHumCanvas.hidden = minigameId !== 'rhythmHum';
+    }
   }
 
   function getMinigameScoreLabel(minigameId, score) {
     const amount = Number(score) || 0;
     if (minigameId === 'sporePop') {
       return amount + ' zarodników';
+    }
+    if (minigameId === 'compostSort') {
+      return amount + ' kawałków';
+    }
+    if (minigameId === 'rhythmHum') {
+      return amount + ' nut';
     }
 
     return amount + ' kropli';

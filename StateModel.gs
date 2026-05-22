@@ -156,7 +156,8 @@ function createDefaultStateTemplate() {
     discoveries: {
       sky: {},
       environment: {},
-      instruments: {}
+      instruments: {},
+      calendar: {}
     },
     returnRecap: {
       lastSeenAt: null,
