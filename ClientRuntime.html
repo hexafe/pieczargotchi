@@ -51,7 +51,27 @@
     drawEmergencyCanvasFallback('Render awaryjny');
   }
 
-  function drawEmergencyCanvasFallback(label) {
+  function recordFallbackDraw(kind, key) {
+    runtime.assetDiagnostics = runtime.assetDiagnostics || {};
+    runtime.assetDiagnostics.fallbackDraws = (runtime.assetDiagnostics.fallbackDraws || 0) + 1;
+    runtime.assetDiagnostics.lastFallback = {
+      kind: kind || 'unknown',
+      key: key || '',
+      at: getRenderClockNow()
+    };
+  }
+
+  function recordPendingPlaceholder(kind, key) {
+    runtime.assetDiagnostics = runtime.assetDiagnostics || {};
+    runtime.assetDiagnostics.pendingPlaceholders = (runtime.assetDiagnostics.pendingPlaceholders || 0) + 1;
+    runtime.assetDiagnostics.lastPlaceholder = {
+      kind: kind || 'unknown',
+      key: key || '',
+      at: getRenderClockNow()
+    };
+  }
+
+  function drawSceneLoadingPlaceholder(label) {
     const ctx = runtime.ctx;
     if (!ctx) {
       return;
@@ -60,27 +80,61 @@
     ctx.save();
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, canvasSize, canvasSize);
-    ctx.fillStyle = '#d7e8b4';
-    ctx.fillRect(0, 0, canvasSize, canvasSize);
-    ctx.fillStyle = '#9ac46a';
-    ctx.fillRect(0, 390, canvasSize, 122);
-    ctx.fillStyle = '#6fa74c';
-    for (let x = 0; x < canvasSize; x += 18) {
-      const h = 16 + (x % 54);
-      ctx.fillRect(x, 390 - h, 8, h);
-      ctx.fillRect(x + 8, 404 - Math.floor(h / 2), 6, Math.floor(h / 2));
+    ctx.fillStyle = '#9fb8c4';
+    ctx.fillRect(0, 0, canvasSize, Math.round(canvasSize * 0.55));
+    ctx.fillStyle = '#d8d8b3';
+    ctx.fillRect(0, Math.round(canvasSize * 0.55), canvasSize, Math.round(canvasSize * 0.45));
+    ctx.fillStyle = 'rgba(255, 253, 247, 0.18)';
+    for (let y = 0; y < canvasSize; y += 24) {
+      ctx.fillRect(0, y, canvasSize, 10);
     }
-    ctx.fillStyle = '#f3c88f';
-    ctx.fillRect(206, 218, 100, 152);
-    ctx.fillStyle = '#fff0c7';
-    ctx.fillRect(128, 124, 256, 76);
-    ctx.fillRect(156, 92, 200, 56);
-    ctx.fillStyle = '#765033';
-    ctx.fillRect(150, 202, 212, 26);
-    ctx.fillStyle = '#2c2119';
-    ctx.fillRect(224, 270, 20, 28);
-    ctx.fillRect(286, 270, 20, 28);
-    ctx.fillRect(246, 318, 44, 8);
+    drawMushroomLoadPlaceholder(ctx, getRenderClockNow(), label || '', label || '');
+    ctx.restore();
+  }
+
+  function drawMushroomLoadPlaceholder(ctx, now, label, diagnosticKey) {
+    recordPendingPlaceholder('scene', diagnosticKey || label || '');
+    const pulse = 0.5 + Math.sin((now || 0) / 520) * 0.5;
+    ctx.save();
+    ctx.fillStyle = 'rgba(38, 68, 39, 0.22)';
+    ctx.fillRect(178, 358, 156, 16);
+    ctx.fillStyle = 'rgba(58, 99, 48, 0.28)';
+    ctx.fillRect(126, 374, 260, 32);
+    ctx.fillStyle = 'rgba(131, 184, 71, 0.42)';
+    for (let x = 92; x < 420; x += 12) {
+      const height = 22 + ((x * 17) % 28);
+      ctx.fillRect(x, 386 - height, 3, height);
+      if (x % 36 === 8) {
+        ctx.fillRect(x + 4, 400 - Math.floor(height / 2), 2, Math.floor(height / 2));
+      }
+    }
+    if (label) {
+      ctx.globalAlpha = 0.42 + pulse * 0.18;
+      ctx.fillStyle = '#fffdf7';
+      ctx.fillRect(182, 330, 148, 20);
+      ctx.fillStyle = '#3b5a33';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillText(label, 198, 345);
+    }
+    ctx.restore();
+  }
+
+  function drawEmergencyCanvasFallback(label) {
+    const ctx = runtime.ctx;
+    if (!ctx) {
+      return;
+    }
+
+    runtime.assetDiagnostics = runtime.assetDiagnostics || {};
+    runtime.assetDiagnostics.emergencyFallbacks = (runtime.assetDiagnostics.emergencyFallbacks || 0) + 1;
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, canvasSize, canvasSize);
+    ctx.fillStyle = '#9fb8c4';
+    ctx.fillRect(0, 0, canvasSize, 286);
+    ctx.fillStyle = '#d7d9ad';
+    ctx.fillRect(0, 286, canvasSize, 226);
+    drawMushroomLoadPlaceholder(ctx, getRenderClockNow(), '', 'emergency');
     if (label) {
       ctx.fillStyle = 'rgba(255, 253, 247, 0.84)';
       ctx.fillRect(144, 36, 224, 34);
@@ -96,10 +150,11 @@
     if (!manifest.length) {
       runtime.assetStatus = 'Aktywne grafiki zapasowe';
       renderAssetStatus();
-      return;
+      runtime.initialAssetPromise = Promise.resolve();
+      return runtime.initialAssetPromise;
     }
 
-    Promise.all(manifest.map(function(asset) {
+    runtime.initialAssetPromise = Promise.all(manifest.map(function(asset) {
       return loadAsset(asset);
     })).then(function() {
       const loadedCount = manifest.filter(function(asset) {
@@ -119,6 +174,7 @@
 
       renderAssetStatus();
     });
+    return runtime.initialAssetPromise;
   }
 
   function getInitialAssetManifest() {
@@ -132,17 +188,25 @@
   }
 
   function ensureAssetLoaded(key) {
-    if (!key || runtime.assets[key] || runtime.assetPromises[key] || runtime.assetFailures[key]) {
-      return;
+    if (!key) {
+      return Promise.resolve(null);
+    }
+    if (runtime.assets[key]) {
+      return Promise.resolve(runtime.assets[key]);
+    }
+    if (runtime.assetPromises[key]) {
+      return runtime.assetPromises[key];
+    }
+    if (runtime.assetFailures[key]) {
+      return Promise.resolve(null);
     }
 
     const asset = assetsByKey.get(key);
     if (!asset) {
-      return;
+      return Promise.resolve(null);
     }
 
-    runtime.assetPromises[key] = loadAsset(asset).finally(function() {
-      delete runtime.assetPromises[key];
+    return loadAsset(asset).finally(function() {
       renderAssetStatus();
     });
   }
@@ -156,9 +220,39 @@
       runtime.assets[asset.key] = null;
       delete runtime.assetLoadedAt[asset.key];
       runtime.assetFailures[asset.key] = true;
+    }).finally(function() {
+      delete runtime.assetPromises[asset.key];
     });
     runtime.assetPromises[asset.key] = promise;
     return promise;
+  }
+
+  function warmUpCurrentStageAssets() {
+    const state = runtime.state;
+    if (!state) {
+      return;
+    }
+
+    const stage = state.stage || getStageForGrowth(state.stats && state.stats.growth ? state.stats.growth : 0);
+    const now = getRuntimeNow();
+    const keys = [];
+    const selected = typeof selectAnimation === 'function' ? selectAnimation(state, now) : null;
+    if (selected && selected.animation && selected.animation.key) {
+      keys.push(selected.animation.key);
+    }
+
+    ['idle', 'sleep', 'wake', 'happy', 'excellent', 'sun', 'stargaze'].forEach(function(stateName) {
+      const animation = animationsByKey.get(stage + '.' + stateName);
+      if (animation && animation.key) {
+        keys.push(animation.key);
+      }
+    });
+
+    keys.filter(function(key, index) {
+      return key && keys.indexOf(key) === index;
+    }).forEach(function(key) {
+      ensureAssetLoaded(key);
+    });
   }
 
   function decodeLoadedImage(image) {

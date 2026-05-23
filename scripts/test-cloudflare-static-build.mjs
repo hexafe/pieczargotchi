@@ -52,7 +52,21 @@ test('Cloudflare static asset manifest cache-busts runtime assets', () => {
   const grassVersion = distConfig.assetVersions['environment/grass_patch.png'];
   assert(grassVersion, 'grass patch should have a content version');
   assert(indexHtml.includes(`assets/environment/grass_patch.png?v=${grassVersion}`), 'grass preload should use the versioned asset URL');
+  ['stages/spore/sleep_sheet.png', 'stages/spore/idle_sheet.png', 'stages/spore/wake_sheet.png'].forEach((fileName) => {
+    const version = distConfig.assetVersions[fileName];
+    assert(version, `${fileName} should have a content version`);
+    assert(indexHtml.includes(`assets/${fileName}?v=${version}`), `${fileName} should be preloaded with a versioned URL`);
+  });
   assert(clientJs.includes('function getStaticAssetUrl('), 'static client should append asset versions at runtime');
+});
+
+test('loading and journal paths avoid procedural mushroom fallbacks during normal asset waits', () => {
+  assert(clientJs.includes('function drawMushroomLoadPlaceholder('), 'static client should render a neutral pending-scene placeholder');
+  assert(clientJs.includes('warmUpCurrentStageAssets();'), 'static client should warm current-stage sprites after state load');
+  assert(!clientJs.includes("drawEmergencyCanvasFallback('Ładowanie sceny')"), 'static client should not show the emergency mushroom during normal loading');
+  assert(!clientJs.includes("drawFallbackMushroom(ctx, runtime.state && runtime.state.mode"), 'missing animation images should not draw the procedural mushroom');
+  assert(clientJs.includes('function queueWorldJournalPolaroidRedraw('), 'journal polaroids should redraw after sprite assets load');
+  assert(clientJs.includes('function drawJournalMushroomPendingPlaceholder('), 'journal polaroids should use a neutral placeholder while waiting for sprites');
 });
 
 test('reset flow does not depend on browser modals in the static client', () => {

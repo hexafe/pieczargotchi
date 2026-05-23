@@ -200,6 +200,12 @@
     assetLoadedAt: {},
     assetPromises: {},
     assetFailures: {},
+    assetDiagnostics: {
+      fallbackDraws: 0,
+      pendingPlaceholders: 0,
+      journalPlaceholders: 0,
+      emergencyFallbacks: 0
+    },
     pendingAnimationStarts: {},
     assetStatus: 'Ładowanie grafik',
     effects: [],
@@ -336,6 +342,7 @@
     runtime.state = loadState();
     runtime.state = applyElapsedTime(runtime.state, getRuntimeNow());
     saveState(runtime.state);
+    warmUpCurrentStageAssets();
 
     renderBuildBadge();
     renderActions();
@@ -510,7 +517,7 @@
       return;
     }
     runtime.ctx.imageSmoothingEnabled = false;
-    drawEmergencyCanvasFallback('Ładowanie sceny');
+    drawSceneLoadingPlaceholder('Ładowanie sceny');
     markClientBootSeen();
   }
 

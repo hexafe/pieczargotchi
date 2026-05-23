@@ -24,9 +24,11 @@
     const selectedAnimation = selectAnimation(runtime.state, wallNow);
     const drewAnimation = drawSelectedAnimation(ctx, selectedAnimation, wallNow);
     const drewHeldAnimation = !drewAnimation && drawLastReadyAnimation(ctx, selectedAnimation, wallNow);
+    const drewMushroom = drewAnimation || drewHeldAnimation;
 
-    if (!drewAnimation && !drewHeldAnimation) {
-      drawFallbackMushroom(ctx, runtime.state && runtime.state.mode === 'sleeping' ? 'sleeping' : 'awake');
+    if (!drewMushroom) {
+      const pendingKey = selectedAnimation && selectedAnimation.animation ? selectedAnimation.animation.key : '';
+      drawMushroomLoadPlaceholder(ctx, now, '', pendingKey);
     }
 
     drawGroundForeground(ctx, now);
@@ -39,9 +41,9 @@
     drawWeatherPrecipitationForeground(ctx, now);
     drawImmersionForeground(ctx, now, wallNow);
 
-    if (runtime.state && runtime.state.mode === 'sleeping') {
+    if (runtime.state && runtime.state.mode === 'sleeping' && drewMushroom) {
       drawSleepAmbient(ctx, wallNow);
-    } else {
+    } else if (drewMushroom) {
       drawTemporaryOverlays(ctx, now, wallNow, selectedAnimation, drewAnimation || drewHeldAnimation);
     }
 

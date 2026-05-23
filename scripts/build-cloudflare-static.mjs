@@ -61,10 +61,24 @@ function renderCloudflareHtml(versions, assetVersions) {
 }
 
 function addCloudflarePreloads(html, assetVersions) {
-  const grassVersion = assetVersions && assetVersions['environment/grass_patch.png'];
-  const grassHref = `assets/environment/grass_patch.png${grassVersion ? `?v=${grassVersion}` : ''}`;
-  const preload = `    <link rel="preload" href="${grassHref}" as="image" type="image/png" fetchpriority="high">\n`;
-  if (html.includes('assets/environment/grass_patch.png') || !html.includes('</head>')) {
+  if (!html.includes('</head>')) {
+    return html;
+  }
+
+  const preloadAssets = [
+    'environment/grass_patch.png',
+    'stages/spore/sleep_sheet.png',
+    'stages/spore/idle_sheet.png',
+    'stages/spore/wake_sheet.png'
+  ];
+  const preload = preloadAssets.map((fileName, index) => {
+    const version = assetVersions && assetVersions[fileName];
+    const href = `assets/${fileName}${version ? `?v=${version}` : ''}`;
+    const priority = index === 0 ? ' fetchpriority="high"' : '';
+    return `    <link rel="preload" href="${href}" as="image" type="image/png"${priority}>`;
+  }).join('\n') + '\n';
+
+  if (preloadAssets.some((fileName) => html.includes(`assets/${fileName}`))) {
     return html;
   }
 

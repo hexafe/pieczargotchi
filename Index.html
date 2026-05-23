@@ -485,20 +485,17 @@
           canvas.height = size;
           ctx.imageSmoothingEnabled = false;
 
-          ctx.fillStyle = '#e6f0d1';
-          ctx.fillRect(0, 0, size, size);
-          ctx.fillStyle = '#9cc47a';
-          ctx.fillRect(0, Math.round(size * 0.74), size, Math.round(size * 0.26));
-          ctx.fillStyle = '#d7a56b';
-          ctx.fillRect(Math.round(size * 0.44), Math.round(size * 0.48), Math.round(size * 0.12), Math.round(size * 0.24));
-          ctx.fillStyle = '#f3d5a5';
-          ctx.fillRect(Math.round(size * 0.30), Math.round(size * 0.34), Math.round(size * 0.40), Math.round(size * 0.18));
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(Math.round(size * 0.38), Math.round(size * 0.38), Math.round(size * 0.06), Math.round(size * 0.05));
-          ctx.fillRect(Math.round(size * 0.56), Math.round(size * 0.38), Math.round(size * 0.06), Math.round(size * 0.05));
-          ctx.fillStyle = '#5d432c';
-          ctx.fillRect(Math.round(size * 0.40), Math.round(size * 0.40), Math.round(size * 0.025), Math.round(size * 0.025));
-          ctx.fillRect(Math.round(size * 0.58), Math.round(size * 0.40), Math.round(size * 0.025), Math.round(size * 0.025));
+          ctx.fillStyle = '#9fb8c4';
+          ctx.fillRect(0, 0, size, Math.round(size * 0.56));
+          ctx.fillStyle = '#d8d8b3';
+          ctx.fillRect(0, Math.round(size * 0.56), size, Math.round(size * 0.44));
+          ctx.fillStyle = 'rgba(38, 68, 39, 0.24)';
+          ctx.fillRect(Math.round(size * 0.34), Math.round(size * 0.70), Math.round(size * 0.32), Math.round(size * 0.035));
+          ctx.fillStyle = 'rgba(111, 167, 76, 0.5)';
+          for (let x = Math.round(size * 0.18); x < Math.round(size * 0.82); x += Math.max(6, Math.round(size * 0.024))) {
+            const blade = Math.round(size * 0.045) + (x % Math.round(size * 0.055));
+            ctx.fillRect(x, Math.round(size * 0.76) - blade, Math.max(2, Math.round(size * 0.006)), blade);
+          }
           ctx.fillStyle = 'rgba(54, 65, 43, 0.82)';
           ctx.fillRect(Math.round(size * 0.08), Math.round(size * 0.08), Math.round(size * 0.84), Math.round(size * 0.14));
           ctx.fillStyle = '#fffaf0';

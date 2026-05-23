@@ -430,30 +430,26 @@
   }
 
   function drawFallbackMushroom(ctx, mode) {
-    ctx.fillStyle = '#26662f';
-    ctx.fillRect(78, 365, 356, 48);
-    ctx.fillStyle = '#79b845';
-    ctx.fillRect(96, 330, 320, 58);
-    ctx.fillStyle = '#f8d39b';
-    ctx.fillRect(196, 200, 120, 160);
-    ctx.fillStyle = '#fff0c9';
-    ctx.fillRect(116, 118, 280, 96);
-    ctx.fillRect(140, 86, 232, 70);
-    ctx.fillStyle = '#7b4f2f';
-    ctx.fillRect(132, 202, 248, 34);
-
-    if (mode === 'sleeping') {
-      ctx.fillStyle = '#37261d';
-      ctx.fillRect(220, 277, 32, 6);
-      ctx.fillRect(284, 277, 32, 6);
-      ctx.fillRect(256, 306, 26, 6);
-      return;
+    recordFallbackDraw('mushroom', mode || '');
+    ctx.save();
+    ctx.fillStyle = 'rgba(38, 68, 39, 0.26)';
+    ctx.fillRect(132, 368, 248, 30);
+    ctx.fillStyle = 'rgba(116, 172, 72, 0.48)';
+    for (let x = 96; x < 416; x += 10) {
+      const height = 20 + ((x * 11) % 36);
+      ctx.fillRect(x, 392 - height, 3, height);
+      if (x % 30 === 6) {
+        ctx.fillRect(x + 4, 404 - Math.floor(height / 2), 2, Math.floor(height / 2));
+      }
     }
-
-    ctx.fillStyle = '#2e211a';
-    ctx.fillRect(216, 260, 24, 32);
-    ctx.fillRect(296, 260, 24, 32);
-    ctx.fillRect(246, 310, 42, 8);
+    ctx.fillStyle = mode === 'sleeping' ? 'rgba(255, 240, 196, 0.32)' : 'rgba(255, 240, 196, 0.42)';
+    ctx.fillRect(196, 304, 120, 52);
+    ctx.fillStyle = 'rgba(255, 246, 213, 0.52)';
+    ctx.fillRect(160, 262, 192, 42);
+    ctx.fillRect(190, 236, 132, 32);
+    ctx.fillStyle = 'rgba(123, 79, 47, 0.38)';
+    ctx.fillRect(176, 304, 160, 12);
+    ctx.restore();
   }
 
   function drawSleepAmbient(ctx, now) {

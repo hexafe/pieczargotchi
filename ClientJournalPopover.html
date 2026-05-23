@@ -42,6 +42,7 @@
     if (!item || !item.discovered) {
       return;
     }
+    preloadWorldJournalPolaroidAsset(item);
     showWorldJournalTooltip(item, event);
   }
 
@@ -72,6 +73,7 @@
     if (!item || !item.discovered) {
       return;
     }
+    preloadWorldJournalPolaroidAsset(item);
     showWorldJournalTooltip(item, null, trigger);
   }
 
@@ -93,6 +95,7 @@
     }
 
     event.preventDefault();
+    preloadWorldJournalPolaroidAsset(item);
     openWorldJournalPolaroid(item, event, trigger);
   }
 
@@ -539,8 +542,10 @@
       ? findStageAnimation(stage, stateName)
       : null;
     const image = animation && runtime.assets ? runtime.assets[animation.key] : null;
-    if (animation && !image && typeof ensureAssetLoaded === 'function') {
-      ensureAssetLoaded(animation.key);
+    const assetFailed = Boolean(animation && runtime.assetFailures && runtime.assetFailures[animation.key]);
+    if (animation && !image && !assetFailed && typeof ensureAssetLoaded === 'function') {
+      const promise = ensureAssetLoaded(animation.key);
+      queueWorldJournalPolaroidRedraw(item, promise);
     }
 
     if (animation && image) {
@@ -550,25 +555,64 @@
       return;
     }
 
-    drawJournalFallbackMushroom(ctx, width / 2, height - 40, item.reaction);
+    if (assetFailed) {
+      drawJournalFallbackMushroom(ctx, width / 2, height - 40, item.reaction);
+      return;
+    }
+
+    drawJournalMushroomPendingPlaceholder(ctx, width / 2, height - 40);
   }
 
   function drawJournalFallbackMushroom(ctx, centerX, baseY, reaction) {
-    ctx.fillStyle = '#f4c98d';
-    ctx.fillRect(centerX - 18, baseY - 32, 36, 32);
-    ctx.fillStyle = '#fff0b9';
-    ctx.fillRect(centerX - 34, baseY - 60, 68, 20);
-    ctx.fillRect(centerX - 24, baseY - 72, 48, 18);
-    ctx.fillStyle = '#4c2d24';
-    if (reaction === 'startled') {
-      ctx.fillRect(centerX - 12, baseY - 24, 6, 6);
-      ctx.fillRect(centerX + 6, baseY - 24, 6, 6);
-      ctx.fillRect(centerX - 4, baseY - 12, 8, 8);
-    } else {
-      ctx.fillRect(centerX - 12, baseY - 24, 5, 5);
-      ctx.fillRect(centerX + 7, baseY - 24, 5, 5);
-      ctx.fillRect(centerX - 7, baseY - 12, 14, 3);
+    runtime.assetDiagnostics = runtime.assetDiagnostics || {};
+    runtime.assetDiagnostics.journalFallbacks = (runtime.assetDiagnostics.journalFallbacks || 0) + 1;
+    drawJournalMushroomPendingPlaceholder(ctx, centerX, baseY);
+    ctx.fillStyle = reaction === 'startled' ? 'rgba(95, 58, 44, 0.36)' : 'rgba(66, 92, 52, 0.32)';
+    ctx.fillRect(centerX - 10, baseY - 47, 20, 4);
+  }
+
+  function drawJournalMushroomPendingPlaceholder(ctx, centerX, baseY) {
+    runtime.assetDiagnostics = runtime.assetDiagnostics || {};
+    runtime.assetDiagnostics.journalPlaceholders = (runtime.assetDiagnostics.journalPlaceholders || 0) + 1;
+    ctx.fillStyle = 'rgba(44, 78, 43, 0.28)';
+    ctx.fillRect(centerX - 38, baseY - 8, 76, 8);
+    ctx.fillStyle = 'rgba(75, 122, 52, 0.38)';
+    for (let x = -42; x <= 42; x += 7) {
+      const bladeHeight = 10 + Math.abs((x * 13) % 14);
+      ctx.fillRect(centerX + x, baseY - bladeHeight, 2, bladeHeight);
     }
+  }
+
+  function preloadWorldJournalPolaroidAsset(item) {
+    const stage = runtime.state && runtime.state.stage ? runtime.state.stage : 'adult';
+    const stateName = getJournalReactionState(item && item.reaction);
+    const animation = typeof findStageAnimation === 'function'
+      ? findStageAnimation(stage, stateName)
+      : null;
+    if (animation && typeof ensureAssetLoaded === 'function') {
+      ensureAssetLoaded(animation.key);
+    }
+  }
+
+  function queueWorldJournalPolaroidRedraw(item, promise) {
+    if (!promise || typeof promise.then !== 'function') {
+      return;
+    }
+
+    promise.then(function() {
+      const active = runtime.activeJournalPolaroid;
+      if (
+        !active
+        || active.id !== item.id
+        || active.groupId !== item.groupId
+        || !dom.journalPolaroid
+        || dom.journalPolaroid.hidden
+      ) {
+        return;
+      }
+
+      drawWorldJournalPolaroidScene(dom.journalPolaroidCanvas, item);
+    });
   }
 
   function getJournalReactionState(reaction) {
