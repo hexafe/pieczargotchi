@@ -27,7 +27,7 @@
 
   const statLabels = {
     hydration: 'Wilgoć',
-    nutrients: 'Odżywki',
+    nutrients: 'Składniki',
     energy: 'Energia',
     happiness: 'Radość',
     cleanliness: 'Czystość',
@@ -52,7 +52,7 @@
   const mushroomNameMaxLength = 24;
   const debugAnimationOptions = [
     { id: 'auto', label: 'Auto' },
-    { id: 'state.idle', label: 'Idle' },
+    { id: 'state.idle', label: 'Spoczynek' },
     { id: 'state.sleep', label: 'Sen' },
     { id: 'state.wake', label: 'Pobudka' },
     { id: 'state.happy', label: 'Radość' },
@@ -222,6 +222,7 @@
     resetConfirmUntil: 0,
     resetConfirmTimer: null,
     adaptiveDock: {
+      anchor: null,
       observer: null,
       resizeObserver: null,
       sceneVisible: false,

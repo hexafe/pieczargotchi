@@ -55,6 +55,23 @@
     return Math.round(value * 100) / 100;
   }
 
+  function formatPolishCountCore(value, forms) {
+    const amount = Math.max(0, Math.floor(Math.abs(Number(value) || 0)));
+    const safeForms = Array.isArray(forms) ? forms : [];
+    const singular = safeForms[0] || '';
+    const few = safeForms[1] || singular;
+    const many = safeForms[2] || few || singular;
+    const mod10 = amount % 10;
+    const mod100 = amount % 100;
+    const noun = amount === 1
+      ? singular
+      : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
+        ? few
+        : many;
+
+    return amount + (noun ? ' ' + noun : '');
+  }
+
   function removeZeroDeltas(deltas) {
     return Object.keys(deltas).reduce(function(result, key) {
       if (Math.abs(deltas[key]) >= 0.01) {

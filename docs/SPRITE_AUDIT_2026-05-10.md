@@ -30,7 +30,7 @@ Wynik:
 - `scripts/generate-pixel-assets.py`: pozycja twarzy jest liczona z realnego bounding boxa źródłowego sprite'a, skali etapu i pozycji w kadrze.
 - `scripts/generate-pixel-assets.py`: elementy twarzy mają `faceScale`, więc `Zarodnik` nie dostaje oczu w rozmiarze `Malucha`.
 - `scripts/generate-pixel-assets.py`: generator składa wspólną warstwę trawy z osobną sylwetką etapu, zamiast skalować całą scenę.
-- Assety zostały ponownie wygenerowane.
+- zasoby zostały ponownie wygenerowane.
 - Dodano `scripts/audit-sprite-consistency.py`, który mierzy rozmiar, środek i dryf klatek dla `sleep`, `wake` i `idle`.
 
 ## Weryfikacja Po Poprawce
@@ -56,4 +56,4 @@ Wynik:
 ## Pozostałe Drobne Ryzyka
 
 - Walidator nadal wypisuje miękkie ostrzeżenia o celowym ruchu cząstek i kilku mocniejszych animacjach (`critical`, `wake`, `sick`, efekty).
-- To nie blokuje obecnego renderingu, ale przy ręcznym dopieszczaniu assetów warto zmniejszyć drift w `critical` i `sleep`.
+- To nie blokuje obecnego renderingu, ale przy ręcznym dopieszczaniu zasobów warto zmniejszyć drift w `critical` i `sleep`.

@@ -122,7 +122,7 @@
     }
     dom.dayLabel.textContent = 'Dzień ' + day;
     dom.healthLabel.textContent = Math.round(state.stats.health) + '%';
-    dom.coinsLabel.textContent = (Number(state.coins) || 0) + ' zarodników';
+    dom.coinsLabel.textContent = formatUiCount(Number(state.coins) || 0, ['zarodnik', 'zarodniki', 'zarodników']);
   }
 
   function renderStats() {
@@ -276,6 +276,7 @@
     }
 
     dom.actionsPanel.dataset.adaptiveDock = 'flow';
+    ensureAdaptiveActionDockAnchor();
     if ('IntersectionObserver' in window) {
       dock.observer = new IntersectionObserver(function(entries) {
         const entry = entries && entries[0];
@@ -301,6 +302,9 @@
     }
 
     window.addEventListener('scroll', scheduleAdaptiveActionDockUpdate, { passive: true });
+    if (dom.sidePanel) {
+      dom.sidePanel.addEventListener('scroll', scheduleAdaptiveActionDockUpdate, { passive: true });
+    }
     window.addEventListener('resize', scheduleAdaptiveActionDockUpdate, { passive: true });
     window.addEventListener('orientationchange', scheduleAdaptiveActionDockUpdate, { passive: true });
     if (window.visualViewport) {
@@ -308,6 +312,22 @@
       window.visualViewport.addEventListener('scroll', scheduleAdaptiveActionDockUpdate, { passive: true });
     }
     scheduleAdaptiveActionDockUpdate();
+  }
+
+  function ensureAdaptiveActionDockAnchor() {
+    const dock = runtime && runtime.adaptiveDock;
+    const panel = dom.actionsPanel;
+    if (!dock || !panel || dock.anchor) {
+      return;
+    }
+
+    const anchor = document.createElement('div');
+    anchor.className = 'actions-dock-anchor';
+    anchor.setAttribute('aria-hidden', 'true');
+    if (panel.parentNode) {
+      panel.parentNode.insertBefore(anchor, panel);
+      dock.anchor = anchor;
+    }
   }
 
   function scheduleAdaptiveActionDockUpdate() {
@@ -331,18 +351,34 @@
       return;
     }
 
+    if (shouldReleaseAdaptiveDockForSidePanelScroll()) {
+      resetAdaptiveActionDock();
+      return;
+    }
+
     const viewport = getAdaptiveDockViewport();
+    if (shouldReleaseAdaptiveDockPastStandardPlace(viewport)) {
+      resetAdaptiveActionDock();
+      return;
+    }
+
     const canvasRect = canvas.getBoundingClientRect();
     const visibleRatio = Math.max(dock.sceneRatio || 0, getRectVisibleRatio(canvasRect, viewport));
-    const compactLayout = viewport.width <= 880 || viewport.height <= 700;
+    const compactLayout = viewport.width <= 1024 || viewport.height <= 760;
     const visibilityThreshold = viewport.height <= 500 ? 0.2 : 0.35;
     if (!compactLayout || visibleRatio < visibilityThreshold) {
       resetAdaptiveActionDock();
       return;
     }
 
-    const placement = selectAdaptiveActionDockPlacement(canvasRect, viewport);
-    applyAdaptiveActionDockPlacement(panel, canvasRect, viewport, placement);
+    const layout = getAdaptiveActionDockLayout(canvasRect, viewport);
+    const candidate = selectAdaptiveActionDockCandidate(layout);
+    if (!candidate) {
+      resetAdaptiveActionDock();
+      return;
+    }
+
+    applyAdaptiveActionDockPlacement(panel, candidate);
   }
 
   function shouldDisableAdaptiveActionDock() {
@@ -353,12 +389,38 @@
     return isMinigameActive();
   }
 
+  function shouldReleaseAdaptiveDockForSidePanelScroll() {
+    const sidePanel = dom.sidePanel;
+    if (!sidePanel || sidePanel.hidden) {
+      return false;
+    }
+
+    const scrollTop = Math.max(0, Number(sidePanel.scrollTop) || 0);
+    const scrollable = Number(sidePanel.scrollHeight) > Number(sidePanel.clientHeight) + 12;
+    return scrollable && scrollTop > 12;
+  }
+
+  function shouldReleaseAdaptiveDockPastStandardPlace(viewport) {
+    const dock = runtime && runtime.adaptiveDock;
+    const anchor = dock && dock.anchor;
+    if (!anchor || !viewport) {
+      return false;
+    }
+
+    const anchorRect = getElementRect(anchor);
+    if (!anchorRect) {
+      return false;
+    }
+
+    const threshold = viewport.top + 8;
+    return anchorRect.top <= threshold;
+  }
+
   function getAdaptiveDockViewport() {
-    const visual = window.visualViewport;
-    const width = visual && Number.isFinite(Number(visual.width)) ? Number(visual.width) : window.innerWidth;
-    const height = visual && Number.isFinite(Number(visual.height)) ? Number(visual.height) : window.innerHeight;
-    const left = visual && Number.isFinite(Number(visual.offsetLeft)) ? Number(visual.offsetLeft) : 0;
-    const top = visual && Number.isFinite(Number(visual.offsetTop)) ? Number(visual.offsetTop) : 0;
+    const width = window.innerWidth || document.documentElement.clientWidth || 0;
+    const height = window.innerHeight || document.documentElement.clientHeight || 0;
+    const left = 0;
+    const top = 0;
     return {
       left,
       top,
@@ -380,35 +442,187 @@
     return (visibleWidth * visibleHeight) / area;
   }
 
-  function selectAdaptiveActionDockPlacement(canvasRect, viewport) {
-    const bottomSpace = viewport.bottom - canvasRect.bottom;
-    const topSpace = canvasRect.top - viewport.top;
-    const rightSpace = viewport.right - canvasRect.right;
-    const leftSpace = canvasRect.left - viewport.left;
-    const bottomNeeded = getAdaptiveDockBottomHeight();
-    const sideSpace = Math.max(leftSpace, rightSpace);
-
-    if (viewport.width <= 640) {
-      if (bottomSpace >= bottomNeeded || viewport.height >= 620) {
-        return 'bottom';
-      }
-      return topSpace >= bottomNeeded ? 'top' : 'bottom';
-    }
-
-    if (sideSpace >= 104 && viewport.height >= 320) {
-      return rightSpace >= leftSpace ? 'right' : 'left';
-    }
-
-    if (bottomSpace >= bottomNeeded) {
-      return 'bottom';
-    }
-
-    return topSpace >= bottomNeeded ? 'top' : 'bottom';
+  function getAdaptiveActionDockLayout(canvasRect, viewport) {
+    const stageRect = getElementRect(dom.stagePanel) || canvasRect;
+    return {
+      viewport,
+      canvasRect,
+      stageRect,
+      sideRect: getVisibleElementRect(dom.sidePanel),
+      statusRect: getVisibleElementRect(document.querySelector('.panel-block--status')),
+      minigamesRect: getVisibleElementRect(document.querySelector('.panel-block--minigames'))
+    };
   }
 
-  function getAdaptiveDockBottomHeight() {
+  function getElementRect(element) {
+    if (!element || typeof element.getBoundingClientRect !== 'function') {
+      return null;
+    }
+
+    const rect = element.getBoundingClientRect();
+    return {
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom,
+      width: rect.width,
+      height: rect.height
+    };
+  }
+
+  function getVisibleElementRect(element) {
+    if (!element) {
+      return null;
+    }
+
+    const style = window.getComputedStyle ? window.getComputedStyle(element) : null;
+    if ((style && style.display === 'none') || element.hidden) {
+      return null;
+    }
+
+    const rect = getElementRect(element);
+    return rect && rect.width > 0 && rect.height > 0 ? rect : null;
+  }
+
+  function selectAdaptiveActionDockCandidate(layout) {
+    const viewport = layout.viewport;
+    const sideOrder = getAdaptiveSidePlacementOrder(layout);
+    const orderedPlacements = viewport.width <= 640
+      ? ['bottom', 'top']
+      : sideOrder.concat(['bottom', 'top']);
+
+    for (let index = 0; index < orderedPlacements.length; index += 1) {
+      const candidate = getAdaptiveActionDockCandidate(orderedPlacements[index], layout);
+      if (isAdaptiveActionDockCandidateUsable(candidate, layout)) {
+        return candidate;
+      }
+    }
+
+    return getAdaptiveActionDockCandidate(viewport.width <= 640 ? 'bottom' : 'top', layout);
+  }
+
+  function getAdaptiveSidePlacementOrder(layout) {
+    const viewport = layout.viewport;
+    const stageRect = layout.stageRect;
+    const rightBarrier = layout.sideRect && layout.sideRect.left >= stageRect.right
+      ? layout.sideRect.left
+      : viewport.right;
+    const leftBarrier = layout.sideRect && layout.sideRect.right <= stageRect.left
+      ? layout.sideRect.right
+      : viewport.left;
+    const rightSpace = rightBarrier - stageRect.right;
+    const leftSpace = stageRect.left - leftBarrier;
+
+    if (rightSpace >= leftSpace) {
+      return ['right', 'left'];
+    }
+    return ['left', 'right'];
+  }
+
+  function getAdaptiveActionDockCandidate(placement, layout) {
+    const viewport = layout.viewport;
+    const canvasRect = layout.canvasRect;
+    const stageRect = layout.stageRect;
+    const gap = 8;
+    const sidePlacement = placement === 'left' || placement === 'right';
+    const height = getAdaptiveDockEstimatedHeight(placement, viewport);
+    const bottomWidth = Math.min(Math.max(canvasRect.width, 280), Math.min(440, viewport.width - gap * 2));
+    const sideMinWidth = 124;
+    const sideMaxWidth = 168;
+    let width = sidePlacement ? sideMaxWidth : bottomWidth;
+    let left = canvasRect.left + (canvasRect.width - width) / 2;
+    let top = Math.max(viewport.top + gap, canvasRect.top + gap);
+
+    if (placement === 'right') {
+      const rightBarrier = layout.sideRect && layout.sideRect.left >= stageRect.right
+        ? layout.sideRect.left
+        : viewport.right;
+      const available = rightBarrier - stageRect.right - gap;
+      width = Math.min(sideMaxWidth, Math.max(sideMinWidth, available - gap));
+      left = stageRect.right + gap;
+    } else if (placement === 'left') {
+      const leftBarrier = layout.sideRect && layout.sideRect.right <= stageRect.left
+        ? layout.sideRect.right
+        : viewport.left;
+      const available = stageRect.left - leftBarrier - gap;
+      width = Math.min(sideMaxWidth, Math.max(sideMinWidth, available - gap));
+      left = stageRect.left - width - gap;
+    } else {
+      left = clampDockValue(left, viewport.left + gap, viewport.right - width - gap, viewport.left + gap);
+      if (placement === 'top') {
+        top = clampDockValue(canvasRect.top - height - gap, viewport.top + gap, viewport.bottom - height - gap, viewport.top + gap);
+      }
+    }
+
+    if (placement === 'bottom') {
+      top = viewport.bottom - height - gap;
+    } else if (sidePlacement) {
+      top = clampDockValue(top, viewport.top + gap, viewport.bottom - height - gap, viewport.top + gap);
+    }
+
+    return {
+      placement,
+      left,
+      top,
+      right: left + width,
+      bottom: top + height,
+      width,
+      height
+    };
+  }
+
+  function getAdaptiveDockEstimatedHeight(placement, viewport) {
+    if (placement === 'left' || placement === 'right') {
+      return Math.min(248, Math.max(112, viewport.height - 16));
+    }
+
     const visibleCount = getVisibleActionButtonCount();
     return visibleCount > 5 ? 112 : 58;
+  }
+
+  function isAdaptiveActionDockCandidateUsable(candidate, layout) {
+    if (!candidate || candidate.width < 104 || candidate.height < 48) {
+      return false;
+    }
+
+    const viewport = layout.viewport;
+    if (candidate.left < viewport.left + 2 || candidate.right > viewport.right - 2) {
+      return false;
+    }
+
+    if (candidate.top < viewport.top + 2 || candidate.bottom > viewport.bottom - 2) {
+      return false;
+    }
+
+    if (getRectOverlapRatio(layout.canvasRect, candidate) > 0.18) {
+      return false;
+    }
+
+    if ((candidate.placement === 'left' || candidate.placement === 'right') && hasAdaptiveActionDockPanelCollision(candidate, layout)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function hasAdaptiveActionDockPanelCollision(candidate, layout) {
+    return [layout.sideRect, layout.statusRect, layout.minigamesRect].some(function(rect) {
+      return getRectOverlapRatio(rect, candidate) > 0.01;
+    });
+  }
+
+  function getRectOverlapRatio(rect, overlay) {
+    if (!rect || !overlay) {
+      return 0;
+    }
+
+    const left = Math.max(rect.left, overlay.left);
+    const right = Math.min(rect.right, overlay.right);
+    const top = Math.max(rect.top, overlay.top);
+    const bottom = Math.min(rect.bottom, overlay.bottom);
+    const width = Math.max(0, right - left);
+    const height = Math.max(0, bottom - top);
+    return (width * height) / Math.max(1, rect.width * rect.height);
   }
 
   function getVisibleActionButtonCount() {
@@ -425,41 +639,18 @@
     return count || actions.length;
   }
 
-  function applyAdaptiveActionDockPlacement(panel, canvasRect, viewport, placement) {
+  function applyAdaptiveActionDockPlacement(panel, candidate) {
+    const placement = candidate.placement;
     const sidePlacement = placement === 'left' || placement === 'right';
-    const horizontalGap = 8;
-    const bottomWidth = Math.min(Math.max(canvasRect.width, 280), Math.min(440, viewport.width - 16));
-    const sideWidth = Math.min(168, Math.max(104, Math.max(canvasRect.left - viewport.left, viewport.right - canvasRect.right) - 12));
-    const width = sidePlacement ? sideWidth : bottomWidth;
-    let left = canvasRect.left + (canvasRect.width - width) / 2;
-    let top = Math.max(viewport.top + 8, canvasRect.top + 8);
-
-    if (placement === 'right') {
-      left = Math.min(canvasRect.right + horizontalGap, viewport.right - width - horizontalGap);
-    } else if (placement === 'left') {
-      left = Math.max(viewport.left + horizontalGap, canvasRect.left - width - horizontalGap);
-    } else {
-      left = clampDockValue(left, viewport.left + horizontalGap, viewport.right - width - horizontalGap, viewport.left + horizontalGap);
-      if (placement === 'top') {
-        const estimatedHeight = getAdaptiveDockBottomHeight();
-        top = clampDockValue(canvasRect.top - estimatedHeight - horizontalGap, viewport.top + horizontalGap, viewport.bottom - estimatedHeight - horizontalGap, viewport.top + horizontalGap);
-      }
-    }
-
-    if (sidePlacement) {
-      const estimatedHeight = Math.min(248, viewport.height - 16);
-      top = clampDockValue(top, viewport.top + horizontalGap, viewport.bottom - estimatedHeight - horizontalGap, viewport.top + horizontalGap);
-    }
-
     panel.classList.add('is-adaptive-docked');
     panel.classList.toggle('actions-dock--bottom', placement === 'bottom');
     panel.classList.toggle('actions-dock--top', placement === 'top');
     panel.classList.toggle('actions-dock--side', sidePlacement);
     panel.classList.toggle('actions-dock--left', placement === 'left');
     panel.classList.toggle('actions-dock--right', placement === 'right');
-    panel.style.setProperty('--actions-dock-left', Math.round(left) + 'px');
-    panel.style.setProperty('--actions-dock-width', Math.round(width) + 'px');
-    panel.style.setProperty('--actions-dock-top', Math.round(top) + 'px');
+    panel.style.setProperty('--actions-dock-left', Math.round(candidate.left) + 'px');
+    panel.style.setProperty('--actions-dock-width', Math.round(candidate.width) + 'px');
+    panel.style.setProperty('--actions-dock-top', Math.round(candidate.top) + 'px');
     panel.dataset.adaptiveDock = placement;
     runtime.adaptiveDock.placement = placement;
   }
@@ -723,7 +914,7 @@
       row.className = 'decoration-item';
       info.className = 'decoration-item__info';
       label.textContent = item.label;
-      meta.textContent = isOwned ? 'W grzybni' : item.cost + ' zarodników';
+      meta.textContent = isOwned ? 'W grzybni' : formatUiCount(item.cost, ['zarodnik', 'zarodniki', 'zarodników']);
       button.className = 'ghost-button';
       button.type = 'button';
       button.textContent = isOwned ? 'Masz' : 'Kup';
@@ -980,6 +1171,16 @@
     return formatCooldownLabel(milliseconds);
   }
 
+  function formatUiCount(value, forms) {
+    const core = window.PieczargotchiCore;
+    if (core && core.formatPolishCount) {
+      return core.formatPolishCount(value, forms);
+    }
+
+    const amount = Math.max(0, Math.floor(Math.abs(Number(value) || 0)));
+    return amount + (forms && forms[2] ? ' ' + forms[2] : '');
+  }
+
   function getEvolutionHistoryLabel(state) {
     const variant = state.evolution && state.evolution.variant;
     const core = window.PieczargotchiCore;
@@ -1143,7 +1344,7 @@
     if (!checklist.unlocked) {
       const teaser = document.createElement('div');
       teaser.className = 'calendar-checklist__teaser';
-      teaser.textContent = 'W dekoracjach: 12 zarodników';
+      teaser.textContent = 'W dekoracjach: ' + formatUiCount(12, ['zarodnik', 'zarodniki', 'zarodników']);
       dom.calendarList.appendChild(teaser);
       if (!events.length) {
         return;

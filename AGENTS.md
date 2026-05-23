@@ -2,13 +2,13 @@
 
 ## Project Structure & Module Organization
 
-Pieczargotchi is a Polish pixel-art mushroom care game with two supported delivery paths: the original Google Apps Script web app and a Cloudflare static preview build for friend testing. The repository now has the full Apps Script/client scaffold, Cloudflare build glue, runtime PNG assets, and local QA tooling.
+Pieczargotchi is a Polish pixel-art mushroom care game with two supported delivery paths: the original Google Apps Script web app and a Cloudflare static preview build for friend testing. The repository now has the full Apps Script/client scaffold, Cloudflare build glue, app PNG assets, and local QA tooling.
 
 - `Code.gs` wires `doGet()` and HTML partial inclusion.
 - `Config.gs`, `GameRules.gs`, `StateModel.gs`, `Actions.gs`, `AnimationConfig.gs`, `MinigamesConfig.gs`, `DecorationStore.gs`, and service files hold deterministic config, state templates, rules, and server-side helpers.
 - `Client.html` is the client aggregator. Core logic is split across `ClientCore*.html`; UI, interaction, animation, scene, battle, minigame, debug, and backup code live in dedicated `Client*.html` partials. `ClientCore.html` is an include shell; keep public core helpers under `window.PieczargotchiCore`.
 - `ClientScene*.html` files own canvas rendering. Weather, celestial effects, ambient life, ground/grass, phenomena, palette, and sprite drawing are intentionally separated; do not re-centralize them into one renderer.
-- `assets/` stores runtime PNG sheets and generated environment assets; source/reference material stays under `assets/source/` or `assets/reference/`.
+- `assets/` stores PNG sheets loaded by the app and generated environment assets; source/reference material stays under `assets/source/` or `assets/reference/`.
 - `scripts/` contains Cloudflare build scripts, local validation, render capture, asset audits, and deterministic Node tests.
 - `docs/` contains product rules, implementation plans, project-state notes, Cloudflare deployment notes, sprite/weather documentation, and handoff material.
 - `wrangler.jsonc` and `scripts/build-cloudflare-static.mjs` define the Cloudflare Workers static deploy path. `dist/` is generated output and must stay out of Git.
@@ -36,6 +36,8 @@ Run checks from the repository root. Prefer these gates before committing:
 For browser smoke, start `node dev-server.mjs <port>` and run `node scripts/capture-app-render.mjs http://127.0.0.1:<port>/`. Local server binding and Chromium DevTools may require sandbox escalation. Use `PIECZARGOTCHI_CAPTURE_LIFE_PROFILE=1` for scene-life/grass diagnostics, and use `scripts/capture-life-motion.mjs` or `scripts/capture-weather-matrix.mjs` for broader visual regressions.
 
 For Cloudflare deployment, use `npm run build` before `npx wrangler deploy`; `npm run deploy` wraps both. See `docs/CLOUDFLARE_DEPLOYMENT.md` for the exact Cloudflare Workers/Pages settings.
+
+Every tracked project change must bump the visible build number in both `PIECZARGOTCHI_APP_VERSION` and `package.json` so local, Cloudflare, and Apps Script builds can be identified.
 
 ## Agent Workflow
 
@@ -83,7 +85,7 @@ Use short imperative commit messages, for example `Add moss-bed recovery state` 
 
 Stage intentionally in dirty worktrees. Do not use broad `git add -A` when local-only files or generated artifacts are present. Pull requests should include a concise summary, test/QA notes, screenshots or render captures for visual changes, and any Apps Script deployment notes. Call out state version, localStorage shape, Drive asset IDs, Cloudflare static build changes, and migration changes.
 
-For Cloudflare changes, call out whether `dist/` was rebuilt locally, whether `wrangler.jsonc` changed, and whether public debug/runtime exposure flags were used. Do not commit generated `dist/`.
+For Cloudflare changes, call out whether `dist/` was rebuilt locally, whether `wrangler.jsonc` changed, and whether public debug/app-state exposure flags were used. Do not commit generated `dist/`.
 
 ## Security & Configuration Tips
 

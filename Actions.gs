@@ -2,7 +2,7 @@ function getActionDefinitions() {
   return [
     {
       id: 'hydrate',
-      label: 'Zroś',
+      label: 'Nawilż',
       shortcut: 'N',
       icon: 'H2O',
       cooldownSeconds: 10 * 60,

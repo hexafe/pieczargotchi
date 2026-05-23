@@ -2,15 +2,15 @@
 
 Data: 2026-05-09
 
-Ten dokument opisuje praktyczne zasady przygotowywania i utrzymywania sprite'ów dla aktualnej paczki assetów Pieczargotchi. Punktem odniesienia są:
+Ten dokument opisuje praktyczne zasady przygotowywania i utrzymywania sprite'ów dla aktualnej paczki zasobów Pieczargotchi. Punktem odniesienia są:
 
 - `docs/ASSET_ANIMATION_IMPLEMENTATION_PLAN.md`
 - bieżąca struktura `assets/stages/`
 - bieżąca struktura `assets/activities/`
 
-To nie jest wishlist. To jest instrukcja robocza dla obecnych i kolejnych sheetów runtime.
+To nie jest wishlist. To jest instrukcja robocza dla obecnych i kolejnych arkuszy animacji czas działania.
 
-## 1. Aktualny zakres assetów
+## 1. Aktualny zakres zasobów
 
 ### Etapy wzrostu
 
@@ -22,7 +22,7 @@ Aktualnie repo zawiera 5 etapów wzrostu:
 - `adult`
 - `legendary`
 
-Każdy etap ma komplet 34 sheetów stanów:
+Każdy etap ma komplet 34 arkuszy animacji stanów:
 
 - `idle_sheet.png`
 - `sleep_sheet.png`
@@ -61,7 +61,7 @@ Każdy etap ma komplet 34 sheetów stanów:
 
 ### Aktywności
 
-Aktualnie repo zawiera 8 sheetów aktywności:
+Aktualnie repo zawiera 8 arkuszy animacji aktywności:
 
 - `hydrate_sheet.png`
 - `feed_sheet.png`
@@ -72,11 +72,11 @@ Aktualnie repo zawiera 8 sheetów aktywności:
 - `spores_sheet.png`
 - `harvest_sheet.png`
 
-W runtime manifest używa wariantów `assets/activities/<stage>/...`; root-level `assets/activities/*.png` zostają tylko fallbackami kompatybilności i są raportowane przez walidator jako pliki poza manifestem.
+Manifest uruchomieniowy używa wariantów `assets/activities/<stage>/...`; pliki głównego poziomu `assets/activities/*.png` zostają tylko mechanizmami zgodności i są raportowane przez walidator jako pliki poza manifestem.
 
 ### Efekty pomocnicze
 
-Aktualnie repo zawiera 5 sheetów efektów pomocniczych ładowanych przez runtime:
+Aktualnie repo zawiera 5 arkuszy animacji efektów pomocniczych ładowanych przez czas działania:
 
 - `drops_sheet.png`
 - `sparkle_sheet.png`
@@ -84,28 +84,28 @@ Aktualnie repo zawiera 5 sheetów efektów pomocniczych ładowanych przez runtim
 - `notes_sheet.png`
 - `spore_cloud_sheet.png`
 
-Efekty są walidowane razem z sheetami i ładowane przez runtime manifest jako warstwy `effect.*`.
+Efekty są walidowane razem z arkuszami animacji i ładowane przez manifest uruchomieniowy jako warstwy `effect.*`.
 
 ## 2. Format techniczny
 
-Te zasady są obowiązkowe dla wszystkich nowych sheetów.
+Te zasady są obowiązkowe dla wszystkich nowych arkuszy animacji.
 
-- Każda klatka runtime ma rozmiar `512x512`.
-- Każdy sheet jest układany poziomo.
-- Większość sheetów w paczce używa `4` klatek, czyli rozmiaru `2048x512`.
-- Dopracowane aktywności używają kontraktu `8` klatek, czyli rozmiaru `4096x512`; ruch akcji ma być w sprite'cie PNG, a renderer nie dokłada dodatkowego body-motion poza stanowym overlayem i efektami pomocniczymi.
+- Każda klatka czas działania ma rozmiar `512x512`.
+- Każdy arkusz animacji jest układany poziomo.
+- Większość arkuszy animacji w paczce używa `4` klatek, czyli rozmiaru `2048x512`.
+- Dopracowane aktywności używają kontraktu `8` klatek, czyli rozmiaru `4096x512`; ruch akcji ma być w sprite'cie PNG, a renderer nie dokłada dodatkowego body-motion poza stanówym overlayem i efektami pomocniczymi.
 - `idle_fidget_sheet.png`, `idle_fidget_sway_sheet.png`, `idle_fidget_shift_sheet.png`, `idle_look_left_sheet.png`, `idle_look_right_sheet.png`, `watch_cursor_*_sheet.png` i `follow_cursor_*_sheet.png` używają `8` klatek, czyli rozmiaru `4096x512`.
 - `ponder_sheet.png`, `ponder_up_sheet.png`, `ponder_side_sheet.png`, `ponder_breath_sheet.png`, `watch_butterfly_sheet.png` i `watch_crawler_sheet.png` używają `10` klatek, czyli rozmiaru `5120x512`.
 - `watch_firefly_sheet.png` używa `12` klatek, czyli rozmiaru `6144x512`.
 - `rain_sheet.png` jest celowym wyjątkiem: używa `16` klatek, czyli rozmiaru `8192x512`, żeby pokazać narastanie kropli, spływanie po kapeluszu, oderwanie i rozbicie o ziemię.
 - Format pliku: `PNG RGBA` z przezroczystym tłem.
-- Runtime zakłada, że sprite jest już poprawnie wycentrowany. Renderer nie ma korygować pozycji offsetami per klatka.
+- czas działania zakłada, że sprite jest już poprawnie wycentrowany. Renderer nie ma korygować pozycji offsetami per klatka.
 
 Wniosek praktyczny: jeśli nowy plik nie ma liczby klatek zgodnej z `AnimationConfig.gs`, to najpierw trzeba wyjaśnić zmianę kontraktu i zaktualizować manifest, a nie liczyć, że klient to "łyknie".
 
 ## 3. Styl i paleta
 
-Aktualne assety trzymają spójny kierunek wizualny. Nowe prace powinny go kontynuować.
+Aktualne zasoby trzymają spójny kierunek wizualny. Nowe prace powinny go kontynuować.
 
 ### Styl bazowy
 
@@ -199,9 +199,9 @@ Nie skalujemy całej sceny między etapami. Trawa/mech jest wspólną kotwicą w
 
 ## 6. Zestaw animacji stage'owych
 
-Aktualny kontrakt stage'owy to 34 sheety na etap:
+Aktualny kontrakt stage'owy to 34 arkusze animacji na etap:
 
-| Sheet | Rola |
+| arkusz animacji | Rola |
 | --- | --- |
 | `idle_sheet.png` | stan bazowy, oddech, mrugnięcie, mikrożycie |
 | `sleep_sheet.png` | sen, spowolnienie, zamknięta ekspresja |
@@ -215,8 +215,8 @@ Aktualny kontrakt stage'owy to 34 sheety na etap:
 | `idle_look_left_sheet.png` | leniwe rozejrzenie się w lewo bez bodźca z kursora |
 | `idle_look_right_sheet.png` | leniwe rozejrzenie się w prawo bez bodźca z kursora |
 | `ponder_sheet.png` | ciche zastanowienie się w spokojnej scenie |
-| `ponder_up_sheet.png` | zamyślenie z lekkim spojrzeniem ku górze |
-| `ponder_side_sheet.png` | zamyślenie z bocznym spojrzeniem i spokojnym powrotem |
+| `ponder_up_sheet.png` | zamyślenie z lekkim spójrzeniem ku górze |
+| `ponder_side_sheet.png` | zamyślenie z bocznym spójrzeniem i spokojnym powrotem |
 | `ponder_breath_sheet.png` | wolniejszy wariant ponder oparty o oddech i minimalny ruch |
 | `watch_cursor_left_sheet.png` | Pieczarka śledzi kursor po lewej stronie twarzy |
 | `watch_cursor_right_sheet.png` | Pieczarka śledzi kursor po prawej stronie twarzy |
@@ -230,7 +230,7 @@ Aktualny kontrakt stage'owy to 34 sheety na etap:
 | `snow_sheet.png` | reakcja na śnieg i chłód |
 | `watch_butterfly_sheet.png` | Pieczarka śledzi motyla albo drobny ruch przy kapeluszu |
 | `watch_firefly_sheet.png` | nocna reakcja na świetliki bez doklejania obcych efektów do ciała |
-| `watch_crawler_sheet.png` | spojrzenie w wysoką trawę na robaczka lub żuka |
+| `watch_crawler_sheet.png` | spójrzenie w wysoką trawę na robaczka lub żuka |
 | `tired_sheet.png` | senność i opadanie energii |
 | `dry_sheet.png` | przesuszenie, spadek świeżości |
 | `hungry_sheet.png` | głód, brak zasobów |
@@ -251,9 +251,9 @@ Aktualny kontrakt stage'owy to 34 sheety na etap:
 
 ## 7. Zestaw animacji aktywności
 
-Aktywności są stage-specific. Ten sam typ akcji musi mieć osobny sheet dla każdego etapu, żeby akcja na `spore`, `baby` albo `young` nie przeskakiwała wizualnie na dorosłą Pieczarkę.
+Aktywności są osobne dla etapu. Ten sam typ akcji musi mieć osobny arkusz animacji dla każdego etapu, żeby akcja na `spore`, `baby` albo `young` nie przeskakiwała wizualnie na dorosłą Pieczarkę.
 
-| Sheet | Znaczenie praktyczne |
+| arkusz animacji | Znaczenie praktyczne |
 | --- | --- |
 | `assets/activities/<stage>/hydrate_sheet.png` | reakcja na podlanie lub nawodnienie |
 | `assets/activities/<stage>/feed_sheet.png` | reakcja na karmienie |
@@ -271,11 +271,11 @@ Aktywności są stage-specific. Ten sam typ akcji musi mieć osobny sheet dla ka
 ### Zasady dla aktywności
 
 - Aktywność dalej pokazuje tę samą postać i ten sam etap, a nie osobny minigame sprite.
-- Aktywność jest sprite-first: podstawowy gest, mimika i rekwizyt należą do `8` klatek PNG dla danego etapu, zamiast do canvasowego retuszu postaci.
+- Aktywność jest sprite-first: podstawowy gęst, mimika i rekwizyt należą do `8` klatek PNG dla danego etapu, zamiast do canvasowego retuszu postaci.
 - Rekwizyty i efekty są dodatkiem, nie nowym środkiem ciężkości.
 - `hydrate` nie skaluje całego cutoutu razem z wodą. Postać jest składana w rozmiarze etapu, a lekka mgiełka kropli jest nakładana nad nią jako osobna warstwa.
 - `clean` nie ma bake'ować trwałej brudnej warstwy na postaci. Niska `cleanliness` pozostaje wyborem renderera jako dirt cue / stan `dirty`, a aktywność `clean` pokazuje czyszczenie i połysk.
-- `spores` dla śpiącego lub małego zarodka nie może mieszać się z animacją snu; sen `spore` walidujemy osobno jako ciało PNG, a chmurki zarodników i `zZz` są osobnymi efektami/warstwami runtime.
+- `spores` dla śpiącego lub małego zarodka nie może mieszać się z animacją snu; sen `spore` walidujemy osobno jako ciało PNG, a chmurki zarodników i `zZz` są osobnymi efektami/warstwami czas działania.
 - `spore` używa wolniejszego one-shot timingu z holdem ostatniej klatki, żeby mała sylwetka nie wyglądała nerwowo przy krótkich pętlach.
 - Jeśli pojawia się obiekt pomocniczy, jego skala nie powinna dominować nad Pieczargotchi.
 - Aktywność ma pozostać czytelna także wtedy, gdy użytkownik widzi tylko jedną klatkę lub skrócony fragment sekwencji.
@@ -284,7 +284,7 @@ Aktywności są stage-specific. Ten sam typ akcji musi mieć osobny sheet dla ka
 
 Efekty z `assets/effects/` nie zastępują animacji postaci. To małe warstwy pomocnicze używane przez akcje, minigry i drobne reakcje środowiskowe.
 
-| Sheet | Znaczenie praktyczne |
+| arkusz animacji | Znaczenie praktyczne |
 | --- | --- |
 | `drops_sheet.png` | krople wody |
 | `sparkle_sheet.png` | połysk, sukces, doskonała opieka |
@@ -294,15 +294,15 @@ Efekty z `assets/effects/` nie zastępują animacji postaci. To małe warstwy po
 
 Efekty mogą mieć większy dryf niż postać, bo są ruchem cząstek. Nadal muszą mieścić się w `512x512` per klatka i nie mogą wymuszać przesuwania głównego sprite'a.
 
-## 9. Imagegen vs canvas
+## 9. generator obrazów vs canvas
 
 Reguła produkcyjna dla immersji:
 
-- PNG/imagegen: sylwetka Pieczarki, oczy, usta, kapelusz, akcesoria dotykające postaci, parasolka/liść/osłona, duże reakcje mimiczne i stage-specific stany.
+- PNG/generator obrazów: sylwetka Pieczarki, oczy, usta, kapelusz, akcesoria dotykające postaci, parasolka/liść/osłona, duże reakcje mimiczne i osobne dla etapu stany.
 - Canvas: opady, wiatr, ruch trawy, gwiazdy, promienie, mokrość, śnieg na ziemi, cursor ripple, szelest, motyle, świetliki, żuki i małe cząstki.
-- Runtime nie maluje nowej mimiki po głównym PNG. Jeśli reakcja wymaga twarzy, dostaje własny sheet w `assets/stages/<stage>/`.
+- czas działania nie maluje nowej mimiki po głównym PNG. Jeśli reakcja wymaga twarzy, dostaje własny arkusz animacji w `assets/stages/<stage>/`.
 - `feed`, `instrument` i `sing` są sprite-owned: renderer nie może dorysowywać im dodatkowych ust, instrumentów ani muzycznych rekwizytów na canvasie.
-- Trawa foreground rośnie proceduralnie z ziemi pod Pieczarką i może częściowo przykrywać dolną część postaci, ale nie może wyglądać jak element wyrastający z kapelusza albo twarzy. Dekoracje patcha muszą być rysowane nad trawą albo na osobnym meblu, żeby zakupione przedmioty nie ginęły w zaroślach.
+- Trawa foreground rośnie proceduralnie z ziemi pod Pieczarką i może częściowo przykrywać dolną część postaci, ale nie może wyglądać jak element wyrastający z kapelusza albo twarzy. Dekoracje podłoża muszą być rysowane nad trawą albo na osobnym meblu, żeby zakupione przedmioty nie ginęły w zaroślach.
 
 ## 10. Rytm animacji
 
@@ -311,24 +311,24 @@ Plan implementacyjny mówi o manifeście z liczbą klatek, timingiem, pętlą i 
 - `idle`, `sleep`, `tired`, `dry`, `hungry`, `dirty`, `sick`:
   wolniejszy rytm i mała amplituda ruchu.
 - `wake`, `happy`, `clean`, `feed`, `hydrate`, `play`, `sing`, `spores`, `harvest`:
-  szybsza czytelna reakcja wejścia, potem powrót do spokoju. Aktywności mają `8` klatek, więc timing powinien wykorzystać dodatkowe klatki na gest i wyciszenie, nie na przypadkowy drift.
+  szybsza czytelna reakcja wejścia, potem powrót do spokoju. Aktywności mają `8` klatek, więc timing powinien wykorzystać dodatkowe klatki na gęst i wyciszenie, nie na przypadkowy drift.
 - `critical`:
   najmocniejsza czytelność, ale nie migotanie powodujące chaos.
 - warianty `idle_fidget`, warianty `ponder`, reakcje kursora, `watch_butterfly`, `watch_firefly`, `watch_crawler`:
   dłuższy oddech sceny i małe przesunięcia ciała, bez skakania po baseline albo zmiany bohatera w inny wariant graficzny.
 
-Jeżeli sheet ma tylko 4 klatki, różnicę rytmu osiągamy timingiem i intensywnością pozy, nie dokładaniem losowych mikro-ruchów.
+Jeżeli arkusz animacji ma tylko 4 klatki, różnicę rytmu osiągamy timingiem i intensywnością pozy, nie dokładaniem losowych mikro-ruchów.
 
 ## 11. Walidacja przed wrzutką
 
-Nowy sheet nie powinien trafiać do runtime bez tej listy kontrolnej.
+Nowy arkusz animacji nie powinien trafiać do czas działania bez tej listy kontrolnej.
 
 ### Walidacja techniczna
 
 - plik jest w `PNG RGBA`,
-- rozmiar całego sheetu zgadza się z manifestem runtime (`frameCount * 512` na `512`),
+- rozmiar całego sheetu zgadza się z manifestem czas działania (`frameCount * 512` na `512`),
 - liczba klatek zgadza się z `AnimationConfig.gs` i szerokością pliku,
-- dopracowane aktywności stage-specific mają `8` klatek (`4096x512`) i osobny plik dla każdego etapu,
+- dopracowane aktywności osobne dla etapu mają `8` klatek (`4096x512`) i osobny plik dla każdego etapu,
 - tło jest przezroczyste,
 - nazwa pliku trzyma obowiązujący wzorzec,
 - plik trafia do właściwego katalogu: `assets/stages/<stage>/`, `assets/activities/<stage>/` albo `assets/effects/`.
@@ -341,25 +341,25 @@ Nowy sheet nie powinien trafiać do runtime bez tej listy kontrolnej.
 - czytelność działa na pełnym sheetcie i na pojedynczej klatce,
 - stan można odróżnić bez podpisu tekstowego.
 - `spore/sleep_sheet.png` nie zawiera wklejonych `zZz` ani chmury zarodników; ciało śpiącego zarodka, glyphy snu i efekt zarodników pozostają trzema oddzielnymi rzeczami.
-- Brud wynikający z niskiej `cleanliness` jest czytelny jako wybór renderera albo stan `dirty`, bez niszczenia bazowej czystości sheetów aktywności.
+- Brud wynikający z niskiej `cleanliness` jest czytelny jako wybór renderera albo stan `dirty`, bez niszczenia bazowej czystości arkuszy animacji aktywności.
 
 ### Walidacja produktowa
 
-- nowy sheet wnosi czytelną różnicę względem istniejących stanów,
+- nowy arkusz animacji wnosi czytelną różnicę względem istniejących stanów,
 - aktywność albo potrzeba jest zrozumiała bez tutoriala,
 - etap wzrostu jest rozpoznawalny, ale nadal należy do tej samej rodziny postaci.
 
-## 12. Co robić przy nowych sheetach
+## 12. Co robić przy nowych arkuszach animacji
 
-### Gdy dodajesz nowy sheet do istniejącego etapu
+### Gdy dodajesz nowy arkusz animacji do istniejącego etapu
 
-1. Zacznij od duplikatu najbliższego stylistycznie sheetu z tego samego etapu.
+1. Zacznij od duplikatu najbliższego stylistycznie arkusza animacji z tego samego etapu.
 2. Zachowaj ten sam canvas, marginesy i środek masy.
 3. Zmień najpierw ekspresję i detal reakcji, dopiero potem dodatki.
 4. Sprawdź sekwencję klatka po klatce obok `idle_sheet.png`.
 5. Upewnij się, że nowy stan nie wygląda jak przemalowany `happy` albo `sick`.
 
-### Gdy dodajesz nowy sheet aktywności
+### Gdy dodajesz nowy arkusz animacji aktywności
 
 1. Weź za bazę najbliższą aktywność z `assets/activities/<stage>/`.
 2. Najpierw ustal, czy akcja potrzebuje rekwizytu, efektu czy tylko zmiany mimiki.
@@ -370,20 +370,20 @@ Nowy sheet nie powinien trafiać do runtime bez tej listy kontrolnej.
 ### Gdy dodajesz nowy typ stanu do wszystkich etapów
 
 1. Najpierw doprecyzuj nazwę i semantykę w planie implementacyjnym.
-2. Ustal, czy nowy stan jest stage-specific, globalny czy tylko activity-specific.
+2. Ustal, czy nowy stan jest osobne dla etapu, globalny czy tylko activity-specific.
 3. Przygotuj najpierw jedną referencyjną wersję, najlepiej `baby` albo `adult`.
 4. Dopiero po zatwierdzeniu kierunku przenieś stan na resztę etapów.
 5. Nie wprowadzaj nowego nazewnictwa równolegle do starego bez świadomej zmiany kontraktu.
 
-## 12. Minimalne zasady spójności między sheetami
+## 12. Minimalne zasady spójności między arkuszami animacji
 
 - Ten sam etap powinien mieć ten sam język oczu, ust, policzków i cienia.
 - Trawa/mech nie może być w jednym pliku miękka i malarska, a w drugim ostra i geometryczna.
 - Połysk kapelusza musi siedzieć w tej samej rodzinie światła.
-- `legendary` może dodać błysk, ale `spore` nie może przez to wyglądać jak inny system assetów.
+- `legendary` może dodać błysk, ale `spore` nie może przez to wyglądać jak inny system zasobów.
 - Aktywności nie mogą zrywać z bazową perspektywą i skalą sceny.
 
-## 13. Sygnały, że sheet trzeba poprawić
+## 13. Sygnały, że arkusz animacji trzeba poprawić
 
 - postać "teleportuje się" między klatkami,
 - dolna krawędź zieleni faluje przypadkiem zamiast animacyjnie,
@@ -395,10 +395,10 @@ Nowy sheet nie powinien trafiać do runtime bez tej listy kontrolnej.
 
 ## 14. Krótka definicja jakości
 
-Dobry sheet Pieczargotchi:
+Dobry arkusz animacji Pieczargotchi:
 
 - wygląda jak część tej samej paczki,
-- mieści się w rozmiarze opisanym przez manifest runtime,
-- jest wycentrowany bez ręcznych offsetów w runtime,
+- mieści się w rozmiarze opisanym przez manifest czas działania,
+- jest wycentrowany bez ręcznych offsetów w czas działania,
 - komunikuje stan albo aktywność bez podpisu,
 - nie robi bałaganu większego niż korzyść z animacji.

@@ -4,7 +4,7 @@ Ten checkpoint jest historyczny. Aktualny stan projektu po Arenie i ruchomym ży
 
 ## Status
 
-Pieczargotchi ma działający MVP lokalny i Apps Script: manifest animacji, lokalny preview, PNG runtime, lokalny debug menu, pogodę z lokalizacji, walidację assetów i podstawowe checki CI.
+Pieczargotchi ma działający MVP lokalny i Apps Script: manifest animacji, lokalny preview, PNG czas działania, lokalny debug menu, pogodę z lokalizacji, walidację zasobów i podstawowe checki CI.
 
 Najważniejsza decyzja z tego checkpointu: dalszy rozwój ma chronić czytelność, maintainability i scalability. Nowe funkcje powinny trafiać do osobnych partiali lub testowalnego core, a nie powiększać jednego pliku klienta.
 
@@ -12,7 +12,7 @@ Najważniejsza decyzja z tego checkpointu: dalszy rozwój ma chronić czytelnoś
 
 - `Client.html` jest cienkim agregatorem partiali.
 - `ClientCore.html` zawiera małe czyste funkcje, które można testować przez Node.
-- `ClientBoot.html` trzyma konfigurację, runtime i podstawowe bindowanie.
+- `ClientBoot.html` trzyma konfigurację, czas działania i podstawowe bindowanie.
 - `ClientDebug.html` trzyma menu developerskie.
 - `ClientRuntime.html` trzyma asset loading, timery i render loop.
 - `ClientWeather.html` trzyma geolokalizację, Open-Meteo, dzień/noc, słońce i normalizację sceny pogody.
@@ -26,14 +26,14 @@ Najważniejsza decyzja z tego checkpointu: dalszy rozwój ma chronić czytelnoś
 - `ClientSceneCelestial.html` trzyma słońce, księżyc, gwiazdy, konstelacje i matematykę astronomiczną.
 - `ClientSceneWeather.html` trzyma chmury, wiatr, deszcz, burzę, śnieg, mgłę i współdzielone weather utility.
 - `ClientSceneLife.html` trzyma motyle, małe owady, robaczki naziemne i świetliki poruszające się zgodnie z profilem pory roku, pogody i pory dnia.
-- `ClientSceneGround.html` trzyma podłoże, bazowy grass patch i trawę reagującą na wiatr.
-- `ClientSprites.html` trzyma rysowanie sprite fallbacków, overlayów i efektów.
+- `ClientSceneGround.html` trzyma podłoże, bazowy trawnik i trawę reagującą na wiatr.
+- `ClientSprites.html` trzyma rysowanie sprite mechanizmów zastępczych, overlayów i efektów.
 - State ma wersję `3`; zapis nadal używa klucza `pieczargotchi_state_v2`, a osobny subtree `battle` obsługuje lokalną Arenę.
-- `Config.gs` ma runtime flags: `debugEnabled`, `exposeRuntime`, `assetMode`. Produkcyjnie debug i `window.__pieczargotchiRuntime` są wyłączone, a lokalny preview włącza je w `dev-server.mjs`.
+- `Config.gs` ma flagi uruchomieniowe: `debugEnabled`, `exposeRuntime`, `assetMode`. Produkcyjnie debug i `window.__pieczargotchiRuntime` są wyłączone, a lokalny preview włącza je w `dev-server.mjs`.
 - Wizualna pogoda używa znormalizowanych pól sceny: zachmurzenie zasłania ciała niebieskie, deszcz i śnieg reagują na kierunek/siłę wiatru, chmury dryfują wolniej według średniego wiatru, a wiatr ma porywy i okresy uspokojenia wokół średniej z danych pogodowych.
-- Runtime PNG mają wspólną frontową trawę składaną w `scripts/build-imagegen-sprites.py`; wszystkie stadia są za tą samą niższą trawą.
+- PNG używane podczas działania mają wspólną frontową trawę składaną w `scripts/build-imagegen-sprites.py`; wszystkie stadia są za tą samą niższą trawą.
 - Scena ma osobny wygenerowany asset `assets/environment/grass_patch.png` jako bazowy trawnik pod Pieczarką, a pojedyncze wyższe źdźbła są warstwą canvasową reagującą na wiatr.
-- Rzadki dzienny easter egg `:|` jest deterministyczny per zapis i data; debug menu pozwala wymusić wariant zadowolony, gniewny albo Iwoniaście, a runtime używa osobnych neutralnych sprite sheetów. Gdy wariant Iwoniaście występuje podczas deszczu lub burzy, wybierany jest osobny wyrenderowany sprite sheet z fioletową parasolką.
+- Rzadki dzienny easter egg `:|` jest deterministyczny per zapis i data; debug menu pozwala wymusić wariant zadowolony, gniewny albo Iwoniaście, a czas działania używa osobnych neutralnych sprite arkuszy animacji. Gdy wariant Iwoniaście występuje podczas deszczu lub burzy, wybierany jest osobny wyrenderowany sprite arkusz animacji z fioletową parasolką.
 
 ## Decyzje Balansu
 

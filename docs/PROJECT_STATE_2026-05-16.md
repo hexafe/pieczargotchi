@@ -2,7 +2,7 @@
 
 ## Status
 
-Gałąź `codex-weather-sprite-audit` ma teraz slice progresji po v1: stan zapisu `4`, historię opieki, rozszerzony attention, dwie minigry, gałęzie ewolucji z prostymi cechami, dekoracje patcha, eksport/import JSON, Arenę 2.0 z prostszym AI i statusami oraz poprawione warstwy trawy i opadów.
+Gałąź `codex-weather-sprite-audit` ma teraz slice progresji po v1: stan zapisu `4`, historię opieki, rozszerzony attention, dwie minigry, gałęzie ewolucji z prostymi cechami, dekoracje podłoża, eksport/import JSON, Arenę 2.0 z prostszymi przeciwnikami i statusami oraz poprawione warstwy trawy i opadów.
 
 Najważniejsza zasada architektury nadal obowiązuje: reguły i balans są w `.gs` albo testowalnych helperach `ClientCore*.html`; renderery czytają gotowy stan i rysują scenę.
 
@@ -23,7 +23,7 @@ Aktualna kolejność sceny opieki:
 
 1. Niebo, ciała niebieskie, tęcza, chmury.
 2. Wiatr oraz tylna warstwa deszczu/śniegu.
-3. Grunt, patch, życie tła.
+3. Grunt, podłoże, życie tła.
 4. Pieczarka.
 5. Trawa pierwszego planu częściowo przykrywająca dół Pieczarki, komódka z dekoracjami, życie pierwszego planu.
 6. Przednia warstwa deszczu/śniegu.

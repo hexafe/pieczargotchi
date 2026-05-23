@@ -20,19 +20,19 @@ Pogoda nie jest tylko dekoracją. Ma wpływać na rytm opieki, ale łagodnie:
 - upał wysusza,
 - wpływ pogody ma limit godzinowy, żeby aktualny warunek pogodowy nie symulował całej długiej nieobecności.
 
-Pogoda nie powinna jeszcze automatycznie robić care mistakes. Najpierw ma być miękkim modyfikatorem balansu.
+Pogoda nie powinna jeszcze automatycznie robić błędy opieki. Najpierw ma być miękkim modyfikatorem balansu.
 
 Wizualnie pogoda musi używać tych samych pól, które trafiają do balansu. Zachmurzenie może zasłaniać słońce, księżyc i gwiazdy. Kierunek i siła wiatru wpływają na kąt deszczu, dryf śniegu, porywy, mgłę, chmury i trawę; chwilowe porywy mogą rosnąć i cichnąć, ale średnia siła ma pozostać zgodna z aktualną pogodą. Trawa sceny ma wygenerowany asset bazowy oraz pojedyncze wyższe źdźbła reagujące na wiatr.
 
 Rzadkie easter eggi mogą zmieniać komunikat i neutralny sprite, ale nie mogą przykrywać pilnych potrzeb, aktywności ani snu. Wariant Iwoniastej Pieczarki podczas deszczu lub burzy używa osobnego wyrenderowanego sprite sheeta z fioletową parasolką.
 
-## Attention I Care Mistakes
+## Attention I błędy opieki
 
 Attention call jest ważniejszy niż sam niski pasek:
 
 - niski stat uruchamia attention call,
 - zignorowana potrzeba zapisuje care mistake,
-- care mistakes powinny wpływać na ewolucję i długoterminowy charakter Pieczarki,
+- błędy opieki powinny wpływać na ewolucję i długoterminowy charakter Pieczarki,
 - naprawiona potrzeba czyści attention i daje krótką reakcję.
 
 ## Kryzys Zdrowia, Kuracja I Game Over
@@ -43,7 +43,7 @@ Pieczargotchi używa `game over`, ale nie przy pierwszym spadku zdrowia do `0`. 
 - Pieczarka leży w mchu jak w łóżku, więc nie walczy, nie bawi się i nie gra w minigry,
 - gracz nadal musi zraszać, karmić i czyścić grzybnię,
 - koniec kuracji wymaga świeżej opieki oraz stabilnej wilgoci, odżywek i czystości,
-- zaniedbana kuracja przedłuża się i obniża jakość patcha,
+- zaniedbana kuracja przedłuża się i obniża jakość podłoża,
 - po limicie nieudanych okien kuracji stan przechodzi w `gameOver.active`, blokuje akcje i wymaga rozpoczęcia nowej gry.
 
 ## Rytm Dnia I Nocy
@@ -52,9 +52,9 @@ Balans opieki jest ustawiony pod normalny dzień użytkownika, a nie pod budzik 
 
 Docelowy rytm `normal`:
 
-- 2-3 krótkie wejścia dziennie utrzymują zdrową Pieczarkę i dobry patch,
-- 1 wejście dziennie jest przeżywalne, ale daje słabszy patch i większe ryzyko care mistakes,
-- noc `22:30-07:00` oraz poranna karencja do `07:45` nie zapisują nowych care mistakes,
+- 2-3 krótkie wejścia dziennie utrzymują zdrową Pieczarkę i dobry podłoże,
+- 1 wejście dziennie jest przeżywalne, ale daje słabszy podłoże i większe ryzyko błędy opieki,
+- noc `22:30-07:00` oraz poranna karencja do `07:45` nie zapisują nowych błędy opieki,
 - nocny sen ma osobny łagodny decay, a Pieczarka zostawiona w trybie awake nocą przechodzi w miękkie auto-drzemanie,
 - wzrost ma dzienny limit, żeby spam kliknięć nie skracał drogi do legendy.
 
@@ -62,8 +62,8 @@ Docelowy rytm `normal`:
 
 Wzrost nie powinien być tylko zegarem. Docelowo powinien brać pod uwagę:
 
-- care mistakes według kategorii,
-- regularność snu,
+- błędy opieki według kategorii,
+- regułarność snu,
 - czystość i jakość podłoża,
 - ulubione i zaniedbane akcje,
 - stabilność wilgoci,

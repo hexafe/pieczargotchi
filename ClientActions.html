@@ -377,7 +377,7 @@
       addLog(state, 'Dobra reakcja! Pieczarka zapamiętuje szybką opiekę.', now);
       appendRelationshipEntryToState(state, {
         title: 'Szybka opieka',
-        body: definition.title + ' zostało zaopiekowane, zanim zostawiło trudny ślad.',
+        body: 'Udało się zadbać o potrzebę na czas, zanim zostawiła trudny ślad.',
         tone: 'care',
         tag: definition.category || 'care'
       }, now);
@@ -588,7 +588,7 @@
       }
     });
     if (rewards && rewards.spores) {
-      rewardParts.push('+' + rewards.spores + ' zarodników');
+      rewardParts.push('+' + formatActionCount(rewards.spores, ['zarodnik', 'zarodniki', 'zarodników']));
     }
     if (rewards && rewards.inventory) {
       const inventoryLabels = {
@@ -689,6 +689,16 @@
     }
 
     return Math.ceil(Math.max(0, Number(milliseconds) || 0) / 1000) + ' s';
+  }
+
+  function formatActionCount(value, forms) {
+    const core = window.PieczargotchiCore;
+    if (core && core.formatPolishCount) {
+      return core.formatPolishCount(value, forms);
+    }
+
+    const amount = Math.max(0, Math.floor(Math.abs(Number(value) || 0)));
+    return amount + (forms && forms[2] ? ' ' + forms[2] : '');
   }
 
   function getActivityLabel(action) {

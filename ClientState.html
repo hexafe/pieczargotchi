@@ -453,14 +453,14 @@
       startedAt: now,
       until: now + (rules.activityMs || 2400)
     };
-    addLog(state, 'Dojrzała grzybnia wypuściła plon: +' + spores + ' zarodników.', now);
+    addLog(state, 'Dojrzała grzybnia wypuściła plon: +' + formatStateCount(spores, ['zarodnik', 'zarodniki', 'zarodników']) + '.', now);
     applyGameplayEventToState(state, {
       type: 'harvest',
       spores: spores
     }, now);
     appendRelationshipEntryToState(state, {
       title: 'Plon grzybni',
-      body: 'Dojrzałe mycelium oddało zarodniki i zaczęło nowy cykl.',
+      body: 'Dojrzała grzybnia oddała zarodniki i zaczęła nowy cykl.',
       tone: 'spores',
       tag: 'harvest'
     }, now);
@@ -488,7 +488,7 @@
 
     if (!strongestNeed) {
       if (state.attention.activeNeed) {
-        addLog(state, 'Pieczarka uspokoiła się. Potrzeba została zaopiekowana.', now);
+        addLog(state, 'Pieczarka uspokoiła się. Potrzeba została zaspokojona.', now);
       }
 
       state.attention = normalizeAttention({});
@@ -533,7 +533,7 @@
       ? rules.needDefinitions[event.need]
       : null;
     if (event.type === 'resolved') {
-      addLog(state, 'Pieczarka uspokoiła się. Potrzeba została zaopiekowana.', now);
+      addLog(state, 'Pieczarka uspokoiła się. Potrzeba została zaspokojona.', now);
       appendRelationshipEntryToState(state, {
         title: 'Spokojniejsza grzybnia',
         body: 'Potrzeba została domknięta bez presji.',
@@ -557,7 +557,7 @@
       addLog(state, 'Przegapiona potrzeba: ' + definition.title + '. To zapisuje się w historii opieki.', now);
       appendRelationshipEntryToState(state, {
         title: 'Pominięta potrzeba',
-        body: definition.title + ' zostawiło drobny ślad w charakterze.',
+        body: 'Ta potrzeba zostawiła drobny ślad w charakterze.',
         tone: 'mistake',
         tag: definition.category || 'care'
       }, now);
@@ -625,7 +625,7 @@
     addLog(state, 'Przegapiona potrzeba: ' + need.definition.title + '. To zapisuje się w historii opieki.', now);
     appendRelationshipEntryToState(state, {
       title: 'Pominięta potrzeba',
-      body: need.definition.title + ' zostawiło drobny ślad w charakterze.',
+      body: 'Ta potrzeba zostawiła drobny ślad w charakterze.',
       tone: 'mistake',
       tag: category
     }, now);
@@ -746,6 +746,16 @@
   function clamp(value, min, max, fallback) {
     const next = Number.isFinite(value) ? value : fallback;
     return Math.max(min, Math.min(max, next));
+  }
+
+  function formatStateCount(value, forms) {
+    const core = window.PieczargotchiCore;
+    if (core && core.formatPolishCount) {
+      return core.formatPolishCount(value, forms);
+    }
+
+    const amount = Math.max(0, Math.floor(Math.abs(Number(value) || 0)));
+    return amount + (forms && forms[2] ? ' ' + forms[2] : '');
   }
 
   function getStageForGrowth(growth) {

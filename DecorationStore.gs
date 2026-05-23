@@ -22,7 +22,7 @@ function getDecorationCatalog() {
       cost: 16,
       happinessBonus: 4,
       tags: ['night', 'spores'],
-      description: 'Ciepłe światełko rozjaśnia patch wieczorem.'
+      description: 'Ciepłe światełko rozjaśnia trawę wieczorem.'
     },
     {
       id: 'cloverPatch',
@@ -54,7 +54,7 @@ function getDecorationCatalog() {
       cost: 12,
       happinessBonus: 1,
       tags: ['calendar', 'comfort', 'spores'],
-      description: 'Lista świąt świata do odhaczania, gdy grzybnia trafi na właściwy dzień.'
+      description: 'Lista świąt świata do odhaczania, gdy Pieczarka trafi na właściwy dzień.'
     }
   ];
 }

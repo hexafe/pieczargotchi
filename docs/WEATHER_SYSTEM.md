@@ -1,61 +1,61 @@
 # System Pogody
 
-Stan na 2026-05-20. Dokument jest praktyczna sciagawka dla implementacji i balansu pogody w Pieczargotchi. Nie jest planem refaktoru.
+Stan na 2026-05-20. Dokument jest praktyczną ściągawką dla implementacji i balansu pogody w Pieczargotchi. Nie jest planem refaktoru.
 
 ## Cel Systemu
 
-Pogoda ma byc czytelna w scenie i lagodnie wplywac na rytm opieki. Nie jest tylko dekoracja, ale nie moze przejmowac petli gry ani automatycznie karac gracza care mistakes.
+Pogoda ma być czytelna w scenie i łagodnie wpływać na rytm opieki. Nie jest tylko dekoracją, ale nie może przejmować pętli gry ani automatycznie karać gracza za błędy opieki.
 
-Glowne zasady:
+Główne zasady:
 
-- gameplayowe reguly pogody sa deterministyczne i testowalne,
-- balans statow zostaje w `GameRules.gs` i `ClientCore.html`,
+- gameplayowe reguły pogody są deterministyczne i testowalne,
+- balans statów zostaje w `GameRules.gs` i `ClientCore.html`,
 - renderer czyta gotowe pola sceny, ale nie tworzy zasad rozgrywki,
-- debug moze wymuszac pogode, ale tryb `auto` ma trzymac sie realnych danych,
-- lokalny fallback ma byc ladny i bezpieczny, nawet bez geolokalizacji albo sieci.
+- debug może wymuszać pogodę, ale tryb `auto` ma trzymać się realnych danych,
+- lokalny tryb zapasowy ma być ładny i bezpieczny, nawet bez geolokalizacji albo sieci.
 
-## Przeplyw Danych
+## Przepływ Danych
 
-- `ClientWeather.html` pobiera lokalizacje, odpytuje Open-Meteo i buduje `weatherScene`.
-- Fallback lokalizacji to Katowice; fallback pogody to lokalna pogodna scena z realnym rytmem dnia.
-- Open-Meteo dostarcza m.in. temperature, wilgotnosc, punkt rosy, opad, deszcz, przelotne opady, snieg, grubosc sniegu, zachmurzenie warstwowe, cisnienie, widzialnosc, VPD, ET0, wilgotnosc/temperature gleby oraz wiatr i porywy.
-- `ClientCore.html` klasyfikuje warunki i wylicza pola immersji: typ deszczu, Beaufort, potencjal mgly, mokrosc podloza, pokrywe sniezna, formy chmur, trend cisnienia, nadchodzaca pogode, potencjal teczy i profil zycia sceny.
-- `ClientState.html` naklada tylko lagodne delty statow z `calculateWeatherStatDeltas`.
-- `ClientScene.html` sklada warstwy: niebo, ciala niebieskie, tecza, chmury, opad/wiatr, podloze, zycie sceny i foreground.
+- `ClientWeather.html` pobiera lokalizację, odpytuje Open-Meteo i buduje `weatherScene`.
+- tryb zapasowy lokalizacji to Katowice; tryb zapasowy pogody to lokalna pogodna scena z realnym rytmem dnia.
+- Open-Meteo dostarcza m.in. temperaturę, wilgotność, punkt rosy, opad, deszcz, przelotne opady, śnieg, grubość śniegu, zachmurzenie warstwowe, ciśnienie, widzialność, VPD, ET0, wilgotność/temperaturę gleby oraz wiatr i porywy.
+- `ClientCore.html` klasyfikuje warunki i wylicza pola immersji: typ deszczu, Beaufort, potencjał mgły, mokrość podłoża, pokrywę śnieżną, formy chmur, trend ciśnienia, nadchodzącą pogodę, potencjał tęczy i profil życia sceny.
+- `ClientState.html` nakłada tylko łagodne delty statów z `calculateWeatherStatDeltas`.
+- `ClientScene.html` składa warstwy: niebo, ciała niebieskie, tęcza, chmury, opad/wiatr, podłoże, życie sceny i foreground.
 
 ## Warunki I Symulacje
 
-| System | Dane wejsciowe | Efekt |
+| System | Dane wejściowe | Efekt |
 | --- | --- | --- |
-| Klasyfikacja pogody | WMO `weather_code`, opad, snieg, zachmurzenie | `clear`, `cloudy`, `rain`, `storm`, `snow`, `fog` |
-| Rytm dnia | sunrise/sunset, lokalna data, fallback astronomiczny | fazy dnia, ton nieba, widocznosc slonca/ksiezyca/gwiazd |
-| Zachmurzenie | cloud cover total/low/mid/high | gestosc nieba, zaslanianie slonca, ksiezyca i gwiazd |
-| Formy chmur | warstwy chmur, opad, mgla | cirrus, cirrostratus, altocumulus, altostratus, stratus, stratocumulus, nimbostratus, cumulonimbus |
-| Wiatr | predkosc, kierunek, porywy | ruch chmur, kat deszczu, dryf sniegu, pasma porywow, mgla, trawa, owady |
+| Klasyfikacja pogody | WMO `weather_code`, opad, śnieg, zachmurzenie | `clear`, `cloudy`, `rain`, `storm`, `snow`, `fog` |
+| Rytm dnia | sunrise/sunset, lokalna data, tryb zapasowy astronomiczny | fazy dnia, ton nieba, widoczność słońca/księżyca/gwiazd |
+| Zachmurzenie | cloud cover total/low/mid/high | gęstość nieba, zasłanianie słońca, księżyca i gwiazd |
+| Formy chmur | warstwy chmur, opad, mgła | cirrus, cirrostratus, altocumulus, altostratus, stratus, stratocumulus, nimbostratus, cumulonimbus |
+| Wiatr | prędkość, kierunek, porywy | ruch chmur, kąt deszczu, dryf śniegu, pasma porywów, mgła, trawa, owady |
 | Deszcz | rain, showers, precipitation | drizzle/light/moderate/heavy/violent, steady/showers/storm |
-| Burza | WMO thunderstorm, deszcz, wiatr, porywy | ciemniejsze niebo, mocny opad, blyski, stres dla Pieczarki |
-| Snieg | snowfall, snow depth, temperatura, wiatr | `powder`, `wet`, `blowing`, pokrywa sniezna i bielsze podloze |
-| Mgla | wilgotnosc, punkt rosy, widzialnosc, niski wiatr, low cloud | warstwy mgly, slabszy kontrast i miekksze podloze |
-| Mokrosc podloza | deszcz, wilgotnosc, mgla, temperatura, VPD, ET0 | mokra trawa, krawedzie wody, kaluze, pozniejsze wysychanie |
-| Tecza | krople, niedawny deszcz, okno slonca, niska pozycja slonca | pierwotny luk, czasem wtorny luk i ciemniejszy pas miedzy nimi |
-| Zycie sceny | sezon, pora dnia, temperatura, wiatr, opad, wilgotnosc | motyle, male owady latajace, robaczki naziemne, swietliki |
-| Zjawiska nieba | data, lokalizacja, noc, zachmurzenie, opad, Kp NOAA/fallback | meteory, roje meteorow, komety, zorza, odkrycia w kolekcji |
-| Zjawiska srodowiskowe | pora dnia, wilgotnosc, temperatura, wiatr, mokrosc, zachmurzenie, mgla | rosa, szron, fogbow, halo, promienie, parowanie, drzenie powietrza |
+| Burza | WMO thunderstorm, deszcz, wiatr, porywy | ciemniejsze niebo, mocny opad, błyski, stres dla Pieczarki |
+| Śnieg | snowfall, snow depth, temperatura, wiatr | `powder`, `wet`, `blowing`, pokrywa śnieżna i bielsze podłoże |
+| Mgła | wilgotność, punkt rosy, widzialność, niski wiatr, low cloud | warstwy mgły, słabszy kontrast i miększe podłoże |
+| Mokrość podłoża | deszcz, wilgotność, mgła, temperatura, VPD, ET0 | mokra trawa, krawędzie wody, kałuże, późniejsze wysychanie |
+| Tęcza | krople, niedawny deszcz, okno słońca, niska pozycja słońca | pierwotny łuk, czasem wtórny łuk i ciemniejszy pas między nimi |
+| Życie sceny | sezon, pora dnia, temperatura, wiatr, opad, wilgotność | motyle, małe owady latające, robaczki naziemne, świetliki |
+| Zjawiska nieba | data, lokalizacja, noc, zachmurzenie, opad, Kp NOAA/tryb zapasowy | meteory, roje meteorów, komety, zorza, odkrycia w kolekcji |
+| Zjawiska środowiskowe | pora dnia, wilgotność, temperatura, wiatr, mokrość, zachmurzenie, mgła | rosa, szron, fogbow, halo, promienie, parowanie, drżenie powietrza |
 
-## Wplyw Na Gameplay
+## Wpływ Na Gameplay
 
-Pogoda modyfikuje staty lagodnie i z limitem czasu, zeby aktualny warunek pogodowy nie symulowal calej dlugiej nieobecnosci.
+Pogoda modyfikuje staty łagodnie i z limitem czasu, żeby aktualny warunek pogodowy nie symulował całej długiej nieobecności.
 
-| Warunek | Staty | Regula |
+| Warunek | Staty | Reguła |
 | --- | --- | --- |
-| Deszcz | `hydration` w gore | mocniej przy wyzszej intensywnosci i realnym opadzie |
-| Burza | `hydration` w gore, `happiness` i `cleanliness` w dol | nawadnia, ale stresuje i brudzi scene |
-| Snieg | `hydration` lekko w gore | wolniejszy, delikatny efekt wilgoci |
-| Wysoka wilgotnosc | `hydration` lekko w gore | wspiera utrzymanie wilgoci |
-| Silny wiatr | `hydration` w dol | wysusza podloze |
-| Upal | `hydration` w dol | wysusza przez temperature odczuwalna lub realna |
+| Deszcz | `hydration` w górę | mocniej przy wyższej intensywności i realnym opadzie |
+| Burza | `hydration` w górę, `happiness` i `cleanliness` w dół | nawadnia, ale stresuje i brudzi scenę |
+| Śnieg | `hydration` lekko w górę | wolniejszy, delikatny efekt wilgoci |
+| Wysoka wilgotność | `hydration` lekko w górę | wspiera utrzymanie wilgoci |
+| Silny wiatr | `hydration` w dół | wysusza podłoże |
+| Upał | `hydration` w dół | wysusza przez temperaturę odczuwalną lub realną |
 
-Aktualne wartosci balansu sa w `GameRules.gs` pod `weatherBalance`:
+Aktualne wartości balansu są w `GameRules.gs` pod `weatherBalance`:
 
 - `maxElapsedHours: 2`,
 - `rainHydrationPerHour: 8`,
@@ -67,120 +67,120 @@ Aktualne wartosci balansu sa w `GameRules.gs` pod `weatherBalance`:
 - `stormHappinessPerHour: -2`,
 - `stormCleanlinessPerHour: -1.5`.
 
-Pogoda nie tworzy obecnie care mistakes sama z siebie. Moze pogorszyc lub poprawic warunki, ale attention/care mistakes pozostaja reakcja na potrzeby i decyzje gracza.
+Pogoda nie tworzy obecnie błędów opieki sama z siebie. Może pogorszyć lub poprawić warunki, ale attention/błędy opieki pozostają reakcją na potrzeby i decyzje gracza.
 
-## Zaleznosci Srodowiskowe
+## Zależności Środowiskowe
 
-- Chmury przesuwaja sie z wiatrem i moga wychodzic poza ekran; nowe sloty pojawiaja sie poza kadrem zamiast nagle znikac na scenie.
-- Chmury maja profile formy, nie tylko gestosc: wysokie cirrus/cirrostratus sa cienkie i smuzyste, altocumulus sklada sie z drobnych kep, stratus/altostratus sa warstwowe, nimbostratus jest ciezszy i ma subtelne kurtyny opadu, a cumulonimbus tworzy wyzsza wieze z kowadlem.
-- Sloty chmur maja lifecycle `birth -> mature -> dissolve`; zmieniaja alfa, szerokosc, wysokosc, krawedzie i mikrosegmenty, zeby formowanie i rozpad nie wygladaly jak nagly pop-in/pop-out.
-- Profil chmury niesie optyczna grubosc i ciezar wizualny. Te wartosci powinny sterowac zaciemnieniem, przerwami dla promieni, widocznoscia cial niebieskich i subtelnym nastrojem sceny, ale nie gameplayem.
-- Slonce, ksiezyc i gwiazdy sa przygaszane przez zachmurzenie; slonce moze przebijac sie przez chmury przy sprzyjajacym oknie.
-- Deszcz przechyla sie zgodnie z wektorem wiatru; przy mocniejszym deszczu dochodza warstwy "sheet rain".
-- Snieg dryfuje wolniej i mocniej reaguje na wiatr przy stylu `blowing`; cieplejszy snieg jest mokry i ciezszy.
-- Mgla jest gestsza przy wysokim potencjale mgly i dryfuje z lekkim wiatrem.
-- Podloze pamieta mokrosc i snieg jako stan renderera, dzieki czemu kaluze i snieg nie przeskakuja natychmiast po zmianie pogody.
-- Trawa ugina sie od wiatru, deszczu, burzy i sniegu; w sniegu jest nizsza i mniej widoczna.
-- Robaczki naziemne wchodza z krawedzi albo z wysokiej trawy i znikaja przez krawedz/trawy, bez naglego despawnu na oczach gracza.
-- Swietliki maja stale liczony tor lotu rowniez wtedy, gdy aktualnie nie swieca; renderuje sie tylko emisja swiatla, ale pozycja nie resetuje sie przy przygaszeniu.
-- Meteory i komety sa rzadkimi zdarzeniami nocnymi, wygaszanymi przez chmury, opad i dzien; wymuszanie debug sluzy tylko do QA.
-- Roje meteorow maja okna sezonowe: Perseidy, Geminidy, Kwadrantydy, Orionidy i Leonidy.
-- Zorza korzysta z live Kp NOAA, kiedy fetch jest dostepny; bez live danych dziala deterministyczny fallback dla wysokich szerokosci geograficznych, nocy i przejrzystego nieba.
-- Rosa, szron, fogbow, halo ksiezycowe, promienie przez chmury, parowanie po deszczu, drzenie powietrza i przejasnienie po deszczu sa liczone deterministycznie z profilu sceny, a renderer tylko rysuje warstwy.
-- Pierwsze zaobserwowanie specjalnego zjawiska zapisuje kolekcje odkryc w stanie gry.
+- Chmury przesuwają się z wiatrem i mogą wychodzić poza ekran; nowe sloty pojawiają się poza kadrem zamiast nagle znikać na scenie.
+- Chmury mają profile formy, nie tylko gęstość: wysokie cirrus/cirrostratus są cienkie i smużyste, altocumulus składa się z drobnych kęp, stratus/altostratus są warstwowe, nimbostratus jest cięższy i ma subtelne kurtyny opadu, a cumulonimbus tworzy wyższą wieżę z kowadłem.
+- Sloty chmur mają cykl życia `birth -> mature -> dissolve`; zmieniają alfę, szerokość, wysokość, krawędzie i mikrosegmenty, żeby formowanie i rozpad nie wyglądały jak nagły pop-in/pop-out.
+- Profil chmury niesie optyczną grubość i ciężar wizualny. Te wartości powinny sterować zaciemnieniem, przerwami dla promieni, widocznością ciał niebieskich i subtelnym nastrojem sceny, ale nie gameplayem.
+- Słońce, księżyc i gwiazdy są przygaszane przez zachmurzenie; słońce może przebijać się przez chmury przy sprzyjającym oknie.
+- Deszcz przechyla się zgodnie z wektorem wiatru; przy mocniejszym deszczu dochodzą warstwy arkusza animacji `rain`.
+- Śnieg dryfuje wolniej i mocniej reaguje na wiatr przy stylu `blowing`; cieplejszy śnieg jest mokry i cięższy.
+- Mgła jest gęstsza przy wysokim potencjale mgły i dryfuje z lekkim wiatrem.
+- Podłoże pamięta mokrość i śnieg jako stan renderera, dzięki czemu kałuże i śnieg nie przeskakują natychmiast po zmianie pogody.
+- Trawa ugina się od wiatru, deszczu, burzy i śniegu; w śniegu jest niższa i mniej widoczna.
+- Robaczki naziemne wchodzą z krawędzi albo z wysokiej trawy i znikają przez krawędź/trawę, bez nagłego despawnu na oczach gracza.
+- Świetliki mają stale liczony tor lotu również wtedy, gdy aktualnie nie świecą; renderuje się tylko emisja światła, ale pozycja nie resetuje się przy przygaszeniu.
+- Meteory i komety są rzadkimi zdarzeniami nocnymi, wygaszanymi przez chmury, opad i dzień; wymuszanie debug służy tylko do QA.
+- Roje meteorów mają okna sezonowe: Perseidy, Geminidy, Kwadrantydy, Orionidy i Leonidy.
+- Zorza korzysta z live Kp NOAA, kiedy fetch jest dostępny; bez live danych działa deterministyczny tryb zapasowy dla wysokich szerokości geograficznych, nocy i przejrzystego nieba.
+- Rosa, szron, fogbow, halo księżycowe, promienie przez chmury, parowanie po deszczu, drżenie powietrza i przejaśnienie po deszczu są liczone deterministycznie z profilu sceny, a renderer tylko rysuje warstwy.
+- Pierwsze zaobserwowanie specjalnego zjawiska zapisuje kolekcję odkryć w stanie gry.
 
-## Zycie Sceny
+## Życie Sceny
 
-Zycie sceny jest proceduralne i zalezne od pogody, ale nie jest zapisywane w stanie gry.
+Życie sceny jest proceduralne i zależne od pogody, ale nie jest zapisywane w stanie gry.
 
-| Stworzenia | Kiedy rosnie aktywnosc | Kiedy spada aktywnosc | Ruch |
+| Stworzenia | Kiedy rośnie aktywność | Kiedy spada aktywność | Ruch |
 | --- | --- | --- | --- |
-| Motyle | cieply dzien, sezon wiosna-lato, slonce lub dobra pogoda | deszcz, burza, snieg, zimno, noc, mocny wiatr | nieregularny, gladki tor lotu z losowymi zmianami kierunku |
-| Male latajace owady | cieple warunki, dzien lub okolice aktywnosci swietlikow | opad, zimno, wiatr, snieg | krotkie przeloty z lekkim jitterem i wiatrem |
-| Robaczki naziemne | cieplo, sezon, brak ostrego opadu | snieg, burza, silny deszcz, zimno | przechadzanie z krawedzi albo z trawy, z fade-in/fade-out |
-| Swietliki | cieple, wilgotne wieczory/noce, okolice wysokiej trawy | opad, snieg, burza, zimno, bardzo slaba wilgotnosc | spokojny dryf gora-dol i na boki, pulsowanie swiatla |
+| Motyle | ciepły dzień, sezon wiosna-lato, słońce lub dobra pogoda | deszcz, burza, śnieg, zimno, noc, mocny wiatr | nieregularny, gładki tor lotu z losowymi zmianami kierunku |
+| Małe latające owady | ciepłe warunki, dzień lub okolice aktywności świetlików | opad, zimno, wiatr, śnieg | krótkie przeloty z lekkim jitterem i wiatrem |
+| Robaczki naziemne | ciepło, sezon, brak ostrego opadu | śnieg, burza, silny deszcz, zimno | przechadzanie z krawędzi albo z trawy, z fade-in/fade-out |
+| Świetliki | ciepłe, wilgotne wieczory/noce, okolice wysokiej trawy | opad, śnieg, burza, zimno, bardzo słaba wilgotność | spokojny dryf góra-dół i na boki, pulsowanie światła |
 
 ## Zjawiska Nieba
 
-`ClientCoreSky.html` i `src/core/sky.ts` licza profil zjawisk bez losowosci runtime zalegajacej w rendererze. Ten sam czas, lokalizacja i pogoda daja ten sam wynik, a renderer tylko rysuje canvasowe warstwy.
+`ClientCoreSky.html` i `src/core/sky.ts` liczą profil zjawisk bez losowości czasu działania zalegającej w rendererze. Ten sam czas, lokalizacja i pogoda dają ten sam wynik, a renderer tylko rysuje canvasowe warstwy.
 
-- Spadajace gwiazdy sa krotkimi, pojedynczymi smugami. Poza rojami sa bardzo rzadkie.
-- Kometa jest jeszcze rzadsza, wolniejsza i ma dluzszy ogon.
-- Roje meteorow zwiekszaja szanse na meteory w znanych oknach sezonowych, ale nadal nie robia ciaglego deszczu gwiazd.
-- Zorza jest niska, pasmowa i rysowana za gwiazdami/chmurami jako segmenty pixel-art, nie jako gladki gradient.
-- `discoveries.sky` przechowuje pierwsze odkrycie, ostatni czas i licznik nieba; `discoveries.environment` robi to samo dla efektow srodowiskowych. Migracja stanu to v9.
+- Spadające gwiazdy są krótkimi, pojedynczymi smugami. Poza rojami są bardzo rzadkie.
+- Kometa jest jeszcze rzadsza, wolniejsza i ma dłuższy ogon.
+- Roje meteorów zwiększają szanse na meteory w znanych oknach sezonowych, ale nadal nie robią ciągłego deszczu gwiazd.
+- Zorza jest niska, pasmowa i rysowana za gwiazdami/chmurami jako segmenty pixel-art, nie jako gładki gradient.
+- `discoveries.sky` przechowuje pierwsze odkrycie, ostatni czas i licznik nieba; `discoveries.environment` robi to samo dla efektów środowiskowych. Migracja stanu to v9.
 - Debug ma `Zjawisko nieba`, a capture wspiera `PIECZARGOTCHI_DEBUG_SKY_EFFECT`.
 
-## Zjawiska Srodowiskowe
+## Zjawiska Środowiskowe
 
-`ClientCorePhenomena.html` liczy profil efektow srodowiskowych bez runtime losowosci renderera. Ten sam czas, pogoda i lokalizacja daja ten sam zestaw efektow oraz odkryc.
+`ClientCorePhenomena.html` liczy profil efektów środowiskowych bez losowości czasu działania renderera. Ten sam czas, pogoda i lokalizacja dają ten sam zestaw efektów oraz odkryć.
 
-- Rosa pojawia sie glownie rano przy wysokiej wilgotnosci, slabym wietrze, braku opadu i wilgotnym podlozu.
-- Szron jest porannym wariantem zimna, wilgoci i ciszy; nie powinien wygladac jak zwykla rosa.
-- Fogbow jest bladym lukiem przy mgle, niskim sloncu i bez ciezkiego opadu.
-- Halo ksiezycowe wymaga nocy, chmur wysokich/cienkich i braku opadu.
-- Promienie slonca pojawiaja sie przy niskim sloncu, przerwach w chmurach i bez ciezkiego opadu.
-- Parowanie po deszczu wymaga mokrego podloza, ciepla i spokojniejszego powietrza.
-- Drzenie powietrza jest subtelne i dotyczy suchego, goracego poludnia.
-- Przejasnienie po deszczu dodaje drobne blyski w trawie, kiedy podloze jest jeszcze mokre, a niebo zaczyna sie otwierac.
+- Rosa pojawia się głównie rano przy wysokiej wilgotności, słabym wietrze, braku opadu i wilgotnym podłożu.
+- Szron jest porannym wariantem zimna, wilgoci i ciszy; nie powinien wyglądać jak zwykła rosa.
+- Fogbow jest bladym łukiem przy mgle, niskim słońcu i bez ciężkiego opadu.
+- Halo księżycowe wymaga nocy, chmur wysokich/cienkich i braku opadu.
+- Promienie słońca pojawiają się przy niskim słońcu, przerwach w chmurach i bez ciężkiego opadu.
+- Parowanie po deszczu wymaga mokrego podłoża, ciepła i spokojniejszego powietrza.
+- Drżenie powietrza jest subtelne i dotyczy suchego, gorącego południa.
+- Przejaśnienie po deszczu dodaje drobne błyski w trawie, kiedy podłoże jest jeszcze mokre, a niebo zaczyna się otwierać.
 
 Capture wspiera scenariusze `phenomena-*` oraz dodatkowe override'y warstw chmur: `PIECZARGOTCHI_DEBUG_CLOUD_LOW`, `PIECZARGOTCHI_DEBUG_CLOUD_MID` i `PIECZARGOTCHI_DEBUG_CLOUD_HIGH`.
 
-## Tecza
+## Tęcza
 
-Tecza jest liczona z kilku bramek:
+Tęcza jest liczona z kilku bramek:
 
-- musi byc dzien i sensowne okno slonca,
-- musi byc woda w powietrzu: aktualny deszcz, przelotne opady albo niedawny deszcz z ostatnich godzin,
-- mgla, snieg i noc wygaszaja efekt,
-- burza moze dac slaby potencjal, ale nie powinna robic czystej, intensywnej teczy,
-- niski kat slonca daje wieksza i czytelniejsza tecze,
-- przy mocnym potencjale mozliwy jest drugi, slabszy luk z odwrocona kolejnoscia kolorow i ciemniejszym pasem miedzy lukami.
+- musi być dzień i sensowne okno słońca,
+- musi być woda w powietrzu: aktualny deszcz, przelotne opady albo niedawny deszcz z ostatnich godzin,
+- mgła, śnieg i noc wygaszają efekt,
+- burza może dać słaby potencjał, ale nie powinna robić czystej, intensywnej tęczy,
+- niski kąt słońca daje większą i czytelniejszą tęczę,
+- przy mocnym potencjale możliwy jest drugi, słabszy łuk z odwróconą kolejnością kolorów i ciemniejszym pasem między łukami.
 
-Renderer ustawia srodek luku po stronie przeciwnej do slonca w ekranowej projekcji. To jest uproszczenie obserwatora na stalej scenie, ale trzyma najwazniejsza zasade: tecza pojawia sie po przeciwnej stronie od zrodla swiatla.
+Renderer ustawia środek łuku po stronie przeciwnej do słońca w ekranowej projekcji. To jest uproszczenie obserwatora na stałej scenie, ale trzyma najważniejszą zasadę: tęcza pojawia się po przeciwnej stronie od źródła światła.
 
-## Co Jest Zgodne Z Rzeczywistoscia
+## Co Jest Zgodne Z Rzeczywistością
 
-- Open-Meteo daje pola, ktore faktycznie pasuja do takiej symulacji: WMO code, opad, showers, snow depth, warstwy chmur, widzialnosc, VPD, ET0, wiatr, porywy i soil moisture.
-- Klasyfikacja WMO dobrze rozdziela mgle, drizzle, rain, showers, snow i thunderstorm.
-- Beaufort jest sensowna skala do mapowania predkosci wiatru na obserwowalne efekty w scenie.
-- Mgla zalezy od wilgotnosci, punktu rosy, widzialnosci, chmur, pory dnia i wiatru; zbyt silny wiatr miesza powietrze i utrudnia mgle.
-- Chmury deszczowe i burzowe sa przypisane do nimbostratus/cumulonimbus, a niskie stratusy wspieraja mgle i ponure niebo.
-- ET0/VPD, temperatura, wiatr i wilgotnosc sa dobrymi sygnalami wysychania podloza.
-- Motyle realnie zaleza od temperatury, promieniowania slonecznego i wiatru; deszcz jest dla nich niekorzystny.
-- Swietliki lubia cieple, wilgotne siedliska i wysoka trawe, a ich aktywnosc jest nocna lub zmierzchowa.
-- Tecza wymaga kropli wody przed obserwatorem i slonca za obserwatorem; wysoka pozycja slonca zmniejsza widoczny luk.
-- Widocznosc zorzy zalezy od geomagnetycznej aktywnosci Kp, szerokosci geograficznej, ciemnosci i zachmurzenia.
-- Perseidy i inne roje meteorow maja sezonowe okna aktywnosci, a nie rowna czestotliwosc przez caly rok.
+- Open-Meteo daje pola, które faktycznie pasują do takiej symulacji: WMO code, opad, showers, snow depth, warstwy chmur, widzialność, VPD, ET0, wiatr, porywy i soil moisture.
+- Klasyfikacja WMO dobrze rozdziela mgłę, drizzle, rain, showers, snow i thunderstorm.
+- Beaufort jest sensowną skalą do mapowania prędkości wiatru na obserwowalne efekty w scenie.
+- Mgła zależy od wilgotności, punktu rosy, widzialności, chmur, pory dnia i wiatru; zbyt silny wiatr miesza powietrze i utrudnia mgłę.
+- Chmury deszczowe i burzowe są przypisane do nimbostratus/cumulonimbus, a niskie stratusy wspierają mgłę i ponure niebo.
+- ET0/VPD, temperatura, wiatr i wilgotność są dobrymi sygnałami wysychania podłoża.
+- Motyle realnie zależą od temperatury, promieniowania słonecznego i wiatru; deszcz jest dla nich niekorzystny.
+- Świetliki lubią ciepłe, wilgotne siedliska i wysoką trawę, a ich aktywność jest nocna lub zmierzchowa.
+- Tęcza wymaga kropli wody przed obserwatorem i słońca za obserwatorem; wysoka pozycja słońca zmniejsza widoczny łuk.
+- Widoczność zorzy zależy od geomagnetycznej aktywności Kp, szerokości geograficznej, ciemności i zachmurzenia.
+- Perseidy i inne roje meteorów mają sezonowe okna aktywności, a nie równą częstotliwość przez cały rok.
 
 ## Uproszczenia Gry
 
-- Scena nie zna prawdziwego horyzontu, przeszkod terenowych ani wysokosci obserwatora.
-- Chmury sa proceduralnymi slotami canvasu, nie modelem atmosfery.
-- Mokrosc i snieg na podlozu sa pamiecia renderera, nie pelnym modelem gleby.
-- Teczowy luk uzywa ekranowej projekcji 2D i stalego horyzontu.
-- Owady sa lokalna animacja, a nie symulacja populacji.
-- Debug override moze tworzyc warunki, ktore w realnej meteorologii bylyby rzadkie, ale sa potrzebne do QA.
+- Scena nie zna prawdziwego horyzontu, przeszkód terenowych ani wysokości obserwatora.
+- Chmury są proceduralnymi slotami canvasu, nie modelem atmosfery.
+- Mokrość i śnieg na podłożu są pamięcią renderera, nie pełnym modelem gleby.
+- Tęczowy łuk używa ekranowej projekcji 2D i stałego horyzontu.
+- Owady są lokalną animacją, a nie symulacją populacji.
+- Debug override może tworzyć warunki, które w realnej meteorologii byłyby rzadkie, ale są potrzebne do QA.
 
-## Co Warto Dodac Pozniej
+## Co Warto Dodać Później
 
-- Lepsze wysychanie podloza przez ET0, VPD, wiatr, temperature i naslonecznienie, z wolniejszym powrotem po deszczu.
-- Sezonowa kondycja trawy: bardziej soczysta po wilgotnych dniach, przygaszona przy suszy/upale, przygnieciona sniegiem.
-- Oddalony blysk/grzmot jako efekt atmosferyczny burzy, bez fizyki trafien.
-- Opcjonalny komunikat gameplayowy o nadchodzacej zmianie pogody na bazie trendu cisnienia i forecast hours.
-- Rozszerzyc katalog odkryc o migracje ptakow/owadow jako bardzo rzadkie scenki sezonowe.
+- Lepsze wysychanie podłoża przez ET0, VPD, wiatr, temperaturę i nasłonecznienie, z wolniejszym powrotem po deszczu.
+- Sezonowa kondycja trawy: bardziej soczysta po wilgotnych dniach, przygaszona przy suszy/upale, przygnieciona śniegiem.
+- Oddalony błysk/grzmot jako efekt atmosferyczny burzy, bez fizyki trafień.
+- Opcjonalny komunikat gameplayowy o nadchodzącej zmianie pogody na bazie trendu ciśnienia i forecast hours.
+- Rozszerzyć katalog odkryć o migracje ptaków/owadów jako bardzo rzadkie scenki sezonowe.
 
-## Czego Nie Warto Symulowac Teraz
+## Czego Nie Warto Symulować Teraz
 
-- CFD albo realna dynamika chmur. Koszt duzy, efekt w pixel-art canvasie maly.
-- Wolumetryczna mgla i fizyczne rozpraszanie swiatla. Canvas 2D wystarcza dla czytelnosci.
-- Radar/nowcasting opadu. Wymaga osobnych zrodel danych i komplikuje deployment Apps Script.
-- Pelna hydrologia gleby, drenaz, retencja i bilans wodny warstw podloza. Dla gry wystarczy surface wetness plus stat `hydration`.
-- Fizyka piorunow, trafienia i realne ryzyko burzowe. To zmieniloby klimat gry i mogloby frustrowac.
-- Symulacja populacji owadow. Dla immersji wystarczy profil aktywnosci i proceduralne wejscia/wyjscia.
-- Dokladne modele optyki atmosferycznej per piksel. Tecza, fogbow i halo powinny byc stylizowanymi warstwami.
+- CFD albo realna dynamika chmur. Koszt duży, efekt w pixel-art canvasie mały.
+- Wolumetryczna mgła i fizyczne rozpraszanie światła. Canvas 2D wystarcza dla czytelności.
+- Radar/nowcasting opadu. Wymaga osobnych źródeł danych i komplikuje deployment Apps Script.
+- Pełna hydrologia gleby, drenaż, retencja i bilans wodny warstw podłoża. Dla gry wystarczy surface wetness plus stat `hydration`.
+- Fizyka piorunów, trafienia i realne ryzyko burzowe. To zmieniłoby klimat gry i mogłoby frustrować.
+- Symulacja populacji owadów. Dla immersji wystarczy profil aktywności i proceduralne wejścia/wyjścia.
+- Dokładne modele optyki atmosferycznej per piksel. Tęcza, fogbow i halo powinny być stylizowanymi warstwami.
 
-## Zrodla Researchu
+## Źródła Researchu
 
 - Open-Meteo Forecast API: https://open-meteo.com/en/docs
 - Met Office, rainbows: https://weather.metoffice.gov.uk/learn-about/weather/optical-effects/rainbows
@@ -189,7 +189,7 @@ Renderer ustawia srodek luku po stronie przeciwnej do slonca w ekranowej projekc
 - NOAA/NESDIS, cloud types: https://www.nesdis.noaa.gov/about/k-12-education/atmosphere/types-of-clouds
 - NOAA/NWS, evapotranspiration/FRET: https://www.weather.gov/cae/fretinfo.html
 - PubMed, butterfly activity and weather: https://pubmed.ncbi.nlm.nih.gov/28308692/
-- Firefly.org, firefly habitat: https://www.firefly.org/firefly-habitat.html
+- Firefly.org: https://www.firefly.org/firefly-habitat.html
 - Washington State University, butterflies and rain: https://askdruniverse.wsu.edu/2017/12/18/butterflies-go-rains/
 - NOAA SWPC, Planetary K-index: https://www.swpc.noaa.gov/products/planetary-k-index
 - NOAA SWPC, tips for viewing aurora: https://www.swpc.noaa.gov/content/tips-viewing-aurora

@@ -124,7 +124,7 @@ function getAssetDriveFileIdsFromFolder_(assets) {
   if (typeof DriveApp === 'undefined' || typeof DriveApp.getFolderById !== 'function') {
     return {
       fileIds: fileIds,
-      error: 'DriveApp.getFolderById nie jest dostepne w tym srodowisku.'
+      error: 'DriveApp.getFolderById nie jest dostępne w tym środowisku.'
     };
   }
 
@@ -213,10 +213,10 @@ function getAssetBaseName_(fileName) {
 
 function getMissingAssetFileIdMessage_(folderLookup) {
   if (folderLookup.error) {
-    return 'Nie udalo sie odczytac folderu Drive z assetami: ' + folderLookup.error;
+    return 'Nie udało się odczytać folderu Drive z grafikami: ' + folderLookup.error;
   }
   if (getConfiguredAssetDriveFolderId()) {
-    return 'Nie znaleziono pliku w folderze Drive po sciezce z manifestu.';
+    return 'Nie znaleziono pliku w folderze Drive po ścieżce z manifestu.';
   }
   return 'ID pliku Drive nie jest ustawione.';
 }
@@ -226,7 +226,7 @@ function fileToDataUrl(fileId) {
     return null;
   }
   if (!PIECZARGOTCHI_DRIVE_ASSETS_ENABLED) {
-    throw new Error('Drive asset loading jest wylaczone dla publicznego deploymentu.');
+    throw new Error('Ładowanie grafik z Drive jest wyłączone dla publicznego wdrożenia.');
   }
 
   const file = DriveApp.getFileById(fileId);

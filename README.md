@@ -2,38 +2,38 @@
 
 Pieczargotchi is a small Google Apps Script web app for a pixel-art mushroom care game.
 
-The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake loop, care actions, visible cooldowns, keyboard shortcuts, weather-driven scene life, minigames, long-term progression, JSON backup, patch decorations, and a local Legendary Arena. See `docs/IMPLEMENTATION_PLAN.md` for the original implementation roadmap and `docs/PROJECT_STATE_2026-05-17.md` for the current checkpoint.
+The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake loop, care actions, visible cooldowns, keyboard shortcuts, weather-driven scene life, minigames, long-term progression, JSON backup, podłoże decorations, and a local Legendary Arena. See `docs/IMPLEMENTATION_PLAN.md` for the original implementation roadmap and `docs/PROJECT_STATE_2026-05-17.md` for the current checkpoint.
 
 ## Current Layout
 
 - `Code.gs` - Apps Script `doGet()` entrypoint and HTML partial include helper.
-- `Config.gs` - app constants, state version, canvas size, runtime flags, Drive asset folder ID, and optional per-asset Drive ID overrides.
-- `AnimationConfig.gs` - runtime animation manifest for stage and activity sprite sheets.
+- `Config.gs` - app constants, state version, canvas size, deployment flags, Drive asset folder ID, and optional per-asset Drive ID overrides.
+- `AnimationConfig.gs` - animation manifest for stage and activity sprite sheets.
 - `AssetService.gs` - Drive PNG to data URL loading for the client.
 - `StateModel.gs` - default state shape and state metadata exposed to the client.
 - `GameRules.gs` - decay, growth, stage, animation, and instrument configuration.
-- `MinigamesConfig.gs`, `EvolutionRules.gs`, `DecorationStore.gs`, and `SyncService.gs` - focused configs/services for minigames, evolution variants, patch decorations, and JSON backup.
+- `MinigamesConfig.gs`, `EvolutionRules.gs`, `DecorationStore.gs`, and `SyncService.gs` - focused configs/services for minigames, evolution variants, podłoże decorations, and JSON backup.
 - `Actions.gs` - care action definitions, cooldowns, shortcuts, and stat deltas.
 - `Index.html` - web app shell.
 - `Styles.html` - responsive pixel-game CSS.
 - `Client.html` - thin Apps Script include aggregator for client partials.
 - `ClientCore.html` - Apps Script include shell for the testable browser-global core.
 - `ClientCoreWeather.html`, `ClientCoreLife.html`, `ClientCoreCare.html`, `ClientCoreBattle.html`, `ClientCoreImmersion.html`, `ClientCoreProgression.html`, `ClientCoreMinigames.html`, `ClientCoreShared.html`, and `ClientCoreExports.html` - pure core helpers exported as `window.PieczargotchiCore`, including weather balance, ambient life, state migrations, attention, animation intent, immersion reaction selection, progression, minigame rewards, backup import/export, and battle reducer primitives.
-- `ClientBoot.html`, `ClientDebug.html`, `ClientRuntime.html`, `ClientWeather.html`, `ClientState.html`, `ClientActions.html`, `ClientMinigame*.html`, `ClientBackup.html`, `ClientUi.html`, `ClientBattleScene.html`, `ClientInteraction.html`, `ClientAnimation.html`, `ClientScene*.html`, and `ClientSprites.html` - client runtime split by responsibility. `ClientInteraction.html` tracks pointer input and draws visual immersion overlays; `ClientBattleScene.html` renders the local arena; minigame partials render the short canvas games; `ClientScene.html` is the care-scene orchestrator; palette, celestial, rainbow, weather, seasonal ambient life, and ground rendering live in focused scene partials.
+- `ClientBoot.html`, `ClientDebug.html`, `ClientRuntime.html`, `ClientWeather.html`, `ClientState.html`, `ClientActions.html`, `ClientMinigame*.html`, `ClientBackup.html`, `ClientUi.html`, `ClientBattleScene.html`, `ClientInteraction.html`, `ClientAnimation.html`, `ClientScene*.html`, and `ClientSprites.html` - client code split by responsibility. `ClientInteraction.html` tracks pointer input and draws visual immersion overlays; `ClientBattleScene.html` renders the local arena; minigame partials render the short canvas games; `ClientScene.html` is the care-scene orchestrator; palette, celestial, rainbow, weather, seasonal ambient life, and ground rendering live in focused scene partials.
 - `ClientSceneWeather.html` - weather-renderer include shell; cloud flow, precipitation, surface overlays, and shared wind/noise helpers live in `ClientSceneWeather*.html` partials.
 - `assets/awake.png` - prepared awake mushroom sprite.
 - `assets/sleeping_sheet.png` - prepared four-frame sleeping sprite sheet.
 - `assets/stages/` - growth-stage sprite sheets.
-- `assets/activities/` - stage-specific one-shot activity animation sheets plus adult fallback sheets.
+- `assets/activities/` - one-shot activity animation sheets separated by growth stage plus adult compatibility sheets.
 - `assets/effects/` - optional small effect sheets.
-- `assets/reference/` - source style references, not runtime assets.
-- `assets/source/imagegen/` - raw imagegen atlases and extracted cutouts used by the asset builder.
+- `assets/reference/` - source style references, not loaded by the app.
+- `assets/source/imagegen/` - raw generated-image atlases and extracted cutouts used by the asset builder.
 - `docs/IMPLEMENTATION_PLAN.md` - phase plan and architecture notes.
 - `docs/REAL_APP_NEXT_STEPS.md` - researched roadmap for turning the MVP into a deeper virtual-pet app.
 - `docs/ASSET_ANIMATION_IMPLEMENTATION_PLAN.md` - next implementation plan for growth-stage sprites and activity animations.
 - `docs/SPRITE_BIBLE.md` - practical sprite style and validation contract.
 - `docs/STAGE_SPRITE_REQUIREMENTS.md` - required growth-stage sprite list and validation contract.
-- `docs/IMAGEGEN_ASSET_PIPELINE.md` - imagegen atlas prompts, source paths, build steps, and validation commands.
+- `docs/IMAGEGEN_ASSET_PIPELINE.md` - source atlas descriptions, source paths, build steps, and validation commands.
 - `docs/UI_RENDER_AUDIT_2026-05-10.md` - screenshot-driven UI/rendering fixes and viewport validation.
 - `docs/SPRITE_AUDIT_2026-05-10.md` - focused audit for sprite size and wake-face alignment.
 - `docs/APPS_SCRIPT_DEPLOYMENT_DRY_RUN.md` - test deployment checklist that keeps `.clasp.json`, script IDs, and private Drive IDs local.
@@ -42,8 +42,8 @@ The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake l
 - `docs/PRODUCT_RULES.md` - gameplay and balance rules for future development.
 - `docs/WEATHER_SYSTEM.md` - current weather simulation rules, gameplay/environment interactions, and realism notes.
 - `.github/workflows/ci.yml` - GitHub Actions checks for client syntax, core rules, assets, sprite consistency, and local preview scripts.
-- `scripts/build-imagegen-sprites.py` - builds runtime sheets from imagegen atlases.
-- `scripts/generate-pixel-assets.py` - compatibility entrypoint; delegates to the imagegen builder when imagegen sources exist.
+- `scripts/build-imagegen-sprites.py` - builds animation sheets from generated-image atlases.
+- `scripts/generate-pixel-assets.py` - compatibility entrypoint; delegates to the generated-image builder when generated-image sources exist.
 - `scripts/validate-assets.mjs` - local PNG dimension, frame, and centering validation.
 - `scripts/audit-sprite-consistency.py` - local size/center consistency audit for stage animations.
 - `scripts/audit-spore-sprites.py` - local spore-stage sprite audit.
@@ -52,7 +52,7 @@ The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake l
 - `scripts/capture-life-motion.mjs` - local browser capture gate for butterflies, crawling bugs, fireflies, and mobile scene-life layout.
 - `scripts/capture-weather-matrix.mjs` - local weather and sky capture matrix for debug QA scenarios.
 
-The interface is Polish-first. The current build includes manifest-driven growth-stage animations, sprite-backed wake reactions, imagegen-based `spore`, `baby`, `young`, `adult`, and `legendary` silhouettes with a shared grass base, denser wind/weather-reactive procedural grass that grows in front of the mushroom, moving seasonal butterflies, small insects, crawling bugs, fireflies, stage-specific activity reactions, need-driven sprite states, attention calls, care mistakes, patch quality, mycelium progress, spore harvest rewards, `Łapanie rosy`, `Pękanie zarodników`, `Sortowanie kompostu`, `Rytmiczne nucenie`, evolution variants with trait behavior and visual accents, visible patch decorations with habitat bonuses, care-history summary, JSON backup, foreground/background rain and snow layers, and a local Legendary Arena with deterministic battle state under `state.battle`.
+The interface is Polish-first. The current build includes manifest-driven growth-stage animations, sprite-backed wake reactions, generated-image `spore`, `baby`, `young`, `adult`, and `legendary` silhouettes with a shared grass base, denser wind/weather-reactive procedural grass that grows in front of the mushroom, moving seasonal butterflies, small insects, crawling bugs, fireflies, activity reactions for each growth stage, need-driven sprite states, attention calls, błędy opieki, jakość podłoża, grzybnia progress, spore harvest rewards, `Łapanie rosy`, `Pękanie zarodników`, `Sortowanie kompostu`, `Rytmiczne nucenie`, evolution variants with trait behavior and visual accents, visible podłoże decorations with siedlisko bonuses, care-history summary, JSON backup, foreground/background rain and snow layers, and a local Legendary Arena with deterministic battle state under `state.battle`.
 
 ## Development
 
@@ -74,9 +74,9 @@ For Apps Script deployment, the preferred asset setup is a single Drive folder c
 
 Manual `PIECZARGOTCHI_ASSET_FILE_IDS` entries can still override individual asset keys, for example `spore.idle`, `baby.sleep`, or `baby.activity.hydrate`.
 
-If the folder ID and manual IDs are blank or unavailable, the local preview loads PNG files from `assets/`. In a deployed Apps Script environment, missing Drive IDs fall back to canvas placeholders instead of showing a blank app. Reference files under `assets/reference/` are not loaded at runtime.
+If the folder ID and manual IDs are blank or unavailable, the local preview loads PNG files from `assets/`. In a deployed Apps Script environment, missing Drive IDs fall back to canvas placeholders instead of showing a blank app. Reference files under `assets/reference/` are not loaded by the app.
 
-Production runtime flags live in `Config.gs`. By default the deployed config keeps the debug panel and `window.__pieczargotchiRuntime` private, and boots in critical asset mode so Apps Script does not inline the full PNG manifest into the first HTML response. `dev-server.mjs` enables debug tooling and full local asset loading for local preview and capture tooling.
+Production flags live in `Config.gs`. By default the deployed config keeps the debug panel and `window.__pieczargotchiRuntime` private, and boots in critical asset mode so Apps Script does not inline the full PNG manifest into the first HTML response. `dev-server.mjs` enables debug tooling and full local asset loading for local preview and capture tooling.
 
 ## Local Preview
 

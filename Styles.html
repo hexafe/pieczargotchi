@@ -1239,6 +1239,14 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .actions-dock-anchor {
+    display: block;
+    width: 100%;
+    height: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
   .inventory-row {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1780,8 +1788,8 @@
     }
 
     .panel-block--actions {
-      position: sticky;
-      top: 8px;
+      position: relative;
+      top: auto;
       z-index: 32;
       order: 2;
       gap: 5px;
@@ -2247,8 +2255,8 @@
     }
 
     .panel-block--actions {
-      position: sticky;
-      top: 0;
+      position: relative;
+      top: auto;
       z-index: 3;
       order: 2;
     }

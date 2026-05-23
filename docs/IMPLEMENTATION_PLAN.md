@@ -5,12 +5,12 @@
 - GitHub repository: `hexafe/pieczargotchi`
 - Default branch: `main`
 - Local path: `/home/hexaf/Projects/pieczargotchi`
-- Current repo contents: Apps Script source scaffold, modular client runtime, `LICENSE`, contributor guide, implementation plan, and prepared MVP PNG assets.
+- Current repo contents: Apps Script source scaffold, modular client czas działania, `LICENSE`, contributor guide, implementation plan, and prepared MVP PNG assets.
 - Real-app roadmap: `docs/REAL_APP_NEXT_STEPS.md`
 - Target platform: Google Apps Script Web App
 - MVP persistence: browser `localStorage`
 - Asset policy: mushroom faces and main states come from PNG assets loaded through Apps Script as data URLs; JavaScript only draws temporary effects.
-- Client policy: keep the browser runtime split into Apps Script partials by responsibility. `Client.html` should remain an include aggregator, not a monolithic implementation file.
+- Client policy: keep the browser czas działania split into Apps Script partials by responsibility. `Client.html` should remain an include aggregator, not a monolithic implementation file.
 
 ## Product Direction
 
@@ -20,7 +20,7 @@ The MVP should focus on:
 
 - Large 512x512 logical canvas with pixelated rendering.
 - Desktop two-column layout and mobile stacked layout.
-- Sleeping sprite sheet animation at 3 FPS.
+- Sleeping sprite arkusz animacji animation at 3 FPS.
 - Awake sprite rendering.
 - Local game state, stat decay, cooldowns, log, and messages.
 - Care actions: hydrate, feed, clean, play, sleep/wake, spores.
@@ -80,7 +80,7 @@ singing.png
 Acceptance rules for assets:
 
 - Every sleeping frame is exactly 512x512.
-- Sheet width is exactly 2048 px.
+- arkusz animacji width is exactly 2048 px.
 - Frames are centered inside the asset.
 - Code must not compensate with per-frame offsets.
 
@@ -142,25 +142,19 @@ const defaultState = {
 Status legend: `[ ]` not started, `[~]` in progress, `[x]` complete.
 
 - [x] Task 1 - Plan and asset constraints
-  - Model: GPT-5.5 main integration, with gpt-5.4-mini read-only asset/checklist review.
   - Scope: confirm repo baseline, asset dimensions, task split, and the transient wake-face requirement.
 - [x] Task 2 - Apps Script scaffold and asset service
-  - Model: GPT-5.5 main integration, matching the plan's `gpt-5.3-codex` scaffold/assets role locally.
   - Scope: add `Code.gs`, `Config.gs`, `AssetService.gs`, `appsscript.json`, and server config helpers.
 - [x] Task 3 - Responsive shell and visual system
-  - Model: GPT-5.5 main integration, matching the plan's `gpt-5.4` layout role locally.
   - Scope: add `Index.html` and `Styles.html` for the two-column desktop layout, stacked mobile layout, canvas frame, status panel, actions, and log.
 - [x] Task 4 - Client state, renderer, rules, actions, and shortcuts
-  - Model: GPT-5.5 main integration, matching the plan's `gpt-5.3-codex` state/rules/actions role locally.
   - Scope: add `Client.html`, deterministic state helpers, localStorage persistence, decay/growth, cooldowns, action handling, effects, rendering, and keyboard shortcuts.
 - [x] Task 5 - Wake expression transition
-  - Model: GPT-5.5 main integration for cross-file behavior.
   - Scope: when the player wakes Pieczarka, show the reference-style `O_O` face briefly, then return to the default `awake.png` state.
 - [x] Task 6 - Documentation and validation pass
-  - Model: GPT-5.5 main integration, matching the plan's `gpt-5.4-mini` docs/checklist role locally.
   - Scope: update README/setup notes and run static/manual validation checks available without Apps Script deployment.
 
-Wake-face requirement: the post-wake expression is a temporary wake activity. It must trigger only immediately after `sleepWake` changes mode from `sleeping` to `awake`, then expire automatically into the default awake sprite state. Current runtime routes this through the stage `wake_sheet.png` animation path via `wake_surprise`; do not reintroduce a canvas-drawn face overlay.
+Wake-face requirement: the post-wake expression is a temporary wake activity. It must trigger only immediately after `sleepWake` changes mode from `sleeping` to `awake`, then expire automatically into the default awake sprite state. Current czas działania routes this through the stage `wake_sheet.png` animation path via `wake_surprise`; do not reintroduce a canvas-drawn face overlay.
 
 ## Local Preview Follow-Up - 2026-05-09
 
@@ -174,8 +168,8 @@ Wake-face requirement: the post-wake expression is a temporary wake activity. It
 - [x] Verify sleeping frame drift
   - Finding: original frame content bounding boxes drifted horizontally across the four `512x512` frames, from `468x463+0+19` to `471x464+41+29`.
 - [x] Normalize `assets/sleeping_sheet.png`
-  - Scope: trim each `512x512` frame independently, re-center it on a transparent `512x512` canvas, and append the four frames back into a `2048x512` sheet.
-- [x] Match awake sprite style to sleeping sheet
+  - Scope: trim each `512x512` frame independently, re-center it on a transparent `512x512` canvas, and append the four frames back into a `2048x512` arkusz animacji.
+- [x] Match awake sprite style to sleeping arkusz animacji
   - Finding: the original `awake.png` had a narrower bounding box and a glossier, larger-eyed expression that did not match the sleeping frames.
   - Scope: rebuild `awake.png` from the centered sleeping frame and redraw only the default awake eyes, preserving cap, grass, palette, placement, and overall pixel-art style.
 
@@ -241,12 +235,12 @@ Tasks:
 - Add Drive file ID constants in `Config.gs`.
 - Implement `fileToDataUrl(fileId)` in `AssetService.gs`.
 - Expose `getClientConfig()` or equivalent to pass asset data URLs to the page.
-- Add graceful fallback when asset IDs are missing during early development.
+- Add graceful tryb zapasowy when asset IDs are missing during early development.
 
 Acceptance criteria:
 
 - `sleeping_sheet.png` and `awake.png` can be loaded as data URLs.
-- Missing assets show a clear fallback state, not a blank app.
+- Missing assets show a clear tryb zapasowy state, not a blank app.
 - Client does not hard-code Drive URLs.
 
 ### Phase 4 - Canvas Sprite Renderer
@@ -255,7 +249,7 @@ Tasks:
 
 - Initialize canvas context with smoothing disabled.
 - Load image assets.
-- Render sleeping sheet frames at 3 FPS.
+- Render sleeping arkusz animacji frames at 3 FPS.
 - Render awake sprite when mode is `awake`.
 - Draw allowed temporary effects only.
 
@@ -403,7 +397,7 @@ The first coding pass should stop after a working localStorage MVP:
 
 1. Create scaffold files.
 2. Render the two-column layout.
-3. Add placeholder canvas fallback so the UI is inspectable before Drive assets are configured.
+3. Add placeholder canvas tryb zapasowy so the UI is inspectable before Drive assets are configured.
 4. Add state creation/load/save.
 5. Render stats/actions/log.
 6. Implement `sleepWake`, `hydrate`, `feed`, and `clean`.
@@ -426,18 +420,9 @@ If using subagents later, split work by file ownership to avoid conflicts:
 - Main agent:
   - integration, final pass, README, deployment notes, and conflict resolution
 
-Recommended models:
-
-- Main integration: GPT-5.5 for architecture and cross-file consistency.
-- Scaffold/assets worker: gpt-5.3-codex for Apps Script implementation.
-- State/rules worker: gpt-5.3-codex for deterministic logic.
-- Actions/keyboard worker: gpt-5.3-codex for event handling and tests/manual checks.
-- CSS/layout worker: gpt-5.4 for visual details and responsive layout.
-- Docs/checklist worker: gpt-5.4-mini for concise README and deployment notes.
-
 ## Open Decisions Before Implementation
 
 - Confirm whether this repo should use clasp for Apps Script deployment.
 - Confirm final Drive file IDs for `sleeping_sheet.png` and `awake.png`.
 - Decide whether generated placeholder PNG assets should be committed for local development or only loaded from Drive in deployed Apps Script.
-- Decide whether the first release should include only `localStorage` or also a Google Sheet backup/export path.
+- Decide whether the first release should include only `localStorage` or also a Google arkusz animacji backup/export path.

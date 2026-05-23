@@ -6,13 +6,13 @@ Gałąź `codex-weather-sprite-audit` ma teraz wdrożony slice balansu rozgrywki
 
 Po slice'ie immersji klient ma też aktywną warstwę reakcji środowiskowych: Pieczarka reaguje wizualnie na kursor/tapnięcie, słońce, deszcz, śnieg, gwiazdy i silny wiatr. Reakcje są wizualne, nie modyfikują statystyk i nie przykrywają stanów opieki, kuracji ani game over.
 
-Najnowszy slice dodaje kolejne warstwy życia sceny: Pieczarka co jakiś czas wierci się albo zamyśla w spokojnych warunkach, śledzi motyle, świetliki i robaczki w trawie, a foreground ma więcej długiej, falującej trawy wyrastającej spod niej. Dekoracje patcha pozostają nad trawą, żeby zakupione przedmioty były widoczne.
+Najnowszy slice dodaje kolejne warstwy życia sceny: Pieczarka co jakiś czas wierci się albo zamyśla w spokojnych warunkach, śledzi motyle, świetliki i robaczki w trawie, a foreground ma więcej długiej, falującej trawy wyrastającej spod niej. Dekoracje podłoża pozostają nad trawą, żeby zakupione przedmioty były widoczne.
 
 Opady foreground są teraz rozłożone po całej szerokości kadru: lekki deszcz, mocny deszcz i śnieg mają deterministyczne pasy po lewej, środku i prawej stronie, więc krople nie skupiają się tylko przy osi Pieczarki.
 
-Najnowszy slice animacji dodaje kierunkowe śledzenie kursora i warianty spokojnej bezczynności. Pieczarka ma osobne sheety `watch_cursor_*`, `follow_cursor_*`, dodatkowe `idle_fidget_*`, `idle_look_*` oraz `ponder_*`; selector immersji wybiera warianty grupami i pamięta ostatni wariant, żeby nie odpalać stale tej samej pozy. Debug/capture potrafią wymusić nowe stany, a testy pokrywają kierunek kursora, szybki przelot i brak natychmiastowego powtarzania idle/ponder.
+Najnowszy slice animacji dodaje kierunkowe śledzenie kursora i warianty spokojnej bezczynności. Pieczarka ma osobne arkusze animacji `watch_cursor_*`, `follow_cursor_*`, dodatkowe `idle_fidget_*`, `idle_look_*` oraz `ponder_*`; selector immersji wybiera warianty grupami i pamięta ostatni wariant, żeby nie odpalać stale tej samej pozy. Debug/capture potrafią wymusić nowe stany, a testy pokrywają kierunek kursora, szybki przelot i brak natychmiastowego powtarzania idle/ponder.
 
-Deployment assetów dostał tryb folderowy: `PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID` może wskazywać folder Drive, `AssetService.gs` indeksuje pliki po `fileName` z manifestu, a ręczne wpisy w `PIECZARGOTCHI_ASSET_FILE_IDS` nadal nadpisują pojedyncze wyjątki. Lokalny fallback `assets/...` pozostaje bez zmian.
+Deployment zasobów dostał tryb folderowy: `PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID` może wskazywać folder Drive, `AssetService.gs` indeksuje pliki po `fileName` z manifestu, a ręczne wpisy w `PIECZARGOTCHI_ASSET_FILE_IDS` nadal nadpisują pojedyncze wyjątki. Lokalny tryb zapasowy `assets/...` pozostaje bez zmian.
 
 ## Balans Opieki I Kuracja
 
@@ -21,7 +21,7 @@ Deployment assetów dostał tryb folderowy: `PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID
 - `GameRules.gs` definiuje `recovery`: przy zdrowiu `0` startuje kuracja w mchu na kilka godzin, jej koniec wymaga świeżej opieki i stabilnych podstawowych statów, a `maxMissedCare` kończy grę po zbyt długim zaniedbaniu.
 - `decayPerHour` ma osobne profile `awake`, `sleeping`, `quietSleeping` i `quietAwake`.
 - `ClientCoreCare.html` segmentuje upływ czasu, pauzuje attention w nocy, przesuwa deadline na poranną karencję, obsługuje kurację i formatuje dłuższe cooldowny.
-- `ClientState.html` używa segmentów core do naliczania decay, zdrowia, wzrostu i patcha; growth z czasu i akcji respektuje dzienny limit.
+- `ClientState.html` używa segmentów core do naliczania decay, zdrowia, wzrostu i jakości podłoża; growth z czasu i akcji respektuje dzienny limit.
 - Akcja `Kuracja` (`mossRest`) jest dostępna przy niskim zdrowiu albo w trakcie recovery. Podczas kuracji można dalej zraszać, karmić i czyścić, ale zabawa, muzyka, zarodniki, sen/wake, minigry i arena są zablokowane. Po `gameOver.active` blokowane są wszystkie akcje i UI prowadzi do przycisku `Od nowa`.
 
 ## Tempo Gry

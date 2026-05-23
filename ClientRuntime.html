@@ -17,7 +17,7 @@
       return;
     }
     if (!runtime.ctx) {
-      runtime.assetStatus = 'Canvas niedostępny';
+      runtime.assetStatus = 'Scena niedostępna';
       renderAssetStatus();
       return;
     }
@@ -112,7 +112,7 @@
       if (!loadedCount) {
         runtime.assetStatus = 'Aktywne grafiki zapasowe';
       } else if (requiredMissing) {
-        runtime.assetStatus = 'Część grafik zapasowa (' + loadedCount + '/' + manifest.length + ')';
+        runtime.assetStatus = 'Część grafik działa w trybie zapasowym (' + loadedCount + '/' + manifest.length + ')';
       } else {
         runtime.assetStatus = 'Grafiki załadowane (' + loadedCount + '/' + manifest.length + ')';
       }

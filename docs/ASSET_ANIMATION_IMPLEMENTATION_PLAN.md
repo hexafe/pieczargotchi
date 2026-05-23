@@ -1,4 +1,4 @@
-# Plan Implementacji Assetów I Animacji
+# Plan Implementacji zasobów I Animacji
 
 Data: 2026-05-09
 
@@ -7,11 +7,11 @@ Cel: przygotować pełny system grafik dla wszystkich etapów wzrostu Pieczarki 
 ## Zasady Bazowe
 
 - Wszystkie teksty widoczne dla gracza oraz komentarze w nowych plikach mają być po polsku.
-- Każda klatka runtime ma format `512x512`.
-- Każdy sheet składa się z klatek `512x512` ułożonych poziomo.
+- Każda klatka czas działania ma format `512x512`.
+- Każdy arkusz animacji składa się z klatek `512x512` ułożonych poziomo.
 - Treść każdej klatki musi być wycentrowana. Renderer nie może naprawiać driftu per-klatkowym offsetem.
 - Główne pozy, miny i etapy wzrostu mają pochodzić z PNG. JavaScript może rysować tylko efekty tymczasowe: krople, nutki, pył, błysk, alarm, myśli, zarodniki.
-- Każdy sheet musi mieć manifest: nazwa, etap, aktywność, liczba klatek, czas klatek, pętla, priorytet, akcja wyzwalająca.
+- Każdy arkusz animacji musi mieć manifest: nazwa, etap, aktywność, liczba klatek, czas klatek, pętla, priorytet, akcja wyzwalająca.
 - Najpierw robimy mało animacji, ale bardzo spójnych. Dopiero potem rozszerzamy warianty.
 
 ## Docelowa Struktura Plików
@@ -84,7 +84,7 @@ Sylwetka:
 Wymagane animacje:
 
 - `idle_sheet.png`: 4 klatki, wolne pulsowanie.
-- `sleep_sheet.png`: 4 klatki, niemal nieruchomy zarodnik; `Z` rysuje runtime przez anchor etapu.
+- `sleep_sheet.png`: 4 klatki, niemal nieruchomy zarodnik; `Z` rysuje czas działania przez anchor etapu.
 - `wake_sheet.png`: 3 klatki, szybkie drgnięcie po przebudzeniu.
 - `dry_sheet.png`: 4 klatki, lekko przygaszony mech.
 - `hungry_sheet.png`: 4 klatki, zarodnik przechyla się ku podłożu.
@@ -202,7 +202,7 @@ Wymagane animacje:
 
 Cel: zastąpić obecne pojedyncze grafiki manifestem animacji dla etapów.
 
-Assety:
+zasoby:
 
 - `baby/idle_sheet.png`
 - `baby/sleep_sheet.png`
@@ -232,7 +232,7 @@ Akceptacja:
 
 Cel: Pieczarka ma komunikować potrzeby przede wszystkim animacją.
 
-Assety:
+zasoby:
 
 - `*/dry_sheet.png`
 - `*/hungry_sheet.png`
@@ -258,7 +258,7 @@ Akceptacja:
 
 Cel: każde kliknięcie ma dawać krótką, przyjemną odpowiedź.
 
-Assety:
+zasoby:
 
 - `activities/hydrate_sheet.png`
 - `activities/feed_sheet.png`
@@ -285,7 +285,7 @@ Akceptacja:
 
 Cel: Pieczarka ma robić rzeczy, a nie tylko reagować na potrzeby.
 
-Assety:
+zasoby:
 
 - `activities/instrument_sheet.png`
 - `activities/sing_sheet.png`
@@ -305,7 +305,7 @@ Akceptacja:
 - Dorosła i Legendarna mają osobne zarodnikowanie,
 - aktywności nadal respektują energię i cooldowny.
 
-## Standard Sheetów
+## Standard arkuszy animacji
 
 ### Nazewnictwo
 
@@ -353,7 +353,7 @@ Rekomendacje:
 
 Manifest powinien wspierać `frameDurationsMs`, a nie tylko `fps`.
 
-## Pipeline Produkcji Assetów
+## Pipeline Produkcji zasobów
 
 ### Krok 1 - Sprite Bible
 
@@ -376,14 +376,14 @@ Dla każdego etapu:
 3. poprawić proporcje,
 4. dopiero potem tworzyć animacje.
 
-Nie generować od razu całych sheetów dla wszystkich stanów bez kontroli stylu. To prowadzi do driftu i niespójnej Pieczarki.
+Nie generować od razu całych arkuszy animacji dla wszystkich stanów bez kontroli stylu. To prowadzi do driftu i niespójnej Pieczarki.
 
-### Krok 3 - Cięcie I Składanie Sheetów
+### Krok 3 - Cięcie I Składanie arkuszy animacji
 
 Docelowe skrypty:
 
-- `scripts/split-sheet.mjs`
-- `scripts/build-sheet.mjs`
+- `scripts/split-arkusz animacji.mjs`
+- `scripts/build-arkusz animacji.mjs`
 - `scripts/validate-assets.mjs`
 - `scripts/compare-frame-centers.mjs`
 
@@ -424,11 +424,9 @@ Zmiany w kliencie:
 - dodać `selectAnimation(state, now)`,
 - zachować efekty canvasowe jako warstwę nad PNG.
 
-## Podział Zadań I Modele
+## Podział Zadań
 
-### Zadanie A - Sprite Bible I Kontrakt Assetów
-
-Model: GPT-5.5 jako główny integrator.
+### Zadanie A - Sprite Bible I Kontrakt zasobów
 
 Zakres:
 
@@ -437,37 +435,25 @@ Zakres:
 - przenieść obecne decyzje o centrowaniu do `docs/SPRITE_BIBLE.md`,
 - zdefiniować wymogi dla wszystkich etapów wzrostu.
 
-Dlaczego ten model: zadanie wymaga decyzji produktowych, spójności wizualnej i kontroli nad długoterminową architekturą assetów.
-
-### Zadanie B - Walidacja I Narzędzia Assetów
-
-Model: gpt-5.3-codex jako worker kodowy, z główną integracją w GPT-5.5.
+### Zadanie B - Walidacja I Narzędzia zasobów
 
 Zakres:
 
 - dodać `scripts/validate-assets.mjs`,
-- dodać helpery do cięcia i składania sheetów,
+- dodać helpery do cięcia i składania arkuszy animacji,
 - mierzyć bounding box, środek klatki i tolerancję driftu,
 - zapewnić czytelne błędy po polsku.
 
-Dlaczego ten model: zadanie jest techniczne, izolowane i dobrze pasuje do kodowego workera z jasnym zakresem plików.
-
 ### Zadanie C - Manifest Animacji I Renderer
-
-Model: GPT-5.5 jako główny integrator.
 
 Zakres:
 
 - dodać `AnimationConfig.gs`,
 - podpiąć manifest do konfiguracji klienta,
 - zastąpić specjalne ścieżki `awake/sleeping` generycznym renderowaniem animacji,
-- utrzymać lokalny preview i fallbacki bez Drive ID.
+- utrzymać lokalny preview i mechanizmy zastępcze bez Drive ID.
 
-Dlaczego ten model: zmiana dotyka kontraktu Apps Script, klienta i runtime fallbacków, więc powinna zostać scalona ostrożnie.
-
-### Zadanie D - Produkcja Assetów P0
-
-Model: GPT-5.5 dla kierunku artystycznego, imagegen tylko do generowania lub przerabiania bitmap, gpt-5.4-mini do szybkiej kontroli listy wymagań.
+### Zadanie D - Produkcja zasobów P0
 
 Zakres:
 
@@ -476,36 +462,32 @@ Zakres:
 - walidować środki klatek po każdym sheecie,
 - porównywać nowe etapy z obecnym stylem Malucha.
 
-Dlaczego ten zestaw: assety wymagają kontroli stylu, ale checklisty i porównania można oddzielić od głównej integracji.
-
-### Zadanie E - Produkcja Assetów P1/P2/P3
-
-Model: GPT-5.5 dla priorytetów i integracji, imagegen dla bitmap, gpt-5.4-mini jako read-only recenzent kompletności.
+### Zadanie E - Produkcja zasobów P1/P2/P3
 
 Zakres:
 
 - P1: potrzeby i stany krytyczne,
 - P2: reakcje na opiekę,
 - P3: muzyka, śpiew, zarodniki i plony,
-- po każdej grupie uruchomić walidację assetów i lokalny preview.
+- po każdej grupie uruchomić walidację zasobów i lokalny preview.
 
-Dlaczego ten zestaw: duża liczba assetów grozi dryfem stylu, więc każda paczka powinna mieć osobną kontrolę kompletności.
+Dlaczego ten zestaw: duża liczba zasobów grozi dryfem stylu, więc każda paczka powinna mieć osobną kontrolę kompletności.
 
 ## Kolejność Najbliższych Implementacji
 
-### Sesja 1 - Fundament Assetów
+### Sesja 1 - Fundament zasobów
 
 1. Utworzyć `docs/SPRITE_BIBLE.md`.
 2. Utworzyć katalogi `assets/stages/...`.
 3. Przenieść obecne `awake.png` i `sleeping_sheet.png` do `assets/stages/baby/`.
-4. Dodać skrypt walidacji assetów.
+4. Dodać skrypt walidacji zasobów.
 5. Dodać minimalny `AnimationConfig.gs`.
 6. Renderer nadal ma wyglądać tak samo jak teraz.
 
 ### Sesja 2 - Pierwsze Etapy Wzrostu
 
 1. Stworzyć bazowe idle dla `spore`, `young`, `adult`, `legendary`.
-2. Dodać fallback: jeżeli brak animacji stanu, użyj `stage.idle`.
+2. Dodać tryb zapasowy: jeżeli brak animacji stanu, użyj `stage.idle`.
 3. Podpiąć wybór grafiki po `state.stage`.
 4. Dodać lokalny debug aktywnego etapu i animacji.
 
@@ -532,7 +514,7 @@ Dlaczego ten zestaw: duża liczba assetów grozi dryfem stylu, więc każda pacz
 
 ## Kryteria Gotowości
 
-Plan assetów można uznać za gotowy do implementacji, gdy:
+Plan zasobów można uznać za gotowy do implementacji, gdy:
 
 - istnieje Sprite Bible,
 - istnieje manifest animacji,
@@ -546,21 +528,21 @@ Plan assetów można uznać za gotowy do implementacji, gdy:
 ## Status Implementacji - 2026-05-09
 
 - [x] Utworzono `docs/SPRITE_BIBLE.md`.
-- [x] Dodano `AnimationConfig.gs` z manifestem animacji runtime.
+- [x] Dodano `AnimationConfig.gs` z manifestem animacji czas działania.
 - [x] Wygenerowano 5 etapów wzrostu: `spore`, `baby`, `young`, `adult`, `legendary`.
-- [x] Każdy etap ma 11 sheetów: `idle`, `sleep`, `wake`, `happy`, `excellent`, `tired`, `dry`, `hungry`, `dirty`, `sick`, `critical`.
-- [x] Dodano 8 sheetów aktywności: `hydrate`, `feed`, `clean`, `play`, `instrument`, `sing`, `spores`, `harvest`.
-- [x] Dodano 5 opcjonalnych sheetów efektów: `drops`, `sparkle`, `dust`, `notes`, `spore_cloud`.
-- [x] Dodano generator roboczych assetów: `scripts/generate-pixel-assets.py`.
+- [x] Każdy etap ma 11 arkuszy animacji: `idle`, `sleep`, `wake`, `happy`, `excellent`, `tired`, `dry`, `hungry`, `dirty`, `sick`, `critical`.
+- [x] Dodano 8 arkuszy animacji aktywności: `hydrate`, `feed`, `clean`, `play`, `instrument`, `sing`, `spores`, `harvest`.
+- [x] Dodano 5 opcjonalnych arkuszy animacji efektów: `drops`, `sparkle`, `dust`, `notes`, `spore_cloud`.
+- [x] Dodano generator roboczych zasobów: `scripts/generate-pixel-assets.py`.
 - [x] Dodano walidator wymiarów, formatu i centrowania: `scripts/validate-assets.mjs`.
 - [x] Renderer wybiera animacje z manifestu zamiast specjalnych ścieżek `awake`/`sleeping`.
-- [x] Lokalny preview serwuje nową strukturę assetów z `assets/stages`, `assets/activities` i `assets/effects`.
+- [x] Lokalny preview serwuje nową strukturę zasobów z `assets/stages`, `assets/activities` i `assets/effects`.
 
 Do dalszego doszlifowania:
 
 - [ ] zmniejszyć miękki drift w `critical`, `wake`, `sick`, `sleep` i części efektów,
 - [ ] zdecydować, kiedy usunąć lub zarchiwizować legacy `assets/awake.png` i `assets/sleeping_sheet.png`,
-- [ ] przepiąć efekty PNG do runtime, jeżeli canvasowe efekty przestaną wystarczać.
+- [ ] przepiąć efekty PNG do czas działania, jeżeli canvasowe efekty przestaną wystarczać.
 
 ## Audyt Skali Sprite'ów - 2026-05-10
 
@@ -574,17 +556,17 @@ Do dalszego doszlifowania:
 
 ## Pass Imagegenowy Sprite'ów - 2026-05-10
 
-- [x] Wygenerowano atlasy imagegen dla 11 stanów stage, 8 akcji i 5 efektów pomocniczych.
-- [x] Dodano `scripts/build-imagegen-sprites.py`, który tnie atlasy, usuwa chroma-key i buduje runtime sheety.
+- [x] Wygenerowano atlasy generator obrazów dla 11 stanów stage, 8 akcji i 5 efektów pomocniczych.
+- [x] Dodano `scripts/build-imagegen-sprites.py`, który tnie atlasy, usuwa chroma-key i buduje czas działania arkusze animacji.
 - [x] `scripts/generate-pixel-assets.py` deleguje do imagegenowego buildera, gdy istnieją źródła w `assets/source/imagegen/raw/`.
-- [x] Aktywności są stage-specific: `assets/activities/<stage>/<activity>_sheet.png`.
+- [x] Aktywności są osobne dla etapu: `assets/activities/<stage>/<activity>_sheet.png`.
 - [x] `AnimationConfig.gs` generuje klucze `stage.activity.action`, a `Client.html` szuka aktywności najpierw dla aktywnego etapu.
 - [x] Walidacja przechodzi dla `108` PNG.
 - [x] Capture aplikacji potwierdza, że akcje nie przeskakują na dorosłą Pieczarkę.
 
 ## Ryzyka
 
-- Generowanie całych sheetów naraz może dać niespójne proporcje między klatkami.
+- Generowanie całych arkuszy animacji naraz może dać niespójne proporcje między klatkami.
 - Zbyt dużo animacji w pierwszym kroku spowolni integrację.
 - Krytyczne animacje mogą być zbyt hałaśliwe i męczyć użytkownika.
 - Etapy wzrostu mogą stracić rozpoznawalność, jeżeli każdy etap będzie rysowany w innym stylu.
@@ -596,4 +578,4 @@ Do dalszego doszlifowania:
 - `spore` jest faktycznym pierwszym etapem nowej gry.
 - Czy Legendarna Pieczarka ma być osobnym etapem wzrostu, czy nagrodowym stanem Dorosłej?
 - Czy każdy etap ma mieć osobne `sleep_sheet.png`, czy część etapów może używać jednego sleep fallbacku?
-- Assety aktywności są osobne dla każdego etapu.
+- zasoby aktywności są osobne dla każdego etapu.

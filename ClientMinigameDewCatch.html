@@ -593,16 +593,26 @@
   function getMinigameScoreLabel(minigameId, score) {
     const amount = Number(score) || 0;
     if (minigameId === 'sporePop') {
-      return amount + ' zarodników';
+      return formatMinigameCount(amount, ['zarodnik', 'zarodniki', 'zarodników']);
     }
     if (minigameId === 'compostSort') {
-      return amount + ' kawałków';
+      return formatMinigameCount(amount, ['kawałek', 'kawałki', 'kawałków']);
     }
     if (minigameId === 'rhythmHum') {
-      return amount + ' nut';
+      return formatMinigameCount(amount, ['nuta', 'nuty', 'nut']);
     }
 
-    return amount + ' kropli';
+    return formatMinigameCount(amount, ['kropla', 'krople', 'kropli']);
+  }
+
+  function formatMinigameCount(value, forms) {
+    const core = window.PieczargotchiCore;
+    if (core && core.formatPolishCount) {
+      return core.formatPolishCount(value, forms);
+    }
+
+    const amount = Math.max(0, Math.floor(Math.abs(Number(value) || 0)));
+    return amount + (forms && forms[2] ? ' ' + forms[2] : '');
   }
 
   function seededDewUnit(seed, index, salt) {

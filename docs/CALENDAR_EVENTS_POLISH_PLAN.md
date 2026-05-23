@@ -11,7 +11,7 @@ The game now has a deterministic `Święta świata` calendar layer:
 - purchasable `Kalendarz grzybni` decoration for 12 spores;
 - checklist UI in `Dziennik świata`, unlocked by owning the calendar decoration;
 - subtle canvas accents for selected active events;
-- reusable code-native pixel sprite pack for event props, insects, drops, mycelium, telescope, and mushroom-day badge;
+- reusable code-native pixel sprite pack for event props, insects, drops, grzybnia, telescope, and mushroom-day badge;
 - capture tooling for `PIECZARGOTCHI_DEBUG_CALENDAR_EVENT=<id>`, `PIECZARGOTCHI_CAPTURE_CALENDAR_MATRIX=1`, and mobile checklist validation;
 - static build and core tests covering calendar dates, journal integration, and unlock behavior.
 
@@ -40,7 +40,7 @@ Use these as the canonical baseline before adding more event dates:
 
 ### Tea Day
 
-- Special idle sheet for each stage: mushroom with tiny cup, steam drifting in 6-8 frames.
+- Special idle arkusz animacji for each stage: mushroom with tiny cup, steam drifting in 6-8 frames.
 - Activity variant: calm sip, happy blush, steam briefly forming a heart or spore swirl.
 - Polaroid variant: mushroom looking peaceful with cup near grass.
 
@@ -48,12 +48,12 @@ Use these as the canonical baseline before adding more event dates:
 
 - Bee-specific flowers in foreground grass, with bees landing, wiggling, and leaving.
 - Rare bee visit discovery: a larger solitary bee appears once, pauses near flower, then exits.
-- Stage reaction sheet: curious/happy mushroom tracking a bee near the cap.
+- Stage reaction arkusz animacji: curious/happy mushroom tracking a bee near the cap.
 
 ### Biodiversity Day
 
 - Multi-layer grass flourish: tiny leaves, petals, crawler silhouettes, fireflies/moths depending on hour.
-- Special "living patch" animation: grass foreground gently parts and closes around the mushroom base.
+- Special "żywe podłoże" animation: grass foreground gently parts and closes around the mushroom base.
 - Polaroid variant: mushroom wide-eyed, surrounded by different small life forms.
 
 ### Water Day
@@ -64,8 +64,8 @@ Use these as the canonical baseline before adding more event dates:
 ### Forest Day / Earth Day / Soil Day
 
 - Forest Day: drifting leaf motes and a darker, cooler green palette accent.
-- Earth Day: soft ground pulse around the patch, no loud particles.
-- Soil Day: mycelium threads glowing under foreground grass, visible only in short pulses.
+- Earth Day: soft ground pulse around the podłoże, no loud particles.
+- Soil Day: grzybnia threads glowing under foreground grass, visible only in short pulses.
 
 ### Space Events
 
@@ -76,8 +76,8 @@ Use these as the canonical baseline before adding more event dates:
 
 ### Mushroom Day
 
-- Full celebration sheet for each growth stage: proud cap pose, spore confetti, tiny polish/glint animation.
-- Rare one-day cosmetic: "świąteczny kapelusz" palette accent, optional and non-permanent.
+- Full celebration arkusz animacji for each growth stage: proud cap pose, spore confetti, tiny polish/glint animation.
+- Rzadki jednodniowy akcent kosmetyczny: "świąteczny kapelusz", opcjonalny i nietrwały.
 - Log text variants using the chosen mushroom name.
 
 ## Gameplay Tuning Ideas
@@ -93,7 +93,7 @@ Use these as the canonical baseline before adding more event dates:
 1. Tea Day cup and steam sheets for `spore`, `baby`, `young`, `adult`, `legendary`.
 2. Bee landing loop and flower interaction sprites.
 3. Biodiversity foreground overlays: leaf motes, petal glints, tiny crawler silhouettes.
-4. Soil/mycelium undergrass pulse overlay.
+4. Soil/grzybnia undergrass pulse overlay.
 5. Mushroom Day stage celebration sheets.
 6. Calendar-specific polaroid scenes, one per event family.
 

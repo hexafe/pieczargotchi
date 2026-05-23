@@ -55,11 +55,11 @@ files.
   `assets/source/` plus `assets/reference/`.
 - Browser saves still use `localStorage` under `pieczargotchi_state_v2`.
 
-For local screenshot QA only, the build can expose the browser runtime:
+For local screenshot QA only, the build can expose the browser czas działania:
 
 ```sh
 PIECZARGOTCHI_CLOUDFLARE_EXPOSE_RUNTIME=1 npm run build
 ```
 
 Do not use that flag for the public friend-testing build unless you deliberately
-want the debug runtime visible in the browser console.
+want the debug czas działania visible in the browser console.

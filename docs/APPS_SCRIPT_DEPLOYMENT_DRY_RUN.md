@@ -1,6 +1,6 @@
 # Apps Script Deployment Dry Run
 
-This checklist verifies the real Google Apps Script runtime without committing deployment credentials or private IDs.
+This checklist verifies the real Google Apps Script czas działania without committing deployment credentials or private IDs.
 
 ## Local Preflight
 
@@ -21,10 +21,10 @@ Expected posture before binding:
 
 - `.clasp.json` is absent or ignored by Git.
 - `Config.gs` does not contain private Drive URLs or deployment credentials.
-- Production runtime flags keep `debugEnabled: false` and `exposeRuntime: false`.
+- Production flagi uruchomieniowe keep `debugEnabled: false` and `exposeRuntime: false`.
 - Production `assetMode` stays `critical` so the deployed app renders quickly instead of embedding the full PNG manifest in the initial Apps Script HTML response.
 - Missing Drive IDs are acceptable for the first smoke because the app should render canvas fallbacks instead of a blank page.
-- If runtime PNGs are hosted in Drive, prefer a project-level script property named `PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID` over hundreds of manual IDs. Keep `Config.gs` empty unless the folder ID is intentionally public and approved for the repository. Store the folder ID only, not a URL.
+- If pliki PNG używane podczas działania are hosted in Drive, prefer a project-level script property named `PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID` over hundreds of manual IDs. Keep `Config.gs` empty unless the folder ID is intentionally public and approved for the repository. Store the folder ID only, not a URL.
 - The Drive folder should mirror manifest paths without the leading `assets/`, for example `stages/adult/idle_sheet.png`; flat folders only work for unique basenames.
 
 ## Test Project Bind
@@ -55,7 +55,7 @@ Deploy or open a test deployment from the Apps Script UI, then verify in the bro
 
 - The app loads without a blank screen.
 - The first UI render appears before live weather or non-critical PNGs finish loading.
-- The asset status settles to fallback graphics, partial graphics, or loaded graphics.
+- The asset status settles to tryb zapasowy graphics, partial graphics, or loaded graphics.
 - The debug panel is hidden.
 - `window.__pieczargotchiRuntime` is `undefined` in the browser console.
 - Basic care actions update the message/log and persist after refresh.
@@ -74,7 +74,7 @@ location.reload();
 
 ## Optional Drive Asset Smoke
 
-For one controlled test, set a script property named `PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID` to a test folder containing runtime PNGs, then run:
+For one controlled test, set a script property named `PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID` to a test folder containing pliki PNG używane podczas działania, then run:
 
 ```sh
 node scripts/check-deployment-readiness.mjs

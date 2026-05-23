@@ -315,8 +315,8 @@
       label: source.label,
       at: new Date(timestamp).toISOString(),
       body: type === 'calendar'
-        ? 'Kalendarz dopisał nowe święto do dziennika.'
-        : typeLabel + ' dopisało nowe odkrycie do dziennika.',
+        ? 'Do dziennika trafiło nowe święto z kalendarza.'
+        : 'Do dziennika trafiło nowe odkrycie z kategorii: ' + typeLabel + '.',
       category: source.kind || typeLabel
     }].concat(journal.entries).slice(0, 24);
     state.journal = journal;
@@ -397,7 +397,7 @@
       bodyParts.push('Mech utrzymał równy rytm.');
     }
     if (discoveryCount > 0) {
-      bodyParts.push('Dziennik pamięta już ' + discoveryCount + ' odkryć.');
+      bodyParts.push('Dziennik pamięta już ' + formatPolishCountCore(discoveryCount, ['odkrycie', 'odkrycia', 'odkryć']) + '.');
     }
     if (habitat.tags && habitat.tags.length) {
       bodyParts.push(habitat.title + '.');
@@ -405,7 +405,7 @@
 
     entries.push({
       at: new Date(to).toISOString(),
-      title: 'Powrót po ' + elapsedLabel,
+      title: 'Powrót (' + elapsedLabel + ')',
       body: bodyParts.join(' '),
       elapsedMs: elapsedMs
     });
@@ -670,7 +670,9 @@
     return {
       title: dominant ? 'Siedlisko: ' + getHabitatTagLabelCore(dominant) : 'Siedlisko: naturalne',
       body: labels.length
-        ? labels.join(', ') + ' zmieniają nastrój grzybni.'
+        ? labels.length === 1
+          ? labels[0] + ' zmienia nastrój grzybni.'
+          : labels.join(', ') + ' zmieniają nastrój grzybni.'
         : 'Dekoracje później nadadzą grzybni własny rytm.',
       effects: getHabitatEffectLabelsCore(tags),
       tags: Object.keys(tags).map(function(tag) {
@@ -833,7 +835,7 @@
       {
         id: 'wild',
         label: 'Rytm gości',
-        body: 'Zabawa, trawa i małe stworzenia ożywiają patch.',
+        body: 'Zabawa, trawa i małe stworzenia ożywiają grzybnię.',
         tone: 'wild',
         goals: ['action-play', 'minigame-sporePop'],
         tags: ['wild', 'insects']
@@ -948,13 +950,13 @@
     }
 
     if (goalId === 'decoration') {
-      return makeDailyGoalCore(goalId, 'Siedlisko', 'Dodaj akcent do grzybni', 'Jedna dekoracja zmienia nastrój patcha.', {
+      return makeDailyGoalCore(goalId, 'Siedlisko', 'Dodaj akcent do grzybni', 'Jedna dekoracja zmienia nastrój małego świata.', {
         decoration: true
       }, { happiness: 1, patchQuality: 0.8 }, 'Dekoracje');
     }
 
     if (goalId === 'harvest') {
-      return makeDailyGoalCore(goalId, 'Plon', 'Dopilnuj dojrzałej grzybni', 'Gdy mycelium dojrzeje, plon zasili zarodniki.', {
+      return makeDailyGoalCore(goalId, 'Plon', 'Dopilnuj dojrzałej grzybni', 'Gdy grzybnia dojrzeje, plon zasili zarodniki.', {
         harvest: true
       }, { patchQuality: 1, happiness: 1 }, 'Plon');
     }
@@ -964,9 +966,9 @@
 
   function getActionDailyGoalCore(goalId, actionId) {
     const actionGoals = {
-      hydrate: ['Wilgoć', 'Zroś grzybnię', 'Równy rytm rosy utrzymuje zdrowy mech.', { patchQuality: 0.8, mycelium: 1.1 }],
+      hydrate: ['Wilgoć', 'Nawilż grzybnię', 'Równy rytm rosy utrzymuje zdrowy mech.', { patchQuality: 0.8, mycelium: 1.1 }],
       feed: ['Podłoże', 'Nakarm podłoże', 'Dobry kompost daje grzybni spokojny wzrost.', { patchQuality: 0.7, mycelium: 1.2 }],
-      clean: ['Czystość', 'Oczyść mech', 'Czysty patch lepiej oddycha i wolniej słabnie.', { patchQuality: 1.2, mycelium: 0.7 }],
+      clean: ['Czystość', 'Oczyść mech', 'Czyste podłoże lepiej oddycha i wolniej słabnie.', { patchQuality: 1.2, mycelium: 0.7 }],
       play: ['Radość', 'Pobaw się chwilę', 'Krótka zabawa buduje dziki, żywy charakter.', { happiness: 1, patchQuality: 0.5 }],
       instrument: ['Muzyka', 'Zagraj miękko', 'Instrument wzmacnia muzyczny ślad w grzybni.', { happiness: 1, mycelium: 0.7 }],
       sing: ['Śpiew', 'Zaśpiewaj do mchu', 'Cichy śpiew zostaje w relacji z Pieczarką.', { happiness: 1, mycelium: 0.7 }],
@@ -1116,7 +1118,7 @@
       return 'To pamiątka z wyjątkowo rzadkiego wariantu aktywności muzycznej.';
     }
     if (type === 'calendar') {
-      return 'To małe święto świata jest pretekstem do sezonowych niespodzianek, spriteów i pamiątek w dzienniku.';
+      return 'To małe święto świata jest pretekstem do sezonowych niespodzianek, animacji i pamiątek w dzienniku.';
     }
     if (type === 'sky') {
       return item && item.kind === 'shower'
@@ -1212,7 +1214,11 @@
     if (hours < 24) {
       return Math.round(hours * 10) / 10 + ' h';
     }
-    return Math.round(hours / 24 * 10) / 10 + ' dnia';
+    const days = Math.round(hours / 24 * 10) / 10;
+    if (Number.isInteger(days)) {
+      return formatPolishCountCore(days, ['dzień', 'dni', 'dni']);
+    }
+    return String(days).replace('.', ',') + ' dnia';
   }
 
   function getLowestReturnStatCore(stats) {

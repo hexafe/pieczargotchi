@@ -1647,6 +1647,10 @@ async function captureViewport(cdp) {
         : 0;
       const canvasRect = rectOf('.canvas-wrap');
       const actionsRect = rectOf('.panel-block--actions');
+      const sidePanel = document.querySelector('.side-panel');
+      const sideRect = rectOf('.side-panel');
+      const statusRect = rectOf('.panel-block--status');
+      const minigamesRect = rectOf('.panel-block--minigames');
       return {
         innerWidth,
         innerHeight,
@@ -1655,11 +1659,13 @@ async function captureViewport(cdp) {
         app: rectOf('.app'),
         stage: rectOf('.stage-panel'),
         message: rectOf('.message-panel'),
-        side: rectOf('.side-panel'),
+        side: sideRect,
         actions: actionsRect,
-        status: rectOf('.panel-block--status'),
+        actionsAnchor: rectOf('.actions-dock-anchor'),
+        status: statusRect,
         resources: rectOf('.panel-block--resources'),
         discoveries: rectOf('.panel-block--discoveries'),
+        minigames: minigamesRect,
         calendar: rectOf('[data-calendar-checklist]'),
         calendarList: rectOf('[data-calendar-list]'),
         calendarRows: Array.from(document.querySelectorAll('.calendar-event')).map((row) => {
@@ -1683,6 +1689,12 @@ async function captureViewport(cdp) {
         actionsDockActive: actionsPanel ? actionsPanel.classList.contains('is-adaptive-docked') : false,
         actionsDockPlacement: actionsPanel ? actionsPanel.dataset.adaptiveDock || 'flow' : 'missing',
         actionsCanvasOverlapRatio: getOverlapRatio(canvasRect, actionsRect),
+        actionsSideOverlapRatio: getOverlapRatio(sideRect, actionsRect),
+        actionsStatusOverlapRatio: getOverlapRatio(statusRect, actionsRect),
+        actionsMinigamesOverlapRatio: getOverlapRatio(minigamesRect, actionsRect),
+        sideScrollTop: sidePanel ? sidePanel.scrollTop : 0,
+        sideScrollHeight: sidePanel ? sidePanel.scrollHeight : 0,
+        sideClientHeight: sidePanel ? sidePanel.clientHeight : 0,
         actionColumns,
         actionButtons
       };
@@ -1713,8 +1725,9 @@ async function captureViewport(cdp) {
   });
   const filePath = `${outputPrefix}-viewport-${viewportWidth}x${viewportHeight}.png`;
   writeFileSync(filePath, Buffer.from(screenshot.data, 'base64'));
-  if ((viewportWidth <= 880 || viewportHeight <= 700) && info.actionsDockActive) {
-    await assertAdaptiveDockReleasesBelowScene(cdp);
+  if ((viewportWidth <= 1024 || viewportHeight <= 760) && info.actionsDockActive) {
+    await assertAdaptiveDockReleasesOnSidePanelScroll(cdp, info);
+    await assertAdaptiveDockReleasesPastStandardPlace(cdp);
   }
   console.log(`viewport: ${filePath}`);
   console.log(`viewport layout: side=${Math.round(info.side.width)}x${Math.round(info.side.height)}, canvas=${Math.round(info.canvas.width)}x${Math.round(info.canvas.height)}, actionColumns=${info.actionColumns}`);
@@ -1830,19 +1843,33 @@ function assertAdaptiveDockBounds(info) {
   if (info.actionsCanvasOverlapRatio > 0.18) {
     throw new Error(`Dock akcji zasłania zbyt dużo sceny: ${(info.actionsCanvasOverlapRatio * 100).toFixed(1)}%.`);
   }
+
+  if (info.innerWidth > 640) {
+    const panelOverlap = Math.max(
+      Number(info.actionsSideOverlapRatio) || 0,
+      Number(info.actionsStatusOverlapRatio) || 0,
+      Number(info.actionsMinigamesOverlapRatio) || 0
+    );
+    if (panelOverlap > 0.01) {
+      throw new Error(
+        `Dock akcji nachodzi na panel opieki: side=${(info.actionsSideOverlapRatio * 100).toFixed(1)}%, status=${(info.actionsStatusOverlapRatio * 100).toFixed(1)}%, minigry=${(info.actionsMinigamesOverlapRatio * 100).toFixed(1)}%.`
+      );
+    }
+  }
 }
 
-async function assertAdaptiveDockReleasesBelowScene(cdp) {
+async function assertAdaptiveDockReleasesPastStandardPlace(cdp) {
   const scrollResult = await cdp.send('Runtime.evaluate', {
     expression: `(() => {
-      const stage = document.querySelector('.stage-panel');
+      const anchor = document.querySelector('.actions-dock-anchor');
       const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-      if (!stage || maxScroll < 80) {
+      if (!anchor || maxScroll < 80) {
         return { skipped: true, reason: 'no-scroll' };
       }
-      const target = Math.min(maxScroll, stage.getBoundingClientRect().bottom + window.scrollY + 120);
+      const anchorTop = anchor.getBoundingClientRect().top + window.scrollY;
+      const target = Math.min(maxScroll, Math.max(0, anchorTop + 24));
       window.scrollTo(0, target);
-      return { skipped: false, target };
+      return { skipped: false, target, anchorTop };
     })()`,
     returnByValue: true
   });
@@ -1857,14 +1884,17 @@ async function assertAdaptiveDockReleasesBelowScene(cdp) {
     expression: `(() => {
       const canvas = document.querySelector('.canvas-wrap');
       const actions = document.querySelector('.panel-block--actions');
+      const anchor = document.querySelector('.actions-dock-anchor');
       const rect = canvas ? canvas.getBoundingClientRect() : null;
+      const anchorRect = anchor ? anchor.getBoundingClientRect() : null;
       const visibleWidth = rect ? Math.max(0, Math.min(rect.right, innerWidth) - Math.max(rect.left, 0)) : 0;
       const visibleHeight = rect ? Math.max(0, Math.min(rect.bottom, innerHeight) - Math.max(rect.top, 0)) : 0;
       const ratio = rect ? (visibleWidth * visibleHeight) / Math.max(1, rect.width * rect.height) : 0;
       return {
         active: actions ? actions.classList.contains('is-adaptive-docked') : false,
         placement: actions ? actions.dataset.adaptiveDock || 'flow' : 'missing',
-        sceneRatio: ratio
+        sceneRatio: ratio,
+        anchorTop: anchorRect ? anchorRect.top : null
       };
     })()`,
     returnByValue: true
@@ -1877,8 +1907,81 @@ async function assertAdaptiveDockReleasesBelowScene(cdp) {
   await delay(80);
 
   const dockInfo = dockResult.result.value || {};
-  if (dockInfo.sceneRatio < 0.15 && dockInfo.active) {
-    throw new Error(`Dock akcji powinien wrócić do flow poza sceną, wykryto ${dockInfo.placement}.`);
+  if (dockInfo.anchorTop !== null && dockInfo.anchorTop <= 8 && dockInfo.active) {
+    throw new Error(`Dock akcji powinien wrócić do flow po minięciu standardowego miejsca, wykryto ${dockInfo.placement}.`);
+  }
+}
+
+async function assertAdaptiveDockReleasesOnSidePanelScroll(cdp, info) {
+  if (!info || !info.side || info.innerWidth <= 640 || Number(info.sideScrollHeight) <= Number(info.sideClientHeight) + 80) {
+    return;
+  }
+
+  const scrollResult = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const side = document.querySelector('.side-panel');
+      if (!side || side.scrollHeight <= side.clientHeight + 80) {
+        return { skipped: true };
+      }
+      side.scrollTop = Math.min(180, side.scrollHeight - side.clientHeight);
+      side.dispatchEvent(new Event('scroll'));
+      return { skipped: false, scrollTop: side.scrollTop };
+    })()`,
+    returnByValue: true
+  });
+
+  const scrollInfo = scrollResult.result.value || {};
+  if (scrollInfo.skipped) {
+    return;
+  }
+
+  await delay(180);
+  const releaseResult = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const actions = document.querySelector('.panel-block--actions');
+      const side = document.querySelector('.side-panel');
+      return {
+        active: actions ? actions.classList.contains('is-adaptive-docked') : false,
+        placement: actions ? actions.dataset.adaptiveDock || 'flow' : 'missing',
+        sideScrollTop: side ? side.scrollTop : 0
+      };
+    })()`,
+    returnByValue: true
+  });
+
+  const releaseInfo = releaseResult.result.value || {};
+  if (releaseInfo.sideScrollTop > 12 && releaseInfo.active) {
+    throw new Error(`Dock akcji powinien wrócić do flow przy scrollu bocznego panelu, wykryto ${releaseInfo.placement}.`);
+  }
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const side = document.querySelector('.side-panel');
+      if (side) {
+        side.scrollTop = 0;
+        side.dispatchEvent(new Event('scroll'));
+      }
+    })()`,
+    awaitPromise: true
+  });
+  await delay(180);
+
+  const restoreResult = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const actions = document.querySelector('.panel-block--actions');
+      const side = document.querySelector('.side-panel');
+      return {
+        active: actions ? actions.classList.contains('is-adaptive-docked') : false,
+        placement: actions ? actions.dataset.adaptiveDock || 'flow' : 'missing',
+        sideScrollTop: side ? side.scrollTop : 0
+      };
+    })()`,
+    returnByValue: true
+  });
+
+  const restoreInfo = restoreResult.result.value || {};
+  if (restoreInfo.sideScrollTop <= 12 && !restoreInfo.active) {
+    throw new Error('Dock akcji powinien móc wrócić po przewinięciu bocznego panelu na górę.');
   }
 }
 

@@ -8,7 +8,7 @@ This plan is for turning the MVP into a real, fun virtual-pet app. It is not a n
 ## Current Asset Notes
 
 - `assets/sleeping_sheet.png` is now centered frame-by-frame.
-- `assets/awake.png` now uses the same cap, grass, body placement, and palette as the sleeping sheet, with only the default awake eyes redrawn.
+- `assets/awake.png` now uses the same cap, grass, body placement, and palette as the sleeping arkusz animacji, with only the default awake eyes redrawn.
 - Wake reactions now use the stage `wake_sheet.png` animation path through `wake_surprise`; the old canvas face overlay is removed.
 - Ambient scene life is now renderer-native: butterflies fly on smooth irregular paths, fireflies drift calmly in a bounded range, and ground bugs enter/leave through screen edges or tall grass.
 - Detailed next implementation plan for all growth-stage sprites and activity animations: `docs/ASSET_ANIMATION_IMPLEMENTATION_PLAN.md`.
@@ -21,7 +21,7 @@ Classic Tamagotchi works because it is more than stat bars:
 
 - Care actions are concrete: feed, clean, medicine, lights, health check, discipline, and play.
 - The pet calls for attention when it needs care, and the player has a response window.
-- Neglect is remembered as care mistakes, not only as lower stats.
+- Neglect is remembered as błędy opieki, not only as lower stats.
 - Care quality affects evolution, so long-term identity emerges from repeated behavior.
 - Play is not just "increase happiness"; it often offsets side effects such as weight gain from food.
 - Sleep is a real rhythm with consequences, not just a toggle.
@@ -68,7 +68,7 @@ Idle life -> need threshold -> attention call -> player response or care mistake
 
 Implemented local v1 systems:
 
-- Polish-first care UI with manifest-driven growth-stage sprites, activity reactions, attention calls, care mistakes, patch quality, mycelium progress, and spore rewards.
+- Polish-first care UI with manifest-driven growth-stage sprites, activity reactions, attention calls, błędy opieki, jakość podłoża, grzybnia progress, and spore rewards.
 - Weather-driven scene with day/night, celestial bodies, wind, precipitation, grass movement, seasonal ambient life, and browser capture tooling.
 - Local Legendary Arena with unlock at `legendary`, separate `ClientBattleScene.html`, training, deterministic turns, rewards, mobile layout checks, and `state.battle` persistence.
 - Focused QA gates now include core tests in local and UTC timezones, asset audits, local preview bootstrap, arena captures, and `scripts/capture-life-motion.mjs`.
@@ -82,9 +82,9 @@ Implemented progression slice:
 - Save version `4` with care history, action counts, attention outcomes, minigame records, evolution metadata and decoration ownership.
 - Per-need attention thresholds with visible current-need chip and care history updates.
 - First minigame: `Łapanie rosy`, including deterministic session data, short canvas playfield, bounded rewards and cooldown.
-- Evolution branch selection based on care history, mistakes, patch quality and growth threshold.
+- Evolution branch selection based on care history, mistakes, jakość podłoża and growth threshold.
 - Local JSON export/import for backup without online sync.
-- Decoration store and patch decorations rendered under the mushroom.
+- Decoration store and dekoracje podłoża rendered under the mushroom.
 - Arena 2.0 foundations: weighted opponent choices, status effects and battle log metadata.
 - Weather precipitation fix: rain/snow now use a monotonic motion clock and separate background/foreground passes, so visible drops/flakes do not reverse direction.
 
@@ -94,23 +94,23 @@ Immediate next product slices should start from `docs/PROJECT_STATE_2026-05-16.m
 
 Implemented gameplay-loop iteration 2:
 
-- Save version `12` adds the first-run naming gate: new saves start unnamed, care actions stay locked until the mushroom is named, and runtime "Pieczarka" copy is displayed with the chosen name.
+- Save version `12` adds the first-run naming gate: new saves start unnamed, care actions stay locked until the mushroom is named, and czas działania "Pieczarka" copy is displayed with the chosen name.
 - Save version `11` added `dailyRhythm`, `journal`, and `returnRecap` defaults while preserving existing saves through normalization.
 - The stage panel now offers one selectable daily rhythm. The chosen rhythm reshapes daily goals, then locks for the day to avoid churn.
 - The discovery panel is now a combined world journal for sky and environment phenomena, with locked hints and first-sighting journal entries.
 - Long offline returns produce a single "Powrót do grzybni" recap in transient messaging and relationship history.
-- Habitat tags now have gameplay effects: moisture makes dew opportunities easier, spore/night tags help spore play, and new decorations add wild/flower/insect/shelter hooks for future ambient-life tuning.
+- siedlisko tags now have gameplay effects: moisture makes dew opportunities easier, spore/night tags help spore play, and new decorations add wild/flower/insect/shelter hooks for future ambient-life tuning.
 - Instrument activity keeps the restored expressive sprite sheets and adds three common instrument variants plus one rare discoverable instrument per growth stage.
 - Mobile layout was rebalanced so the rhythm row, daily plan, and full action panel fit the 390x844 smoke viewport.
 
 Implemented gameplay-loop iteration 3:
 
-- Decorations now affect real habitat behavior, not only mood text: moisture helps dew play, music pushes rhythm goals, flowers/insects lift bees/butterflies/ground guests, and night/spore tags make nocturnal moments stronger.
+- Decorations now affect real siedlisko behavior, not only mood text: moisture helps dew play, music pushes rhythm goals, flowers/insects lift bees/butterflies/ground guests, and night/spore tags make nocturnal moments stronger.
 - Two new shared-contract minigames are available: `Sortowanie kompostu` for nutrients/cleanliness/substrate and `Rytmiczne nucenie` for happiness/energy.
 - Evolution variants now expose a small visual identity contract used by UI chips and subtle scene overlays, so Dewcap, Songcap, Wildcap, Ghostcap, Royalcap, and Compostcap read differently after branching.
 - Wake polish now routes through sprite-backed `wake_surprise` activity selection; there is no separate canvas-drawn wake face.
 
-Focused QA now covers v13 migration, first-run naming contracts, daily rhythm selection, habitat synergies, the new habitat minigames, evolution identity, combined journal rendering contracts, calendar events, one-shot return recaps, Cloudflare static build, and mobile viewport capture.
+Focused QA now covers v13 migration, first-run naming contracts, daily rhythm selection, siedlisko synergies, the new siedlisko minigames, evolution identity, combined journal rendering contracts, calendar events, one-shot return recaps, Cloudflare static build, and mobile viewport capture.
 
 ## Real App Systems Plan
 
@@ -123,17 +123,17 @@ The detailed implementation slice for this work lives in `docs/ASSET_ANIMATION_I
 Deliverables:
 
 - `docs/SPRITE_BIBLE.md`
-- Runtime asset manifest with explicit dimensions and animation metadata.
+- czas działania asset manifest with explicit dimensions and animation metadata.
 - A source/export workflow for creating sheets from individual frames.
 - A validation script that fails if frame content drifts off center.
 
 Rules:
 
-- Every runtime state uses `512x512` frames.
+- Every czas działania state uses `512x512` frames.
 - Sheets use consistent frame size and centered content.
 - No renderer offsets for normal animation.
 - Main expressions come from PNG sheets. JavaScript draws only temporary overlays/effects.
-- Every sprite sheet gets a purpose, frame count, FPS, loop mode, and priority.
+- Every sprite arkusz animacji gets a purpose, frame count, FPS, loop mode, and priority.
 
 Initial sheets:
 
@@ -176,7 +176,7 @@ Acceptance:
 - Critical status is visually distinct from mild status.
 - Sleep, wake, idle, action, and need animations never fight each other.
 
-### 3. Care Mistakes And Attention Calls
+### 3. błędy opieki And Attention Calls
 
 Checkpoint: the first version exists. Keep future work focused on the care history UI and better evolution consequences rather than rebuilding the core attention reducer.
 
@@ -211,7 +211,7 @@ Rules:
 - A need below a threshold starts an attention call.
 - If the user responds before the deadline, reward care quality.
 - If ignored, log a care mistake and change future growth/evolution.
-- Care mistakes should matter more than raw momentary stats.
+- błędy opieki should matter more than raw momentary stats.
 
 ### 4. Mushroom-Specific Personality
 
@@ -222,10 +222,10 @@ Possible systems:
 - Moisture: hydration and misting matter.
 - Substrate: compost quality, nutrients, contamination.
 - Airflow/light: too much/too little causes stress.
-- Mycelium: long-term hidden growth layer.
+- grzybnia: long-term hidden growth layer.
 - Spores: adult-stage reproduction/resource action.
-- Scene lighting: background now follows location weather, calculated sunrise/sunset, day phase, golden hour, blue hour, real sun/moon sky positions, moon phase, visible night constellations, and fallback Katowice timing when geolocation is unavailable. Current balance rule: rain actively increases hydration, storm hydrates but costs happiness/cleanliness, wind and heat dry the patch.
-- Patch decorations: small cosmetic unlocks that also affect mood.
+- Scene lighting: background now follows location weather, calculated sunrise/sunset, day phase, golden hour, blue hour, real sun/moon sky positions, moon phase, visible night constellations, and tryb zapasowy Katowice timing when geolocation is unavailable. Current balance rule: rain actively increases hydration, storm hydrates but costs happiness/cleanliness, wind and heat dry the podłoże.
+- dekoracje podłoża: small cosmetic unlocks that also affect mood.
 
 ### 5. Interaction And Minigames
 
@@ -257,7 +257,7 @@ Track:
 
 - Care mistake counts by category.
 - Preferred actions and neglected needs.
-- Sleep regularity.
+- Sleep regułarity.
 - Music/play frequency.
 - Cleanliness history.
 - Health recovery history.
@@ -275,7 +275,7 @@ Each evolution should unlock:
 
 - Different idle animation.
 - Different favorite action.
-- Small UI accent or patch decoration.
+- Small UI accent or podłoże decoration.
 - One unique log/message pattern.
 
 ### 7. UI Direction
@@ -287,7 +287,7 @@ Next UI changes:
 - Add an attention icon/light near the canvas.
 - Add a small "current need" chip, not a wall of text.
 - Keep stat bars, but make exact numbers secondary.
-- Add a care history panel with care mistakes and milestones.
+- Add a care history panel with błędy opieki and milestones.
 - Add a sprite-state debug panel only in local dev mode.
 
 ### 8. Persistence And Deployment
@@ -299,7 +299,7 @@ Path:
 1. Keep `localStorage` as default. Done.
 2. Add manual backup/export JSON. Done.
 3. Add import/restore. Done.
-4. Optional Google Drive or Sheet backup only after the local model is stable.
+4. Optional Google Drive or arkusz animacji backup only after the local model is stable.
 
 Acceptance:
 
@@ -329,7 +329,7 @@ Suggested scripts:
 
 - `scripts/validate-assets.mjs`
 - `scripts/extract-sprite-frame.mjs`
-- `scripts/build-sprite-sheet.mjs`
+- `scripts/build-sprite-arkusz animacji.mjs`
 - `scripts/smoke-preview.mjs`
 - `scripts/capture-life-motion.mjs`
 
@@ -350,7 +350,7 @@ Suggested scripts:
 2. Add mild and critical thresholds per stat.
 3. Implement visual clues for dry, hungry, dirty, tired, and sick states.
 4. Add attention call state and deadline.
-5. Add care mistakes.
+5. Add błędy opieki.
 6. Update logs/messages around attention calls.
 
 
@@ -359,7 +359,7 @@ Suggested scripts:
 1. Extend short minigames on the shared session contract.
 2. Add short post-action reaction sheets.
 3. Add music and singing animations.
-4. Add unlockable patch decorations.
+4. Add unlockable dekoracje podłoża.
 
 ### Phase D - Long-Term Game
 
@@ -418,7 +418,7 @@ Status legend: `[ ]` not started, `[~]` in progress, `[x]` complete.
 - [x] Awake and need-driven animation layer
   - Scope: add subtle awake idling plus visual overlays for dryness, hunger, dirt, tiredness, sickness, attention, and excellent care.
 - [x] Farming fun loop
-  - Scope: add patch quality, harvest/spore rewards, visible clue-driven care, and stronger post-action feedback.
+  - Scope: add jakość podłoża, harvest/spore rewards, visible clue-driven care, and stronger post-action feedback.
 - [x] Validation and local preview check
   - Scope: run syntax checks, asset checks, and local preview response verification.
 - [x] Growth-stage asset pack
@@ -435,9 +435,9 @@ Implemented in this slice:
 - The app interface is now Polish-first for visible controls, messages, logs, action labels, state labels, and local preview text.
 - `awake.png` and `sleeping_sheet.png` remain centered and style-matched.
 - Pieczarka now breathes, blinks, thinks, and shows visual cues for wilgoć, odżywki, radość, czystość, energia, zdrowie, attention, and excellent care.
-- The state model now tracks attention calls, care mistakes, podłoże quality, grzybnia progress, care streak, harvest count, and zarodniki.
+- The state model now tracks attention calls, błędy opieki, podłoże quality, grzybnia progress, care streak, harvest count, and zarodniki.
 - Good care improves podłoże quality and grzybnia. Mature grzybnia produces zarodniki and a visible spore effect.
-- The animation manifest now covers 63 runtime animations: 5 growth stages with 11 state sheets each, plus 8 activity sheets.
+- The animation manifest now covers 63 czas działania animations: 5 growth stages with 11 state sheets each, plus 8 activity sheets.
 - The asset folder now also includes 5 optional effect sheets and `scripts/validate-assets.mjs` validates 68 PNG sheets.
 - The local Arena now lives outside the care renderer and is testable through deterministic core helpers plus browser captures.
 - Scene life now has a dedicated capture gate for warm daylight insects, summer night fireflies, and mobile layout.

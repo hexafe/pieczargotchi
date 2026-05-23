@@ -2,7 +2,7 @@
 
 ## Status
 
-Pieczargotchi ma działające lokalne v1: modularny Apps Script web app, lokalny preview, PNG runtime, pogodę z lokalizacji, scenę reagującą na pogodę, ruchome życie w tle, attention/care mistakes, spore loop oraz lokalną Arenę dla Legendarnej Pieczarki.
+Pieczargotchi ma działające lokalne v1: modularny Apps Script web app, lokalny preview, PNG czas działania, pogodę z lokalizacji, scenę reagującą na pogodę, ruchome życie w tle, attention/błędy opieki, spore loop oraz lokalną Arenę dla Legendarnej Pieczarki.
 
 Najważniejsza decyzja nadal obowiązuje: nowe funkcje mają trafiać do osobnych partiali albo testowalnego core. Renderer może czytać stan, ale zasady gry i balans pozostają w `GameRules.gs` albo czystych helperach `ClientCore.html`.
 
@@ -14,7 +14,7 @@ Najważniejsza decyzja nadal obowiązuje: nowe funkcje mają trafiać do osobnyc
 - `ClientScene.html` orkiestruje scenę opieki; `ClientScenePalette.html`, `ClientSceneCelestial.html`, `ClientSceneWeather.html`, `ClientSceneLife.html` i `ClientSceneGround.html` trzymają wyspecjalizowane warstwy canvasu.
 - `ClientSceneLife.html` rysuje motyle po płynnych nieregularnych trasach, świetliki po spokojnym dryfie góra-dół i na boki, oraz naziemne owady wychodzące zza krawędzi albo z wysokiej trawy.
 - State ma wersję `3`; zapis nadal używa klucza `pieczargotchi_state_v2`, a `state.battle` jest osobnym subtree dla Areny.
-- Produkcyjny runtime trzyma debug i `window.__pieczargotchiRuntime` prywatnie; lokalny `dev-server.mjs` włącza je dla preview, debug menu i capture tooling.
+- Produkcyjny czas działania trzyma debug i `window.__pieczargotchiRuntime` prywatnie; lokalny `dev-server.mjs` włącza je dla preview, debug menu i capture tooling.
 
 ## Arena
 
@@ -57,7 +57,7 @@ node scripts/capture-weather-matrix.mjs http://127.0.0.1:8092/ /tmp/pieczargotch
 
 ## Deployment
 
-- `scripts/check-deployment-readiness.mjs` sprawdza manifest Apps Script, produkcyjne runtime flags, komplet partiali, fallback assetów, `.clasp.json` jako plik lokalny oraz brak typowych sekretów w śledzonych plikach.
+- `scripts/check-deployment-readiness.mjs` sprawdza manifest Apps Script, produkcyjne flagi uruchomieniowe, komplet partiali, tryb zapasowy zasobów, `.clasp.json` jako plik lokalny oraz brak typowych sekretów w śledzonych plikach.
 - `docs/APPS_SCRIPT_DEPLOYMENT_DRY_RUN.md` opisuje bezpieczny dry run na testowym Apps Script projekcie.
 - Lokalna próba `env CI=1 npx --yes @google/clasp push` z 2026-05-13 zatrzymuje się na `Project settings not found.`, bo repo nie ma lokalnego `.clasp.json`; to oczekiwany blocker przed realnym Google-side smoke.
 
@@ -66,4 +66,4 @@ node scripts/capture-weather-matrix.mjs http://127.0.0.1:8092/ /tmp/pieczargotch
 - Apps Script deployment dry run: bind local clone with private `.clasp.json`, push to a test script, and verify missing Drive IDs fall back gracefully. The repo-side checker/runbook are done; the remaining work is the real Google-side smoke with local credentials.
 - Backup/export/import JSON for `localStorage`, still without online sync.
 - First short minigame, preferably dew catch, because it reinforces moisture care without expanding Arena complexity.
-- Long-term evolution branches that consume care mistakes, sleep rhythm, patch quality, music/play history and moisture stability.
+- Long-term evolution branches that consume błędy opieki, sleep rhythm, jakość podłoża, music/play history and moisture stability.

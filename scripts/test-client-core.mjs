@@ -17,6 +17,26 @@ if (!core || typeof core.calculateWeatherStatDeltas !== 'function') {
   throw new Error('PieczargotchiCore was not exported');
 }
 
+test('Polish count formatter chooses singular, few, and many forms', () => {
+  const spores = ['zarodnik', 'zarodniki', 'zarodników'];
+  const drops = ['kropla', 'krople', 'kropli'];
+  const pieces = ['kawałek', 'kawałki', 'kawałków'];
+  const notes = ['nuta', 'nuty', 'nut'];
+  const observations = ['obserwacja', 'obserwacje', 'obserwacji'];
+  const days = ['dzień', 'dni', 'dni'];
+  const trophies = ['trofeum', 'trofea', 'trofeów'];
+
+  assert(core.formatPolishCount(1, spores) === '1 zarodnik', 'expected singular spore');
+  assert(core.formatPolishCount(2, spores) === '2 zarodniki', 'expected few spores');
+  assert(core.formatPolishCount(5, spores) === '5 zarodników', 'expected many spores');
+  assert(core.formatPolishCount(12, drops) === '12 kropli', 'expected teen drop form');
+  assert(core.formatPolishCount(22, pieces) === '22 kawałki', 'expected twenty-two piece form');
+  assert(core.formatPolishCount(25, notes) === '25 nut', 'expected many note form');
+  assert(core.formatPolishCount(0, observations) === '0 obserwacji', 'expected zero observation form');
+  assert(core.formatPolishCount(1, days) === '1 dzień', 'expected singular day');
+  assert(core.formatPolishCount(3, trophies) === '3 trofea', 'expected few trophies');
+});
+
 function renderTemplate(fileName) {
   const content = readFileSync(path.join(rootDir, fileName), 'utf8');
   return content.replace(/<\?!=\s*include\('([^']+)'\);\s*\?>/g, (_match, partialName) => {
@@ -525,6 +545,35 @@ test('relationship log is bounded and decoration habitat aggregates tags', () =>
   assert(state.relationship.entries[0].title === 'Wpis 9', 'expected newest relationship entry first');
   assert(habitat.tags.some((tag) => tag.id === 'comfort' && tag.count === 2), 'expected comfort habitat from active decorations');
   assert(habitat.tags.some((tag) => tag.id === 'music'), 'expected music habitat tag');
+});
+
+test('decoration habitat summary uses singular grammar for one decoration', () => {
+  const rules = getGameplayLoopTestRules();
+  const state = getGameplayLoopTestState({
+    decorations: { owned: ['dewStone'], active: ['dewStone'] }
+  });
+  const habitat = core.getDecorationHabitatSummary(state, rules);
+
+  assert(habitat.body === 'Kamień rosy zmienia nastrój grzybni.', `unexpected singular habitat body: ${habitat.body}`);
+});
+
+test('return recap uses Polish discovery and day labels', () => {
+  const rules = getGameplayLoopTestRules();
+  const from = Date.parse('2026-05-20T08:00:00.000Z');
+  const to = Date.parse('2026-05-21T08:00:00.000Z');
+  const state = getGameplayLoopTestState({
+    lastUpdatedAt: new Date(from).toISOString(),
+    discoveries: {
+      sky: { comet: { id: 'comet', label: 'Kometa', firstSeenAt: new Date(from).toISOString(), lastSeenAt: new Date(from).toISOString(), count: 1 } },
+      environment: {},
+      instruments: {},
+      calendar: {}
+    }
+  });
+  const recap = core.getReturnRecap(state, rules, from, to, null, {});
+
+  assert(recap.entries[0].title === 'Powrót (1 dzień)', `unexpected return entry title: ${recap.entries[0].title}`);
+  assert(recap.body.includes('Dziennik pamięta już 1 odkrycie.'), `unexpected discovery count body: ${recap.body}`);
 });
 
 test('evolution compass summarizes current care direction without deciding evolution', () => {
@@ -1213,6 +1262,7 @@ test('battle training spends one spore and respects the configured cap', () => {
   assert(trained.state.battle.training.strength === 20, 'expected strength to reach cap');
   assert(trained.state.inventory.spores === 1, 'expected one spore spent');
   assert(trained.state.coins === 1, 'expected spore label balance to match');
+  assert(trained.state.battle.log[0].text === 'Trening: siła +1.', `expected Polish stat label, got ${trained.state.battle.log[0].text}`);
   assert(!core.trainBattleStat(trained.state, 'strength', rules, Date.now()).ok, 'cap should block further training');
 });
 
@@ -2014,6 +2064,7 @@ test('world journal combines sky, environment, and rare instrument discoveries w
   assert(rare.reaction === 'proud', `expected rare instrument proud reaction, got ${rare.reaction}`);
   assert(comet && !comet.discovered && comet.hint, 'expected locked sky item to keep a hint');
   assert(state.journal.entries.length === 3, 'expected first sightings to create journal entries');
+  assert(state.journal.entries.every((entry) => !/dopisało|dopisał/.test(entry.body)), 'expected natural journal entry wording');
 });
 
 test('calendar events use local deterministic dates and checklist unlocks through owned decoration', () => {

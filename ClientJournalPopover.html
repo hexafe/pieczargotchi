@@ -138,7 +138,7 @@
       return;
     }
 
-    const countText = item.count > 1 ? item.count + ' obserwacje' : 'Pierwsza obserwacja';
+    const countText = item.count > 1 ? 'Obserwacje: ' + item.count : 'Pierwsza obserwacja';
     dom.journalTooltip.innerHTML = '<strong></strong><span></span>';
     dom.journalTooltip.querySelector('strong').textContent = formatMushroomText(item.label);
     dom.journalTooltip.querySelector('span').textContent = formatMushroomText(item.description || item.hint || '') + ' · ' + countText;
