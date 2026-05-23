@@ -116,24 +116,27 @@
     }
 
     const wind = getDynamicWindState(scene, now);
-    const slots = Math.max(1, Math.round((foreground ? 0.25 : 0.55) + intensity * (foreground ? 1.6 : 2.3)));
+    const slots = Math.max(1, Math.round((foreground ? 0.45 : 0.75) + intensity * (foreground ? 2.4 : 3.0)));
 
     ctx.save();
     for (let index = 0; index < slots; index += 1) {
       const seed = (foreground ? 44201 : 43391) + index * 149;
-      if (intensity < 0.96 && seededUnit(seed + 9) > intensity + 0.22) {
+      const cycleMs = 14600 + seededUnit(seed) * 11800;
+      const activeSpan = 0.72 + intensity * 0.12;
+      const cycleTime = now + seededUnit(seed + 1) * cycleMs;
+      const cycleIndex = Math.floor(cycleTime / cycleMs);
+      const visitSeed = seed + cycleIndex * 9973 + (foreground ? 811 : 307);
+      if (intensity < 0.96 && seededUnit(visitSeed + 9) > intensity + 0.30) {
         continue;
       }
 
-      const cycleMs = 14600 + seededUnit(seed) * 11800;
-      const activeSpan = 0.72 + intensity * 0.12;
-      const phase = positiveModulo(now + seededUnit(seed + 1) * cycleMs, cycleMs) / cycleMs;
+      const phase = positiveModulo(cycleTime, cycleMs) / cycleMs;
       if (phase > activeSpan) {
         continue;
       }
 
       const progress = phase / activeSpan;
-      const path = getBeeFlightPath(seed, progress, intensity, flowerIntensity, wind, foreground, now);
+      const path = getBeeFlightPath(seed, visitSeed, cycleIndex, progress, intensity, flowerIntensity, wind, foreground, now);
       const alpha = (0.64 + intensity * 0.28) * path.visibility;
       if (alpha < 0.025) {
         continue;
@@ -147,10 +150,21 @@
         layer: foreground ? 'foreground' : 'background',
         depth: foreground ? 'front' : 'back',
         route: path.route,
+        variant: path.routeVariant,
+        routeVariant: path.routeVariant,
+        entrySide: path.entrySide,
+        exitSide: path.exitSide,
         phase: path.phase,
         flowerId: path.flowerId,
+        flowerVariant: path.flowerVariant,
+        targetCount: path.targetCount,
+        noLanding: path.noLanding,
         landed: path.landed,
+        landedDuration: Number(path.landedDuration.toFixed(3)),
         direction: path.direction,
+        turnbacks: path.turnbacks,
+        cycleIndex: cycleIndex,
+        visitSeed: visitSeed,
         x: Math.round(path.x),
         y: Math.round(path.y),
         alpha: Number(alpha.toFixed(3)),
@@ -279,13 +293,14 @@
     return { petal: '#f7f7df', center: palette && palette.groundLight ? palette.groundLight : '#f2d65e' };
   }
 
-  function getBeeFlightPath(seed, progress, intensity, flowerIntensity, wind, foreground, now) {
-    const flower = getBeeFlowerTarget(seed, foreground, flowerIntensity, wind, now);
-    const route = getBeeRoute(seed, foreground);
-    const point = getBeeFlightPoint(seed, progress, intensity, flower, route, wind, foreground, now);
-    const next = getBeeFlightPoint(seed, clamp(progress + 0.012, 0, 1, 0), intensity, flower, route, wind, foreground, now);
-    const direction = next.x >= point.x ? 1 : -1;
-    const visibility = fadeLifeEdge(progress) * (point.phase === 'forage' ? 1 : 0.82 + Math.sin(progress * Math.PI) * 0.18);
+  function getBeeFlightPath(seed, visitSeed, cycleIndex, progress, intensity, flowerIntensity, wind, foreground, now) {
+    const route = getBeeRoute(visitSeed, foreground, intensity, wind);
+    const flowers = getBeeFlowerPlan(visitSeed, foreground, flowerIntensity, wind, now, route);
+    const point = getBeeFlightPoint(visitSeed, progress, intensity, flowers, route, wind, foreground, now);
+    const next = getBeeFlightPoint(visitSeed, clamp(progress + 0.012, 0, 1, 0), intensity, flowers, route, wind, foreground, now);
+    const dx = next.x - point.x;
+    const direction = Math.abs(dx) > 0.35 ? (dx >= 0 ? 1 : -1) : (point.directionHint || route.direction || 1);
+    const visibility = fadeLifeEdge(progress) * (point.landed ? 1 : 0.82 + Math.sin(progress * Math.PI) * 0.18);
 
     return {
       x: point.x,
@@ -296,95 +311,333 @@
       landed: point.landed,
       phase: point.phase,
       pause: point.pause,
+      seed: seed,
+      visitSeed: visitSeed,
+      cycleIndex: cycleIndex,
       route: route.kind,
-      flowerId: flower.id,
+      routeVariant: route.variant,
+      entrySide: route.entrySide,
+      exitSide: route.exitSide,
+      targetCount: flowers.targets.length,
+      flowerId: point.flowerId || flowers.targets[0].id,
+      flowerVariant: point.flowerVariant || flowers.preferredVariant,
+      noLanding: route.noLanding,
+      landedDuration: route.landedDuration,
+      turnbacks: route.turnbacks,
       visibility: visibility
     };
   }
 
-  function getBeeFlowerTarget(seed, foreground, flowerIntensity, wind, now) {
-    const slots = getNectarFlowerSlotCount(flowerIntensity, foreground);
-    const index = Math.floor(seededUnit(seed + 18) * slots) % slots;
-    return getNectarFlowerAnchor(getNectarFlowerSeed(index, foreground), foreground, flowerIntensity, wind, now);
-  }
-
-  function getBeeRoute(seed, foreground) {
-    const direction = seededUnit(seed + 2) > 0.5 ? 1 : -1;
-    const roll = seededUnit(seed + 3);
+  function getBeeFlowerPlan(seed, foreground, flowerIntensity, wind, now, route) {
+    const anchors = getBeeFlowerAnchors(foreground, flowerIntensity, wind, now);
+    const preferredVariant = getBeePreferredFlowerVariant(seed, anchors);
+    const preferred = anchors.filter((anchor) => anchor.variant === preferredVariant);
+    const pool = preferred.length ? preferred : anchors;
+    const primary = pool[Math.floor(seededUnit(seed + 18) * pool.length) % pool.length] || anchors[0];
+    const targets = [primary];
+    if (route.targetCount > 1 && anchors.length > 1) {
+      const secondaryPool = pool.filter((anchor) => anchor.id !== primary.id);
+      const fallbackPool = anchors.filter((anchor) => anchor.id !== primary.id);
+      const candidates = secondaryPool.length ? secondaryPool : fallbackPool;
+      const secondary = getBeeSecondaryFlowerTarget(seed, primary, candidates);
+      if (secondary) {
+        targets.push(secondary);
+      }
+    }
     return {
-      direction: direction,
-      kind: roll < 0.38 ? 'offscreenVisit' : roll < 0.70 ? 'grassVisit' : 'meadowLoop',
-      turnAway: seededUnit(seed + 4) < (foreground ? 0.30 : 0.22),
-      approachEnd: 0.30 + seededUnit(seed + 5) * 0.08,
-      departStart: 0.62 + seededUnit(seed + 6) * 0.12
+      preferredVariant: preferredVariant,
+      targets: targets
     };
   }
 
-  function getBeeFlightPoint(seed, progress, intensity, flower, route, wind, foreground, now) {
+  function getBeeFlowerAnchors(foreground, flowerIntensity, wind, now) {
+    const slots = getNectarFlowerSlotCount(flowerIntensity, foreground);
+    const anchors = [];
+    for (let index = 0; index < slots; index += 1) {
+      anchors.push(getNectarFlowerAnchor(getNectarFlowerSeed(index, foreground), foreground, flowerIntensity, wind, now));
+    }
+    return anchors;
+  }
+
+  function getBeePreferredFlowerVariant(seed, anchors) {
+    const variants = anchors.reduce((acc, anchor) => {
+      if (anchor && anchor.variant && !acc.includes(anchor.variant)) {
+        acc.push(anchor.variant);
+      }
+      return acc;
+    }, []);
+    if (!variants.length) {
+      return 'daisy';
+    }
+    return variants[Math.floor(seededUnit(seed + 17) * variants.length) % variants.length];
+  }
+
+  function getBeeSecondaryFlowerTarget(seed, primary, candidates) {
+    if (!primary || !Array.isArray(candidates) || !candidates.length) {
+      return null;
+    }
+    const sorted = candidates.slice().sort((a, b) => {
+      const distanceA = Math.abs((a.headX || a.x || 0) - (primary.headX || primary.x || 0))
+        + Math.abs((a.headY || a.baseY || 0) - (primary.headY || primary.baseY || 0)) * 0.68;
+      const distanceB = Math.abs((b.headX || b.x || 0) - (primary.headX || primary.x || 0))
+        + Math.abs((b.headY || b.baseY || 0) - (primary.headY || primary.baseY || 0)) * 0.68;
+      return distanceA - distanceB;
+    });
+    const nearCount = Math.min(sorted.length, 4);
+    return sorted[Math.floor(seededUnit(seed + 19) * nearCount) % nearCount];
+  }
+
+  function getBeeRoute(seed, foreground, intensity, wind) {
+    const entrySide = getBeeRouteSide(seed + 2, foreground, true);
+    const exitSide = getBeeExitSide(seed, entrySide, foreground);
+    const direction = entrySide === 'right' ? -1 : 1;
+    const windLevel = clamp(Math.max(Number(wind && wind.level) || 0, Number(wind && wind.averageLevel) || 0), 0, 1, 0);
+    const roll = seededUnit(seed + 3);
+    const multiAllowed = intensity > 0.34 && windLevel < 0.48;
+    let kind = 'flowerForage';
+    if (roll < 0.46) {
+      kind = 'flowerForage';
+    } else if (roll < 0.64 && multiAllowed) {
+      kind = 'multiFlowerForage';
+    } else if (roll < 0.80) {
+      kind = 'hoverInspect';
+    } else if (roll < 0.93 && windLevel < 0.58) {
+      kind = 'searchLoop';
+    } else {
+      kind = 'grassEmerge';
+    }
+    const noLanding = kind === 'searchLoop' || (kind === 'hoverInspect' && seededUnit(seed + 16) < 0.58);
+    const landingStart = 0.20 + seededUnit(seed + 10) * 0.08;
+    const landingEnd = 0.64 + seededUnit(seed + 11) * 0.14;
+    return {
+      direction: direction,
+      entrySide: entrySide,
+      exitSide: exitSide,
+      kind: kind,
+      variant: kind,
+      targetCount: kind === 'multiFlowerForage' ? 2 : 1,
+      noLanding: noLanding,
+      turnbacks: windLevel > 0.50 ? 0 : Math.floor(seededUnit(seed + 12) * (kind === 'searchLoop' ? 3 : 2.45)),
+      approachEnd: 0.30 + seededUnit(seed + 5) * 0.08,
+      departStart: 0.62 + seededUnit(seed + 6) * 0.12,
+      landingStart: landingStart,
+      landingEnd: Math.max(landingStart + 0.18, landingEnd),
+      landedDuration: noLanding ? 0 : Math.max(0.12, landingEnd - landingStart),
+      loopScale: 0.76 + seededUnit(seed + 13) * 0.78,
+      windLevel: windLevel
+    };
+  }
+
+  function getBeeRouteSide(seed, foreground, allowGrass) {
+    const roll = seededUnit(seed);
+    if (allowGrass && foreground && roll < 0.18) {
+      return 'grass';
+    }
+    return roll < 0.59 ? 'left' : 'right';
+  }
+
+  function getBeeExitSide(seed, entrySide, foreground) {
+    const roll = seededUnit(seed + 4);
+    if (foreground && roll < 0.18) {
+      return 'grass';
+    }
+    if (roll < 0.42) {
+      return entrySide === 'right' ? 'left' : 'right';
+    }
+    if (roll < 0.68) {
+      return entrySide;
+    }
+    return seededUnit(seed + 15) < 0.5 ? 'left' : 'right';
+  }
+
+  function getBeeFlightPoint(seed, progress, intensity, flowerPlan, route, wind, foreground, now) {
     const p = clamp(progress, 0, 1, 0);
-    const routeDirection = route.direction || 1;
-    const startX = route.kind === 'grassVisit'
-      ? 44 + seededUnit(seed + 21) * 424
-      : routeDirection > 0
-        ? -38 - seededUnit(seed + 22) * 42
-        : 550 + seededUnit(seed + 22) * 42;
-    const startY = route.kind === 'grassVisit'
-      ? (foreground ? 426 : 396) + seededUnit(seed + 23) * (foreground ? 56 : 42)
-      : (foreground ? 268 : 222) + seededUnit(seed + 23) * (foreground ? 112 : 104);
-    const endX = route.turnAway
-      ? startX
-      : routeDirection > 0
-        ? 548 + seededUnit(seed + 24) * 48
-        : -42 - seededUnit(seed + 24) * 48;
-    const endY = route.kind === 'grassVisit'
-      ? (foreground ? 434 : 400) + seededUnit(seed + 25) * (foreground ? 56 : 42)
-      : (foreground ? 250 : 204) + seededUnit(seed + 25) * (foreground ? 118 : 110);
-    const targetX = flower.headX + (seededUnit(seed + 26) * 2 - 1) * 3;
-    const targetY = flower.headY - 3 - seededUnit(seed + 27) * 3;
+    const targets = flowerPlan && Array.isArray(flowerPlan.targets) && flowerPlan.targets.length ? flowerPlan.targets : [];
+    const primary = targets[0];
+    const secondary = targets[1] || primary;
+    const start = getBeeRouteEndpoint(seed + 21, route.entrySide, foreground);
+    const end = getBeeRouteEndpoint(seed + 24, route.exitSide, foreground);
+    const targetA = getBeeFlowerFocusPoint(seed + 26, primary);
+    const targetB = getBeeFlowerFocusPoint(seed + 36, secondary);
     const flowerLocal = clamp((p - route.approachEnd) / Math.max(0.01, route.departStart - route.approachEnd), 0, 1, 0);
     const windDrift = (Number(wind && wind.directionX) || 0) * (Number(wind && wind.level) || 0) * (3 + intensity * 7);
     const looseBuzzX = smoothLifeNoise(seed + 31, p * (5.0 + seededUnit(seed + 32) * 4.0)) * (4 + intensity * 8);
     const looseBuzzY = smoothLifeNoise(seed + 41, p * (5.4 + seededUnit(seed + 42) * 4.0)) * (4 + intensity * 7);
 
+    if (route.kind === 'multiFlowerForage' && targets.length > 1) {
+      return getBeeMultiFlowerPoint(seed, p, intensity, primary, secondary, targetA, targetB, start, end, route, windDrift, looseBuzzX, looseBuzzY, foreground, now);
+    }
+
+    if (route.kind === 'searchLoop') {
+      return getBeeSearchLoopPoint(seed, p, intensity, targetA, start, end, route, windDrift, looseBuzzX, looseBuzzY, foreground, now);
+    }
+
     if (p < route.approachEnd) {
       const local = easeLifeProgress(p / route.approachEnd);
       const arc = Math.sin(local * Math.PI) * (18 + seededUnit(seed + 43) * 20);
+      const turnback = getBeeTurnbackOffset(seed, p, route.direction, route, intensity);
       return {
-        x: lerp(startX, targetX, local) + looseBuzzX + windDrift * local,
-        y: lerp(startY, targetY, local) + looseBuzzY - arc,
+        x: lerp(start.x, targetA.x, local) + looseBuzzX + windDrift * local + turnback,
+        y: lerp(start.y, targetA.y, local) + looseBuzzY - arc,
         phase: 'approach',
         landed: false,
         pause: 0,
-        wing: 0.72 + Math.sin(now / 58 + seed) * 0.22
+        wing: 0.72 + Math.sin(now / 58 + seed) * 0.22,
+        directionHint: route.direction,
+        flowerId: primary && primary.id,
+        flowerVariant: primary && primary.variant
       };
     }
 
     if (p < route.departStart) {
-      const settle = smoothStep(0.12, 0.34, flowerLocal);
-      const lift = 1 - smoothStep(0.72, 0.94, flowerLocal);
-      const landed = flowerLocal > 0.22 && flowerLocal < 0.76;
-      const orbit = Math.sin(flowerLocal * Math.PI * (5.2 + seededUnit(seed + 44) * 2.2) + seed);
-      const wiggle = Math.sin(now / (120 + seededUnit(seed + 45) * 70) + seed) * (landed ? 1.2 : 3.4);
-      return {
-        x: targetX + orbit * (5.5 - settle * 3.4) + wiggle * 0.55,
-        y: targetY - (1 - settle * lift) * (5 + intensity * 7) + Math.cos(flowerLocal * Math.PI * 4 + seed) * (landed ? 0.9 : 2.8),
-        phase: 'forage',
-        landed: landed,
-        pause: settle * lift,
-        wing: landed ? 0.16 + Math.abs(Math.sin(now / 180 + seed)) * 0.18 : 0.62 + Math.sin(now / 62 + seed) * 0.22
-      };
+      return getBeeForagePoint(seed, flowerLocal, intensity, targetA, primary, route, now, route.kind === 'hoverInspect' ? 'inspect' : 'forage');
     }
 
     const local = easeLifeProgress((p - route.departStart) / Math.max(0.01, 1 - route.departStart));
     const arc = Math.sin(local * Math.PI) * (16 + seededUnit(seed + 46) * 24);
+    const turnback = getBeeTurnbackOffset(seed + 8, p, route.direction, route, intensity) * (1 - local * 0.55);
     return {
-      x: lerp(targetX, endX, local) + looseBuzzX * (1 - local * 0.4) + windDrift * (1 - local),
-      y: lerp(targetY, endY, local) + looseBuzzY - arc,
+      x: lerp(targetA.x, end.x, local) + looseBuzzX * (1 - local * 0.4) + windDrift * (1 - local) + turnback,
+      y: lerp(targetA.y, end.y, local) + looseBuzzY - arc,
       phase: 'depart',
       landed: false,
       pause: 0,
-      wing: 0.72 + Math.sin(now / 56 + seed) * 0.24
+      wing: 0.72 + Math.sin(now / 56 + seed) * 0.24,
+      directionHint: end.x >= targetA.x ? 1 : -1,
+      flowerId: primary && primary.id,
+      flowerVariant: primary && primary.variant
     };
+  }
+
+  function getBeeRouteEndpoint(seed, side, foreground) {
+    if (side === 'grass') {
+      return {
+        x: 42 + seededUnit(seed + 1) * 428,
+        y: (foreground ? 434 : 398) + seededUnit(seed + 2) * (foreground ? 58 : 44)
+      };
+    }
+    const fromLeft = side !== 'right';
+    return {
+      x: fromLeft ? -42 - seededUnit(seed + 3) * 52 : 554 + seededUnit(seed + 3) * 52,
+      y: (foreground ? 238 : 194) + seededUnit(seed + 4) * (foreground ? 142 : 122)
+    };
+  }
+
+  function getBeeFlowerFocusPoint(seed, flower) {
+    return {
+      x: (flower ? flower.headX : 256) + (seededUnit(seed) * 2 - 1) * 4,
+      y: (flower ? flower.headY : 404) - 3 - seededUnit(seed + 1) * 4
+    };
+  }
+
+  function getBeeForagePoint(seed, local, intensity, target, flower, route, now, phaseName) {
+    const settle = smoothStep(0.12, 0.34, local);
+    const lift = 1 - smoothStep(0.72, 0.94, local);
+    const landed = !route.noLanding && local > route.landingStart && local < route.landingEnd;
+    const orbit = Math.sin(local * Math.PI * (5.2 + seededUnit(seed + 44) * 2.2) + seed);
+    const verticalOrbit = Math.cos(local * Math.PI * (3.6 + seededUnit(seed + 47) * 2.1) + seed * 0.4);
+    const wiggle = Math.sin(now / (120 + seededUnit(seed + 45) * 70) + seed) * (landed ? 1.2 : 3.4);
+    const hoverRadius = (5.6 + intensity * 5.2) * route.loopScale;
+    return {
+      x: target.x + orbit * (hoverRadius - settle * 3.6) + wiggle * 0.55,
+      y: target.y - (1 - settle * lift) * (5 + intensity * 7) + verticalOrbit * (landed ? 0.9 : 3.1),
+      phase: landed ? 'forage' : phaseName,
+      landed: landed,
+      pause: route.noLanding ? 0 : settle * lift,
+      wing: landed ? 0.16 + Math.abs(Math.sin(now / 180 + seed)) * 0.18 : 0.62 + Math.sin(now / 62 + seed) * 0.22,
+      directionHint: route.direction,
+      flowerId: flower && flower.id,
+      flowerVariant: flower && flower.variant
+    };
+  }
+
+  function getBeeMultiFlowerPoint(seed, p, intensity, primary, secondary, targetA, targetB, start, end, route, windDrift, looseBuzzX, looseBuzzY, foreground, now) {
+    if (p < 0.22) {
+      const local = easeLifeProgress(p / 0.22);
+      const arc = Math.sin(local * Math.PI) * (18 + seededUnit(seed + 43) * 20);
+      return {
+        x: lerp(start.x, targetA.x, local) + looseBuzzX + windDrift * local,
+        y: lerp(start.y, targetA.y, local) + looseBuzzY - arc,
+        phase: 'approach',
+        landed: false,
+        pause: 0,
+        wing: 0.72 + Math.sin(now / 58 + seed) * 0.22,
+        directionHint: route.direction,
+        flowerId: null,
+        flowerVariant: null
+      };
+    }
+    if (p < 0.43) {
+      return getBeeForagePoint(seed, (p - 0.22) / 0.21, intensity, targetA, primary, route, now, 'forage');
+    }
+    if (p < 0.62) {
+      const local = easeLifeProgress((p - 0.43) / 0.19);
+      const arc = Math.sin(local * Math.PI) * (10 + intensity * 16);
+      const loop = Math.sin(local * Math.PI * (1.5 + seededUnit(seed + 52))) * (8 + intensity * 10) * route.loopScale;
+      return {
+        x: lerp(targetA.x, targetB.x, local) + looseBuzzX * 0.82 + loop + windDrift * 0.5,
+        y: lerp(targetA.y, targetB.y, local) + looseBuzzY * 0.7 - arc,
+        phase: 'transfer',
+        landed: false,
+        pause: 0,
+        wing: 0.70 + Math.sin(now / 56 + seed) * 0.24,
+        directionHint: targetB.x >= targetA.x ? 1 : -1,
+        flowerId: null,
+        flowerVariant: null
+      };
+    }
+    if (p < 0.80) {
+      return getBeeForagePoint(seed + 17, (p - 0.62) / 0.18, intensity, targetB, secondary, route, now, 'forage');
+    }
+    const local = easeLifeProgress((p - 0.80) / 0.20);
+    const arc = Math.sin(local * Math.PI) * (15 + seededUnit(seed + 54) * 18);
+    return {
+      x: lerp(targetB.x, end.x, local) + looseBuzzX * 0.55 + windDrift * (1 - local),
+      y: lerp(targetB.y, end.y, local) + looseBuzzY * 0.55 - arc,
+      phase: 'depart',
+      landed: false,
+      pause: 0,
+      wing: 0.72 + Math.sin(now / 56 + seed) * 0.24,
+      directionHint: end.x >= targetB.x ? 1 : -1,
+      flowerId: null,
+      flowerVariant: null
+    };
+  }
+
+  function getBeeSearchLoopPoint(seed, p, intensity, target, start, end, route, windDrift, looseBuzzX, looseBuzzY, foreground, now) {
+    const eased = easeLifeProgress(p);
+    const radius = (8 + intensity * 20) * route.loopScale * (0.55 + p * 0.85);
+    const loopX = Math.sin(p * Math.PI * (2.6 + seededUnit(seed + 61) * 2.4) + seed) * radius;
+    const loopY = Math.cos(p * Math.PI * (2.1 + seededUnit(seed + 62) * 2.0) + seed * 0.5) * radius * 0.58;
+    const passX = lerp(start.x, end.x, eased);
+    const passY = lerp(start.y, end.y, eased);
+    const anchorStrength = Math.sin(p * Math.PI);
+    const turnback = getBeeTurnbackOffset(seed + 18, p, route.direction, route, intensity);
+    return {
+      x: lerp(passX, target.x + loopX, anchorStrength * 0.72) + looseBuzzX + windDrift * anchorStrength + turnback,
+      y: lerp(passY, target.y + loopY, anchorStrength * 0.72) + looseBuzzY,
+      phase: p < 0.22 ? 'approach' : p > 0.80 ? 'depart' : 'search',
+      landed: false,
+      pause: 0,
+      wing: 0.70 + Math.sin(now / 58 + seed) * 0.24,
+      directionHint: route.direction,
+      flowerId: null,
+      flowerVariant: null
+    };
+  }
+
+  function getBeeTurnbackOffset(seed, progress, direction, route, intensity) {
+    const count = Math.max(0, Math.min(2, Number(route && route.turnbacks) || 0));
+    let offset = 0;
+    for (let index = 0; index < count; index += 1) {
+      const center = 0.26 + index * 0.25 + seededUnit(seed + index * 7) * 0.10;
+      const width = 0.10 + seededUnit(seed + index * 7 + 1) * 0.06;
+      const local = clamp(1 - Math.abs(progress - center) / width, 0, 1, 0);
+      const pulse = local * local * (3 - 2 * local);
+      const swingDirection = index % 2 === 0 ? -direction : direction;
+      offset += swingDirection * pulse * (10 + intensity * 16) * (0.75 + seededUnit(seed + index * 7 + 2) * 0.6);
+    }
+    return offset;
   }
 
   function getBeeVisualMetrics(size) {

@@ -3,6 +3,10 @@
 Last researched: 2026-05-09
 Last repo checkpoint: 2026-05-21
 
+Current start-here plan: `docs/NEXT_STEPS.md`. This document now preserves
+research context and historical checkpoints; use the current next-steps file
+before taking new implementation work.
+
 This plan is for turning the MVP into a real, fun virtual-pet app. It is not a narrow MVP checklist.
 
 ## Current Asset Notes

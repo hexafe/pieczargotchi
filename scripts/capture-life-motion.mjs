@@ -474,6 +474,21 @@ function assertBeeMotionDiagnostics(scenario, diagnostics) {
   if (maxPhaseCount < 2) {
     throw new Error(`${scenario.name}: bees should show flight plus flower-foraging phases`);
   }
+  const maxDirectionCount = Math.max(
+    ...beeDiagnostics.map((diagnostic) => countObjectKeys(diagnostic.beeSummary.directions)),
+    countSampleValues(beeSamples, 'direction')
+  );
+  if (maxDirectionCount < 2) {
+    throw new Error(`${scenario.name}: bees should arrive, turn, or depart in both horizontal directions`);
+  }
+  const maxRouteVariantCount = Math.max(
+    ...beeDiagnostics.map((diagnostic) => countObjectKeys(diagnostic.beeSummary.routeVariants || diagnostic.beeSummary.variants)),
+    countSampleValues(beeSamples, 'routeVariant'),
+    countSampleValues(beeSamples, 'variant')
+  );
+  if (maxRouteVariantCount < 3) {
+    throw new Error(`${scenario.name}: bee routes need at least three behavior variants`);
+  }
   const hasLanding = beeDiagnostics.some((diagnostic) => {
     return diagnostic.beeSummary
       && diagnostic.beeSummary.landed
@@ -486,8 +501,23 @@ function assertBeeMotionDiagnostics(scenario, diagnostics) {
     ...beeDiagnostics.map((diagnostic) => countObjectKeys(diagnostic.beeSummary.flowers)),
     countSampleValues(beeSamples, 'flowerId')
   );
-  if (maxFlowerTargets < 1) {
-    throw new Error(`${scenario.name}: bees should target flower anchors`);
+  if (maxFlowerTargets < 3) {
+    throw new Error(`${scenario.name}: bees should target several flower anchors, got ${maxFlowerTargets}`);
+  }
+  const hasNoLandingRoute = beeDiagnostics.some((diagnostic) => {
+    return diagnostic.beeSummary
+      && diagnostic.beeSummary.noLanding
+      && Object.prototype.hasOwnProperty.call(diagnostic.beeSummary.noLanding, 'true');
+  }) || beeSamples.some((sample) => sample.noLanding === true || sample.noLanding === 'true');
+  if (!hasNoLandingRoute) {
+    throw new Error(`${scenario.name}: bees should sometimes inspect or search without landing`);
+  }
+  const maxTurnbacks = Math.max(
+    ...beeDiagnostics.map((diagnostic) => Number(diagnostic.beeSummary.maxTurnbacks) || 0),
+    ...beeSamples.map((sample) => Number(sample.turnbacks) || 0)
+  );
+  if (maxTurnbacks < 1) {
+    throw new Error(`${scenario.name}: bees should include occasional turnbacks or looping search`);
   }
   const maxLayerCount = Math.max(
     ...beeDiagnostics.map((diagnostic) => countObjectKeys(diagnostic.beeSummary.layers)),
