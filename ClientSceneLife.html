@@ -141,6 +141,7 @@
 
       ctx.globalAlpha = foreground ? Math.min(1, alpha * 1.08) : alpha;
       drawPixelBee(ctx, Math.round(path.x), Math.round(path.y), path.direction, path.size, path.wing, path.landed, palette);
+      const visual = getBeeVisualMetrics(path.size);
       recordAmbientLifeSample('bees', {
         seed: seed,
         layer: foreground ? 'foreground' : 'background',
@@ -154,6 +155,8 @@
         y: Math.round(path.y),
         alpha: Number(alpha.toFixed(3)),
         pause: Number(path.pause.toFixed(3)),
+        visualWidth: visual.width,
+        visualHeight: visual.height,
         progress: Number(progress.toFixed(3)),
         mushroomOverlap: isMushroomLifeOccluded(path.x, path.y)
       });
@@ -288,7 +291,7 @@
       x: point.x,
       y: point.y,
       direction: direction,
-      size: foreground ? 5 : 4,
+      size: foreground ? 9 : 7,
       wing: point.wing,
       landed: point.landed,
       phase: point.phase,
@@ -384,30 +387,52 @@
     };
   }
 
+  function getBeeVisualMetrics(size) {
+    const bodyWidth = Math.max(8, size + 3);
+    const bodyHeight = Math.max(5, Math.round(size * 0.68));
+    return {
+      width: bodyWidth + 8,
+      height: bodyHeight + 8,
+      bodyWidth: bodyWidth,
+      bodyHeight: bodyHeight
+    };
+  }
+
   function drawPixelBee(ctx, x, y, direction, size, wing, landed, palette) {
-    const bodyWidth = Math.max(4, size + 2);
-    const bodyHeight = Math.max(3, Math.round(size * 0.72));
+    const visual = getBeeVisualMetrics(size);
+    const bodyWidth = visual.bodyWidth;
+    const bodyHeight = visual.bodyHeight;
     const lean = landed ? 0 : direction;
     const wingAlpha = landed ? 0.20 + wing * 0.20 : 0.42 + wing * 0.24;
+    const wingLift = Math.round(1 + wing * 2);
+    const wingWide = Math.max(4, Math.round(size * 0.58));
+    const wingHigh = Math.max(3, Math.round(size * 0.42));
+    const left = -Math.floor(bodyWidth / 2) + lean;
+    const baseAlpha = ctx.globalAlpha;
 
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(direction >= 0 ? 1 : -1, 1);
-    ctx.globalAlpha *= wingAlpha;
+    ctx.globalAlpha = baseAlpha * wingAlpha;
     ctx.fillStyle = '#eef7ff';
-    ctx.fillRect(-1, -bodyHeight - 3, 3, 2);
-    ctx.fillRect(2, -bodyHeight - 2, 3, 2);
-    ctx.globalAlpha /= Math.max(0.001, wingAlpha);
+    ctx.fillRect(-wingWide + 1, -bodyHeight - wingLift - 2, wingWide, wingHigh);
+    ctx.fillRect(2, -bodyHeight - wingLift - 1, wingWide, Math.max(2, wingHigh - 1));
+    ctx.globalAlpha = baseAlpha * wingAlpha * 0.68;
+    ctx.fillRect(-wingWide + 2, -bodyHeight - wingLift - 3, Math.max(2, wingWide - 2), 1);
+    ctx.globalAlpha = baseAlpha;
 
     ctx.fillStyle = '#2f251b';
-    ctx.fillRect(-Math.floor(bodyWidth / 2) + lean, -Math.floor(bodyHeight / 2), bodyWidth, bodyHeight);
+    ctx.fillRect(left, -Math.floor(bodyHeight / 2), bodyWidth, bodyHeight);
     ctx.fillStyle = '#f2c63f';
-    ctx.fillRect(-Math.floor(bodyWidth / 2) + 1 + lean, -Math.floor(bodyHeight / 2), 2, bodyHeight);
-    ctx.fillRect(1 + lean, -Math.floor(bodyHeight / 2), 2, bodyHeight);
+    ctx.fillRect(left + 1, -Math.floor(bodyHeight / 2), 2, bodyHeight);
+    ctx.fillRect(left + Math.floor(bodyWidth / 2) - 1, -Math.floor(bodyHeight / 2), 3, bodyHeight);
+    ctx.fillRect(left + bodyWidth - 3, -Math.floor(bodyHeight / 2) + 1, 2, Math.max(2, bodyHeight - 2));
     ctx.fillStyle = '#1f1814';
-    ctx.fillRect(Math.floor(bodyWidth / 2) - 1 + lean, -1, 2, 2);
+    ctx.fillRect(left + bodyWidth - 1, -1, 2, 2);
+    ctx.fillRect(left + bodyWidth, -3, 1, 1);
+    ctx.fillRect(left + bodyWidth + 1, -4, 1, 1);
     ctx.fillStyle = palette && palette.groundLight ? palette.groundLight : '#fff2a0';
-    ctx.fillRect(-Math.floor(bodyWidth / 2) + lean, -Math.floor(bodyHeight / 2) - 1, 1, 1);
+    ctx.fillRect(left + 1, -Math.floor(bodyHeight / 2) - 1, 2, 1);
     ctx.restore();
   }
 
@@ -441,10 +466,11 @@
 
       const progress = phase / activeSpan;
       const path = getButterflyFlightPath(seed, progress, intensity, wind, foreground);
-      const size = 4 + Math.round(seededUnit(seed + 6) * 2 + intensity * 1.8);
+      const size = (foreground ? 6 : 5) + Math.round(seededUnit(seed + 6) * 3 + intensity * (foreground ? 2.4 : 2.0));
       const flap = (Math.sin(now / (92 + seededUnit(seed + 7) * 48) + seed) + 1) / 2;
       const alpha = (0.58 + intensity * 0.34) * path.visibility;
       const mushroomOverlap = isMushroomLifeOccluded(path.x, path.y);
+      const visual = getButterflyVisualMetrics(size, flap);
 
       ctx.globalAlpha = foreground ? Math.min(1, alpha * 1.08) : alpha;
       drawPixelButterfly(ctx, Math.round(path.x), Math.round(path.y), path.direction, size, flap, colors[index % colors.length]);
@@ -466,6 +492,8 @@
         mushroomOverlap: mushroomOverlap,
         progress: Number(progress.toFixed(3)),
         alpha: Number(alpha.toFixed(3)),
+        visualWidth: visual.width,
+        visualHeight: visual.height,
         visibility: Number(path.visibility.toFixed(3))
       });
     }
@@ -699,6 +727,15 @@
     ctx.restore();
   }
 
+  function getButterflyVisualMetrics(size, flap) {
+    const wingWide = size + Math.round(flap * 2);
+    const wingHigh = size + 2;
+    return {
+      width: wingWide * 2 + 7,
+      height: wingHigh + 5
+    };
+  }
+
   function drawPixelButterfly(ctx, x, y, direction, size, flap, colors) {
     const wingLift = Math.round(1 + flap * 3);
     const wingWide = size + Math.round(flap * 2);
@@ -876,7 +913,7 @@
       }
 
       const flap = (Math.sin(now / (96 + seededUnit(seed + 5) * 72) + seed) + 1) / 2;
-      const size = 3 + Math.round(seededUnit(seed + 6) * 2 + intensity);
+      const size = 4 + Math.round(seededUnit(seed + 6) * 3 + intensity * 1.4);
       const alpha = (0.26 + intensity * 0.30) * path.visibility * (foreground ? 1.06 : 0.82);
       if (alpha <= 0.025) {
         continue;
@@ -1025,10 +1062,17 @@
         continue;
       }
 
-      ctx.globalAlpha = (foreground ? 1.18 : 1) * (0.22 + intensity * 0.32) * twinkle * fadeLifeEdge(progress);
-      ctx.fillRect(Math.round(path.x), Math.round(path.y), 2, 2);
+      const px = Math.round(path.x);
+      const py = Math.round(path.y);
+      const baseAlpha = (foreground ? 1.18 : 1) * (0.22 + intensity * 0.32) * twinkle * fadeLifeEdge(progress);
+      ctx.globalAlpha = baseAlpha * 0.74;
+      ctx.fillRect(px, py, foreground ? 3 : 2, 2);
+      ctx.globalAlpha = baseAlpha * 0.38;
+      ctx.fillStyle = '#d7e9b5';
+      ctx.fillRect(px + path.direction * 2, py - 1, 2, 1);
+      ctx.fillStyle = palette.ground === '#d9e5cf' ? '#6e7e67' : '#2e3a22';
       if (seededUnit(seed + 7) > 0.58) {
-        ctx.fillRect(Math.round(path.x + path.direction * 3), Math.round(path.y - 1), 1, 1);
+        ctx.fillRect(Math.round(path.x + path.direction * 4), Math.round(path.y - 1), 2, 1);
       }
     }
     ctx.restore();
@@ -1310,6 +1354,7 @@
       const mushroomOverlap = isMushroomLifeOccluded(flight.x, flight.y);
       const lightAlpha = glow * layer.alphaScale * lifeVisibility * flight.lightScale;
       const emitting = lightAlpha >= 0.035;
+      const visual = getFireflyVisualMetrics(lightAlpha, foreground, emitting);
       if (emitting) {
         drawFireflyEnvironmentalLight(ctx, flight.x, flight.y, lightAlpha, foreground, palette, flight);
       }
@@ -1332,7 +1377,9 @@
         visibility: Number(lifeVisibility.toFixed(3)),
         excursion: Number(flight.excursion.toFixed(1)),
         glowRadius: Number(getFireflyGlowRadius(lightAlpha, foreground).toFixed(1)),
-        lightRadius: Number(getFireflyLightRadius(lightAlpha, foreground, flight).toFixed(1))
+        lightRadius: Number(getFireflyLightRadius(lightAlpha, foreground, flight).toFixed(1)),
+        visualWidth: visual.width,
+        visualHeight: visual.height
       });
     }
     ctx.restore();
@@ -1498,6 +1545,16 @@
     return layer.yMin + seededUnit(seed + 1) * layer.yRange;
   }
 
+  function getFireflyVisualMetrics(alpha, foreground, emitting) {
+    const bodySize = foreground ? 3 : 2;
+    const glowRadius = emitting ? getFireflyGlowRadius(alpha, foreground) : bodySize + 1;
+    return {
+      width: Math.max(bodySize, Math.round(glowRadius * 2)),
+      height: Math.max(bodySize, Math.round(glowRadius * 1.3)),
+      bodySize: bodySize
+    };
+  }
+
   function drawPixelFirefly(ctx, x, y, alpha, foreground, emitting) {
     const glowRadius = getFireflyGlowRadius(alpha, foreground);
     const px = Math.round(x);
@@ -1505,6 +1562,7 @@
     const outer = Math.round(glowRadius);
     const middle = Math.max(3, Math.round(glowRadius * 0.58));
     const inner = Math.max(2, Math.round(glowRadius * 0.28));
+    const bodySize = foreground ? 3 : 2;
     const baseAlpha = ctx.globalAlpha;
 
     if (emitting) {
@@ -1517,11 +1575,18 @@
       ctx.globalAlpha = baseAlpha * alpha * 0.38;
       ctx.fillStyle = '#fff2a5';
       ctx.fillRect(px - inner, py - inner, inner * 2 + 1, inner * 2 + 1);
+    } else {
+      ctx.globalAlpha = baseAlpha * alpha * 0.14;
+      ctx.fillStyle = '#c9da72';
+      ctx.fillRect(px - 2, py - 1, 5, 3);
     }
 
-    ctx.globalAlpha = baseAlpha * alpha * (emitting ? 1 : 0.42);
+    ctx.globalAlpha = baseAlpha * alpha * (emitting ? 1 : 0.58);
     ctx.fillStyle = emitting ? '#fff7b2' : '#d7c978';
-    ctx.fillRect(px, py, foreground ? 2 : 1, foreground ? 2 : 1);
+    ctx.fillRect(px - Math.floor(bodySize / 2), py - Math.floor(bodySize / 2), bodySize, bodySize);
+    ctx.globalAlpha = baseAlpha * alpha * (emitting ? 0.7 : 0.46);
+    ctx.fillStyle = '#4d5132';
+    ctx.fillRect(px - Math.floor(bodySize / 2), py, Math.max(1, bodySize - 1), 1);
     ctx.globalAlpha = baseAlpha;
   }
 
@@ -1645,6 +1710,7 @@
       sleepGlyphs: [],
       sleepBody: null,
       activityBody: null,
+      idleBody: null,
       sunbeams: runtime.motionDiagnostics && runtime.motionDiagnostics.sunbeams
         ? runtime.motionDiagnostics.sunbeams
         : null,

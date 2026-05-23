@@ -1184,8 +1184,8 @@ test('quiet neutral scenes can select idle fidget or ponder motion', () => {
   const start = Date.parse('2026-01-08T13:00:00.000Z');
   let reaction = null;
 
-  for (let step = 0; step < 64; step += 1) {
-    reaction = core.selectImmersionReaction(state, quietScene, { inside: false }, start + step * 23000, rules);
+  for (let step = 0; step < 180; step += 1) {
+    reaction = core.selectImmersionReaction(state, quietScene, { inside: false }, start + step * 1000, rules);
     if (reaction && reaction.source === 'idle') {
       break;
     }
@@ -1193,10 +1193,12 @@ test('quiet neutral scenes can select idle fidget or ponder motion', () => {
 
   assert(reaction && reaction.source === 'idle', 'expected deterministic idle motion in quiet scene');
   assert([
+    'idle_fidget',
     'idle_fidget_sway',
     'idle_fidget_shift',
     'idle_look_left',
     'idle_look_right',
+    'ponder',
     'ponder_up',
     'ponder_side',
     'ponder_breath'
@@ -1230,23 +1232,64 @@ test('idle and ponder variants avoid repeating the last chosen animation', () =>
     latitude: 50.2649
   };
   const start = Date.parse('2026-01-08T13:00:00.000Z');
-  let first = null;
-  for (let step = 0; step < 80; step += 1) {
-    const candidate = core.selectImmersionReaction(state, quietScene, { inside: false }, start + step * 23000, rules);
-    if (candidate && candidate.source === 'idle') {
-      first = { candidate, now: start + step * 23000 };
-      break;
+  for (let step = 0; step < 180; step += 1) {
+    const now = start + step * 1000;
+    const candidate = core.selectImmersionReaction(state, quietScene, { inside: false }, now, rules);
+    if (!candidate || candidate.source !== 'idle') {
+      continue;
+    }
+    const repeated = core.selectImmersionReaction(state, quietScene, {
+      inside: false,
+      lastVariantByGroup: {
+        [candidate.variantGroup]: candidate.state
+      }
+    }, now, rules);
+    if (repeated && repeated.source === 'idle') {
+      assert(repeated.state !== candidate.state, `expected different variant than ${candidate.state}, got ${repeated && repeated.state}`);
+      return;
     }
   }
 
-  assert(first, 'expected first idle variant');
-  const repeated = core.selectImmersionReaction(state, quietScene, {
-    inside: false,
-    lastVariantByGroup: {
-      [first.candidate.variantGroup]: first.candidate.state
+  assert(false, 'expected an idle variant with repeat-avoidance coverage');
+});
+
+test('quiet idle reactions happen often enough to keep the mushroom alive', () => {
+  const rules = {
+    attention: { mildThreshold: 45, criticalThreshold: 25 },
+    needDefinitions: {
+      hydration: { category: 'physical', actionId: 'hydrate' }
     }
-  }, first.now, rules);
-  assert(repeated && repeated.state !== first.candidate.state, `expected different variant than ${first.candidate.state}, got ${repeated && repeated.state}`);
+  };
+  const state = {
+    mode: 'awake',
+    stats: { hydration: 82, nutrients: 82, happiness: 72, cleanliness: 82, energy: 82, health: 100 },
+    patch: { quality: 72 },
+    attention: {}
+  };
+  const quietScene = {
+    condition: 'cloudy',
+    isDay: true,
+    dayPhase: 'afternoon',
+    cloudCover: 96,
+    precipitation: 0,
+    rain: 0,
+    snowfall: 0,
+    temperature: 1,
+    humidity: 60,
+    windLevel: 0.08,
+    latitude: 50.2649
+  };
+  const start = Date.parse('2026-01-08T13:00:00.000Z');
+  const reactions = [];
+  for (let step = 0; step < 420; step += 1) {
+    const candidate = core.selectImmersionReaction(state, quietScene, { inside: false }, start + step * 1000, rules);
+    if (candidate && candidate.source === 'idle') {
+      reactions.push(candidate.state);
+    }
+  }
+
+  assert(reactions.length >= 30, `expected regular idle life over seven minutes, got ${reactions.length}`);
+  assert(new Set(reactions).size >= 4, `expected varied idle life states, got ${reactions.join(', ')}`);
 });
 
 test('battle training spends one spore and respects the configured cap', () => {

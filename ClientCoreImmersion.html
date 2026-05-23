@@ -21,8 +21,8 @@
     ambientCrawlerRadius: 118,
     ambientLifeDurationMs: 1900,
     ambientLifeCooldownMs: 7200,
-    idleFidgetDurationMs: 1700,
-    idleFidgetCooldownMs: 8800
+    idleFidgetDurationMs: 1900,
+    idleFidgetCooldownMs: 6800
   };
 
   function selectImmersionReaction(state, scene, input, now, rules) {
@@ -335,8 +335,8 @@
       return null;
     }
 
-    const cycleMs = 23000;
-    const activeMs = 4300;
+    const cycleMs = 19000;
+    const activeMs = 5200;
     const slot = Math.floor(now / cycleMs);
     const cycleStart = slot * cycleMs;
     const local = now - cycleStart;
@@ -345,11 +345,11 @@
     }
 
     const seed = slot * 1777 + Math.floor(now / 86400000) * 37;
-    if (immersionSeededUnit(seed + 11) > 0.62) {
+    if (immersionSeededUnit(seed + 11) > 0.42) {
       return null;
     }
 
-    const usePonder = immersionSeededUnit(seed + 17) > 0.48;
+    const usePonder = immersionSeededUnit(seed + 17) > 0.56;
     const group = usePonder ? 'ponder' : 'idle_fidget';
     const state = chooseImmersionVariant(group, getImmersionVariants(group), seed + 23, input);
     return buildImmersionCandidate(
@@ -367,8 +367,8 @@
 
   function getImmersionVariants(group) {
     const variants = {
-      idle_fidget: ['idle_fidget_sway', 'idle_fidget_shift', 'idle_look_left', 'idle_look_right'],
-      ponder: ['ponder_up', 'ponder_side', 'ponder_breath']
+      idle_fidget: ['idle_fidget', 'idle_fidget_sway', 'idle_fidget_shift', 'idle_look_left', 'idle_look_right'],
+      ponder: ['ponder', 'ponder_up', 'ponder_side', 'ponder_breath']
     };
     return variants[group] || [];
   }

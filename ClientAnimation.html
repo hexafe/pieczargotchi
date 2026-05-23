@@ -335,6 +335,13 @@
       return;
     }
 
+    const idleMotion = getAnimationIdleMotion(animation, now, startedAt);
+    if (idleMotion) {
+      drawGrassAnchoredMotionFrame(ctx, image, frame, frameWidth, frameHeight, animation, idleMotion);
+      recordIdleBodyMotion(idleMotion);
+      return;
+    }
+
     ctx.drawImage(image, frame * frameWidth, 0, frameWidth, frameHeight, 0, 0, canvasSize, canvasSize);
     drawMushroomConditionOverlay(ctx, animation, frame, null);
   }
@@ -499,6 +506,73 @@
     };
   }
 
+  function getAnimationIdleMotion(animation, now, startedAt) {
+    if (!animation || animation.kind !== 'stage') {
+      return null;
+    }
+
+    const state = animation.state || '';
+    if (!['idle', 'happy', 'excellent'].includes(state)) {
+      return null;
+    }
+
+    const key = String(animation.key || '');
+    const stage = key.split('.')[0] || 'adult';
+    const elapsed = Math.max(0, now - (startedAt || now));
+    const stageFactor = getIdleMotionStageFactor(stage);
+    const moodFactor = state === 'happy' ? 1.08 : state === 'excellent' ? 1.14 : 1;
+    const breathCycle = positiveModulo(elapsed + getIdleMotionStageOffset(stage), 5400) / 5400;
+    const breathWave = (Math.sin(breathCycle * Math.PI * 2 - Math.PI / 2) + 1) / 2;
+    const breath = smoothStep(0, 1, breathWave);
+    const swayCycle = positiveModulo(elapsed + 1700, 11600) / 11600;
+    const sway = Math.sin(swayCycle * Math.PI * 2) * 0.48 * stageFactor;
+    const glanceCycle = positiveModulo(elapsed + getIdleMotionStageOffset(stage) * 3, 28500) / 28500;
+    const glanceWindow = smoothStep(0.08, 0.16, glanceCycle) * (1 - smoothStep(0.29, 0.42, glanceCycle));
+    const wriggle = Math.sin(glanceCycle * Math.PI * 6) * glanceWindow * (0.62 + stageFactor * 0.38);
+    const moodBounce = state === 'excellent'
+      ? Math.sin(elapsed / 2100) * 0.28
+      : state === 'happy'
+        ? Math.sin(elapsed / 2600) * 0.18
+        : 0;
+    const y = -0.90 - breath * (1.00 + stageFactor * 0.48) * moodFactor - Math.abs(moodBounce) - Math.abs(wriggle) * 0.42;
+    const x = sway + wriggle * 1.35;
+
+    return {
+      kind: 'idle',
+      state: state,
+      stage: stage,
+      x: Math.round(x),
+      y: Math.round(y),
+      scaleX: 1 - breath * 0.0025 + Math.abs(wriggle) * 0.0025,
+      scaleY: 1 + breath * (0.0048 + stageFactor * 0.0018) + Math.abs(moodBounce) * 0.001,
+      breath: Number(breath.toFixed(3)),
+      wriggle: Number(wriggle.toFixed(3)),
+      sway: Number(sway.toFixed(3))
+    };
+  }
+
+  function getIdleMotionStageFactor(stage) {
+    const factors = {
+      spore: 0.72,
+      baby: 0.92,
+      young: 1.08,
+      adult: 1,
+      legendary: 0.96
+    };
+    return factors[stage] || 1;
+  }
+
+  function getIdleMotionStageOffset(stage) {
+    const offsets = {
+      spore: 1480,
+      baby: 1740,
+      young: 1320,
+      adult: 1580,
+      legendary: 2020
+    };
+    return offsets[stage] || 0;
+  }
+
   function recordSleepBodyMotion(motion) {
     if (!runtime.motionDiagnostics) {
       return;
@@ -527,6 +601,23 @@
       scaleY: Number(motion.scaleY.toFixed(4)),
       phase: motion.phase,
       lift: motion.lift
+    };
+  }
+
+  function recordIdleBodyMotion(motion) {
+    if (!runtime.motionDiagnostics) {
+      return;
+    }
+    runtime.motionDiagnostics.idleBody = {
+      state: motion.state,
+      stage: motion.stage,
+      x: motion.x,
+      y: motion.y,
+      scaleX: Number(motion.scaleX.toFixed(4)),
+      scaleY: Number(motion.scaleY.toFixed(4)),
+      breath: motion.breath,
+      wriggle: motion.wriggle,
+      sway: motion.sway
     };
   }
 

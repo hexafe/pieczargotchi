@@ -347,6 +347,13 @@ function assertMotionDiagnostics(scenario, stdout) {
   if (Object.prototype.hasOwnProperty.call(scenario.minimums, 'crawlerIntensity')) {
     assertCrawlerMotionDiagnostics(scenario, diagnostics);
   }
+  if (
+    Object.prototype.hasOwnProperty.call(scenario.minimums, 'butterflyIntensity')
+    || Object.prototype.hasOwnProperty.call(scenario.minimums, 'beeIntensity')
+    || Object.prototype.hasOwnProperty.call(scenario.minimums, 'fireflyIntensity')
+  ) {
+    assertIdleBodyDiagnostics(scenario, diagnostics);
+  }
   if (scenario.ground) {
     assertGroundDiagnostics(scenario, diagnostics);
   }
@@ -355,6 +362,20 @@ function assertMotionDiagnostics(scenario, stdout) {
   }
   if (scenario.sunbeams) {
     assertSunbeamDiagnostics(scenario, diagnostics);
+  }
+}
+
+function assertIdleBodyDiagnostics(scenario, diagnostics) {
+  const idleBodies = diagnostics
+    .map((diagnostic) => diagnostic.idleBody)
+    .filter(Boolean);
+  if (idleBodies.length === 0) {
+    throw new Error(`${scenario.name}: expected idle body breathing diagnostics`);
+  }
+  const maxY = Math.max(...idleBodies.map((body) => Math.abs(Number(body.y) || 0)));
+  const maxScale = Math.max(...idleBodies.map((body) => Math.abs((Number(body.scaleY) || 1) - 1)));
+  if (maxY < 1 || maxScale < 0.002) {
+    throw new Error(`${scenario.name}: idle body motion is too subtle to read, y=${maxY}, scale=${maxScale}`);
   }
 }
 
@@ -416,6 +437,11 @@ function assertButterflyMotionDiagnostics(scenario, diagnostics) {
   if (maxDepthCount < 2) {
     throw new Error(`${scenario.name}: butterfly depth diagnostics should include front and back passes`);
   }
+  const minVisualWidth = Math.min(...butterflyDiagnostics.map((diagnostic) => Number(diagnostic.butterflySummary.minVisualWidth) || 0));
+  const minVisualHeight = Math.min(...butterflyDiagnostics.map((diagnostic) => Number(diagnostic.butterflySummary.minVisualHeight) || 0));
+  if (minVisualWidth < 16 || minVisualHeight < 10) {
+    throw new Error(`${scenario.name}: butterfly pixels are too small to read, visual=${minVisualWidth}x${minVisualHeight}`);
+  }
 }
 
 function assertBeeMotionDiagnostics(scenario, diagnostics) {
@@ -469,6 +495,11 @@ function assertBeeMotionDiagnostics(scenario, diagnostics) {
   );
   if (maxLayerCount < 2) {
     throw new Error(`${scenario.name}: bees should render both behind and in front of the mushroom`);
+  }
+  const minVisualWidth = Math.min(...beeDiagnostics.map((diagnostic) => Number(diagnostic.beeSummary.minVisualWidth) || 0));
+  const minVisualHeight = Math.min(...beeDiagnostics.map((diagnostic) => Number(diagnostic.beeSummary.minVisualHeight) || 0));
+  if (minVisualWidth < 16 || minVisualHeight < 12) {
+    throw new Error(`${scenario.name}: bees are too small to read, visual=${minVisualWidth}x${minVisualHeight}`);
   }
 }
 
@@ -543,6 +574,11 @@ function assertFireflyMotionDiagnostics(scenario, diagnostics) {
   const maxDepthCount = Math.max(...fireflyDiagnostics.map((diagnostic) => countObjectKeys(diagnostic.fireflySummary.depths)));
   if (maxDepthCount < 2) {
     throw new Error(`${scenario.name}: firefly depth diagnostics should include front and back passes`);
+  }
+  const minVisualWidth = Math.min(...fireflyDiagnostics.map((diagnostic) => Number(diagnostic.fireflySummary.minVisualWidth) || 0));
+  const minVisualHeight = Math.min(...fireflyDiagnostics.map((diagnostic) => Number(diagnostic.fireflySummary.minVisualHeight) || 0));
+  if (minVisualWidth < 6 || minVisualHeight < 4) {
+    throw new Error(`${scenario.name}: firefly body is too close to a single pixel, visual=${minVisualWidth}x${minVisualHeight}`);
   }
 
   const samplesBySeed = new Map();

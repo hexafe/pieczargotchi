@@ -140,7 +140,7 @@
 
   function collectGrassLocalReactions(now, diagnostics, includePointer) {
     const reactions = [];
-    const body = diagnostics && (diagnostics.activityBody || diagnostics.sleepBody);
+    const body = diagnostics && (diagnostics.activityBody || diagnostics.sleepBody || diagnostics.idleBody);
     if (body) {
       const strength = clamp(
         Math.abs(Number(body.x) || 0) * 0.09

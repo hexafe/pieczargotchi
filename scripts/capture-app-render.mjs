@@ -1169,6 +1169,10 @@ async function captureCanvas(cdp, label, options) {
             }
             return Math.round((Math.max(...values) - Math.min(...values)) * 1000) / 1000;
           };
+          const minNumber = (field) => {
+            const values = numbers(field);
+            return values.length ? Math.min(...values) : 0;
+          };
           const counts = (field) => samples.reduce((acc, sample) => {
             const value = sample[field];
             if (value !== undefined && value !== null && value !== '') {
@@ -1192,6 +1196,10 @@ async function captureCanvas(cdp, label, options) {
             maxExcursion: Math.max(0, ...numbers('excursion')),
             maxTurnbacks: Math.max(0, ...numbers('turnbacks')),
             maxHeightWaves: Math.max(0, ...numbers('heightWaves')),
+            minVisualWidth: minNumber('visualWidth'),
+            minVisualHeight: minNumber('visualHeight'),
+            maxVisualWidth: Math.max(0, ...numbers('visualWidth')),
+            maxVisualHeight: Math.max(0, ...numbers('visualHeight')),
             layers: counts('layer'),
             depths: counts('depth'),
             mushroomOverlaps: counts('mushroomOverlap'),
@@ -1223,6 +1231,8 @@ async function captureCanvas(cdp, label, options) {
           lightAlpha: sample.lightAlpha,
           glowRadius: sample.glowRadius,
           lightRadius: sample.lightRadius,
+          visualWidth: sample.visualWidth,
+          visualHeight: sample.visualHeight,
           excursion: sample.excursion,
           pause: sample.pause,
           mushroomOverlap: sample.mushroomOverlap,
@@ -1322,6 +1332,7 @@ async function captureCanvas(cdp, label, options) {
           sleepGlyphs: Array.isArray(diagnostics.sleepGlyphs) ? diagnostics.sleepGlyphs.length : 0,
           sleepBody: diagnostics.sleepBody || null,
           activityBody: diagnostics.activityBody || null,
+          idleBody: diagnostics.idleBody || null,
           conditionOverlay: diagnostics.conditionOverlay || null,
           sunbeams: diagnostics.sunbeams || null,
           clouds: diagnostics.clouds || null,
