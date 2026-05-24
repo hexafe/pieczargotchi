@@ -362,11 +362,15 @@
       return;
     }
 
+    if (!shouldUseAdaptiveActionDockForViewport(viewport)) {
+      resetAdaptiveActionDock();
+      return;
+    }
+
     const canvasRect = canvas.getBoundingClientRect();
     const visibleRatio = Math.max(dock.sceneRatio || 0, getRectVisibleRatio(canvasRect, viewport));
-    const compactLayout = viewport.width <= 1024 || viewport.height <= 760;
     const visibilityThreshold = viewport.height <= 500 ? 0.2 : 0.35;
-    if (!compactLayout || visibleRatio < visibilityThreshold) {
+    if (visibleRatio < visibilityThreshold) {
       resetAdaptiveActionDock();
       return;
     }
@@ -387,6 +391,18 @@
     }
 
     return isMinigameActive();
+  }
+
+  function shouldUseAdaptiveActionDockForViewport(viewport) {
+    if (!viewport) {
+      return false;
+    }
+
+    if (viewport.width <= 640) {
+      return true;
+    }
+
+    return false;
   }
 
   function shouldReleaseAdaptiveDockForSidePanelScroll() {
