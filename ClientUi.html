@@ -146,6 +146,9 @@
       name.textContent = statLabels[stat] || stat;
       fill.style.width = value + '%';
       fill.dataset.level = value < 30 ? 'low' : value < 60 ? 'medium' : 'high';
+      row.dataset.stat = stat;
+      row.dataset.value = value;
+      row.dataset.level = fill.dataset.level;
       number.textContent = value;
 
       track.appendChild(fill);
@@ -169,11 +172,14 @@
       button.className = 'action-button';
       button.type = 'button';
       button.dataset.actionId = action.id;
+      button.dataset.iconKey = action.iconKey || action.id;
       icon.className = 'action-icon';
+      icon.dataset.iconKey = action.iconKey || action.id;
+      icon.setAttribute('aria-hidden', 'true');
       label.className = 'action-label';
       badge.className = 'shortcut-badge';
 
-      icon.textContent = action.icon || action.shortcut || action.label.slice(0, 3);
+      icon.textContent = action.iconKey ? '' : action.icon || action.shortcut || action.label.slice(0, 3);
       label.textContent = action.label;
       badge.textContent = action.shortcut;
 
@@ -208,9 +214,15 @@
         : canRunAction(action, now);
       const cooldownUntil = Number(runtime.state.cooldowns[action.id]) || 0;
       const remainingMs = Math.max(0, cooldownUntil - now);
+      const displayLabel = getVisibleActionLabel(action);
 
       button.disabled = !check.ok;
-      button.title = check.ok ? action.label + ' (' + action.shortcut + ')' : formatMushroomText(check.reason);
+      button.title = check.ok ? displayLabel + ' (' + action.shortcut + ')' : formatMushroomText(check.reason);
+      button.setAttribute('aria-label', displayLabel);
+      const label = button.querySelector('.action-label');
+      if (label) {
+        label.textContent = displayLabel;
+      }
       button.classList.toggle('is-mobile-context-hidden', shouldHideActionInMobilePanel(action, now));
 
       const oldChip = button.querySelector('.cooldown-chip');
@@ -230,6 +242,16 @@
     dom.cooldownLabel.textContent = !hasNamedMushroom(runtime.state)
       ? 'Najpierw imię'
       : soonestRemaining ? 'Za ' + formatRemainingLabel(soonestRemaining) : 'Gotowe';
+  }
+
+  function getVisibleActionLabel(action) {
+    if (!action) {
+      return '';
+    }
+    if (action.id === 'sleepWake') {
+      return runtime.state && runtime.state.mode === 'sleeping' ? 'Obudź' : 'Połóż spać';
+    }
+    return action.label;
   }
 
   function shouldHideActionInMobilePanel(action, now) {
@@ -1952,8 +1974,8 @@
       spore: {
         sleepCloudX: 315,
         sleepCloudY: 288,
-        sleepZ: [326, 292],
-        sleepSmallZ: [358, 274],
+        sleepZ: [318, 284],
+        sleepSmallZ: [342, 264],
         sleepLargeRise: 6,
         sleepSmallRise: 5,
         tiredZ: [320, 282],
@@ -1977,8 +1999,8 @@
       baby: {
         sleepCloudX: 338,
         sleepCloudY: 162,
-        sleepZ: [350, 156],
-        sleepSmallZ: [382, 132],
+        sleepZ: [338, 168],
+        sleepSmallZ: [364, 144],
         tiredZ: [326, 210],
         tiredSmallZ: [358, 186],
         bubbleX: 322,
@@ -2000,8 +2022,8 @@
       young: {
         sleepCloudX: 346,
         sleepCloudY: 118,
-        sleepZ: [358, 112],
-        sleepSmallZ: [390, 88],
+        sleepZ: [346, 132],
+        sleepSmallZ: [372, 106],
         tiredZ: [336, 166],
         tiredSmallZ: [368, 142],
         bubbleX: 330,
@@ -2023,8 +2045,8 @@
       adult: {
         sleepCloudX: 350,
         sleepCloudY: 96,
-        sleepZ: [362, 102],
-        sleepSmallZ: [394, 78],
+        sleepZ: [348, 126],
+        sleepSmallZ: [374, 100],
         tiredZ: [344, 188],
         tiredSmallZ: [372, 164],
         bubbleX: 332,
@@ -2046,8 +2068,8 @@
       legendary: {
         sleepCloudX: 350,
         sleepCloudY: 96,
-        sleepZ: [362, 102],
-        sleepSmallZ: [394, 78],
+        sleepZ: [348, 126],
+        sleepSmallZ: [374, 100],
         tiredZ: [344, 188],
         tiredSmallZ: [372, 164],
         bubbleX: 332,

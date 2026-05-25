@@ -554,15 +554,20 @@
     };
   }
 
-  function recordGrassForegroundDiagnostics(field) {
+  function recordGrassForegroundDiagnostics(field, profile) {
     if (!runtime || !runtime.motionDiagnostics || !runtime.motionDiagnostics.ground || !field) {
       return;
     }
 
+    const cover = profile && profile.cover ? profile.cover : null;
     runtime.motionDiagnostics.ground.foreground = {
       localReactions: field.localReactions.length,
       patchSway: Number(field.patchSway.toFixed(2)),
-      heightScale: Number(field.heightScale.toFixed(3))
+      heightScale: Number(field.heightScale.toFixed(3)),
+      coverCount: cover ? cover.count : 0,
+      coverAlphaScale: cover ? Number(cover.alphaScale.toFixed(3)) : 0,
+      coverBaseYMin: cover ? cover.baseYMin : 0,
+      coverHeightMax: cover ? cover.heightMax : 0
     };
     if (runtime.motionDiagnostics.ground.field) {
       runtime.motionDiagnostics.ground.field.localReactions = Math.max(
@@ -712,7 +717,7 @@
       baseYMax: profile.cover.baseYMax,
       heightMin: profile.cover.heightMin,
       heightMax: profile.cover.heightMax,
-      alpha: (condition === 'snow' || snowCover > 0.12 ? 0.26 : 0.78) * profile.cover.alphaScale,
+      alpha: (condition === 'snow' || snowCover > 0.12 ? 0.22 : 0.58) * profile.cover.alphaScale,
       width: 2,
       front: true,
       xBands: profile.cover.xBands,
@@ -731,7 +736,7 @@
       field: grassField
     });
     drawGrassBottomEdgeFill(ctx, palette, now, scene, grassField, true);
-    recordGrassForegroundDiagnostics(grassField);
+    recordGrassForegroundDiagnostics(grassField, profile);
   }
 
   function drawPatchDecorationsForeground(ctx, now) {
@@ -1123,11 +1128,11 @@
 
   function buildCoverGrassProfile(stage) {
     const profiles = {
-      spore: { count: 104, baseYMin: 460, baseYMax: 508, heightMin: 34, heightMax: 86, xBands: [[112, 400], [158, 352], [208, 306]] },
-      baby: { count: 112, baseYMin: 472, baseYMax: 512, heightMin: 40, heightMax: 100, xBands: [[112, 400], [156, 354], [206, 306]] },
-      young: { count: 120, baseYMin: 484, baseYMax: 512, heightMin: 44, heightMax: 108, xBands: [[108, 404], [154, 358], [204, 310]] },
-      adult: { count: 128, baseYMin: 490, baseYMax: 512, heightMin: 42, heightMax: 106, xBands: [[104, 408], [148, 364], [202, 314]] },
-      legendary: { count: 128, baseYMin: 490, baseYMax: 512, heightMin: 42, heightMax: 106, xBands: [[104, 408], [148, 364], [202, 314]] }
+      spore: { count: 76, baseYMin: 474, baseYMax: 510, heightMin: 24, heightMax: 58, xBands: [[122, 390], [166, 346], [218, 296]], alphaScale: 0.72 },
+      baby: { count: 82, baseYMin: 486, baseYMax: 512, heightMin: 28, heightMax: 64, xBands: [[122, 390], [166, 346], [218, 296]], alphaScale: 0.7 },
+      young: { count: 86, baseYMin: 494, baseYMax: 512, heightMin: 28, heightMax: 66, xBands: [[118, 394], [166, 346], [218, 298]], alphaScale: 0.68 },
+      adult: { count: 86, baseYMin: 498, baseYMax: 512, heightMin: 26, heightMax: 62, xBands: [[116, 396], [166, 346], [220, 298]], alphaScale: 0.66 },
+      legendary: { count: 86, baseYMin: 498, baseYMax: 512, heightMin: 26, heightMax: 62, xBands: [[116, 396], [166, 346], [220, 298]], alphaScale: 0.66 }
     };
     const profile = profiles[stage] || profiles.spore;
 
@@ -1137,7 +1142,7 @@
       baseYMax: profile.baseYMax,
       heightMin: profile.heightMin,
       heightMax: profile.heightMax,
-      alphaScale: 0.92,
+      alphaScale: Number(profile.alphaScale) || 0.7,
       xBands: profile.xBands
     };
   }

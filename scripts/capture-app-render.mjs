@@ -1358,7 +1358,15 @@ async function captureCanvas(cdp, label, options) {
       })()`,
       returnByValue: true
     });
-    console.log(`${label} motion: ${JSON.stringify(motionDiagnostics.result.value)}`);
+    const motionValue = motionDiagnostics.result.value;
+    console.log(`${label} motion: ${JSON.stringify(motionValue)}`);
+    if (label === 'sleeping' && (!motionValue || Number(motionValue.sleepGlyphs) < 3)) {
+      throw new Error('Stan snu powinien renderować trzy czytelne glify Zzz.');
+    }
+    const foreground = motionValue && motionValue.ground && motionValue.ground.foreground;
+    if (foreground && Number(foreground.coverCount) > 92) {
+      throw new Error(`Trawa pierwszego planu ma zbyt gęstą warstwę środka: coverCount=${foreground.coverCount}.`);
+    }
     const sceneSummary = await cdp.send('Runtime.evaluate', {
       expression: `(() => {
         const scene = window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.weatherScene;
@@ -1638,6 +1646,22 @@ async function captureViewport(cdp) {
           height: rect.height
         };
       };
+      const elementInfo = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) {
+          return null;
+        }
+        const rect = rectOf(selector);
+        const style = getComputedStyle(element);
+        return {
+          ...rect,
+          display: style.display,
+          visibility: style.visibility,
+          overflow: style.overflow,
+          visible: style.display !== 'none' && style.visibility !== 'hidden' && rect && rect.width > 0 && rect.height > 0,
+          clipped: rect && rect.height > 0 && (element.scrollHeight > element.clientHeight + 1 || element.scrollWidth > element.clientWidth + 1)
+        };
+      };
       const actionButtons = Array.from(document.querySelectorAll('.action-button')).map((button) => {
         const rect = button.getBoundingClientRect();
         const label = button.querySelector('.action-label');
@@ -1672,7 +1696,7 @@ async function captureViewport(cdp) {
         ? getComputedStyle(actionsGrid).gridTemplateColumns.split(' ').filter(Boolean).length
         : 0;
       const stageRect = rectOf('.stage-panel');
-      const messageRect = rectOf('.message-panel');
+      const messageRect = elementInfo('.message-panel');
       const canvasRect = rectOf('.canvas-wrap');
       const actionsRect = rectOf('.panel-block--actions');
       const sidePanel = document.querySelector('.side-panel');
@@ -1691,9 +1715,13 @@ async function captureViewport(cdp) {
         actions: actionsRect,
         actionsAnchor: rectOf('.actions-dock-anchor'),
         status: statusRect,
+        dailyRhythm: elementInfo('.daily-rhythm-strip'),
+        dailyPlan: elementInfo('.daily-plan-strip'),
         resources: rectOf('.panel-block--resources'),
         discoveries: rectOf('.panel-block--discoveries'),
         minigames: minigamesRect,
+        minigamesHeading: elementInfo('.panel-block--minigames .block-heading'),
+        buildBadge: elementInfo('[data-build-badge]'),
         calendar: rectOf('[data-calendar-checklist]'),
         calendarList: rectOf('[data-calendar-list]'),
         calendarRows: Array.from(document.querySelectorAll('.calendar-event')).map((row) => {
@@ -1759,7 +1787,7 @@ async function captureViewport(cdp) {
     await assertAdaptiveDockReleasesOnSidePanelScroll(cdp, info);
     await assertAdaptiveDockReleasesPastStandardPlace(cdp);
   }
-  if (viewportWidth > 640 && viewportHeight <= 700 && !info.actionsDockActive) {
+  if (viewportWidth > 640 && viewportHeight <= 700 && !info.actionsDockActive && info.actionsPosition === 'sticky') {
     await assertShortDesktopActionsStayVisibleOnSidePanelScroll(cdp, info);
   }
   console.log(`viewport: ${filePath}`);
@@ -1837,9 +1865,12 @@ function assertShortViewportLayout(info) {
     throw new Error(`Panel boczny wychodzi poza niski viewport: bottom=${Math.round(info.side.bottom)}px, height=${info.innerHeight}`);
   }
 
-  if (info.canvas.width > 392 || info.canvas.height > 392) {
+  const canvasLimit = info.innerHeight <= 500 ? 320 : 352;
+  if (info.canvas.width > canvasLimit || info.canvas.height > canvasLimit) {
     throw new Error(`Canvas jest za duży dla krótkiego viewportu: ${Math.round(info.canvas.width)}x${Math.round(info.canvas.height)}px`);
   }
+
+  assertShortStageStack(info);
 
   if (info.innerWidth <= 640) {
     if (!info.actionsDockActive) {
@@ -1861,6 +1892,28 @@ function assertShortViewportLayout(info) {
   assertShortDesktopActionFlow(info);
 }
 
+function assertShortStageStack(info) {
+  const visibleSections = [info.message, info.dailyRhythm, info.dailyPlan].filter((section) => {
+    return section && section.visible;
+  });
+  let previous = info.canvas;
+
+  visibleSections.forEach((section) => {
+    if (previous && section.top < previous.bottom - 1) {
+      throw new Error(
+        `Sekcja lewego panelu nachodzi na poprzedni element: previousBottom=${Math.round(previous.bottom)}, sectionTop=${Math.round(section.top)}.`
+      );
+    }
+    if (section.bottom > info.stage.bottom + 1) {
+      throw new Error(`Sekcja lewego panelu jest ucięta przez scenę: bottom=${Math.round(section.bottom)}, stageBottom=${Math.round(info.stage.bottom)}.`);
+    }
+    if (section.clipped && info.innerHeight > 500) {
+      throw new Error('Sekcja lewego panelu jest przypadkowo przycięta w krótkim layoucie.');
+    }
+    previous = section;
+  });
+}
+
 function assertShortDesktopActionFlow(info) {
   if (info.actionsDockActive) {
     throw new Error(`Akcje w krótkim layoucie desktopowym nie powinny używać fixed docka, wykryto ${info.actionsDockPlacement}.`);
@@ -1870,12 +1923,12 @@ function assertShortDesktopActionFlow(info) {
     throw new Error(`Panel akcji powinien zostać w przepływie side-panelu, wykryto ${info.actionsDockPlacement}.`);
   }
 
-  if (info.actionsPosition !== 'sticky') {
-    throw new Error(`Panel akcji w krótkim layoucie desktopowym powinien być sticky, wykryto ${info.actionsPosition}.`);
+  if (info.actionsPosition !== 'static') {
+    throw new Error(`Panel akcji w krótkim layoucie desktopowym powinien zostać w przepływie, wykryto ${info.actionsPosition}.`);
   }
 
-  if (info.actionColumns !== 2) {
-    throw new Error(`Panel akcji w krótkim layoucie desktopowym powinien mieć 2 kolumny, wykryto ${info.actionColumns}.`);
+  if (info.actionColumns !== 3) {
+    throw new Error(`Panel akcji w krótkim layoucie desktopowym powinien mieć 3 kompaktowe kolumny, wykryto ${info.actionColumns}.`);
   }
 
   if (info.actions.left < info.side.left - 1 || info.actions.right > info.side.right + 1) {
@@ -1893,6 +1946,43 @@ function assertShortDesktopActionFlow(info) {
       `Panel akcji nie powinien zasłaniać sceny ani komunikatu: canvas=${(info.actionsCanvasOverlapRatio * 100).toFixed(1)}%, message=${(info.actionsMessageOverlapRatio * 100).toFixed(1)}%.`
     );
   }
+
+  if (!info.minigamesHeading || !info.minigamesHeading.visible) {
+    throw new Error('Nagłówek Gry powinien być widoczny w krótkim layoucie.');
+  }
+
+  if (info.minigamesHeading.top < info.side.top - 1 || info.minigamesHeading.top > info.innerHeight - 32) {
+    throw new Error(`Nagłówek Gry jest poza pierwszym widokiem: top=${Math.round(info.minigamesHeading.top)}, height=${info.innerHeight}.`);
+  }
+
+  const headingOverlap = getLayoutOverlapRatio(info.minigamesHeading, info.actions);
+  if (headingOverlap > 0.01) {
+    throw new Error(`Panel akcji nachodzi na nagłówek Gry: ${(headingOverlap * 100).toFixed(1)}%.`);
+  }
+
+  if (info.buildBadge && info.buildBadge.visible) {
+    const badgeOverlap = Math.max(
+      getLayoutOverlapRatio(info.actions, info.buildBadge),
+      getLayoutOverlapRatio(info.side, info.buildBadge),
+      getLayoutOverlapRatio(info.stage, info.buildBadge)
+    );
+    if (badgeOverlap > 0.01) {
+      throw new Error(`Build badge nachodzi na obszar aplikacji w krótkim layoucie: ${(badgeOverlap * 100).toFixed(1)}%.`);
+    }
+  }
+}
+
+function getLayoutOverlapRatio(base, overlay) {
+  if (!base || !overlay) {
+    return 0;
+  }
+  const left = Math.max(base.left, overlay.left);
+  const right = Math.min(base.right, overlay.right);
+  const top = Math.max(base.top, overlay.top);
+  const bottom = Math.min(base.bottom, overlay.bottom);
+  const width = Math.max(0, right - left);
+  const height = Math.max(0, bottom - top);
+  return (width * height) / Math.max(1, base.width * base.height);
 }
 
 function assertAdaptiveDockBounds(info) {
