@@ -1358,7 +1358,15 @@ async function captureCanvas(cdp, label, options) {
       })()`,
       returnByValue: true
     });
-    console.log(`${label} motion: ${JSON.stringify(motionDiagnostics.result.value)}`);
+    const motionValue = motionDiagnostics.result.value;
+    console.log(`${label} motion: ${JSON.stringify(motionValue)}`);
+    if (label === 'sleeping' && (!motionValue || Number(motionValue.sleepGlyphs) < 3)) {
+      throw new Error('Stan snu powinien renderować trzy czytelne glify Zzz.');
+    }
+    const foreground = motionValue && motionValue.ground && motionValue.ground.foreground;
+    if (foreground && Number(foreground.coverCount) > 92) {
+      throw new Error(`Trawa pierwszego planu ma zbyt gęstą warstwę środka: coverCount=${foreground.coverCount}.`);
+    }
     const sceneSummary = await cdp.send('Runtime.evaluate', {
       expression: `(() => {
         const scene = window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.weatherScene;
@@ -1638,6 +1646,22 @@ async function captureViewport(cdp) {
           height: rect.height
         };
       };
+      const elementInfo = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) {
+          return null;
+        }
+        const rect = rectOf(selector);
+        const style = getComputedStyle(element);
+        return {
+          ...rect,
+          display: style.display,
+          visibility: style.visibility,
+          overflow: style.overflow,
+          visible: style.display !== 'none' && style.visibility !== 'hidden' && rect && rect.width > 0 && rect.height > 0,
+          clipped: rect && rect.height > 0 && (element.scrollHeight > element.clientHeight + 1 || element.scrollWidth > element.clientWidth + 1)
+        };
+      };
       const actionButtons = Array.from(document.querySelectorAll('.action-button')).map((button) => {
         const rect = button.getBoundingClientRect();
         const label = button.querySelector('.action-label');
@@ -1671,6 +1695,8 @@ async function captureViewport(cdp) {
       const actionColumns = actionsGrid
         ? getComputedStyle(actionsGrid).gridTemplateColumns.split(' ').filter(Boolean).length
         : 0;
+      const stageRect = rectOf('.stage-panel');
+      const messageRect = elementInfo('.message-panel');
       const canvasRect = rectOf('.canvas-wrap');
       const actionsRect = rectOf('.panel-block--actions');
       const sidePanel = document.querySelector('.side-panel');
@@ -1683,15 +1709,19 @@ async function captureViewport(cdp) {
         documentWidth: document.documentElement.scrollWidth,
         bodyWidth: document.body.scrollWidth,
         app: rectOf('.app'),
-        stage: rectOf('.stage-panel'),
-        message: rectOf('.message-panel'),
+        stage: stageRect,
+        message: messageRect,
         side: sideRect,
         actions: actionsRect,
         actionsAnchor: rectOf('.actions-dock-anchor'),
         status: statusRect,
+        dailyRhythm: elementInfo('.daily-rhythm-strip'),
+        dailyPlan: elementInfo('.daily-plan-strip'),
         resources: rectOf('.panel-block--resources'),
         discoveries: rectOf('.panel-block--discoveries'),
         minigames: minigamesRect,
+        minigamesHeading: elementInfo('.panel-block--minigames .block-heading'),
+        buildBadge: elementInfo('[data-build-badge]'),
         calendar: rectOf('[data-calendar-checklist]'),
         calendarList: rectOf('[data-calendar-list]'),
         calendarRows: Array.from(document.querySelectorAll('.calendar-event')).map((row) => {
@@ -1714,7 +1744,9 @@ async function captureViewport(cdp) {
         actionsPosition: actionsStyle ? actionsStyle.position : '',
         actionsDockActive: actionsPanel ? actionsPanel.classList.contains('is-adaptive-docked') : false,
         actionsDockPlacement: actionsPanel ? actionsPanel.dataset.adaptiveDock || 'flow' : 'missing',
+        actionsStageOverlapRatio: getOverlapRatio(stageRect, actionsRect),
         actionsCanvasOverlapRatio: getOverlapRatio(canvasRect, actionsRect),
+        actionsMessageOverlapRatio: getOverlapRatio(messageRect, actionsRect),
         actionsSideOverlapRatio: getOverlapRatio(sideRect, actionsRect),
         actionsStatusOverlapRatio: getOverlapRatio(statusRect, actionsRect),
         actionsMinigamesOverlapRatio: getOverlapRatio(minigamesRect, actionsRect),
@@ -1754,6 +1786,9 @@ async function captureViewport(cdp) {
   if ((viewportWidth <= 1024 || viewportHeight <= 760) && info.actionsDockActive) {
     await assertAdaptiveDockReleasesOnSidePanelScroll(cdp, info);
     await assertAdaptiveDockReleasesPastStandardPlace(cdp);
+  }
+  if (viewportWidth > 640 && viewportHeight <= 700 && !info.actionsDockActive && info.actionsPosition === 'sticky') {
+    await assertShortDesktopActionsStayVisibleOnSidePanelScroll(cdp, info);
   }
   console.log(`viewport: ${filePath}`);
   console.log(`viewport layout: side=${Math.round(info.side.width)}x${Math.round(info.side.height)}, canvas=${Math.round(info.canvas.width)}x${Math.round(info.canvas.height)}, actionColumns=${info.actionColumns}`);
@@ -1830,23 +1865,124 @@ function assertShortViewportLayout(info) {
     throw new Error(`Panel boczny wychodzi poza niski viewport: bottom=${Math.round(info.side.bottom)}px, height=${info.innerHeight}`);
   }
 
-  if (info.canvas.width > 392 || info.canvas.height > 392) {
+  const canvasLimit = info.innerHeight <= 500 ? 320 : 352;
+  if (info.canvas.width > canvasLimit || info.canvas.height > canvasLimit) {
     throw new Error(`Canvas jest za duży dla krótkiego viewportu: ${Math.round(info.canvas.width)}x${Math.round(info.canvas.height)}px`);
   }
 
-  if (!info.actionsDockActive) {
-    throw new Error('Akcje w krótkim layoucie powinny przejść w aktywny dock, gdy scena jest w widoku.');
+  assertShortStageStack(info);
+
+  if (info.innerWidth <= 640) {
+    if (!info.actionsDockActive) {
+      throw new Error('Akcje w krótkim layoucie dotykowym powinny przejść w aktywny dock, gdy scena jest w widoku.');
+    }
+
+    if (info.actionsPosition !== 'fixed') {
+      throw new Error(`Aktywny dock akcji w krótkim layoucie powinien być fixed, wykryto ${info.actionsPosition}.`);
+    }
+
+    if (info.actionColumns !== 2 && info.actionColumns !== 5) {
+      throw new Error(`Dock akcji w krótkim layoucie powinien mieć 2 albo 5 kolumn, wykryto ${info.actionColumns}.`);
+    }
+
+    assertAdaptiveDockBounds(info);
+    return;
   }
 
-  if (info.actionsPosition !== 'fixed') {
-    throw new Error(`Aktywny dock akcji w krótkim layoucie powinien być fixed, wykryto ${info.actionsPosition}.`);
+  assertShortDesktopActionFlow(info);
+}
+
+function assertShortStageStack(info) {
+  const visibleSections = [info.message, info.dailyRhythm, info.dailyPlan].filter((section) => {
+    return section && section.visible;
+  });
+  let previous = info.canvas;
+
+  visibleSections.forEach((section) => {
+    if (previous && section.top < previous.bottom - 1) {
+      throw new Error(
+        `Sekcja lewego panelu nachodzi na poprzedni element: previousBottom=${Math.round(previous.bottom)}, sectionTop=${Math.round(section.top)}.`
+      );
+    }
+    if (section.bottom > info.stage.bottom + 1) {
+      throw new Error(`Sekcja lewego panelu jest ucięta przez scenę: bottom=${Math.round(section.bottom)}, stageBottom=${Math.round(info.stage.bottom)}.`);
+    }
+    if (section.clipped && info.innerHeight > 500) {
+      throw new Error('Sekcja lewego panelu jest przypadkowo przycięta w krótkim layoucie.');
+    }
+    previous = section;
+  });
+}
+
+function assertShortDesktopActionFlow(info) {
+  if (info.actionsDockActive) {
+    throw new Error(`Akcje w krótkim layoucie desktopowym nie powinny używać fixed docka, wykryto ${info.actionsDockPlacement}.`);
   }
 
-  if (info.actionColumns !== 2 && info.actionColumns !== 5) {
-    throw new Error(`Dock akcji w krótkim layoucie powinien mieć 2 albo 5 kolumn, wykryto ${info.actionColumns}.`);
+  if (info.actionsDockPlacement !== 'flow') {
+    throw new Error(`Panel akcji powinien zostać w przepływie side-panelu, wykryto ${info.actionsDockPlacement}.`);
   }
 
-  assertAdaptiveDockBounds(info);
+  if (info.actionsPosition !== 'static') {
+    throw new Error(`Panel akcji w krótkim layoucie desktopowym powinien zostać w przepływie, wykryto ${info.actionsPosition}.`);
+  }
+
+  if (info.actionColumns !== 3) {
+    throw new Error(`Panel akcji w krótkim layoucie desktopowym powinien mieć 3 kompaktowe kolumny, wykryto ${info.actionColumns}.`);
+  }
+
+  if (info.actions.left < info.side.left - 1 || info.actions.right > info.side.right + 1) {
+    throw new Error(
+      `Panel akcji powinien mieścić się w bocznym panelu: actions=${Math.round(info.actions.left)}..${Math.round(info.actions.right)}, side=${Math.round(info.side.left)}..${Math.round(info.side.right)}.`
+    );
+  }
+
+  if (info.actions.top < info.side.top - 1 || info.actions.bottom > info.innerHeight + 1) {
+    throw new Error(`Panel akcji nie jest w pełni widoczny w krótkim layoucie: top=${Math.round(info.actions.top)}, bottom=${Math.round(info.actions.bottom)}, height=${info.innerHeight}.`);
+  }
+
+  if (info.actionsCanvasOverlapRatio > 0.01 || info.actionsMessageOverlapRatio > 0.01) {
+    throw new Error(
+      `Panel akcji nie powinien zasłaniać sceny ani komunikatu: canvas=${(info.actionsCanvasOverlapRatio * 100).toFixed(1)}%, message=${(info.actionsMessageOverlapRatio * 100).toFixed(1)}%.`
+    );
+  }
+
+  if (!info.minigamesHeading || !info.minigamesHeading.visible) {
+    throw new Error('Nagłówek Gry powinien być widoczny w krótkim layoucie.');
+  }
+
+  if (info.minigamesHeading.top < info.side.top - 1 || info.minigamesHeading.top > info.innerHeight - 32) {
+    throw new Error(`Nagłówek Gry jest poza pierwszym widokiem: top=${Math.round(info.minigamesHeading.top)}, height=${info.innerHeight}.`);
+  }
+
+  const headingOverlap = getLayoutOverlapRatio(info.minigamesHeading, info.actions);
+  if (headingOverlap > 0.01) {
+    throw new Error(`Panel akcji nachodzi na nagłówek Gry: ${(headingOverlap * 100).toFixed(1)}%.`);
+  }
+
+  if (info.buildBadge && info.buildBadge.visible) {
+    const badgeOverlap = Math.max(
+      getLayoutOverlapRatio(info.actions, info.buildBadge),
+      getLayoutOverlapRatio(info.side, info.buildBadge),
+      getLayoutOverlapRatio(info.stage, info.buildBadge)
+    );
+    if (badgeOverlap > 0.01) {
+      throw new Error(`Build badge nachodzi na obszar aplikacji w krótkim layoucie: ${(badgeOverlap * 100).toFixed(1)}%.`);
+    }
+  }
+}
+
+function getLayoutOverlapRatio(base, overlay) {
+  if (!base || !overlay) {
+    return 0;
+  }
+  const left = Math.max(base.left, overlay.left);
+  const right = Math.min(base.right, overlay.right);
+  const top = Math.max(base.top, overlay.top);
+  const bottom = Math.min(base.bottom, overlay.bottom);
+  const width = Math.max(0, right - left);
+  const height = Math.max(0, bottom - top);
+  return (width * height) / Math.max(1, base.width * base.height);
 }
 
 function assertAdaptiveDockBounds(info) {
@@ -1881,6 +2017,119 @@ function assertAdaptiveDockBounds(info) {
         `Dock akcji nachodzi na panel opieki: side=${(info.actionsSideOverlapRatio * 100).toFixed(1)}%, status=${(info.actionsStatusOverlapRatio * 100).toFixed(1)}%, minigry=${(info.actionsMinigamesOverlapRatio * 100).toFixed(1)}%.`
       );
     }
+  }
+}
+
+async function assertShortDesktopActionsStayVisibleOnSidePanelScroll(cdp, info) {
+  if (!info || !info.side || info.innerWidth <= 640 || Number(info.sideScrollHeight) <= Number(info.sideClientHeight) + 80) {
+    return;
+  }
+
+  const scrollResult = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const side = document.querySelector('.side-panel');
+      if (!side || side.scrollHeight <= side.clientHeight + 80) {
+        return { skipped: true };
+      }
+      side.scrollTop = Math.min(220, side.scrollHeight - side.clientHeight);
+      side.dispatchEvent(new Event('scroll'));
+      return { skipped: false, scrollTop: side.scrollTop };
+    })()`,
+    returnByValue: true
+  });
+
+  const scrollInfo = scrollResult.result.value || {};
+  if (scrollInfo.skipped) {
+    return;
+  }
+
+  await delay(180);
+  const stickyResult = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const rectOf = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) {
+          return null;
+        }
+        const rect = element.getBoundingClientRect();
+        return {
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height
+        };
+      };
+      const getOverlapRatio = (base, overlay) => {
+        if (!base || !overlay) {
+          return 0;
+        }
+        const left = Math.max(base.left, overlay.left);
+        const right = Math.min(base.right, overlay.right);
+        const top = Math.max(base.top, overlay.top);
+        const bottom = Math.min(base.bottom, overlay.bottom);
+        const area = Math.max(1, base.width * base.height);
+        return (Math.max(0, right - left) * Math.max(0, bottom - top)) / area;
+      };
+      const actions = document.querySelector('.panel-block--actions');
+      const side = document.querySelector('.side-panel');
+      const actionsRect = rectOf('.panel-block--actions');
+      const sideRect = rectOf('.side-panel');
+      const canvasRect = rectOf('.canvas-wrap');
+      const messageRect = rectOf('.message-panel');
+      const actionsStyle = actions ? getComputedStyle(actions) : null;
+      return {
+        active: actions ? actions.classList.contains('is-adaptive-docked') : false,
+        placement: actions ? actions.dataset.adaptiveDock || 'flow' : 'missing',
+        position: actionsStyle ? actionsStyle.position : '',
+        sideScrollTop: side ? side.scrollTop : 0,
+        actions: actionsRect,
+        side: sideRect,
+        canvasOverlap: getOverlapRatio(canvasRect, actionsRect),
+        messageOverlap: getOverlapRatio(messageRect, actionsRect)
+      };
+    })()`,
+    returnByValue: true
+  });
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const side = document.querySelector('.side-panel');
+      if (side) {
+        side.scrollTop = 0;
+        side.dispatchEvent(new Event('scroll'));
+      }
+    })()`,
+    awaitPromise: true
+  });
+  await delay(80);
+
+  const stickyInfo = stickyResult.result.value || {};
+  if (stickyInfo.sideScrollTop > 12 && stickyInfo.active) {
+    throw new Error(`Panel akcji desktopowego krótkiego layoutu nie powinien wracać do fixed docka po scrollu, wykryto ${stickyInfo.placement}.`);
+  }
+
+  if (stickyInfo.position !== 'sticky') {
+    throw new Error(`Panel akcji powinien zostać sticky po scrollu side-panelu, wykryto ${stickyInfo.position}.`);
+  }
+
+  if (!stickyInfo.actions || !stickyInfo.side) {
+    throw new Error('Brakuje geometrii panelu akcji po scrollu side-panelu.');
+  }
+
+  if (stickyInfo.actions.left < stickyInfo.side.left - 1 || stickyInfo.actions.right > stickyInfo.side.right + 1) {
+    throw new Error('Panel akcji po scrollu side-panelu wyszedł poza boczny panel.');
+  }
+
+  if (stickyInfo.actions.top < stickyInfo.side.top - 1 || stickyInfo.actions.bottom > info.innerHeight + 1) {
+    throw new Error(`Panel akcji po scrollu side-panelu nie jest widoczny: top=${Math.round(stickyInfo.actions.top)}, bottom=${Math.round(stickyInfo.actions.bottom)}, height=${info.innerHeight}.`);
+  }
+
+  if (stickyInfo.canvasOverlap > 0.01 || stickyInfo.messageOverlap > 0.01) {
+    throw new Error(
+      `Panel akcji po scrollu nie powinien zasłaniać sceny ani komunikatu: canvas=${(stickyInfo.canvasOverlap * 100).toFixed(1)}%, message=${(stickyInfo.messageOverlap * 100).toFixed(1)}%.`
+    );
   }
 }
 

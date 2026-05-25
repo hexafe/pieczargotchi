@@ -480,9 +480,9 @@
     const large = anchor.sleepZ || [326, 292];
     const small = anchor.sleepSmallZ || [large[0] + 32, large[1] - 18];
     const entries = [
-      { char: 'Z', delay: 0, x: large[0], y: large[1], size: 30, lift: 20, drift: 11 },
-      { char: 'z', delay: 430, x: lerp(large[0], small[0], 0.48), y: lerp(large[1], small[1], 0.52), size: 22, lift: 24, drift: 13 },
-      { char: 'z', delay: 860, x: small[0], y: small[1], size: 16, lift: 27, drift: 15 }
+      { char: 'Z', delay: 0, x: large[0], y: large[1], size: 38, lift: 16, drift: 7 },
+      { char: 'z', delay: 430, x: lerp(large[0], small[0], 0.48), y: lerp(large[1], small[1], 0.52), size: 29, lift: 19, drift: 8 },
+      { char: 'z', delay: 860, x: small[0], y: small[1], size: 22, lift: 22, drift: 9 }
     ];
     const elapsed = Math.max(0, now - startedAt);
 
@@ -491,13 +491,13 @@
       const fadeIn = smoothStep(0.02, 0.13, local);
       const fadeOut = 1 - smoothStep(0.66, 0.98, local);
       const alpha = fadeIn * fadeOut;
-      const scale = 1 - local * 0.42;
+      const scale = 1 - local * 0.32;
       const wave = Math.sin(local * Math.PI * 2.2 + index * 0.8);
       return {
         char: entry.char,
-        x: entry.x + local * entry.drift + wave * 4,
-        y: entry.y - local * entry.lift + Math.sin(local * Math.PI * 3 + index) * 3,
-        size: Math.max(10, entry.size * scale),
+        x: entry.x + local * entry.drift + wave * 2.8,
+        y: entry.y - local * entry.lift + Math.sin(local * Math.PI * 3 + index) * 2,
+        size: Math.max(14, entry.size * scale),
         alpha: alpha
       };
     });

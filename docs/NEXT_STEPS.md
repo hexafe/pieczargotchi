@@ -1,13 +1,15 @@
 # Pieczargotchi Next Steps
 
-Last updated: 2026-05-23
-Local app version for this checkpoint: `0.1.17`
+Last updated: 2026-05-25
+Local app version for this checkpoint: `0.1.23`
 State version: `13`
 Primary preview target: Cloudflare static build
 
 This is the current start-here document for the next Pieczargotchi work. Older
 roadmaps are still useful as history and subsystem notes, but new planning
 should start here first.
+
+Current active UI slice: `docs/SHORT_VIEWPORT_UI_POLISH_PLAN.md`.
 
 ## 1. Current Baseline
 
