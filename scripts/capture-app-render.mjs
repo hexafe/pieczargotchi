@@ -16,6 +16,7 @@ const captureAppsScriptNoAssets = process.env.PIECZARGOTCHI_CAPTURE_APPS_SCRIPT_
 const captureBeforeAssets = process.env.PIECZARGOTCHI_CAPTURE_BEFORE_ASSETS === '1';
 const captureAllMinigames = process.env.PIECZARGOTCHI_CAPTURE_ALL_MINIGAMES === '1';
 const captureJournal = process.env.PIECZARGOTCHI_CAPTURE_JOURNAL === '1';
+const captureJournalDiscoveryId = String(process.env.PIECZARGOTCHI_CAPTURE_JOURNAL_DISCOVERY || 'aurora').trim() || 'aurora';
 const debugCalendarEvent = String(process.env.PIECZARGOTCHI_DEBUG_CALENDAR_EVENT || '').trim();
 const captureCalendarMatrix = process.env.PIECZARGOTCHI_CAPTURE_CALENDAR_MATRIX === '1';
 const captureCalendarChecklist = process.env.PIECZARGOTCHI_CAPTURE_CALENDAR_CHECKLIST === '1';
@@ -572,6 +573,48 @@ async function captureWorldJournal(cdp) {
           lastSeenAt: iso,
           count: 1
         }
+      },
+      calendar: {
+        teaDay: {
+          id: 'teaDay',
+          label: 'Międzynarodowy Dzień Herbaty',
+          firstSeenAt: '2026-05-21T08:00:00.000Z',
+          lastSeenAt: iso,
+          lastSeenDateKey: '2026-05-21',
+          count: 1
+        },
+        worldBeeDay: {
+          id: 'worldBeeDay',
+          label: 'Światowy Dzień Pszczół',
+          firstSeenAt: '2026-05-20T08:00:00.000Z',
+          lastSeenAt: iso,
+          lastSeenDateKey: '2026-05-20',
+          count: 1
+        },
+        biodiversityDay: {
+          id: 'biodiversityDay',
+          label: 'Międzynarodowy Dzień Bioróżnorodności',
+          firstSeenAt: '2026-05-22T08:00:00.000Z',
+          lastSeenAt: iso,
+          lastSeenDateKey: '2026-05-22',
+          count: 1
+        },
+        soilDay: {
+          id: 'soilDay',
+          label: 'Światowy Dzień Gleby',
+          firstSeenAt: '2026-12-05T08:00:00.000Z',
+          lastSeenAt: iso,
+          lastSeenDateKey: '2026-12-05',
+          count: 1
+        },
+        spaceWeek: {
+          id: 'spaceWeek',
+          label: 'Światowy Tydzień Kosmosu',
+          firstSeenAt: '2026-10-04T20:00:00.000Z',
+          lastSeenAt: iso,
+          lastSeenDateKey: '2026-10-04',
+          count: 1
+        }
       }
     };
     state.journal = { entries: [] };
@@ -581,14 +624,25 @@ async function captureWorldJournal(cdp) {
   await cdp.send('Runtime.evaluate', { expression: stateExpression, awaitPromise: true });
   await waitForLoad(cdp, () => cdp.send('Page.reload', { ignoreCache: true }));
   await waitForExpression(cdp, getAssetStatusReadyExpression(), 6000);
-  await waitForExpression(cdp, `Boolean(document.querySelector('[data-discovery-id="aurora"][data-discovered="true"]'))`, 3000);
+  await waitForExpression(cdp, `Boolean(document.querySelector('[data-discovery-id="${captureJournalDiscoveryId}"][data-discovered="true"]'))`, 3000);
   const diagnostics = await cdp.send('Runtime.evaluate', {
     expression: `(() => {
-      const button = document.querySelector('[data-discovery-id="aurora"][data-discovered="true"]');
+      const button = document.querySelector('[data-discovery-id="${captureJournalDiscoveryId}"][data-discovered="true"]');
       const panel = document.querySelector('.panel-block--discoveries');
       if (!button || !panel) {
         return { ok: false };
       }
+      const rectInfo = (node) => {
+        const rect = node.getBoundingClientRect();
+        return {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height
+        };
+      };
       panel.scrollIntoView({ block: 'center', inline: 'nearest' });
       const rect = button.getBoundingClientRect();
       const x = Math.round(rect.left + Math.min(36, rect.width / 2));
@@ -606,18 +660,37 @@ async function captureWorldJournal(cdp) {
           nonBlank += 1;
         }
       }
+      const polaroidRect = rectInfo(polaroid);
+      const canvasRect = rectInfo(canvas);
+      const viewport = { width: innerWidth, height: innerHeight };
       return {
         ok: true,
         tooltipVisible,
         polaroidVisible: !polaroid.hidden,
         title: document.querySelector('[data-journal-polaroid-title]').textContent,
-        nonBlank
+        nonBlank,
+        polaroidRect,
+        canvasRect,
+        viewport,
+        polaroidInViewport: polaroidRect.left >= -1
+          && polaroidRect.top >= -1
+          && polaroidRect.right <= innerWidth + 1
+          && polaroidRect.bottom <= innerHeight + 1,
+        canvasVisible: canvasRect.width >= 120 && canvasRect.height >= 90
       };
     })()`,
     returnByValue: true
   });
   const info = diagnostics.result.value || {};
-  if (!info.ok || !info.tooltipVisible || !info.polaroidVisible || !info.title || info.nonBlank < 1000) {
+  if (
+    !info.ok
+    || !info.tooltipVisible
+    || !info.polaroidVisible
+    || !info.title
+    || info.nonBlank < 1000
+    || !info.polaroidInViewport
+    || !info.canvasVisible
+  ) {
     throw new Error(`Dziennik świata nie otworzył pamiątki poprawnie: ${JSON.stringify(info)}`);
   }
 
@@ -628,7 +701,7 @@ async function captureWorldJournal(cdp) {
   const filePath = `${outputPrefix}-journal-polaroid-${viewportWidth}x${viewportHeight}.png`;
   writeFileSync(filePath, Buffer.from(screenshot.data, 'base64'));
   console.log(`journal-polaroid: ${filePath}`);
-  console.log(`journal diagnostics: title=${info.title}, canvasPixels=${info.nonBlank}, tooltip=${info.tooltipVisible}`);
+  console.log(`journal diagnostics: title=${info.title}, canvasPixels=${info.nonBlank}, tooltip=${info.tooltipVisible}, polaroid=${Math.round(info.polaroidRect.width)}x${Math.round(info.polaroidRect.height)}`);
 }
 
 async function captureDewMinigame(cdp) {

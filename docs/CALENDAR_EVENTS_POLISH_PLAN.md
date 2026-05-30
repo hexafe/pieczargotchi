@@ -1,6 +1,11 @@
 # Calendar Events Polish Plan
 
-Build slice: `0.1.5`
+Original build slice: `0.1.5`
+Current implementation baseline: `0.1.26`
+
+This document is now a subsystem roadmap, not the active version marker. Use
+`docs/NEXT_STEPS.md` and `docs/JOURNAL_CALENDAR_POLISH_2026-05-30.md` for the
+current Slice 2 status.
 
 ## Implemented Baseline
 
@@ -42,7 +47,9 @@ Use these as the canonical baseline before adding more event dates:
 
 - Special idle arkusz animacji for each stage: mushroom with tiny cup, steam drifting in 6-8 frames.
 - Activity variant: calm sip, happy blush, steam briefly forming a heart or spore swirl.
-- Polaroid variant: mushroom looking peaceful with cup near grass.
+- Polaroid variant: mushroom looking peaceful with cup near grass. The
+  code-native cup, steam, table shadow, and tiny steam-heart prop are now in
+  place; sprite-backed event poses remain future work.
 
 ### World Bee Day
 
@@ -54,7 +61,10 @@ Use these as the canonical baseline before adding more event dates:
 
 - Multi-layer grass flourish: tiny leaves, petals, crawler silhouettes, fireflies/moths depending on hour.
 - Special "żywe podłoże" animation: grass foreground gently parts and closes around the mushroom base.
-- Polaroid variant: mushroom wide-eyed, surrounded by different small life forms.
+- Polaroid variant: mushroom wide-eyed, surrounded by different small life
+  forms. The code-native version now includes varied plant motes, a bee,
+  butterfly, and small crawler silhouette; sprite-backed event poses remain
+  future work.
 
 ### Water Day
 
@@ -65,13 +75,17 @@ Use these as the canonical baseline before adding more event dates:
 
 - Forest Day: drifting leaf motes and a darker, cooler green palette accent.
 - Earth Day: soft ground pulse around the podłoże, no loud particles.
-- Soil Day: grzybnia threads glowing under foreground grass, visible only in short pulses.
+- Soil Day: grzybnia threads glowing under foreground grass, visible only in
+  short pulses. The journal polaroid now has a code-native soil band and
+  grzybnia-thread prop.
 
 ### Space Events
 
 - Asteroid Day: one rare slow asteroid silhouette at dusk/night, not a constant meteor shower.
 - Moon Day: silver grass rim light and a more prominent moon halo if weather allows.
-- Space Week: tiny observatory/telescope prop as a rare calendar-shop item.
+- Space Week: tiny observatory/telescope prop as a rare calendar-shop item. The
+  journal polaroid now has a code-native observatory prop and linked star line;
+  the shop item remains future work.
 - Perseid Nights: richer meteor shower logic tied into existing sky discoveries, not duplicate spam.
 
 ### Mushroom Day
@@ -95,7 +109,10 @@ Use these as the canonical baseline before adding more event dates:
 3. Biodiversity foreground overlays: leaf motes, petal glints, tiny crawler silhouettes.
 4. Soil/grzybnia undergrass pulse overlay.
 5. Mushroom Day stage celebration sheets.
-6. Calendar-specific polaroid scenes, one per event family.
+6. Calendar-specific polaroid scenes, one per event family. Code-native first
+   pass is done for Tea Day, Bee Day, Biodiversity Day, Soil Day, and Space
+   Week; remaining work is richer family coverage and optional sprite-backed
+   reactions.
 
 ## QA Gates For Next Iteration
 

@@ -340,6 +340,8 @@
       drawJournalGroundGlints(ctx, width, height, false);
     } else if (scene === 'birdMigration') {
       drawJournalBirdMigration(ctx, width, height);
+    } else if (scene === 'spaceWeek') {
+      drawJournalSpaceWeek(ctx, width, height);
     } else if (scene === 'mushroomDay') {
       drawJournalSporeDay(ctx, width, height);
     } else if (scene === 'soilDay') {
@@ -459,31 +461,42 @@
   }
 
   function drawJournalTeaDay(ctx, width, height) {
-    const x = width - 62;
-    const y = height - 68;
-    ctx.fillStyle = '#f1dca8';
-    ctx.fillRect(x, y, 28, 18);
-    ctx.fillStyle = '#b88454';
-    ctx.fillRect(x + 5, y + 5, 18, 8);
-    ctx.fillStyle = '#fff1c4';
-    ctx.fillRect(x + 5, y + 2, 18, 3);
-    ctx.fillStyle = 'rgba(255,250,222,0.48)';
+    const x = width - 68;
+    const y = height - 70;
+    ctx.fillStyle = 'rgba(112,77,46,0.34)';
+    ctx.fillRect(x - 10, y + 23, 54, 4);
+    ctx.fillStyle = '#f4deb4';
+    ctx.fillRect(x, y, 30, 18);
+    ctx.fillStyle = '#7f4f32';
+    ctx.fillRect(x + 5, y + 6, 20, 8);
+    ctx.fillStyle = '#fff5cf';
+    ctx.fillRect(x + 5, y + 3, 20, 3);
+    ctx.fillStyle = '#f4deb4';
+    ctx.fillRect(x + 30, y + 5, 7, 8);
+    ctx.fillStyle = '#fffaf0';
+    ctx.fillRect(x + 32, y + 7, 3, 4);
+    ctx.fillStyle = 'rgba(255,250,222,0.58)';
     [0, 1, 2].forEach(function(index) {
-      ctx.fillRect(x + 8 + index * 7, y - 12 - index * 4, 3, 10);
+      const steamX = x + 8 + index * 7;
+      ctx.fillRect(steamX, y - 14 - index * 3, 3, 10);
+      ctx.fillRect(steamX + 3, y - 18 - index * 2, 2, 5);
     });
+    ctx.fillStyle = 'rgba(255,240,210,0.7)';
+    ctx.fillRect(x + 13, y - 28, 4, 4);
+    ctx.fillRect(x + 17, y - 24, 4, 4);
+    ctx.fillRect(x + 9, y - 24, 4, 4);
   }
 
   function drawJournalBeeDay(ctx, width, height) {
-    ctx.fillStyle = '#fff0a2';
-    [[42, height - 80], [width - 66, height - 92], [width - 98, height - 56]].forEach(function(point) {
-      ctx.fillRect(point[0], point[1], 8, 5);
-      ctx.fillStyle = '#4a3226';
-      ctx.fillRect(point[0] + 2, point[1], 1, 5);
-      ctx.fillRect(point[0] + 5, point[1], 1, 5);
-      ctx.fillStyle = 'rgba(226,248,255,0.72)';
-      ctx.fillRect(point[0] + 1, point[1] - 4, 4, 3);
-      ctx.fillStyle = '#fff0a2';
+    [[28, height - 43], [150, height - 50], [width - 42, height - 38]].forEach(function(point, index) {
+      drawJournalPixelFlower(ctx, point[0], point[1], index % 2 === 0 ? '#ffd96c' : '#e88aa8');
     });
+    drawJournalBee(ctx, 42, height - 82, 1);
+    drawJournalBee(ctx, width - 70, height - 94, -1);
+    drawJournalBee(ctx, width - 98, height - 58, 1);
+    ctx.fillStyle = 'rgba(255,240,162,0.34)';
+    ctx.fillRect(34, height - 88, width - 86, 1);
+    ctx.fillRect(50, height - 92, width - 112, 1);
   }
 
   function drawJournalBiodiversityDay(ctx, width, height, scene) {
@@ -496,6 +509,23 @@
       if (index % 4 === 0) {
         ctx.fillRect(20 + index * 10, height - 66 - index % 5 * 7, 2, 3);
       }
+    }
+    if (scene === 'biodiversityDay') {
+      drawJournalBee(ctx, 48, height - 78, 1);
+      drawJournalButterfly(ctx, width - 58, height - 86);
+      ctx.fillStyle = '#5a3d25';
+      ctx.fillRect(92, height - 41, 10, 2);
+      ctx.fillRect(101, height - 42, 2, 2);
+      ctx.fillRect(88, height - 40, 2, 2);
+    } else if (scene === 'forestDay') {
+      ctx.fillStyle = 'rgba(47,111,58,0.38)';
+      ctx.fillRect(20, 20, 18, 48);
+      ctx.fillRect(width - 42, 18, 16, 54);
+    } else if (scene === 'earthDay') {
+      ctx.strokeStyle = 'rgba(84,122,65,0.48)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(70, height - 60, 52, 20);
+      ctx.strokeRect(76, height - 56, 40, 12);
     }
   }
 
@@ -517,11 +547,79 @@
     }
   }
 
+  function drawJournalSpaceWeek(ctx, width, height) {
+    drawJournalMeteorShower(ctx, width);
+    const baseY = height - 47;
+    const x = width - 72;
+    ctx.fillStyle = '#39445f';
+    ctx.fillRect(x, baseY - 14, 34, 14);
+    ctx.fillStyle = '#222c54';
+    ctx.fillRect(x + 5, baseY - 20, 24, 6);
+    ctx.fillStyle = '#d8d8b3';
+    ctx.fillRect(x + 12, baseY - 28, 16, 6);
+    ctx.fillStyle = '#f7edbf';
+    ctx.fillRect(x + 30, baseY - 31, 5, 5);
+    ctx.fillStyle = 'rgba(183,219,255,0.38)';
+    ctx.fillRect(x + 8, baseY - 9, 5, 5);
+    ctx.fillRect(x + 20, baseY - 9, 5, 5);
+    ctx.fillStyle = '#f3d98b';
+    ctx.fillRect(32, 34, 2, 2);
+    ctx.fillRect(60, 24, 2, 2);
+    ctx.fillRect(88, 42, 2, 2);
+    ctx.fillStyle = 'rgba(243,217,139,0.34)';
+    ctx.fillRect(34, 35, 26, 1);
+    ctx.fillRect(62, 25, 26, 1);
+  }
+
   function drawJournalSoilDay(ctx, width, height) {
     ctx.fillStyle = 'rgba(94,62,39,0.62)';
+    ctx.fillRect(0, height - 50, width, 18);
+    ctx.fillStyle = 'rgba(59,38,24,0.42)';
     for (let index = 0; index < 8; index += 1) {
-      ctx.fillRect(10 + index * 24, height - 47 + index % 2 * 5, 18, 4);
+      ctx.fillRect(10 + index * 24, height - 49 + index % 2 * 5, 18, 4);
     }
+    ctx.fillStyle = 'rgba(230,211,140,0.62)';
+    [[30, height - 43], [52, height - 38], [86, height - 45], [118, height - 40], [146, height - 46]].forEach(function(point, index) {
+      ctx.fillRect(point[0], point[1], 18 + index % 2 * 8, 1);
+      ctx.fillRect(point[0] + 8, point[1] - 4, 1, 5);
+      if (index % 2 === 0) {
+        ctx.fillRect(point[0] + 16, point[1] + 1, 1, 4);
+      }
+    });
+  }
+
+  function drawJournalPixelFlower(ctx, x, y, color) {
+    ctx.fillStyle = '#3f7d35';
+    ctx.fillRect(x, y - 12, 2, 12);
+    ctx.fillStyle = color;
+    ctx.fillRect(x - 3, y - 17, 3, 3);
+    ctx.fillRect(x + 2, y - 17, 3, 3);
+    ctx.fillRect(x - 1, y - 20, 3, 3);
+    ctx.fillStyle = '#fff0a2';
+    ctx.fillRect(x, y - 17, 2, 2);
+  }
+
+  function drawJournalBee(ctx, x, y, direction) {
+    const sign = direction < 0 ? -1 : 1;
+    ctx.fillStyle = '#fff0a2';
+    ctx.fillRect(x, y, 9, 5);
+    ctx.fillStyle = '#4a3226';
+    ctx.fillRect(x + 2, y, 1, 5);
+    ctx.fillRect(x + 6, y, 1, 5);
+    ctx.fillStyle = 'rgba(226,248,255,0.72)';
+    ctx.fillRect(x + (sign > 0 ? 1 : 4), y - 4, 4, 3);
+    ctx.fillRect(x + (sign > 0 ? 4 : 1), y - 6, 4, 3);
+  }
+
+  function drawJournalButterfly(ctx, x, y) {
+    ctx.fillStyle = 'rgba(232,138,168,0.74)';
+    ctx.fillRect(x - 7, y - 4, 6, 6);
+    ctx.fillRect(x + 2, y - 4, 6, 6);
+    ctx.fillStyle = 'rgba(255,217,108,0.7)';
+    ctx.fillRect(x - 6, y + 2, 5, 5);
+    ctx.fillRect(x + 2, y + 2, 5, 5);
+    ctx.fillStyle = '#4a3226';
+    ctx.fillRect(x, y - 3, 2, 10);
   }
 
   function drawJournalPhotoGrass(ctx, width, height, item) {

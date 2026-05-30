@@ -102,6 +102,8 @@ test('world journal exposes hover notes and polaroid keepsakes', () => {
   assert(clientJs.includes('function drawCalendarEventForeground('), 'static client should render calendar event accents');
   assert(clientJs.includes('calendarPixelSprites'), 'static client should include the event pixel sprite pack');
   assert(clientJs.includes('function drawCalendarPixelSprite('), 'static client should draw reusable calendar pixel sprites');
+  assert(clientJs.includes('function drawJournalSpaceWeek('), 'static client should render a distinct Space Week polaroid scene');
+  assert(clientJs.includes('function drawJournalPixelFlower('), 'static client should render distinct event polaroid props');
   assert(clientJs.includes('data-discovery-id'), 'journal discovery cards should expose stable discovery ids');
   assert(coreJs.includes('getCalendarChecklist'), 'core should export the calendar checklist API');
   assert(coreJs.includes('worldBeeDay'), 'core calendar should include World Bee Day');
@@ -121,6 +123,8 @@ test('capture tooling can force calendar event screenshots', () => {
   assert(captureScript.includes('PIECZARGOTCHI_DEBUG_CALENDAR_EVENT'), 'capture script should accept a forced calendar event id');
   assert(captureScript.includes('PIECZARGOTCHI_CAPTURE_CALENDAR_MATRIX'), 'capture script should expose calendar screenshot matrix mode');
   assert(captureScript.includes('PIECZARGOTCHI_CAPTURE_CALENDAR_CHECKLIST'), 'capture script should expose calendar checklist viewport mode');
+  assert(captureScript.includes('PIECZARGOTCHI_CAPTURE_JOURNAL_DISCOVERY'), 'capture script should allow forced journal discovery screenshots');
+  assert(captureScript.includes('polaroidInViewport'), 'capture script should assert journal polaroid viewport geometry');
   assert(captureScript.includes('calendarCaptureSamples'), 'capture script should define calendar matrix samples');
   assert(captureScript.includes('getCalendarEventCaptureTimestamp'), 'capture script should map event ids to deterministic dates');
 });

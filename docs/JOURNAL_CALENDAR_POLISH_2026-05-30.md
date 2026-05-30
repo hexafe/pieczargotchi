@@ -1,6 +1,6 @@
 # Journal And Calendar Polish - 2026-05-30
 
-App version: `0.1.25`
+App version: `0.1.26`
 State version: `13`
 
 ## Summary
@@ -28,6 +28,12 @@ polaroid frame tiers instead of gameplay bonuses.
   height clamping and internal scroll.
 - Missing sprite assets in journal polaroids use a neutral marker over the
   grass placeholder instead of procedural mushroom replacement art.
+- Browser capture can force a specific journal discovery with
+  `PIECZARGOTCHI_CAPTURE_JOURNAL_DISCOVERY=<id>` and asserts that the opened
+  polaroid stays inside the viewport.
+- Tea Day, Bee Day, Biodiversity Day, Soil Day, and Space Week now have more
+  distinct code-native polaroid props instead of relying only on generic scene
+  family accents.
 
 ## QA Notes
 
@@ -52,10 +58,19 @@ Post-edit captures:
 - `/tmp/pieczargotchi-slice2-final-journal-blocked-journal-polaroid-1194x891.png`
 - `/tmp/pieczargotchi-slice2-final-calendar-mobile-viewport-390x844.png`
 
+Additional post-edit event-polaroid captures:
+
+- `/tmp/pieczargotchi-slice2-polaroid-teaDay-journal-polaroid-390x844.png`
+- `/tmp/pieczargotchi-slice2-polaroid-worldBeeDay-journal-polaroid-390x844.png`
+- `/tmp/pieczargotchi-slice2-polaroid-biodiversityDay-journal-polaroid-390x844.png`
+- `/tmp/pieczargotchi-slice2-polaroid-soilDay-journal-polaroid-390x844.png`
+- `/tmp/pieczargotchi-slice2-polaroid-spaceWeek-journal-polaroid-390x844.png`
+
 ## Remaining Slice 2 Work
 
-- Add event-specific polaroid scene variants beyond the current family-level
-  code-native scenes.
-- Extend browser capture assertions for mobile journal polaroid placement.
-- Revisit `docs/CALENDAR_EVENTS_POLISH_PLAN.md` after the next event-scene pass
-  so its build-slice header no longer reads like the active version.
+- Add visual frame styling that uses the unlocked calendar frame tier on
+  journal polaroids.
+- Broaden mobile journal capture to cover every discovery group, not only the
+  calendar event sample set.
+- Plan or generate optional sprite-backed stage reactions for the strongest
+  event families.

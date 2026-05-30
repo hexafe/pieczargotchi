@@ -1,7 +1,7 @@
 # Pieczargotchi Next Steps
 
 Last updated: 2026-05-30
-Local app version for this checkpoint: `0.1.25`
+Local app version for this checkpoint: `0.1.26`
 State version: `13`
 Primary preview target: Cloudflare static build
 
@@ -11,8 +11,8 @@ should start here first.
 
 Latest release QA baseline: `docs/RELEASE_QA_BASELINE_2026-05-30.md`.
 Latest journal/calendar polish: `docs/JOURNAL_CALENDAR_POLISH_2026-05-30.md`.
-Recommended next implementation slice: continue Slice 2 with event-specific
-polaroid scenes and mobile journal capture coverage.
+Recommended next implementation slice: continue Slice 2 with event-polaroid
+frame styling and broader mobile journal capture coverage.
 
 ## 1. Current Baseline
 
@@ -460,9 +460,11 @@ Acceptance:
 
 Goal: make discoveries feel like memories.
 
-Status: started for version `0.1.25` on 2026-05-30. Calendar event source
-labels, cosmetic frame tiers, mobile-safe polaroid layout, and missing-sprite
-polaroid markers are implemented. See
+Status: continued through version `0.1.26` on 2026-05-30. Calendar event source
+labels, cosmetic frame tiers, mobile-safe polaroid layout, missing-sprite
+polaroid markers, forced journal discovery captures, and distinct Tea Day, Bee
+Day, Biodiversity Day, Soil Day, and Space Week polaroid scenes are
+implemented. See
 `docs/JOURNAL_CALENDAR_POLISH_2026-05-30.md`.
 
 Tasks:
