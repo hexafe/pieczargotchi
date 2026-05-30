@@ -18,7 +18,9 @@
     const scene = getCurrentWeatherScene();
     const palette = getScenePalette(scene);
     const profile = getAmbientLifeProfile(scene);
+    const visitor = getLongLoopSceneVisitor(scene);
     if (!hasAmbientLife(profile)) {
+      drawLongLoopHabitatVisitor(ctx, palette, now, scene, visitor);
       return;
     }
 
@@ -28,8 +30,134 @@
     drawNocturnalMoths(ctx, palette, now, scene, profile, true);
     drawSmallFlyingInsects(ctx, palette, now, scene, profile, true);
     drawCrawlingBugs(ctx, palette, now, scene, profile);
+    drawLongLoopHabitatVisitor(ctx, palette, now, scene, visitor);
     drawFireflies(ctx, palette, now, scene, profile, true);
     drawAmbientLifeFocusCue(ctx, palette, now, scene);
+  }
+
+  function getLongLoopSceneVisitor(scene) {
+    const core = window.PieczargotchiCore;
+    if (!core || typeof core.getLongLoopDashboard !== 'function' || !runtime.state) {
+      return null;
+    }
+    const dashboard = core.getLongLoopDashboard(runtime.state, rules, getRuntimeNow(), scene);
+    const visitor = dashboard && dashboard.visitor;
+    return visitor && visitor.available ? visitor : null;
+  }
+
+  function drawLongLoopHabitatVisitor(ctx, palette, now, scene, visitor) {
+    if (!visitor) {
+      return;
+    }
+    const anchor = getLongLoopVisitorAnchor(visitor.id, now, scene);
+    if (anchor.alpha <= 0.02 || isMushroomLifeOccluded(anchor.x, anchor.y)) {
+      return;
+    }
+
+    ctx.save();
+    ctx.globalAlpha = anchor.alpha;
+    if (visitor.id === 'dewSnail') {
+      drawPixelDewSnailVisitor(ctx, anchor.x, anchor.y, anchor.direction, palette);
+    } else if (visitor.id === 'beeScout') {
+      drawPixelBee(ctx, anchor.x, anchor.y, anchor.direction, 10, anchor.wing, false, palette);
+    } else if (visitor.id === 'moonMoth') {
+      drawPixelMoonMothVisitor(ctx, anchor.x, anchor.y, anchor.direction, anchor.wing);
+    } else {
+      drawPixelCompostBeetleVisitor(ctx, anchor.x, anchor.y, anchor.direction, anchor.wing);
+    }
+    ctx.restore();
+
+    if (typeof recordAmbientLifeSample === 'function') {
+      recordAmbientLifeSample('visitors', {
+        id: visitor.id,
+        x: anchor.x,
+        y: anchor.y,
+        alpha: Number(anchor.alpha.toFixed(3)),
+        direction: anchor.direction
+      });
+    }
+  }
+
+  function getLongLoopVisitorAnchor(visitorId, now, scene) {
+    const seedMap = {
+      dewSnail: 9127,
+      beeScout: 14891,
+      moonMoth: 27109,
+      compostBeetle: 33427
+    };
+    const seed = seedMap[visitorId] || 7117;
+    const phase = positiveModulo(now / (visitorId === 'dewSnail' ? 8200 : 5400) + seededUnit(seed), 1);
+    const bob = Math.sin(now / 420 + seed) * (visitorId === 'beeScout' || visitorId === 'moonMoth' ? 3 : 1);
+    const wind = getDynamicWindState(scene, now);
+    const windPush = (Number(wind && wind.directionX) || 0) * (Number(wind && wind.level) || 0) * 7;
+    if (visitorId === 'beeScout') {
+      return {
+        x: Math.round(74 + Math.sin(phase * Math.PI * 2) * 20 + windPush),
+        y: Math.round(350 + Math.cos(phase * Math.PI * 2) * 16 + bob),
+        direction: Math.sin(phase * Math.PI * 2) >= 0 ? 1 : -1,
+        wing: Math.sin(now / 72) > 0,
+        alpha: 0.88
+      };
+    }
+    if (visitorId === 'moonMoth') {
+      return {
+        x: Math.round(408 + Math.sin(phase * Math.PI * 2) * 18 + windPush * 0.7),
+        y: Math.round(324 + Math.cos(phase * Math.PI * 2) * 20 + bob),
+        direction: Math.sin(phase * Math.PI * 2) >= 0 ? 1 : -1,
+        wing: Math.sin(now / 96) > 0,
+        alpha: 0.82
+      };
+    }
+    if (visitorId === 'compostBeetle') {
+      return {
+        x: Math.round(360 + Math.sin(phase * Math.PI * 2) * 26),
+        y: Math.round(458 + bob),
+        direction: Math.cos(phase * Math.PI * 2) >= 0 ? 1 : -1,
+        wing: Math.sin(now / 180) > 0,
+        alpha: 0.9
+      };
+    }
+    return {
+      x: Math.round(104 + phase * 42),
+      y: Math.round(462 + bob),
+      direction: 1,
+      wing: false,
+      alpha: 0.88
+    };
+  }
+
+  function drawPixelDewSnailVisitor(ctx, x, y, direction, palette) {
+    const shell = palette && palette.groundLight ? palette.groundLight : '#d9bd72';
+    ctx.fillStyle = '#557c54';
+    ctx.fillRect(x - 5 * direction, y - 2, 12, 4);
+    ctx.fillStyle = shell;
+    ctx.fillRect(x - 1 * direction, y - 8, 9, 8);
+    ctx.fillStyle = '#8a6a3c';
+    ctx.fillRect(x + 1 * direction, y - 6, 5, 4);
+    ctx.fillStyle = '#f3e8b0';
+    ctx.fillRect(x - 8 * direction, y - 7, 2, 6);
+    ctx.fillRect(x - 4 * direction, y - 7, 2, 6);
+  }
+
+  function drawPixelMoonMothVisitor(ctx, x, y, direction, wing) {
+    ctx.fillStyle = wing ? '#d9d1ff' : '#bfb6ef';
+    ctx.fillRect(x - 9, y - 4, 7, 9);
+    ctx.fillRect(x + 2, y - 4, 7, 9);
+    ctx.fillStyle = '#f8f1b8';
+    ctx.fillRect(x - 2, y - 6, 4, 12);
+    ctx.fillStyle = '#6d5b9b';
+    ctx.fillRect(x + direction * 2, y - 8, 2, 2);
+  }
+
+  function drawPixelCompostBeetleVisitor(ctx, x, y, direction, wing) {
+    ctx.fillStyle = '#4c3525';
+    ctx.fillRect(x - 6, y - 5, 12, 8);
+    ctx.fillStyle = wing ? '#9a6b35' : '#6d4a2d';
+    ctx.fillRect(x - 4, y - 7, 8, 5);
+    ctx.fillStyle = '#241811';
+    ctx.fillRect(x + direction * 6, y - 4, 3, 4);
+    ctx.fillRect(x - 7, y + 3, 3, 2);
+    ctx.fillRect(x + 4, y + 3, 3, 2);
   }
 
   function getAmbientLifeProfile(scene) {

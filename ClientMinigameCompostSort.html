@@ -18,6 +18,7 @@
       ctx: ctx,
       pieces: buildCompostSortPieces(session),
       pulses: [],
+      floaters: [],
       animationFrame: 0
     };
     ctx.imageSmoothingEnabled = false;
@@ -53,6 +54,7 @@
     });
     drawCompostBasket(ctx, canvas.width, canvas.height, now);
     drawCompostSortPulses(ctx, now);
+    drawMinigameFloaters(ctx, now);
     updateMinigameHud(now);
     runtime.minigame.animationFrame = window.requestAnimationFrame(renderCompostSortFrame);
   }
@@ -62,6 +64,7 @@
       return;
     }
 
+    event.preventDefault();
     const canvas = dom.compostSortCanvas;
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / Math.max(1, rect.width);
@@ -81,20 +84,31 @@
     });
 
     if (!picked) {
+      if (typeof pushMinigameFloater === 'function') {
+        pushMinigameFloater('pudło', x, y - 10, 'bad', now);
+      }
       return;
     }
 
-    event.preventDefault();
     session.caught.push(picked.id);
     if (picked.good) {
       session.score += Number(picked.points) || 1;
       session.combo = (Number(session.combo) || 0) + 1;
       session.bestCombo = Math.max(Number(session.bestCombo) || 0, Number(session.combo) || 0);
+      if (typeof pushMinigameFloater === 'function') {
+        pushMinigameFloater('+' + (Number(picked.points) || 1), x, y - 12, picked.kind === 'mycelium' ? 'rare' : 'good', now);
+        if (session.combo >= 4 && session.combo % 4 === 0) {
+          pushMinigameFloater('seria x' + session.combo, x, y - 26, 'combo', now);
+        }
+      }
       triggerEffect('hearts');
     } else {
       session.mistakes = (Number(session.mistakes) || 0) + 1;
       session.combo = 0;
       session.score = Math.max(0, Number(session.score) - 1);
+      if (typeof pushMinigameFloater === 'function') {
+        pushMinigameFloater(picked.kind === 'stone' ? 'kamień' : 'pleśń', x, y - 12, 'bad', now);
+      }
     }
     runtime.minigame.pulses.push({
       x: x,
@@ -192,6 +206,21 @@
       ctx.fillRect(x + Math.round(Math.sin(progress * 8 + x) * 2), height - 24, 12, 3);
     }
     ctx.globalAlpha = 1;
+    ctx.save();
+    ctx.globalAlpha = 0.68;
+    ctx.fillStyle = '#3c2b20';
+    ctx.fillRect(18, height - 34, 40, 22);
+    ctx.fillStyle = '#9b2f33';
+    ctx.fillRect(22, height - 30, 32, 14);
+    ctx.fillStyle = '#fff0a8';
+    ctx.fillRect(30, height - 25, 16, 2);
+    ctx.fillStyle = '#3c2b20';
+    ctx.fillRect(width - 58, height - 34, 40, 22);
+    ctx.fillStyle = '#4f8f39';
+    ctx.fillRect(width - 54, height - 30, 32, 14);
+    ctx.fillStyle = '#d6e65a';
+    ctx.fillRect(width - 46, height - 25, 16, 2);
+    ctx.restore();
   }
 
   function drawCompostPiece(ctx, x, y, piece, now) {
@@ -200,6 +229,8 @@
     if (piece.kind === 'mycelium') {
       ctx.fillStyle = '#3c2b20';
       ctx.fillRect(x - size, y - size + wobble, size * 2, size * 2);
+      ctx.fillRect(x - size - 4, y - 2 + wobble, 4, 5);
+      ctx.fillRect(x + size, y - 2 + wobble, 4, 5);
       ctx.fillStyle = '#fff0a8';
       ctx.fillRect(x - size + 3, y - size + 3 + wobble, size * 2 - 6, 3);
       ctx.fillStyle = '#d6e65a';
@@ -210,6 +241,7 @@
     if (piece.kind === 'leaf') {
       ctx.fillStyle = '#24582c';
       ctx.fillRect(x - size, y - 2 + wobble, size * 2, 5);
+      ctx.fillRect(x - size + 3, y - 5 + wobble, size, 3);
       ctx.fillStyle = '#9fd96a';
       ctx.fillRect(x - 1, y - size + wobble, 3, size + 2);
       return;
@@ -217,6 +249,7 @@
     if (piece.kind === 'crumb') {
       ctx.fillStyle = '#4b2f1f';
       ctx.fillRect(x - size, y - size + wobble, size * 2, size * 2);
+      ctx.fillRect(x - size + 2, y + size - 2 + wobble, size * 2 - 5, 4);
       ctx.fillStyle = '#8a5b32';
       ctx.fillRect(x - size + 2, y - size + 2 + wobble, size * 2 - 4, size);
       ctx.fillStyle = '#d6e65a';
@@ -226,6 +259,10 @@
 
     ctx.fillStyle = piece.kind === 'mold' ? '#4d5a55' : '#3f4640';
     ctx.fillRect(x - size, y - size + wobble, size * 2, size * 2);
+    if (piece.kind === 'stone') {
+      ctx.fillRect(x - size - 2, y - 2 + wobble, 4, size);
+      ctx.fillRect(x + size - 2, y - size + 2 + wobble, 4, size);
+    }
     ctx.fillStyle = piece.kind === 'mold' ? '#7f8f86' : '#899188';
     ctx.fillRect(x - size + 2, y - size + 2 + wobble, size * 2 - 3, size - 1);
     ctx.fillStyle = piece.kind === 'mold' ? '#9b2f33' : '#d6d0b5';
@@ -237,13 +274,19 @@
     const fill = Math.min(1, (Number(session.score) || 0) / 18);
     const pulse = Math.sin(now / 260) * 0.5 + 0.5;
     ctx.save();
-    ctx.globalAlpha = 0.82;
+    ctx.globalAlpha = 0.9;
     ctx.fillStyle = '#3c2b20';
-    ctx.fillRect(70, height - 26, width - 140, 15);
+    ctx.fillRect(68, height - 32, width - 136, 23);
+    ctx.fillStyle = '#6b4729';
+    ctx.fillRect(72, height - 29, width - 144, 17);
     ctx.fillStyle = '#8a5b32';
-    ctx.fillRect(74, height - 23, width - 148, 9);
+    ctx.fillRect(76, height - 26, width - 152, 10);
+    ctx.fillStyle = '#f1c27a';
+    ctx.fillRect(80, height - 30, width - 160, 3);
     ctx.fillStyle = '#4f8f39';
-    ctx.fillRect(76, height - 22, Math.round((width - 152) * fill), 7);
+    ctx.fillRect(78, height - 24, Math.round((width - 156) * fill), 7);
+    ctx.fillStyle = '#d6e65a';
+    ctx.fillRect(82, height - 23, Math.max(0, Math.round((width - 164) * fill)), 2);
     if (session.combo >= 3) {
       ctx.globalAlpha = 0.28 + pulse * 0.2;
       ctx.fillStyle = '#fff0a8';

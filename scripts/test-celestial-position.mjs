@@ -27,6 +27,12 @@ for (const fileName of [
 if (typeof context.getSunPosition !== 'function') {
   throw new Error('getSunPosition was not exposed by ClientSceneCelestial.html');
 }
+if (typeof context.getMoonCellLight !== 'function') {
+  throw new Error('getMoonCellLight was not exposed by ClientSceneCelestial.html');
+}
+if (typeof context.getMoonCellGrid !== 'function') {
+  throw new Error('getMoonCellGrid was not exposed by ClientSceneCelestial.html');
+}
 
 const locations = {
   katowice: { latitude: 50.2649, longitude: 19.0238 },
@@ -69,6 +75,45 @@ test('Tromso polar edge cases stay bounded', () => {
   assert(summer.x >= 26 && summer.x <= 486, `expected bounded Tromso x, got ${summer.x}`);
   assert(summer.y >= 30 && summer.y <= 292, `expected bounded Tromso y, got ${summer.y}`);
   assert(winter === null, `expected polar winter sun below render threshold, got ${JSON.stringify(winter)}`);
+});
+
+test('moon pixel phase mask is side-stable and vertically symmetric', () => {
+  const waxingCrescent = { illumination: 0.22, waxing: true, fraction: 0.16 };
+  const waningCrescent = { illumination: 0.22, waxing: false, fraction: 0.84 };
+
+  assert(context.getMoonCellLight(0.82, 0, waxingCrescent), 'expected waxing crescent right edge to be lit');
+  assert(context.getMoonCellLight(0.42, 0, waxingCrescent), 'expected waxing crescent body to stay readable');
+  assert(!context.getMoonCellLight(0.18, 0, waxingCrescent), 'expected waxing crescent terminator to stay shaded');
+  assert(!context.getMoonCellLight(-0.82, 0, waxingCrescent), 'expected waxing crescent left edge to stay shaded');
+  assert(context.getMoonCellLight(-0.82, 0, waningCrescent), 'expected waning crescent left edge to be lit');
+  assert(context.getMoonCellLight(-0.42, 0, waningCrescent), 'expected waning crescent body to stay readable');
+  assert(!context.getMoonCellLight(0.82, 0, waningCrescent), 'expected waning crescent right edge to stay shaded');
+  assert(
+    context.getMoonCellLight(0.82, 0.38, waxingCrescent) === context.getMoonCellLight(0.82, -0.38, waxingCrescent),
+    'expected moon phase mask to stay vertically symmetric'
+  );
+});
+
+test('moon pixel grid stays centered across rendered sizes', () => {
+  for (let size = 28; size <= 41; size += 1) {
+    const grid = context.getMoonCellGrid(size);
+    const leftGap = grid.start;
+    const rightGap = size - (grid.start + grid.cellCount * grid.block);
+    assert(Math.abs(leftGap - rightGap) < 0.01, `expected balanced moon grid gaps at size ${size}`);
+    assert(grid.start >= 0, `expected non-negative moon grid start at size ${size}`);
+    assert(grid.start + grid.cellCount * grid.block <= size, `expected moon grid to stay within size ${size}`);
+
+    const crescent = { illumination: 0.22, waxing: true, fraction: 0.16 };
+    let litColumns = 0;
+    for (let column = 0; column < grid.cellCount; column += 1) {
+      const centerX = grid.start + column * grid.block + grid.block / 2;
+      const normalizedX = (centerX - grid.center) / grid.radius;
+      if (context.getMoonCellLight(normalizedX, 0, crescent)) {
+        litColumns += 1;
+      }
+    }
+    assert(litColumns >= 2, `expected readable crescent width at size ${size}, got ${litColumns} columns`);
+  }
 });
 
 function getSun(location, isoTimestamp) {

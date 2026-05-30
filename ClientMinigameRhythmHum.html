@@ -1,3 +1,20 @@
+  const RHYTHM_HUM_LANE_DEFS = [
+    { id: 'left', key: 'ArrowLeft', label: 'LEWO', color: '#d99a55', light: '#fff0a8', shadow: '#7a4f2b' },
+    { id: 'down', key: 'ArrowDown', label: 'DÓŁ', color: '#6fba76', light: '#d9ffd0', shadow: '#315f35' },
+    { id: 'up', key: 'ArrowUp', label: 'GÓRA', color: '#7fb6d9', light: '#d8f4ff', shadow: '#31536a' },
+    { id: 'right', key: 'ArrowRight', label: 'PRAWO', color: '#9a84dc', light: '#e7dcff', shadow: '#55458b' }
+  ];
+  const RHYTHM_HUM_KEY_TO_LANE = {
+    ArrowLeft: 'left',
+    Left: 'left',
+    ArrowDown: 'down',
+    Down: 'down',
+    ArrowUp: 'up',
+    Up: 'up',
+    ArrowRight: 'right',
+    Right: 'right'
+  };
+
   function startRhythmHumRuntime(session) {
     if (!session || session.id !== 'rhythmHum' || !dom.rhythmHumCanvas) {
       return;
@@ -6,6 +23,7 @@
     stopMinigameRuntime();
     const canvas = dom.rhythmHumCanvas;
     const ctx = canvas.getContext('2d');
+    const chart = buildRhythmHumChart(session);
     setActiveMinigameCanvas('rhythmHum');
     runtime.minigame = {
       session: Object.assign({}, session, {
@@ -14,13 +32,26 @@
         mistakes: Number(session.mistakes) || 0,
         nextBeat: Number(session.nextBeat) || 0,
         combo: Number(session.combo) || 0,
-        bestCombo: Number(session.bestCombo) || 0
+        bestCombo: Number(session.bestCombo) || 0,
+        rhythmJudgments: normalizeRhythmHumJudgments(session.rhythmJudgments, chart.length)
       }),
       ctx: ctx,
-      pattern: buildRhythmHumPattern(session),
+      chart: chart,
+      pattern: chart.map(function(note) { return note.lane; }),
       pulses: [],
+      floaters: [],
+      keyHandler: handleRhythmHumKeydown,
       animationFrame: 0
     };
+    canvas.tabIndex = 0;
+    canvas.setAttribute('role', 'application');
+    canvas.setAttribute('aria-label', 'Minigra rytmicznego nucenia. Użyj strzałek, gdy nuta trafi w jasną linię.');
+    try {
+      canvas.focus({ preventScroll: true });
+    } catch (error) {
+      canvas.focus();
+    }
+    window.addEventListener('keydown', runtime.minigame.keyHandler, { passive: false });
     ctx.imageSmoothingEnabled = false;
     renderRhythmHumFrame();
   }
@@ -37,14 +68,18 @@
       return;
     }
 
+    markRhythmHumMisses(now);
     const ctx = runtime.minigame.ctx;
     const canvas = dom.rhythmHumCanvas;
     const progress = (now - Number(session.startedAt)) / Math.max(1, Number(session.until) - Number(session.startedAt));
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawRhythmHumBackground(ctx, canvas.width, canvas.height, now, progress);
     drawRhythmPatternRail(ctx, canvas.width, now);
+    drawRhythmHumTrack(ctx, canvas.width, canvas.height, now);
+    drawRhythmHumNotes(ctx, canvas.width, canvas.height, now);
     drawRhythmHumPads(ctx, canvas.width, canvas.height, now);
     drawRhythmHumPulses(ctx, now);
+    drawMinigameFloaters(ctx, now);
     updateMinigameHud(now);
     runtime.minigame.animationFrame = window.requestAnimationFrame(renderRhythmHumFrame);
   }
@@ -54,155 +89,417 @@
       return;
     }
 
-    const canvas = dom.rhythmHumCanvas;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / Math.max(1, rect.width);
-    const scaleY = canvas.height / Math.max(1, rect.height);
-    const x = (event.clientX - rect.left) * scaleX;
-    const y = (event.clientY - rect.top) * scaleY;
-    const pad = getRhythmHumPadAt(x, y);
-    if (!pad) {
+    event.preventDefault();
+    try {
+      dom.rhythmHumCanvas.focus({ preventScroll: true });
+    } catch (error) {
+      dom.rhythmHumCanvas.focus();
+    }
+
+    const now = getRuntimeNow();
+    if (!runtime.minigame.lastPointerHintAt || now - runtime.minigame.lastPointerHintAt > 900) {
+      runtime.minigame.lastPointerHintAt = now;
+      if (typeof pushMinigameFloater === 'function') {
+        pushMinigameFloater('strzałki', dom.rhythmHumCanvas.width / 2, dom.rhythmHumCanvas.height - 28, 'combo', now);
+      }
+    }
+  }
+
+  function handleRhythmHumKeydown(event) {
+    const laneId = RHYTHM_HUM_KEY_TO_LANE[event.key];
+    if (!laneId || !runtime.minigame || runtime.minigame.session.id !== 'rhythmHum') {
       return;
     }
 
     event.preventDefault();
-    const now = getRuntimeNow();
+    scoreRhythmHumLane(laneId, getRuntimeNow());
+  }
+
+  function scoreRhythmHumLane(laneId, now) {
+    const candidate = getRhythmHumCandidate(now);
+    const lane = getRhythmHumLane(laneId);
+    if (!candidate) {
+      registerRhythmHumStrayInput(laneId, now);
+      return;
+    }
+
+    if (candidate.note.lane !== laneId) {
+      resolveRhythmHumNote(candidate.index, 'bad', 0, now, laneId, candidate.delta);
+      return;
+    }
+
+    const windows = getRhythmHumWindows();
+    const abs = Math.abs(candidate.delta);
+    if (abs > windows.ok) {
+      resolveRhythmHumNote(candidate.index, 'miss', 0, now, laneId, candidate.delta);
+      return;
+    }
+    const judgment = abs <= windows.perfect
+      ? 'perfect'
+      : abs <= windows.good
+        ? 'good'
+        : 'ok';
+    const points = judgment === 'perfect' ? 3 : judgment === 'good' ? 2 : 1;
+    const text = judgment === 'perfect'
+      ? '+3 idealnie'
+      : judgment === 'good'
+        ? '+2 dobrze'
+        : '+1 ok';
+    resolveRhythmHumNote(candidate.index, judgment, points, now, laneId, candidate.delta, text);
+    if (lane) {
+      triggerEffect(judgment === 'perfect' ? 'hearts' : 'spores');
+    }
+  }
+
+  function getRhythmHumCandidate(now) {
+    const windows = getRhythmHumWindows();
+    let best = null;
+    runtime.minigame.chart.forEach(function(note, index) {
+      if (isRhythmHumNoteResolved(index)) {
+        return;
+      }
+      const delta = now - Number(note.hitAt);
+      const abs = Math.abs(delta);
+      if (abs > windows.miss) {
+        return;
+      }
+      if (!best || abs < best.abs) {
+        best = { note: note, index: index, delta: delta, abs: abs };
+      }
+    });
+    return best;
+  }
+
+  function registerRhythmHumStrayInput(laneId, now) {
+    const lane = getRhythmHumLane(laneId);
     const session = runtime.minigame.session;
-    const pattern = runtime.minigame.pattern;
-    const currentBeat = Math.min(pattern.length - 1, Number(session.nextBeat) || 0);
-    const expected = pattern[currentBeat];
-    const good = pad.id === expected;
-    if (good) {
-      const completingPattern = currentBeat === pattern.length - 1;
-      session.score += completingPattern ? 3 : 1;
+    session.mistakes = (Number(session.mistakes) || 0) + 1;
+    session.score = Math.max(0, Number(session.score) - 1);
+    session.combo = 0;
+    if (typeof pushMinigameFloater === 'function' && lane) {
+      pushMinigameFloater('za wcześnie', lane.x, lane.hitY - 18, 'bad', now);
+    }
+    runtime.minigame.pulses.push({
+      lane: laneId,
+      judgment: 'bad',
+      startedAt: now
+    });
+    syncRhythmHumActiveSession(true);
+    updateMinigameHud(now);
+  }
+
+  function resolveRhythmHumNote(index, judgment, points, now, inputLaneId, delta, label) {
+    const session = runtime.minigame.session;
+    const note = runtime.minigame.chart[index];
+    const lane = getRhythmHumLane(note ? note.lane : inputLaneId);
+    session.rhythmJudgments[index] = judgment;
+    session.nextBeat = getNextRhythmHumNoteIndex();
+    if (points > 0) {
+      session.score += points;
       session.combo = (Number(session.combo) || 0) + 1;
       session.bestCombo = Math.max(Number(session.bestCombo) || 0, Number(session.combo) || 0);
-      session.nextBeat = (currentBeat + 1) % pattern.length;
-      session.caught.push('beat_' + now);
-      triggerEffect('hearts');
+      session.caught.push('beat_' + index + '_' + now);
+      if (typeof pushMinigameFloater === 'function' && lane) {
+        pushMinigameFloater(label || '+' + points, lane.x, lane.hitY - 22, judgment === 'perfect' ? 'rare' : 'good', now);
+        if (session.combo >= 6 && session.combo % 6 === 0) {
+          pushMinigameFloater('seria x' + session.combo, lane.x, lane.hitY - 38, 'combo', now);
+        }
+      }
     } else {
       session.mistakes = (Number(session.mistakes) || 0) + 1;
       session.score = Math.max(0, Number(session.score) - 1);
       session.combo = 0;
-      session.nextBeat = 0;
+      if (typeof pushMinigameFloater === 'function' && lane) {
+        pushMinigameFloater(judgment === 'miss' ? 'pudło' : 'fałsz', lane.x, lane.hitY - 22, 'bad', now);
+      }
     }
     runtime.minigame.pulses.push({
-      id: pad.id,
-      good: good,
-      expected: expected,
-      fullLoop: good && currentBeat === pattern.length - 1,
+      lane: inputLaneId || (note && note.lane),
+      expected: note && note.lane,
+      judgment: judgment,
+      delta: Number(delta) || 0,
       startedAt: now
     });
+    syncRhythmHumActiveSession(true);
+    updateMinigameHud(now);
+  }
+
+  function markRhythmHumMisses(now) {
+    const windows = getRhythmHumWindows();
+    let changed = false;
+    runtime.minigame.chart.forEach(function(note, index) {
+      if (isRhythmHumNoteResolved(index) || now <= Number(note.hitAt) + windows.miss) {
+        return;
+      }
+      resolveRhythmHumNote(index, 'miss', 0, now, note.lane, now - Number(note.hitAt));
+      changed = true;
+    });
+    if (changed) {
+      syncRhythmHumActiveSession(true);
+    }
+  }
+
+  function syncRhythmHumActiveSession(shouldSave) {
+    const session = runtime.minigame.session;
     runtime.state.minigames.active = Object.assign({}, session, {
       caught: session.caught.slice(),
       mistakes: session.mistakes,
       nextBeat: session.nextBeat,
       combo: session.combo,
-      bestCombo: session.bestCombo
+      bestCombo: session.bestCombo,
+      rhythmJudgments: session.rhythmJudgments.slice()
     });
-    saveState(runtime.state);
-    updateMinigameHud(now);
+    if (shouldSave) {
+      saveState(runtime.state);
+    }
   }
 
-  function buildRhythmHumPattern(session) {
+  function buildRhythmHumChart(session) {
     const config = rules.minigames && rules.minigames.rhythmHum ? rules.minigames.rhythmHum : {};
     const habitatTags = session && session.habitatTags ? session.habitatTags : {};
-    const count = Math.max(5, (Number(config.beatCount) || 8) + Math.min(2, Number(habitatTags.music) || 0));
+    const duration = Math.max(9000, Number(session.until) - Number(session.startedAt) || Number(config.durationMs) || 18000);
+    const leadMs = Number(config.noteLeadMs) || 1600;
+    const intervalMs = Number(config.beatIntervalMs) || 1150;
+    const maxCount = Math.max(6, Math.floor((duration - leadMs - 850) / intervalMs) + 1);
+    const count = Math.min(
+      maxCount,
+      Math.max(6, (Number(config.beatCount) || 8) + Math.min(3, Number(habitatTags.music) || 0))
+    );
     const seed = Number(session.seed) || 1;
-    const pads = ['low', 'mid', 'high'];
-    const pattern = [];
+    const laneIds = RHYTHM_HUM_LANE_DEFS.map(function(lane) { return lane.id; });
+    const chart = [];
     for (let index = 0; index < count; index += 1) {
-      pattern.push(pads[Math.floor(seededDewUnit(seed, index, 31) * pads.length) % pads.length]);
+      let laneIndex = Math.floor(seededDewUnit(seed, index, 31) * laneIds.length) % laneIds.length;
+      if (
+        index > 1
+        && laneIds[laneIndex] === chart[index - 1].lane
+        && laneIds[laneIndex] === chart[index - 2].lane
+      ) {
+        laneIndex = (laneIndex + 1 + Math.floor(seededDewUnit(seed, index, 41) * 3)) % laneIds.length;
+      }
+      const lane = getRhythmHumLaneDef(laneIds[laneIndex]);
+      chart.push({
+        id: 'note_' + index,
+        lane: lane.id,
+        key: lane.key,
+        hitAt: Number(session.startedAt) + leadMs + index * intervalMs,
+        travelMs: leadMs,
+        accent: index === count - 1 || index % 4 === 3
+      });
     }
-    return pattern;
+    return chart;
+  }
+
+  function normalizeRhythmHumJudgments(raw, length) {
+    const source = Array.isArray(raw) ? raw.slice(0, length) : [];
+    while (source.length < length) {
+      source.push(null);
+    }
+    return source.map(function(value) {
+      return ['perfect', 'good', 'ok', 'miss', 'bad'].indexOf(value) !== -1 ? value : null;
+    });
+  }
+
+  function isRhythmHumNoteResolved(index) {
+    return Boolean(runtime.minigame.session.rhythmJudgments[index]);
+  }
+
+  function getNextRhythmHumNoteIndex() {
+    const judgments = runtime.minigame.session.rhythmJudgments;
+    for (let index = 0; index < judgments.length; index += 1) {
+      if (!judgments[index]) {
+        return index;
+      }
+    }
+    return judgments.length;
+  }
+
+  function getRhythmHumWindows() {
+    const config = rules.minigames && rules.minigames.rhythmHum ? rules.minigames.rhythmHum : {};
+    return {
+      perfect: Math.max(40, Number(config.perfectWindowMs) || 70),
+      good: Math.max(75, Number(config.goodWindowMs) || 125),
+      ok: Math.max(110, Number(config.okWindowMs) || 190),
+      miss: Math.max(150, Number(config.missWindowMs) || 260)
+    };
   }
 
   function drawRhythmHumBackground(ctx, width, height, now, progress) {
-    ctx.fillStyle = '#dbe5d2';
+    ctx.fillStyle = '#172532';
     ctx.fillRect(0, 0, width, height);
-    ctx.fillStyle = '#cbd8c2';
-    ctx.fillRect(0, 0, width, 26);
-    ctx.fillStyle = '#efe2bc';
-    ctx.fillRect(0, height - 38, width, 38);
-    drawDewGrassLayer(ctx, width, height, now, {
-      count: 50,
-      seedBase: 8211,
-      baseY: height - 12,
-      baseJitter: 8,
-      heightMin: 16,
-      heightMax: 32,
-      bend: 3.8,
-      width: 2,
-      alpha: 0.54,
-      palette: ['#24582c', '#2f7134', '#4f8f39', '#9fd96a']
-    });
-    ctx.globalAlpha = 0.16;
-    ctx.fillStyle = '#8c7ad9';
-    for (let index = 0; index < 5; index += 1) {
-      const x = 20 + index * 45 + Math.sin(now / 900 + index) * 5;
-      const y = 36 + Math.sin(progress * Math.PI * 2 + index) * 4;
-      drawRhythmNote(ctx, x, y, index % 2 ? '#8c7ad9' : '#c79452');
+    ctx.fillStyle = '#21354a';
+    ctx.fillRect(0, 0, width, 24);
+    ctx.fillStyle = '#273b39';
+    ctx.fillRect(0, height - 42, width, 42);
+    ctx.fillStyle = '#f0cf86';
+    ctx.globalAlpha = 0.18;
+    for (let index = 0; index < 12; index += 1) {
+      const x = 8 + index * 21 + Math.sin(now / 540 + index) * 3;
+      const y = 32 + Math.sin(progress * Math.PI * 2 + index) * 11;
+      ctx.fillRect(Math.round(x), Math.round(y), 2, 2);
     }
     ctx.globalAlpha = 1;
+    drawDewGrassLayer(ctx, width, height, now, {
+      count: 46,
+      seedBase: 8211,
+      baseY: height - 10,
+      baseJitter: 8,
+      heightMin: 14,
+      heightMax: 28,
+      bend: 3.2,
+      width: 2,
+      alpha: 0.48,
+      palette: ['#1f5933', '#2c7a3a', '#5eab48', '#a4dc6c']
+    });
   }
 
   function drawRhythmPatternRail(ctx, width, now) {
-    const session = runtime.minigame.session;
-    const pattern = runtime.minigame.pattern;
-    const nextBeat = Math.min(pattern.length - 1, Number(session.nextBeat) || 0);
-    const startX = Math.round((width - pattern.length * 12) / 2);
+    const chart = runtime.minigame.chart;
+    const judgments = runtime.minigame.session.rhythmJudgments;
+    const nextBeat = getNextRhythmHumNoteIndex();
+    const cell = chart.length > 9 ? 12 : 14;
+    const startX = Math.round((width - chart.length * cell) / 2);
     ctx.save();
-    ctx.globalAlpha = 0.88;
-    pattern.forEach(function(id, index) {
-      const x = startX + index * 12;
+    chart.forEach(function(note, index) {
+      const x = startX + index * cell;
       const active = index === nextBeat;
-      const color = getRhythmPadColor(id);
-      ctx.fillStyle = '#3c2b20';
-      ctx.fillRect(x, 9, 9, 9);
-      ctx.fillStyle = active ? '#fff0a8' : color.mid;
-      ctx.fillRect(x + 2, 11, 5, 5);
+      const lane = getRhythmHumLaneDef(note.lane);
+      const judgment = judgments[index];
+      ctx.globalAlpha = judgment ? 0.75 : 0.95;
+      ctx.fillStyle = judgment === 'miss' || judgment === 'bad' ? '#5d2830' : '#2d241f';
+      ctx.fillRect(x, active ? 6 : 8, active ? 12 : 10, active ? 12 : 10);
+      ctx.fillStyle = judgment === 'perfect'
+        ? '#fff0a8'
+        : judgment === 'good' || judgment === 'ok'
+          ? lane.light
+          : judgment
+            ? '#a88981'
+            : lane.color;
+      ctx.fillRect(x + 2, active ? 8 : 10, active ? 8 : 6, active ? 8 : 6);
       if (active) {
-        const pulse = Math.sin(now / 180) * 0.5 + 0.5;
-        ctx.globalAlpha = 0.24 + pulse * 0.22;
-        ctx.fillStyle = color.light;
-        ctx.fillRect(x - 2, 7, 13, 13);
-        ctx.globalAlpha = 0.88;
+        const pulse = Math.sin(now / 160) * 0.5 + 0.5;
+        ctx.globalAlpha = 0.22 + pulse * 0.18;
+        ctx.fillStyle = lane.light;
+        ctx.fillRect(x - 2, 4, 16, 16);
       }
     });
-    if (Number(session.combo) >= pattern.length) {
-      ctx.globalAlpha = 0.36;
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = '#f8ffff';
+    ctx.fillRect(startX, 22, Math.max(0, (nextBeat / Math.max(1, chart.length)) * chart.length * cell), 2);
+    ctx.restore();
+  }
+
+  function drawRhythmHumTrack(ctx, width, height, now) {
+    const lanes = getRhythmHumLanes(width, height);
+    ctx.save();
+    lanes.forEach(function(lane, index) {
+      const pulse = 0.5 + Math.sin(now / 420 + index) * 0.5;
+      ctx.globalAlpha = 0.28;
+      ctx.fillStyle = index % 2 ? '#10212b' : '#132834';
+      ctx.fillRect(lane.x - lane.width / 2, lane.topY, lane.width, lane.hitY - lane.topY + 18);
+      ctx.globalAlpha = 0.18 + pulse * 0.08;
+      ctx.fillStyle = lane.color;
+      ctx.fillRect(lane.x - lane.width / 2 + 3, lane.topY + 4, lane.width - 6, lane.hitY - lane.topY + 10);
+    });
+    ctx.globalAlpha = 0.82;
+    ctx.fillStyle = '#fff0a8';
+    ctx.fillRect(13, lanes[0].hitY - 2, width - 26, 3);
+    ctx.globalAlpha = 0.32;
+    ctx.fillStyle = '#f8ffff';
+    ctx.fillRect(18, lanes[0].hitY + 3, width - 36, 1);
+    ctx.restore();
+  }
+
+  function drawRhythmHumNotes(ctx, width, height, now) {
+    const lanes = getRhythmHumLanes(width, height);
+    const judgments = runtime.minigame.session.rhythmJudgments;
+    runtime.minigame.chart.forEach(function(note, index) {
+      if (judgments[index]) {
+        return;
+      }
+      const lane = lanes.find(function(item) { return item.id === note.lane; });
+      if (!lane) {
+        return;
+      }
+      const untilHit = Number(note.hitAt) - now;
+      const travel = Math.max(600, Number(note.travelMs) || 1600);
+      const local = 1 - untilHit / travel;
+      if (local < -0.18 || local > 1.18) {
+        return;
+      }
+      const clamped = Math.max(-0.15, Math.min(1.15, local));
+      const y = Math.round(lane.topY + clamped * (lane.hitY - lane.topY));
+      const scale = note.accent ? 1.12 : 1;
+      drawRhythmArrowNote(ctx, lane, lane.x, y, scale, note.accent);
+    });
+  }
+
+  function drawRhythmHumPads(ctx, width, height, now) {
+    const lanes = getRhythmHumLanes(width, height);
+    const nextBeat = getNextRhythmHumNoteIndex();
+    const expected = runtime.minigame.chart[nextBeat] ? runtime.minigame.chart[nextBeat].lane : null;
+    lanes.forEach(function(lane) {
+      const active = lane.id === expected;
+      const pulse = active ? 0.5 + Math.sin(now / 180) * 0.5 : 0;
+      ctx.fillStyle = '#211a1c';
+      ctx.fillRect(lane.x - 19, lane.padY - 13, 38, 26);
+      ctx.fillStyle = active ? lane.light : lane.color;
+      ctx.fillRect(lane.x - 16, lane.padY - 10, 32, 20);
+      ctx.fillStyle = active ? '#fffdf7' : '#2b211b';
+      drawRhythmArrowGlyph(ctx, lane.id, lane.x, lane.padY, 4);
+      if (active) {
+        ctx.globalAlpha = 0.22 + pulse * 0.28;
+        ctx.fillStyle = lane.light;
+        ctx.fillRect(lane.x - 22, lane.padY - 16, 44, 2);
+        ctx.fillRect(lane.x - 22, lane.padY + 14, 44, 2);
+        ctx.globalAlpha = 1;
+      }
+      ctx.fillStyle = '#e6e1c5';
+      ctx.font = 'bold 7px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(lane.label, lane.x, lane.padY + 23);
+    });
+  }
+
+  function drawRhythmArrowNote(ctx, lane, x, y, scale, accent) {
+    const size = Math.round(5 * scale);
+    ctx.save();
+    ctx.fillStyle = '#20191c';
+    ctx.fillRect(x - 12, y - 9, 24, 18);
+    ctx.fillStyle = accent ? lane.light : lane.color;
+    ctx.fillRect(x - 9, y - 6, 18, 12);
+    ctx.fillStyle = accent ? '#2b211b' : '#fffdf7';
+    drawRhythmArrowGlyph(ctx, lane.id, x, y, size);
+    if (accent) {
+      ctx.globalAlpha = 0.4;
       ctx.fillStyle = '#fffdf7';
-      ctx.fillRect(startX, 22, pattern.length * 12 - 3, 2);
+      ctx.fillRect(x - 13, y - 11, 26, 2);
+      ctx.fillRect(x - 13, y + 9, 26, 2);
     }
     ctx.restore();
   }
 
-  function drawRhythmHumPads(ctx, width, height, now) {
-    const session = runtime.minigame.session;
-    const pattern = runtime.minigame.pattern;
-    const expected = pattern[Math.min(pattern.length - 1, Number(session.nextBeat) || 0)];
-    getRhythmHumPads().forEach(function(pad) {
-      const active = pad.id === expected;
-      const pulse = active ? 0.5 + Math.sin(now / 220) * 0.5 : 0;
-      const color = getRhythmPadColor(pad.id);
-      ctx.fillStyle = '#3c2b20';
-      ctx.fillRect(pad.x - 24, pad.y - 18, 48, 36);
-      ctx.fillStyle = active ? color.active : color.mid;
-      ctx.fillRect(pad.x - 20, pad.y - 14, 40, 28);
-      ctx.fillStyle = active ? color.light : color.top;
-      ctx.fillRect(pad.x - 14, pad.y - 9, 28, 5);
-      drawRhythmPadIcon(ctx, pad);
-      if (active) {
-        ctx.globalAlpha = 0.35 + pulse * 0.25;
-        ctx.fillStyle = '#fffdf7';
-        ctx.fillRect(pad.x - 27, pad.y - 21, 54, 3);
-        ctx.fillRect(pad.x - 27, pad.y + 18, 54, 3);
-        ctx.globalAlpha = 1;
-      }
-      ctx.fillStyle = '#2b211b';
-      ctx.font = 'bold 10px sans-serif';
-      ctx.fillText(pad.label, pad.x - 12, pad.y + 4);
-    });
+  function drawRhythmArrowGlyph(ctx, laneId, x, y, size) {
+    const s = Math.max(2, Math.round(size || 4));
+    const px = Math.round(x);
+    const py = Math.round(y);
+    if (laneId === 'left') {
+      ctx.fillRect(px - s * 2, py - s / 2, s * 4, s);
+      ctx.fillRect(px - s * 2, py - s * 1.5, s, s);
+      ctx.fillRect(px - s * 2, py + s * 0.5, s, s);
+    } else if (laneId === 'right') {
+      ctx.fillRect(px - s * 2, py - s / 2, s * 4, s);
+      ctx.fillRect(px + s, py - s * 1.5, s, s);
+      ctx.fillRect(px + s, py + s * 0.5, s, s);
+    } else if (laneId === 'up') {
+      ctx.fillRect(px - s / 2, py - s * 2, s, s * 4);
+      ctx.fillRect(px - s * 1.5, py - s * 2, s, s);
+      ctx.fillRect(px + s * 0.5, py - s * 2, s, s);
+    } else {
+      ctx.fillRect(px - s / 2, py - s * 2, s, s * 4);
+      ctx.fillRect(px - s * 1.5, py + s, s, s);
+      ctx.fillRect(px + s * 0.5, py + s, s, s);
+    }
   }
 
   function drawRhythmNote(ctx, x, y, color) {
@@ -215,68 +512,83 @@
     ctx.fillRect(px + 2, py + 1, 3, 1);
   }
 
-  function drawRhythmPadIcon(ctx, pad) {
-    ctx.fillStyle = '#2b211b';
-    if (pad.id === 'low') {
-      ctx.fillRect(pad.x - 11, pad.y - 1, 22, 8);
-      ctx.fillStyle = '#f1c27a';
-      ctx.fillRect(pad.x - 8, pad.y, 16, 3);
-    } else if (pad.id === 'mid') {
-      ctx.fillRect(pad.x - 7, pad.y - 4, 14, 12);
-      ctx.fillStyle = '#fff0a8';
-      ctx.fillRect(pad.x - 4, pad.y - 2, 8, 4);
-    } else {
-      ctx.fillRect(pad.x - 11, pad.y + 4, 22, 3);
-      ctx.fillRect(pad.x + 7, pad.y - 9, 4, 13);
-      ctx.fillStyle = '#e6dcff';
-      ctx.fillRect(pad.x - 8, pad.y + 3, 8, 1);
-    }
-  }
-
   function drawRhythmHumPulses(ctx, now) {
     runtime.minigame.pulses = runtime.minigame.pulses.filter(function(pulse) {
-      return now - Number(pulse.startedAt) < 360;
+      return now - Number(pulse.startedAt) < 420;
     });
     runtime.minigame.pulses.forEach(function(pulse) {
-      const pad = getRhythmHumPads().find(function(item) { return item.id === pulse.id; });
-      if (!pad) {
+      const lane = getRhythmHumLane(pulse.expected || pulse.lane);
+      if (!lane) {
         return;
       }
-      const progress = Math.max(0, now - Number(pulse.startedAt)) / 360;
+      const progress = Math.max(0, now - Number(pulse.startedAt)) / 420;
+      const good = ['perfect', 'good', 'ok'].indexOf(pulse.judgment) !== -1;
       ctx.globalAlpha = 1 - progress;
-      ctx.fillStyle = pulse.good ? pulse.fullLoop ? '#fff0a8' : '#e6dcff' : '#9b2f33';
-      const reach = pulse.fullLoop ? 24 : 18;
-      ctx.fillRect(pad.x - 4 - Math.round(progress * reach / 2), pad.y - 31, 8 + Math.round(progress * reach), 2);
-      ctx.fillRect(pad.x - 1, pad.y - 34 - Math.round(progress * reach / 2), 2, 8 + Math.round(progress * reach));
-      if (pulse.fullLoop) {
+      ctx.fillStyle = good ? pulse.judgment === 'perfect' ? '#fff0a8' : lane.light : '#b64747';
+      const reach = pulse.judgment === 'perfect' ? 26 : 18;
+      ctx.fillRect(lane.x - 17 - Math.round(progress * reach / 2), lane.hitY - 12 - Math.round(progress * 5), 34 + Math.round(progress * reach), 2);
+      ctx.fillRect(lane.x - 17 - Math.round(progress * reach / 2), lane.hitY + 10 + Math.round(progress * 5), 34 + Math.round(progress * reach), 2);
+      ctx.fillRect(lane.x - 21 - Math.round(progress * 5), lane.hitY - 9, 2, 18);
+      ctx.fillRect(lane.x + 19 + Math.round(progress * 5), lane.hitY - 9, 2, 18);
+      if (pulse.judgment === 'perfect') {
         ctx.globalAlpha = (1 - progress) * 0.55;
-        ctx.fillRect(pad.x - 32, pad.y + 24, 64, 2);
-        ctx.fillRect(pad.x - 22, pad.y + 30, 44, 2);
+        ctx.fillRect(lane.x - 24, lane.hitY + 14, 48, 2);
       }
       ctx.globalAlpha = 1;
     });
   }
 
   function getRhythmPadColor(id) {
-    if (id === 'low') {
-      return { mid: '#c79452', active: '#d69b55', top: '#f1c27a', light: '#fff0a8' };
-    }
-    if (id === 'mid') {
-      return { mid: '#6f9f68', active: '#7dbb74', top: '#b9e48b', light: '#e6ffd0' };
-    }
-    return { mid: '#8c7ad9', active: '#a192f0', top: '#cbbfff', light: '#e6dcff' };
+    const lane = getRhythmHumLaneDef(id);
+    return {
+      mid: lane.color,
+      active: lane.light,
+      top: lane.light,
+      light: lane.light
+    };
   }
 
   function getRhythmHumPadAt(x, y) {
     return getRhythmHumPads().find(function(pad) {
-      return Math.abs(pad.x - x) <= 28 && Math.abs(pad.y - y) <= 24;
+      return Math.abs(pad.x - x) <= 24 && Math.abs(pad.y - y) <= 22;
     }) || null;
   }
 
   function getRhythmHumPads() {
-    return [
-      { id: 'low', x: 54, y: 78, label: 'BUM' },
-      { id: 'mid', x: 120, y: 72, label: 'TA' },
-      { id: 'high', x: 186, y: 78, label: 'TIN' }
-    ];
+    if (!dom.rhythmHumCanvas) {
+      return [];
+    }
+    return getRhythmHumLanes(dom.rhythmHumCanvas.width, dom.rhythmHumCanvas.height).map(function(lane) {
+      return { id: lane.id, x: lane.x, y: lane.padY, label: lane.label };
+    });
+  }
+
+  function getRhythmHumLanes(width, height) {
+    const available = Math.max(180, width - 26);
+    const laneWidth = Math.floor(available / RHYTHM_HUM_LANE_DEFS.length);
+    const startX = Math.round((width - laneWidth * RHYTHM_HUM_LANE_DEFS.length) / 2);
+    return RHYTHM_HUM_LANE_DEFS.map(function(def, index) {
+      return Object.assign({}, def, {
+        x: Math.round(startX + laneWidth * index + laneWidth / 2),
+        topY: 31,
+        hitY: height - 47,
+        padY: height - 30,
+        width: Math.max(36, laneWidth - 6)
+      });
+    });
+  }
+
+  function getRhythmHumLane(id) {
+    if (!dom.rhythmHumCanvas) {
+      return null;
+    }
+    return getRhythmHumLanes(dom.rhythmHumCanvas.width, dom.rhythmHumCanvas.height).find(function(lane) {
+      return lane.id === id;
+    }) || null;
+  }
+
+  function getRhythmHumLaneDef(id) {
+    return RHYTHM_HUM_LANE_DEFS.find(function(lane) {
+      return lane.id === id;
+    }) || RHYTHM_HUM_LANE_DEFS[0];
   }

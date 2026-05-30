@@ -1,8 +1,8 @@
 # Pieczargotchi Next Steps
 
 Last updated: 2026-05-30
-Local app version for this checkpoint: `0.1.28`
-State version: `13`
+Local app version for this checkpoint: `0.1.32`
+State version: `14`
 Primary preview target: Cloudflare static build
 
 This is the current start-here document for the next Pieczargotchi work. Older
@@ -12,8 +12,11 @@ should start here first.
 Latest release QA baseline: `docs/RELEASE_QA_BASELINE_2026-05-30.md`.
 Latest journal/calendar polish: `docs/JOURNAL_CALENDAR_POLISH_2026-05-30.md`.
 Latest world-scene QA: `docs/WORLD_SCENE_QA_2026-05-30.md`.
-Recommended next implementation slice: Cloudflare release smoke and any focused
-fixes found after public preview feedback.
+Latest long-loop retention slice: `docs/LONG_LOOP_RETENTION_2026-05-30.md`.
+Latest minigame retention polish: `docs/MINIGAME_RETENTION_POLISH_2026-05-30.md`.
+Recommended next implementation slice: Cloudflare release smoke and focused
+fixes found after public preview feedback on the new `Grzybnia` loop and
+minigame polish.
 
 ## 1. Current Baseline
 
@@ -26,7 +29,9 @@ Current major systems:
 - first-run mushroom naming gate and visible build badge;
 - care loop with attention calls, quiet hours, morning grace, recovery, game
   over, cooldowns, daily rhythm, daily plan, care history, relationship history,
-  spores, decorations, minigames, evolution variants, journal, and calendar;
+  spores, decorations, minigames, evolution variants, journal, calendar,
+  daily finales, rare grzybnia visitors, mementos, spore expeditions, seasonal
+  progress, and legendary projects;
 - Cloudflare static bundle generated from the Apps Script partial app;
 - five growth stages: `spore`, `baby`, `young`, `adult`, `legendary`;
 - 34 state animation sheets per growth stage, documented in
@@ -77,7 +82,7 @@ Known doc conflicts to resolve later:
 - `docs/CALENDAR_EVENTS_POLISH_PLAN.md` still labels the original calendar
   build slice as `0.1.5`; the feature has since moved forward with the app.
 - Some `PROJECT_STATE_*` notes reference older state versions, while current
-  live state version is `13`.
+  live state version is `14`.
 
 ## 3. Subagent Workstreams For The Next Audit
 
@@ -314,6 +319,7 @@ Acceptance:
 - `Łapanie rosy` reads as bucket-catching falling water drops;
 - `Pękanie zarodników`, `Sortowanie kompostu`, and `Rytmiczne nucenie` have
   clear pixel-art goals and feedback;
+- `Rytmiczne nucenie` uses arrow-key timing, not mouse-click scoring;
 - opportunities are not spammy;
 - rewards are meaningful but bounded;
 - minigames are optional charm, not mandatory chores.

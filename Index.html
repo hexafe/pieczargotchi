@@ -104,6 +104,7 @@
               <div>
                 <strong>Łapanie rosy</strong>
                 <span data-minigame-last="dewCatch">0 kropli</span>
+                <span class="minigame-mastery" data-minigame-mastery="dewCatch">Rekord 0 · cel 24</span>
               </div>
               <button class="ghost-button" type="button" data-minigame-start="dewCatch">Start</button>
             </div>
@@ -111,6 +112,7 @@
               <div>
                 <strong>Pękanie zarodników</strong>
                 <span data-minigame-last="sporePop">0 zarodników</span>
+                <span class="minigame-mastery" data-minigame-mastery="sporePop">Rekord 0 · cel 20</span>
               </div>
               <button class="ghost-button" type="button" data-minigame-start="sporePop">Start</button>
             </div>
@@ -118,6 +120,7 @@
               <div>
                 <strong>Sortowanie kompostu</strong>
                 <span data-minigame-last="compostSort">0 kawałków</span>
+                <span class="minigame-mastery" data-minigame-mastery="compostSort">Rekord 0 · cel 18</span>
               </div>
               <button class="ghost-button" type="button" data-minigame-start="compostSort">Start</button>
             </div>
@@ -125,6 +128,7 @@
               <div>
                 <strong>Rytmiczne nucenie</strong>
                 <span data-minigame-last="rhythmHum">0 nut</span>
+                <span class="minigame-mastery" data-minigame-mastery="rhythmHum">Rekord 0 · cel 8</span>
               </div>
               <button class="ghost-button" type="button" data-minigame-start="rhythmHum">Start</button>
             </div>
@@ -163,9 +167,21 @@
               <div class="minigame-hud">
                 <span data-minigame-score>0 kropli</span>
                 <span data-minigame-time>0 s</span>
+                <span data-minigame-combo>Seria x0</span>
                 <button class="ghost-button" type="button" data-minigame-end>Zakończ</button>
+                <span class="minigame-progress" aria-hidden="true">
+                  <i data-minigame-progress></i>
+                </span>
               </div>
             </div>
+          </section>
+
+          <section class="panel-block panel-block--long-loop" data-care-panel>
+            <div class="block-heading">
+              <h2>Grzybnia</h2>
+              <span data-long-loop-status>0 pamiątek</span>
+            </div>
+            <div class="long-loop-grid" data-long-loop-dashboard></div>
           </section>
 
           <section class="panel-block panel-block--compact panel-block--resources" data-care-panel>

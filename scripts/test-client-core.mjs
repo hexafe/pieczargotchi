@@ -389,15 +389,15 @@ test('corrupted save shape falls back to a normal migration target', () => {
   assert(migrated.battle && migrated.battle.rewards.wins === 0, 'expected normalized battle rewards');
 });
 
-test('v2 saves migrate to v13 progression history, discoveries, evolution, minigames, decorations, daily rhythm, journal, return recap, relationship, naming gate, and calendar', () => {
+test('v2 saves migrate to v14 progression history, discoveries, evolution, minigames, decorations, daily rhythm, journal, return recap, relationship, naming gate, calendar, and long loop', () => {
   const migrated = core.migrateStateVersion({
     version: 2,
     stage: 'adult',
     stats: { growth: 70 },
     history: { actionsPerformed: { hydrate: 2 } }
-  }, 13);
+  }, 14);
 
-  assert(migrated.version === 13, `expected version 13, got ${migrated.version}`);
+  assert(migrated.version === 14, `expected version 14, got ${migrated.version}`);
   assert(migrated.mushroomName === '', 'expected unnamed default mushroom for first-run naming gate');
   assert(migrated.flags && migrated.flags.nameConfirmed === false, 'expected name confirmation flag to default to false');
   assert(migrated.history.actionsPerformed.hydrate === 2, 'expected action history to survive migration');
@@ -417,6 +417,8 @@ test('v2 saves migrate to v13 progression history, discoveries, evolution, minig
   assert(migrated.relationship && Array.isArray(migrated.relationship.entries), 'expected relationship defaults');
   assert(migrated.journal && Array.isArray(migrated.journal.entries), 'expected world journal defaults');
   assert(migrated.returnRecap && Array.isArray(migrated.returnRecap.entries), 'expected return recap defaults');
+  assert(migrated.longLoop && migrated.longLoop.mementos && migrated.longLoop.mastery, 'expected long-loop defaults');
+  assert(migrated.longLoop.expeditions && migrated.longLoop.expeditions.active === null, 'expected empty expedition state');
 });
 
 test('custom mushroom names survive migration as confirmed names', () => {
@@ -424,9 +426,9 @@ test('custom mushroom names survive migration as confirmed names', () => {
     version: 11,
     mushroomName: 'Borowik',
     flags: {}
-  }, 13);
+  }, 14);
 
-  assert(migrated.version === 13, `expected version 13, got ${migrated.version}`);
+  assert(migrated.version === 14, `expected version 14, got ${migrated.version}`);
   assert(migrated.mushroomName === 'Borowik', `expected custom name to survive, got ${migrated.mushroomName}`);
   assert(migrated.flags && migrated.flags.nameConfirmed === true, 'expected custom legacy name to count as confirmed');
 });
@@ -450,6 +452,97 @@ test('daily care plan is deterministic and completes matching actions once', () 
   assert(first.state.dailyPlan.completed['attention-hydration'], 'expected hydration goal to be marked complete');
   assert(second.completed.length === 0, 'expected repeated action not to duplicate completion');
   assert(first.state.patch.quality > state.patch.quality, 'expected daily goal reward to improve patch quality');
+});
+
+test('long-loop daily finale creates one memento after completing the care plan', () => {
+  const now = Date.parse('2026-05-21T08:00:00.000Z');
+  const rules = getGameplayLoopTestRules();
+  const scene = { dayPhase: 'morning', humidity: 88, precipitation: 0, rain: 0, condition: 'clear' };
+  const state = core.ensureDailyPlan(getGameplayLoopTestState({
+    stats: { hydration: 82, nutrients: 78, energy: 80, happiness: 76, cleanliness: 80, health: 90, growth: 18 }
+  }), rules, now, scene);
+  const plan = core.getDailyCarePlan(state, rules, now, scene);
+  state.dailyPlan.completed = plan.goals.reduce((result, goal) => {
+    result[goal.id] = { at: new Date(now).toISOString(), title: goal.title };
+    return result;
+  }, {});
+
+  const first = core.updateLongLoopProgress(state, { type: 'action', actionId: 'hydrate' }, rules, now + 1000, scene);
+  const second = core.updateLongLoopProgress(first.state, { type: 'action', actionId: 'feed' }, rules, now + 2000, scene);
+
+  assert(first.state.longLoop.dailyEpisode.completedAt, 'expected daily finale timestamp');
+  assert(first.state.longLoop.mementos.owned['daily-2026-05-21'], 'expected daily finale memento');
+  assert(first.state.longLoop.season.points === 4, `expected four season points, got ${first.state.longLoop.season.points}`);
+  assert(second.state.longLoop.season.points === 4, 'daily finale should not reward twice');
+});
+
+test('long-loop habitat visitor can be greeted once per day and leaves a memento', () => {
+  const now = Date.parse('2026-05-21T09:00:00.000Z');
+  const rules = getGameplayLoopTestRules();
+  const scene = { dayPhase: 'morning', condition: 'clear', isDay: true };
+  const state = getGameplayLoopTestState({
+    decorations: { owned: ['dewStone'], active: ['dewStone'] }
+  });
+  const dashboard = core.getLongLoopDashboard(state, rules, now, scene);
+  const visitor = dashboard.visitor;
+  const greeted = core.greetHabitatVisitor(state, visitor && visitor.id, rules, now, scene);
+  const after = core.getLongLoopDashboard(greeted.state, rules, now + 1000, scene);
+
+  assert(visitor && visitor.id === 'dewSnail', `expected dew snail visitor, got ${visitor && visitor.id}`);
+  assert(greeted.ok, `expected visitor greeting to succeed: ${greeted.reason}`);
+  assert(greeted.state.longLoop.visitors.seen.dewSnail.count === 1, 'expected visitor seen count');
+  assert(greeted.state.longLoop.mementos.owned['memento-dew-snail'], 'expected visitor memento');
+  assert(after.visitor && after.visitor.available === false, 'expected visitor to be unavailable after greeting today');
+});
+
+test('long-loop minigame mastery tracks perfect scores and practice badges', () => {
+  const now = Date.parse('2026-05-21T10:00:00.000Z');
+  const rules = getGameplayLoopTestRules();
+  const state = getGameplayLoopTestState();
+  const first = core.updateLongLoopProgress(state, { type: 'minigame', minigameId: 'dewCatch', score: 24 }, rules, now, {});
+  const second = core.updateLongLoopProgress(first.state, { type: 'minigame', minigameId: 'dewCatch', score: 24 }, rules, now + 1000, {});
+
+  const mastery = second.state.longLoop.mastery.minigames.dewCatch;
+  assert(mastery.plays === 2, `expected two mastery plays, got ${mastery.plays}`);
+  assert(mastery.perfects === 2, `expected two perfects, got ${mastery.perfects}`);
+  assert(mastery.badges.includes('perfect'), 'expected perfect badge');
+  assert(second.state.longLoop.mementos.owned['mastery-dewCatch-perfect'], 'expected minigame mastery memento');
+});
+
+test('long-loop spore expeditions spend spores, return rewards, and store keepsakes', () => {
+  const now = Date.parse('2026-05-21T11:00:00.000Z');
+  const rules = getGameplayLoopTestRules();
+  const state = getGameplayLoopTestState({ inventory: { spores: 3, substrate: 0 }, coins: 3 });
+  const started = core.startSporeExpedition(state, 'shortMossTrail', rules, now);
+  const early = core.claimSporeExpedition(started.state, rules, now + 5 * 60000);
+  const claimed = core.claimSporeExpedition(started.state, rules, now + 26 * 60000);
+
+  assert(started.ok, `expected expedition start: ${started.reason}`);
+  assert(started.state.inventory.spores === 2, `expected spent spore, got ${started.state.inventory.spores}`);
+  assert(!early.ok, 'expected early expedition claim to be blocked');
+  assert(claimed.ok, `expected expedition claim: ${claimed.reason}`);
+  assert(claimed.state.longLoop.expeditions.active === null, 'expected active expedition to clear');
+  assert(claimed.state.longLoop.expeditions.completed.length === 1, 'expected completed expedition history');
+  assert(claimed.state.longLoop.mementos.owned['memento-moss-map'], 'expected expedition memento');
+});
+
+test('long-loop legendary projects finish at the legendary stage', () => {
+  const now = Date.parse('2026-05-21T12:00:00.000Z');
+  const rules = getGameplayLoopTestRules();
+  const state = getGameplayLoopTestState({
+    stage: 'legendary',
+    stats: { growth: 120 },
+    longLoop: {
+      legendaryProjects: {
+        progress: { dewGarden: { points: 17 } },
+        completed: {}
+      }
+    }
+  });
+  const result = core.updateLongLoopProgress(state, { type: 'action', actionId: 'hydrate' }, rules, now, {});
+
+  assert(result.state.longLoop.legendaryProjects.completed.dewGarden, 'expected legendary project completion');
+  assert(result.state.longLoop.mementos.owned['memento-dew-garden'], 'expected legendary memento');
 });
 
 test('daily rhythm selection reshapes the same-day care plan once', () => {
@@ -1436,6 +1529,7 @@ test('minigame completion grants bounded rewards and records play history', () =
         label: 'Łapanie rosy',
         durationMs: 20000,
         dropCount: 18,
+        masteryTarget: 26,
         rewards: {
           hydrationBase: 4,
           hydrationPerCatch: 2,
@@ -1462,6 +1556,9 @@ test('minigame completion grants bounded rewards and records play history', () =
   assert(result.state.inventory.spores === 1, 'expected score-based spore reward');
   assert(result.state.history.minigames.dewCatch.plays === 1, 'expected minigame play history');
   assert(result.state.history.minigames.dewCatch.bestScore === 20, 'expected best score history');
+  assert(result.state.minigames.lastResult.targetScore === 26, 'expected configured mastery target in last result');
+  assert(result.state.minigames.lastResult.tier === 'near', `expected near tier, got ${result.state.minigames.lastResult.tier}`);
+  assert(result.state.minigames.lastResult.newBest, 'expected first scored run to become a new best');
 });
 
 test('spore pop grants bounded happiness and spores without hydration', () => {
@@ -2279,7 +2376,7 @@ function getGameplayLoopTestRules() {
 
 function getGameplayLoopTestState(overrides = {}) {
   return {
-    version: 13,
+    version: 14,
     playerId: 'test-player',
     mushroomName: overrides.mushroomName || 'Testek',
     createdAt: overrides.createdAt || '2026-05-20T08:00:00.000Z',
@@ -2317,6 +2414,7 @@ function getGameplayLoopTestState(overrides = {}) {
     decorations: overrides.decorations || { owned: [], active: [] },
     discoveries: overrides.discoveries || { sky: {}, environment: {}, instruments: {}, calendar: {} },
     returnRecap: overrides.returnRecap || { lastSeenAt: null, lastDigestAt: null, entries: [] },
+    longLoop: overrides.longLoop || {},
     inventory: overrides.inventory || { spores: 12 },
     coins: overrides.coins ?? 12,
     cooldowns: overrides.cooldowns || {}

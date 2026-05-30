@@ -63,6 +63,7 @@
     result.decorations = Object.assign({}, base.decorations, override.decorations || {});
     result.discoveries = Object.assign({}, base.discoveries, override.discoveries || {});
     result.returnRecap = Object.assign({}, base.returnRecap, override.returnRecap || {});
+    result.longLoop = Object.assign({}, base.longLoop, override.longLoop || {});
     result.cooldowns = Object.assign({}, base.cooldowns, override.cooldowns || {});
     result.flags = Object.assign({}, base.flags, override.flags || {});
     result.log = Array.isArray(override.log) ? override.log.slice(0, rules.maxLogEntries || 8) : base.log;
@@ -120,6 +121,7 @@
       state.decorations = state.decorations || { owned: [], active: [] };
       state.discoveries = normalizeDiscoveriesForRuntime(state.discoveries || {});
       state.returnRecap = state.returnRecap || { lastSeenAt: null, lastDigestAt: null, entries: [] };
+      state.longLoop = state.longLoop || {};
       return state;
     }
 
@@ -134,6 +136,7 @@
     state.decorations = normalized.decorations;
     state.discoveries = normalized.discoveries || normalizeDiscoveriesForRuntime(state.discoveries || {});
     state.returnRecap = normalized.returnRecap || state.returnRecap || { lastSeenAt: null, lastDigestAt: null, entries: [] };
+    state.longLoop = normalized.longLoop || state.longLoop || {};
     state.recovery = normalized.recovery || normalizeRecovery(state.recovery || {});
     state.gameOver = normalized.gameOver || normalizeGameOver(state.gameOver || {});
     return state;

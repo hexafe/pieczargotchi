@@ -35,6 +35,7 @@ const requiredSourceFiles = [
   'ClientCoreImmersion.html',
   'ClientCoreProgression.html',
   'ClientCoreGameplay.html',
+  'ClientCoreLongLoop.html',
   'ClientCoreMinigames.html',
   'ClientCoreExports.html',
   'ClientBoot.html',
@@ -82,6 +83,7 @@ const expectedCoreIncludes = [
   'ClientCoreImmersion',
   'ClientCoreProgression',
   'ClientCoreGameplay',
+  'ClientCoreLongLoop',
   'ClientCoreMinigames',
   'ClientCoreExports'
 ];
@@ -283,7 +285,7 @@ function checkStaticConfig() {
   if (config.storageKey !== 'pieczargotchi_state_v2') {
     fail(`Unexpected storage key: ${config.storageKey}`);
   }
-  if (config.stateVersion !== 13) {
+  if (config.stateVersion !== 14) {
     fail(`Unexpected state version: ${config.stateVersion}`);
   }
   if (!config.runtime || config.runtime.debugEnabled !== false) {
@@ -440,8 +442,8 @@ function checkGameplayLoopIteration2Config(config) {
     return;
   }
 
-  if (config.stateVersion !== 13 || config.state.version !== config.stateVersion || state.version !== config.stateVersion) {
-    fail('Named first-run flow requires state version 13 across static config and default state.');
+  if (config.stateVersion !== 14 || config.state.version !== config.stateVersion || state.version !== config.stateVersion) {
+    fail('Named first-run flow requires state version 14 across static config and default state.');
   }
 
   if (state.mushroomName !== '') {

@@ -726,35 +726,63 @@
   }
 
   function drawPixelMoon(ctx, moon) {
-    const block = Math.max(3, Math.round(moon.size / 9));
-    const radius = moon.size / 2;
-    const center = moon.size / 2;
+    const grid = getMoonCellGrid(moon.size);
+    const block = grid.block;
+    const inheritedAlpha = ctx.globalAlpha;
+    const lightColor = getMoonLightColor(moon.phase.illumination);
+    const rimColor = getMoonRimColor(moon.phase.illumination);
+    const shadowColor = getMoonShadowColor(moon.phase.illumination);
 
-    for (let y = 0; y < moon.size; y += block) {
-      for (let x = 0; x < moon.size; x += block) {
-        const centerX = x + block / 2;
-        const centerY = y + block / 2;
-        const dx = centerX - center;
-        const dy = centerY - center;
-        if (dx * dx + dy * dy > radius * radius) {
+    ctx.save();
+    for (let row = 0; row < grid.cellCount; row += 1) {
+      const cellY = grid.start + row * block;
+      for (let column = 0; column < grid.cellCount; column += 1) {
+        const cellX = grid.start + column * block;
+        const centerX = cellX + block / 2;
+        const centerY = cellY + block / 2;
+        const dx = centerX - grid.center;
+        const dy = centerY - grid.center;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance > grid.radius + block * 0.08) {
           continue;
         }
 
-        const normalizedX = dx / radius;
-        const normalizedY = dy / radius;
-        const lit = isMoonBlockLit(normalizedX, normalizedY, moon.phase);
+        const normalizedX = dx / grid.radius;
+        const normalizedY = dy / grid.radius;
+        const lit = getMoonCellLight(normalizedX, normalizedY, moon.phase);
+        if (!lit && moon.phase.illumination > 0.18) {
+          ctx.globalAlpha = inheritedAlpha * (0.12 + moon.phase.illumination * 0.08);
+          ctx.fillStyle = shadowColor;
+          ctx.fillRect(moon.x + Math.floor(cellX), moon.y + Math.floor(cellY), block, block);
+          continue;
+        }
         if (!lit) {
           continue;
         }
 
-        ctx.fillStyle = getMoonLightColor(moon.phase.illumination);
-        ctx.fillRect(moon.x + x, moon.y + y, block, block);
+        ctx.globalAlpha = inheritedAlpha * (distance > grid.radius - block * 1.35 ? 0.82 : 1);
+        ctx.fillStyle = distance > grid.radius - block * 1.5 ? rimColor : lightColor;
+        ctx.fillRect(moon.x + Math.floor(cellX), moon.y + Math.floor(cellY), block, block);
       }
     }
+    drawMoonCraters(ctx, moon, block, inheritedAlpha);
+    ctx.restore();
   }
 
-  function isMoonBlockLit(normalizedX, normalizedY, phase) {
-    const illumination = phase.illumination;
+  function getMoonCellGrid(size) {
+    const block = Math.max(2, Math.floor(size / 12));
+    const cellCount = Math.max(1, Math.floor(size / block));
+    return {
+      block: block,
+      cellCount: cellCount,
+      start: size / 2 - (cellCount * block) / 2,
+      center: size / 2,
+      radius: size / 2 - block * 0.35
+    };
+  }
+
+  function getMoonCellLight(normalizedX, normalizedY, phase) {
+    const illumination = clamp(Number(phase && phase.illumination), 0, 1, 0);
     if (illumination >= 0.97) {
       return true;
     }
@@ -762,9 +790,16 @@
       return false;
     }
 
-    const surfaceDepth = Math.sqrt(Math.max(0, 1 - normalizedX * normalizedX - normalizedY * normalizedY));
-    const phaseAngle = phase.fraction * Math.PI * 2;
-    return normalizedX * Math.sin(phaseAngle) - surfaceDepth * Math.cos(phaseAngle) > 0;
+    const lightSide = phase && phase.waxing ? 1 : -1;
+    const signedX = normalizedX * lightSide;
+    const phaseProgress = illumination <= 0.5
+      ? Math.sqrt(illumination / 0.5)
+      : Math.sqrt((illumination - 0.5) / 0.5);
+    const threshold = illumination <= 0.5
+      ? 0.82 * (1 - phaseProgress)
+      : -0.82 * phaseProgress;
+    const edgeCurve = Math.abs(normalizedY) * Math.abs(normalizedY) * (0.18 + (1 - illumination) * 0.16);
+    return signedX >= threshold + edgeCurve;
   }
 
   function getMoonLightColor(illumination) {
@@ -775,6 +810,47 @@
       return '#f5f0c8';
     }
     return '#d9dfbc';
+  }
+
+  function getMoonRimColor(illumination) {
+    if (illumination > 0.82) {
+      return '#fffdf0';
+    }
+    if (illumination > 0.45) {
+      return '#fff6d4';
+    }
+    return '#eef0c9';
+  }
+
+  function getMoonShadowColor(illumination) {
+    if (illumination > 0.72) {
+      return '#aab19a';
+    }
+    if (illumination > 0.38) {
+      return '#8f9a8a';
+    }
+    return '#748374';
+  }
+
+  function drawMoonCraters(ctx, moon, block, inheritedAlpha) {
+    if (!moon.phase || moon.phase.illumination < 0.38) {
+      return;
+    }
+
+    [
+      { x: -0.24, y: -0.18, w: 1, h: 1 },
+      { x: 0.18, y: -0.34, w: 2, h: 1 },
+      { x: 0.28, y: 0.20, w: 1, h: 1 }
+    ].forEach(function(crater) {
+      if (!getMoonCellLight(crater.x, crater.y, moon.phase)) {
+        return;
+      }
+      const x = Math.round(moon.x + moon.size / 2 + crater.x * moon.size / 2);
+      const y = Math.round(moon.y + moon.size / 2 + crater.y * moon.size / 2);
+      ctx.globalAlpha = inheritedAlpha * 0.26;
+      ctx.fillStyle = '#b8b996';
+      ctx.fillRect(x, y, Math.max(block, block * crater.w), Math.max(block, block * crater.h));
+    });
   }
 
   function getHorizontalCoordinates(date, latitude, longitude, coordinates) {
