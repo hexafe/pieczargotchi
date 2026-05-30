@@ -35,6 +35,12 @@
     }
 
     const score = clampInteger(session.score, 0, 999, 0);
+    const bestCombo = clampInteger(session.bestCombo, 0, 999, 0);
+    const mistakes = clampInteger(session.mistakes, 0, 999, 0);
+    const previousBest = state.history && state.history.minigames && state.history.minigames[session.id]
+      ? clampInteger(state.history.minigames[session.id].bestScore, 0, 999999, 0)
+      : 0;
+    const targetScore = getMinigameTargetScoreCore(session.id, config);
     const rewards = calculateMinigameRewardsCore(config, score);
     state.stats = Object.assign({}, state.stats || {});
     Object.keys(rewards.stats).forEach(function(stat) {
@@ -65,6 +71,12 @@
       lastResult: {
         id: session.id,
         score: score,
+        previousBest: previousBest,
+        newBest: score > previousBest,
+        bestCombo: bestCombo,
+        mistakes: mistakes,
+        targetScore: targetScore,
+        tier: getMinigameResultTierCore(score, targetScore, mistakes),
         rewards: rewards,
         endedAt: new Date(timestamp).toISOString()
       }
@@ -126,6 +138,41 @@
       inventory: removeZeroDeltas(inventory),
       spores: calculateMinigameSporeRewardCore(rewardRules, score)
     };
+  }
+
+  function getMinigameTargetScoreCore(minigameId, config) {
+    const source = config || {};
+    if (Number(source.masteryTarget)) {
+      return Math.max(1, Math.floor(Number(source.masteryTarget)));
+    }
+    if (minigameId === 'dewCatch') {
+      return Math.max(1, Math.floor(Number(source.dropCount) || 24));
+    }
+    if (minigameId === 'sporePop') {
+      return Math.max(1, Math.floor(Number(source.targetCount) || 20));
+    }
+    if (minigameId === 'compostSort') {
+      return Math.max(1, Math.floor(Number(source.pieceCount) || 18));
+    }
+    if (minigameId === 'rhythmHum') {
+      return Math.max(1, Math.floor((Number(source.beatCount) || 8) * 3));
+    }
+    return 10;
+  }
+
+  function getMinigameResultTierCore(score, targetScore, mistakes) {
+    const target = Math.max(1, Number(targetScore) || 1);
+    const ratio = Math.max(0, Number(score) || 0) / target;
+    if (ratio >= 1 && !mistakes) {
+      return 'perfect';
+    }
+    if (ratio >= 1) {
+      return 'clear';
+    }
+    if (ratio >= 0.72) {
+      return 'near';
+    }
+    return 'practice';
   }
 
   function calculateMinigameSporeRewardCore(rewardRules, score) {

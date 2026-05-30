@@ -15,6 +15,7 @@ const captureDelayMs = Number.isFinite(captureDelayOverride) ? Math.max(0, captu
 const captureAppsScriptNoAssets = process.env.PIECZARGOTCHI_CAPTURE_APPS_SCRIPT_NO_ASSETS === '1';
 const captureBeforeAssets = process.env.PIECZARGOTCHI_CAPTURE_BEFORE_ASSETS === '1';
 const captureAllMinigames = process.env.PIECZARGOTCHI_CAPTURE_ALL_MINIGAMES === '1';
+const captureMinigamePanelScreens = process.env.PIECZARGOTCHI_CAPTURE_MINIGAME_PANEL === '1';
 const captureJournal = process.env.PIECZARGOTCHI_CAPTURE_JOURNAL === '1';
 const captureJournalDiscoveryId = String(process.env.PIECZARGOTCHI_CAPTURE_JOURNAL_DISCOVERY || 'aurora').trim() || 'aurora';
 const debugCalendarEvent = String(process.env.PIECZARGOTCHI_DEBUG_CALENDAR_EVENT || '').trim();
@@ -389,8 +390,10 @@ try {
       canvasSelector: '[data-rhythm-hum-canvas]',
       seed: 616161,
       habitatTags: { music: 1 },
+      startedOffsetMs: 1200,
       detailKey: 'pattern',
       detailMin: 5,
+      interactionMinScore: 1,
       domainPixelName: 'padPixels',
       domainPixelExpression: `(r > 95 && g > 55 && b < 230 && (r - b > 12 || b - g > 24))`
     });
@@ -805,13 +808,14 @@ async function captureDewMinigame(cdp) {
   writeFileSync(filePath, png);
   console.log(`dew-catch: ${filePath}`);
   console.log(`dew-catch diagnostics: ${JSON.stringify(info)}`);
+  if (captureMinigamePanelScreens) {
+    await captureMinigamePanel(cdp, { fileLabel: 'dew-catch', label: 'Łapanie rosy' });
+  }
 }
 
 async function captureConfiguredMinigame(cdp, sample) {
-  const now = captureDebugSettings && Number.isFinite(Number(captureDebugSettings.fixedAt))
-    ? Number(captureDebugSettings.fixedAt)
-    : Date.now();
-  const startedAt = now - 3600;
+  const now = Date.now();
+  const startedAt = now - Math.max(0, Number(sample.startedOffsetMs) || 3600);
   const stateExpression = `(() => {
     const config = window.PIECZARGOTCHI_CONFIG;
     const state = JSON.parse(JSON.stringify(config.state.defaultState));
@@ -844,12 +848,21 @@ async function captureConfiguredMinigame(cdp, sample) {
       habitatTags: ${JSON.stringify(sample.habitatTags || {})}
     };
     localStorage.setItem(config.storageKey, JSON.stringify(state));
+    localStorage.removeItem((config.storageKey || 'pieczargotchi_state_v2') + '_debug');
   })()`;
 
   await cdp.send('Runtime.evaluate', { expression: stateExpression, awaitPromise: true });
   await waitForLoad(cdp, () => cdp.send('Page.reload', { ignoreCache: true }));
   await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.booted && window.__pieczargotchiRuntime.minigame && window.__pieczargotchiRuntime.minigame.session && window.__pieczargotchiRuntime.minigame.session.id === ${JSON.stringify(sample.id)})`, 6000);
   await delay(Math.max(captureDelayMs, 650));
+  const interaction = await performConfiguredMinigameInteraction(cdp, sample);
+  if (interaction && Number.isFinite(Number(interaction.waitMs))) {
+    await delay(Math.max(40, Math.min(1300, Number(interaction.waitMs) || 0)));
+    await performConfiguredMinigameInteraction(cdp, Object.assign({}, sample, { fireInteractionNow: true }));
+    await delay(120);
+  } else if (interaction && interaction.applied) {
+    await delay(120);
+  }
   const diagnostics = await cdp.send('Runtime.evaluate', {
     expression: `(() => {
       const canvas = document.querySelector(${JSON.stringify(sample.canvasSelector)});
@@ -877,6 +890,12 @@ async function captureConfiguredMinigame(cdp, sample) {
         spores: Array.isArray(minigame.spores) ? minigame.spores.length : 0,
         pieces: Array.isArray(minigame.pieces) ? minigame.pieces.length : 0,
         pattern: Array.isArray(minigame.pattern) ? minigame.pattern.length : 0,
+        chart: Array.isArray(minigame.chart) ? minigame.chart.length : 0,
+        judgments: minigame.session && Array.isArray(minigame.session.rhythmJudgments)
+          ? minigame.session.rhythmJudgments.filter(Boolean).length
+          : 0,
+        combo: minigame.session && minigame.session.combo,
+        mistakes: minigame.session && minigame.session.mistakes,
         score: minigame.session && minigame.session.score
       };
     })()`,
@@ -886,6 +905,9 @@ async function captureConfiguredMinigame(cdp, sample) {
   const detail = Number(info[sample.detailKey]) || 0;
   if (info.hidden || info.nonBlank < 8000 || info.domainPixels < 70 || detail < Number(sample.detailMin || 1)) {
     throw new Error(`${sample.label} render looks incomplete: ${JSON.stringify(info)}`);
+  }
+  if (Number(sample.interactionMinScore) && Number(info.score) < Number(sample.interactionMinScore)) {
+    throw new Error(`${sample.label} scripted input did not score: ${JSON.stringify(info)}`);
   }
 
   const result = await cdp.send('Runtime.evaluate', {
@@ -900,6 +922,137 @@ async function captureConfiguredMinigame(cdp, sample) {
   delete outputInfo.domainPixels;
   console.log(`${sample.fileLabel}: ${filePath}`);
   console.log(`${sample.fileLabel} diagnostics: ${JSON.stringify(outputInfo)}`);
+  if (captureMinigamePanelScreens) {
+    await captureMinigamePanel(cdp, sample);
+  }
+}
+
+async function performConfiguredMinigameInteraction(cdp, sample) {
+  if (sample.id === 'rhythmHum') {
+    if (!sample.fireInteractionNow) {
+      const target = await cdp.send('Runtime.evaluate', {
+        expression: `(() => {
+          const runtime = window.__pieczargotchiRuntime || {};
+          const minigame = runtime.minigame || {};
+          const chart = Array.isArray(minigame.chart) ? minigame.chart : [];
+          const judgments = minigame.session && Array.isArray(minigame.session.rhythmJudgments)
+            ? minigame.session.rhythmJudgments
+            : [];
+          const now = Date.now();
+          const note = chart.find((item, index) => !judgments[index] && Number(item.hitAt) > now + 40)
+            || chart.find((item, index) => !judgments[index]);
+          return note ? { waitMs: Math.max(0, Number(note.hitAt) - now), key: note.key } : null;
+        })()`,
+        returnByValue: true
+      });
+      return target.result.value || null;
+    }
+    const result = await cdp.send('Runtime.evaluate', {
+      expression: `(() => {
+        const runtime = window.__pieczargotchiRuntime || {};
+        const minigame = runtime.minigame || {};
+        const chart = Array.isArray(minigame.chart) ? minigame.chart : [];
+        const judgments = minigame.session && Array.isArray(minigame.session.rhythmJudgments)
+          ? minigame.session.rhythmJudgments
+          : [];
+        const now = Date.now();
+        const note = chart.find((item, index) => !judgments[index] && Math.abs(Number(item.hitAt) - now) <= 280)
+          || chart.find((item, index) => !judgments[index]);
+        if (!note) {
+          return { applied: false };
+        }
+        const event = new KeyboardEvent('keydown', { key: note.key, bubbles: true, cancelable: true });
+        const notCanceled = window.dispatchEvent(event);
+        return {
+          applied: true,
+          key: note.key,
+          canceled: !notCanceled,
+          score: minigame.session && minigame.session.score,
+          judgments: minigame.session && minigame.session.rhythmJudgments
+            ? minigame.session.rhythmJudgments.filter(Boolean).length
+            : 0
+        };
+      })()`,
+      returnByValue: true
+    });
+    return result.result.value || null;
+  }
+
+  return null;
+}
+
+async function captureMinigamePanel(cdp, sample) {
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const panel = document.querySelector('.panel-block--minigames');
+      if (panel) {
+        panel.scrollIntoView({ block: 'start', inline: 'nearest' });
+      }
+    })()`,
+    awaitPromise: true
+  });
+  await delay(Math.max(160, captureDelayMs));
+  const diagnostics = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const rectOf = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) {
+          return null;
+        }
+        const rect = element.getBoundingClientRect();
+        return {
+          top: rect.top,
+          left: rect.left,
+          width: rect.width,
+          height: rect.height,
+          bottom: rect.bottom,
+          right: rect.right,
+          visible: rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < innerHeight
+        };
+      };
+      const isClipped = (selector) => {
+        const element = document.querySelector(selector);
+        return Boolean(element && (element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1));
+      };
+      const canvases = Array.from(document.querySelectorAll('[data-dew-catch-canvas], [data-spore-pop-canvas], [data-compost-sort-canvas], [data-rhythm-hum-canvas]'));
+      const visibleCanvases = canvases.filter((canvas) => {
+        const rect = canvas.getBoundingClientRect();
+        return !canvas.hidden && getComputedStyle(canvas).display !== 'none' && rect.width > 0 && rect.height > 0;
+      });
+      const progress = document.querySelector('[data-minigame-progress]');
+      const progressRect = progress ? progress.getBoundingClientRect() : null;
+      return {
+        panel: rectOf('.panel-block--minigames'),
+        hud: rectOf('.minigame-hud'),
+        activeCanvasCount: visibleCanvases.length,
+        scoreText: (document.querySelector('[data-minigame-score]') || {}).textContent || '',
+        timeText: (document.querySelector('[data-minigame-time]') || {}).textContent || '',
+        comboText: (document.querySelector('[data-minigame-combo]') || {}).textContent || '',
+        scoreClipped: isClipped('[data-minigame-score]'),
+        timeClipped: isClipped('[data-minigame-time]'),
+        comboClipped: isClipped('[data-minigame-combo]'),
+        endClipped: isClipped('[data-minigame-end]'),
+        progressVisible: Boolean(progressRect && progressRect.width > 20 && progressRect.height >= 3)
+      };
+    })()`,
+    returnByValue: true
+  });
+  const info = diagnostics.result.value || {};
+  if (
+    !info.panel
+    || !info.panel.visible
+    || !info.hud
+    || !info.hud.visible
+    || info.activeCanvasCount !== 1
+    || info.scoreClipped
+    || info.timeClipped
+    || info.comboClipped
+    || info.endClipped
+    || !info.progressVisible
+  ) {
+    throw new Error(`${sample.label} panel layout looks incomplete: ${JSON.stringify(info)}`);
+  }
+  console.log(`${sample.fileLabel} panel diagnostics: ${JSON.stringify(info)}`);
 }
 
 async function assertArenaUnlockVisibility(cdp) {
@@ -937,7 +1090,13 @@ async function setCaptureGrowth(cdp, growth) {
       state.stats.happiness = 80;
       state.stats.cleanliness = 80;
       state.stats.health = 100;
-      if (${JSON.stringify(captureCalendarChecklist || Boolean(debugCalendarEvent))}) {
+      const requestedDecorations = ${JSON.stringify(captureDecorations)};
+      if (requestedDecorations.length) {
+        state.decorations.owned = requestedDecorations;
+        state.decorations.active = requestedDecorations.filter((item) => item !== 'myceliumCalendar').slice(0, 3);
+        state.inventory.spores = 24;
+        state.coins = 24;
+      } else if (${JSON.stringify(captureCalendarChecklist || Boolean(debugCalendarEvent))}) {
         state.decorations.owned = ['myceliumCalendar', 'cloverPatch', 'sporeLantern'];
         state.decorations.active = ['cloverPatch', 'sporeLantern'];
         state.inventory.spores = 24;

@@ -18,6 +18,7 @@
       ctx: ctx,
       spores: buildSporePopSpores(session),
       bursts: [],
+      floaters: [],
       animationFrame: 0
     };
     ctx.imageSmoothingEnabled = false;
@@ -52,6 +53,7 @@
       }
     });
     drawSporePopBursts(ctx, now);
+    drawMinigameFloaters(ctx, now);
 
     updateMinigameHud(now);
     runtime.minigame.animationFrame = window.requestAnimationFrame(renderSporePopFrame);
@@ -62,6 +64,7 @@
       return;
     }
 
+    event.preventDefault();
     const canvas = dom.sporePopCanvas;
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / Math.max(1, rect.width);
@@ -88,13 +91,15 @@
         kind: 'miss',
         startedAt: now
       });
+      if (typeof pushMinigameFloater === 'function') {
+        pushMinigameFloater('pudło', x, y - 10, 'bad', now);
+      }
       session.combo = 0;
       session.mistakes = (Number(session.mistakes) || 0) + 1;
       syncSporePopActiveSession(true);
       return;
     }
 
-    event.preventDefault();
     session.caught.push(popped.id);
     session.score += Number(popped.points) || 1;
     session.combo = (Number(session.combo) || 0) + 1;
@@ -106,6 +111,12 @@
       points: popped.points,
       startedAt: now
     });
+    if (typeof pushMinigameFloater === 'function') {
+      pushMinigameFloater('+' + (Number(popped.points) || 1), x, y - 12, popped.kind === 'golden' ? 'rare' : 'good', now);
+      if (session.combo >= 5 && session.combo % 5 === 0) {
+        pushMinigameFloater('seria x' + session.combo, x, y - 26, 'combo', now);
+      }
+    }
     triggerEffect('spores');
     syncSporePopActiveSession(true);
     updateMinigameHud(now);
@@ -193,12 +204,27 @@
   }
 
   function drawSporePopTarget(ctx, x, y, spore, position, phase) {
-    const size = Math.max(3, Math.round(spore.size * position.scale));
+    const size = Math.max(5, Math.round((spore.size + 2) * position.scale));
     const glow = Math.sin(phase) * 0.5 + 0.5;
     ctx.save();
     ctx.globalAlpha = Math.max(0.16, position.alpha);
+    ctx.fillStyle = spore.kind === 'golden' ? '#fff0a8' : spore.kind === 'quick' ? '#e6ffd0' : '#fff2a5';
+    ctx.fillRect(Math.round(x - size - 5), Math.round(y - 1), size * 2 + 10, 2);
+    ctx.fillRect(Math.round(x - 1), Math.round(y - size - 5), 2, size * 2 + 10);
+    ctx.globalAlpha = Math.max(0.22, position.alpha * 0.44);
+    ctx.fillStyle = spore.kind === 'golden' ? '#f0b947' : spore.kind === 'quick' ? '#b7d071' : '#d8a356';
+    ctx.fillRect(Math.round(x - size - 2), Math.round(y - size - 2), size * 2 + 4, size * 2 + 4);
+    ctx.globalAlpha = Math.max(0.16, position.alpha);
     ctx.fillStyle = spore.kind === 'golden' ? '#9b6d1f' : spore.kind === 'quick' ? '#5f6f3c' : '#8f6335';
-    ctx.fillRect(Math.round(x - size / 2), Math.round(y - size / 2), size, size);
+    ctx.fillRect(Math.round(x - size / 2 - 1), Math.round(y - size / 2), size + 2, size);
+    if (spore.kind === 'quick') {
+      ctx.fillRect(Math.round(x - size / 2 - 4), Math.round(y - 2), 3, 4);
+      ctx.fillRect(Math.round(x + size / 2 + 2), Math.round(y - 2), 3, 4);
+    }
+    if (spore.kind === 'golden') {
+      ctx.fillRect(Math.round(x - 2), Math.round(y - size / 2 - 5), 4, 4);
+      ctx.fillRect(Math.round(x - 2), Math.round(y + size / 2 + 2), 4, 4);
+    }
     ctx.fillStyle = spore.kind === 'golden' ? '#f0b947' : spore.kind === 'quick' ? '#b7d071' : '#d8a356';
     ctx.fillRect(Math.round(x - size / 2 + 2), Math.round(y - size / 2 + 1), Math.max(2, size - 3), 2);
     ctx.globalAlpha = Math.max(0.14, position.alpha * 0.38);
@@ -229,6 +255,11 @@
         const x = Math.round(burst.x + Math.cos(angle) * radius);
         const y = Math.round(burst.y + Math.sin(angle) * radius);
         ctx.fillRect(x, y, burst.kind === 'miss' ? 1 : 2, burst.kind === 'miss' ? 1 : 2);
+      }
+      if (burst.kind !== 'miss') {
+        ctx.globalAlpha = (1 - progress) * 0.58;
+        ctx.fillRect(Math.round(burst.x - 16 - progress * 8), Math.round(burst.y - 1), 32 + Math.round(progress * 16), 2);
+        ctx.fillRect(Math.round(burst.x - 1), Math.round(burst.y - 16 - progress * 8), 2, 32 + Math.round(progress * 16));
       }
       ctx.restore();
     });

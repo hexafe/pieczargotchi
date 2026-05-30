@@ -49,6 +49,7 @@
         catchPulseUntil: 0
       },
       splashes: [],
+      floaters: [],
       lastFrameAt: getRuntimeNow(),
       animationFrame: 0
     };
@@ -59,6 +60,9 @@
   function stopMinigameRuntime() {
     if (runtime.minigame && runtime.minigame.animationFrame) {
       window.cancelAnimationFrame(runtime.minigame.animationFrame);
+    }
+    if (runtime.minigame && runtime.minigame.keyHandler) {
+      window.removeEventListener('keydown', runtime.minigame.keyHandler);
     }
     runtime.minigame = null;
     setActiveMinigameCanvas(null);
@@ -111,6 +115,7 @@
     drawDewBucket(ctx, runtime.minigame.bucket, canvas.width, canvas.height, now);
     drawDewCatchForegroundGrass(ctx, canvas.width, canvas.height, now, progress);
     updateDewCatchSplashes(ctx, now);
+    drawMinigameFloaters(ctx, now);
 
     updateMinigameHud(now);
     runtime.minigame.animationFrame = window.requestAnimationFrame(renderDewCatchFrame);
@@ -235,11 +240,16 @@
       session.mistakes = (Number(session.mistakes) || 0) + 1;
       session.combo = 0;
       runtime.minigame.bucket.catchPulseUntil = now + 180;
+      pushMinigameFloater('liść', position.x, position.y - 8, 'bad', now);
     } else {
       session.score += Number(drop.points) || 1;
       session.combo = (Number(session.combo) || 0) + 1;
       session.bestCombo = Math.max(Number(session.bestCombo) || 0, Number(session.combo) || 0);
       runtime.minigame.bucket.catchPulseUntil = now + (drop.kind === 'glint' ? 420 : 260);
+      pushMinigameFloater('+' + (Number(drop.points) || 1), position.x, position.y - 8, drop.kind === 'glint' ? 'rare' : 'good', now);
+      if (session.combo >= 4 && session.combo % 4 === 0) {
+        pushMinigameFloater('seria x' + session.combo, position.x, position.y - 22, 'combo', now);
+      }
     }
     runtime.minigame.splashes.push({
       x: position.x,
@@ -451,11 +461,15 @@
 
   function drawDewLeaf(ctx, x, y, size, phase) {
     const tilt = Math.round(Math.sin(phase) * 2);
-    ctx.fillStyle = '#24582c';
+    ctx.fillStyle = '#5a3322';
+    ctx.fillRect(x - size + tilt - 1, y + 6, size * 2, 3);
+    ctx.fillStyle = '#7b4a2e';
+    ctx.fillRect(x + tilt - 1, y + 3, 3, 9);
+    ctx.fillStyle = '#8b5f31';
     ctx.fillRect(x - size + tilt, y + 4, size * 2 - 2, 4);
-    ctx.fillStyle = '#4f8f39';
+    ctx.fillStyle = '#c79452';
     ctx.fillRect(x - size + 2 + tilt, y + 2, size + 4, 3);
-    ctx.fillStyle = '#9fd96a';
+    ctx.fillStyle = '#fff0a8';
     ctx.fillRect(x - 2 + tilt, y + 3, 4, 2);
   }
 
@@ -485,6 +499,8 @@
     ctx.fillRect(x - half + 8, y - 12, bucket.width - 16, 3);
     ctx.fillStyle = '#c79452';
     ctx.fillRect(x - half + 7, y - 10, bucket.width - 14, 2);
+    ctx.fillStyle = '#fff0a8';
+    ctx.fillRect(x - half + 11, y - 13, bucket.width - 22, 2);
 
     ctx.fillStyle = '#3c2b20';
     ctx.fillRect(x - half, y, bucket.width, 5);
@@ -493,6 +509,8 @@
 
     ctx.fillStyle = '#d69b55';
     ctx.fillRect(x - half + 3, y + 2, bucket.width - 6, 4);
+    ctx.fillStyle = '#fff0a8';
+    ctx.fillRect(x - half + 6, y + 1, bucket.width - 12, 2);
     ctx.fillStyle = '#9f6f38';
     ctx.fillRect(x - half + 6, y + 6, bucket.width - 12, bucket.height - 9);
     ctx.fillStyle = '#be8546';
@@ -573,6 +591,15 @@
     if (dom.minigameTime) {
       dom.minigameTime.textContent = secondsLeft + ' s';
     }
+    if (dom.minigameCombo) {
+      const combo = Number(session.combo) || 0;
+      const mistakes = Number(session.mistakes) || 0;
+      dom.minigameCombo.textContent = combo ? 'Seria x' + combo : mistakes ? 'Potknięć ' + mistakes : 'Czysto';
+    }
+    if (dom.minigameProgress) {
+      const progress = Math.max(0, Math.min(1, (now - Number(session.startedAt)) / Math.max(1, Number(session.until) - Number(session.startedAt))));
+      dom.minigameProgress.style.transform = 'scaleX(' + progress.toFixed(3) + ')';
+    }
   }
 
   function setActiveMinigameCanvas(minigameId) {
@@ -613,6 +640,56 @@
 
     const amount = Math.max(0, Math.floor(Math.abs(Number(value) || 0)));
     return amount + (forms && forms[2] ? ' ' + forms[2] : '');
+  }
+
+  function pushMinigameFloater(text, x, y, tone, now) {
+    if (!runtime.minigame) {
+      return;
+    }
+    runtime.minigame.floaters = Array.isArray(runtime.minigame.floaters) ? runtime.minigame.floaters : [];
+    runtime.minigame.floaters.push({
+      text: String(text || '').slice(0, 16),
+      x: Number(x) || 0,
+      y: Number(y) || 0,
+      tone: tone || 'good',
+      startedAt: Number(now) || getRuntimeNow()
+    });
+    runtime.minigame.floaters = runtime.minigame.floaters.slice(-10);
+  }
+
+  function drawMinigameFloaters(ctx, now) {
+    const floaters = runtime.minigame && Array.isArray(runtime.minigame.floaters)
+      ? runtime.minigame.floaters
+      : [];
+    runtime.minigame.floaters = floaters.filter(function(item) {
+      return now - Number(item.startedAt) < 760;
+    });
+    ctx.save();
+    ctx.font = 'bold 9px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    runtime.minigame.floaters.forEach(function(item) {
+      const age = Math.max(0, now - Number(item.startedAt));
+      const progress = age / 760;
+      const width = Math.max(24, item.text.length * 6);
+      const y = Math.max(8, Math.min(ctx.canvas.height - 8, Math.round(Number(item.y) - progress * 18)));
+      const x = Math.max(width / 2 + 2, Math.min(ctx.canvas.width - width / 2 - 2, Math.round(Number(item.x) + Math.sin(progress * Math.PI) * 2)));
+      const alpha = Math.max(0, 1 - progress);
+      const color = item.tone === 'bad'
+        ? '#9b2f33'
+        : item.tone === 'rare'
+          ? '#fff0a8'
+          : item.tone === 'combo'
+            ? '#e6dcff'
+            : '#f8ffff';
+      ctx.globalAlpha = alpha * 0.72;
+      ctx.fillStyle = '#3c2b20';
+      ctx.fillRect(x - width / 2, y - 7, width, 12);
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = color;
+      ctx.fillText(item.text, x, y);
+    });
+    ctx.restore();
   }
 
   function seededDewUnit(seed, index, salt) {

@@ -1,0 +1,779 @@
+  function createDefaultLongLoopStateCore() {
+    return {
+      dailyEpisode: {
+        dateKey: null,
+        completedAt: null,
+        title: null,
+        mementoId: null
+      },
+      visitors: {
+        seen: {},
+        greetedToday: null
+      },
+      mementos: {
+        owned: {},
+        recent: []
+      },
+      mastery: {
+        minigames: {}
+      },
+      expeditions: {
+        active: null,
+        completed: []
+      },
+      season: {
+        monthKey: null,
+        points: 0,
+        claimedTiers: []
+      },
+      legendaryProjects: {
+        activeId: null,
+        progress: {},
+        completed: {}
+      }
+    };
+  }
+
+  function normalizeLongLoopStateCore(longLoop, nowInput) {
+    const source = isPlainObject(longLoop) ? longLoop : {};
+    const base = createDefaultLongLoopStateCore();
+    const now = Number(nowInput) || Date.now();
+    const dateKey = typeof getGameplayDateKeyCore === 'function'
+      ? getGameplayDateKeyCore(now)
+      : new Date(now).toISOString().slice(0, 10);
+    const monthKey = getLongLoopMonthKeyCore(now);
+    const daily = isPlainObject(source.dailyEpisode) ? source.dailyEpisode : {};
+    const visitors = isPlainObject(source.visitors) ? source.visitors : {};
+    const mementos = isPlainObject(source.mementos) ? source.mementos : {};
+    const mastery = isPlainObject(source.mastery) ? source.mastery : {};
+    const expeditions = isPlainObject(source.expeditions) ? source.expeditions : {};
+    const season = isPlainObject(source.season) ? source.season : {};
+    const projects = isPlainObject(source.legendaryProjects) ? source.legendaryProjects : {};
+
+    base.dailyEpisode = {
+      dateKey: daily.dateKey || null,
+      completedAt: daily.completedAt || null,
+      title: daily.title || null,
+      mementoId: daily.mementoId || null
+    };
+    base.visitors = {
+      seen: normalizeLongLoopMapCore(visitors.seen, normalizeVisitorRecordCore),
+      greetedToday: visitors.greetedToday && visitors.greetedToday.dateKey === dateKey
+        ? normalizeVisitorGreetingCore(visitors.greetedToday)
+        : null
+    };
+    base.mementos = {
+      owned: normalizeLongLoopMapCore(mementos.owned, normalizeMementoRecordCore),
+      recent: (Array.isArray(mementos.recent) ? mementos.recent : [])
+        .map(function(item) {
+          return String(item || '').slice(0, 64);
+        })
+        .filter(Boolean)
+        .slice(0, 6)
+    };
+    base.mastery = {
+      minigames: normalizeLongLoopMapCore(mastery.minigames, normalizeMinigameMasteryCore)
+    };
+    base.expeditions = {
+      active: normalizeExpeditionCore(expeditions.active),
+      completed: (Array.isArray(expeditions.completed) ? expeditions.completed : [])
+        .map(normalizeExpeditionCore)
+        .filter(Boolean)
+        .slice(0, 4)
+    };
+    base.season = {
+      monthKey: season.monthKey === monthKey ? season.monthKey : monthKey,
+      points: season.monthKey === monthKey ? clampInteger(season.points, 0, 9999, 0) : 0,
+      claimedTiers: season.monthKey === monthKey ? uniqueStringListCore(season.claimedTiers).slice(0, 6) : []
+    };
+    base.legendaryProjects = {
+      activeId: projects.activeId || null,
+      progress: normalizeLongLoopMapCore(projects.progress, normalizeProjectProgressCore),
+      completed: normalizeLongLoopMapCore(projects.completed, normalizeProjectCompletionCore)
+    };
+    return base;
+  }
+
+  function normalizeLongLoopMapCore(source, normalizer) {
+    const map = {};
+    if (!isPlainObject(source)) {
+      return map;
+    }
+    Object.keys(source).forEach(function(key) {
+      const id = String(key || '').slice(0, 64);
+      const item = normalizer(source[key], id);
+      if (id && item) {
+        map[id] = item;
+      }
+    });
+    return map;
+  }
+
+  function normalizeVisitorRecordCore(record, id) {
+    const source = isPlainObject(record) ? record : {};
+    return {
+      id: id,
+      count: clampInteger(source.count, 0, 999999, 0),
+      firstSeenAt: source.firstSeenAt || null,
+      lastSeenAt: source.lastSeenAt || null,
+      mementoId: source.mementoId || null
+    };
+  }
+
+  function normalizeVisitorGreetingCore(record) {
+    const source = isPlainObject(record) ? record : {};
+    return {
+      id: String(source.id || '').slice(0, 64),
+      dateKey: source.dateKey || null,
+      at: source.at || null
+    };
+  }
+
+  function normalizeMementoRecordCore(record, id) {
+    const source = isPlainObject(record) ? record : {};
+    return {
+      id: id,
+      label: String(source.label || id).slice(0, 80),
+      source: String(source.source || 'grzybnia').slice(0, 64),
+      kind: String(source.kind || 'memory').slice(0, 32),
+      firstSeenAt: source.firstSeenAt || null,
+      count: clampInteger(source.count, 1, 999999, 1)
+    };
+  }
+
+  function normalizeMinigameMasteryCore(record, id) {
+    const source = isPlainObject(record) ? record : {};
+    return {
+      id: id,
+      plays: clampInteger(source.plays, 0, 999999, 0),
+      bestScore: clampInteger(source.bestScore, 0, 999999, 0),
+      perfects: clampInteger(source.perfects, 0, 999999, 0),
+      badges: uniqueStringListCore(source.badges).slice(0, 8)
+    };
+  }
+
+  function normalizeExpeditionCore(record) {
+    if (!isPlainObject(record) || !record.id) {
+      return null;
+    }
+    return {
+      id: String(record.id).slice(0, 64),
+      label: String(record.label || 'Wyprawa zarodników').slice(0, 80),
+      startedAt: record.startedAt || null,
+      returnsAt: record.returnsAt || null,
+      claimedAt: record.claimedAt || null,
+      mementoId: record.mementoId || null,
+      sporesCost: clampInteger(record.sporesCost, 0, 9999, 0)
+    };
+  }
+
+  function normalizeProjectProgressCore(record, id) {
+    const source = isPlainObject(record) ? record : {};
+    return {
+      id: id,
+      points: clampInteger(source.points, 0, 9999, 0),
+      lastAt: source.lastAt || null
+    };
+  }
+
+  function normalizeProjectCompletionCore(record, id) {
+    const source = isPlainObject(record) ? record : {};
+    return {
+      id: id,
+      completedAt: source.completedAt || null,
+      mementoId: source.mementoId || null
+    };
+  }
+
+  function uniqueStringListCore(source) {
+    const result = [];
+    (Array.isArray(source) ? source : []).forEach(function(item) {
+      const value = String(item || '').slice(0, 64);
+      if (value && result.indexOf(value) === -1) {
+        result.push(value);
+      }
+    });
+    return result;
+  }
+
+  function getLongLoopDashboardCore(rawState, rules, nowInput, scene) {
+    const now = Number(nowInput) || Date.now();
+    const state = isPlainObject(rawState) ? rawState : {};
+    const longLoop = normalizeLongLoopStateCore(state.longLoop, now);
+    const plan = typeof getDailyCarePlanCore === 'function'
+      ? getDailyCarePlanCore(state, rules, now, scene)
+      : { goals: [], completedCount: 0, dateKey: getGameplayDateKeyCore(now) };
+    const visitor = getAvailableHabitatVisitorCore(state, rules, now, scene, longLoop);
+    const expedition = getExpeditionDashboardCore(state, longLoop, now);
+    const season = getSeasonDashboardCore(longLoop, now);
+    const project = getLegendaryProjectDashboardCore(state, longLoop);
+    const mementos = getMementoDashboardCore(longLoop);
+    const mastery = getMasteryDashboardCore(longLoop, rules);
+    const completeToday = longLoop.dailyEpisode.dateKey === plan.dateKey && Boolean(longLoop.dailyEpisode.completedAt);
+
+    return {
+      dailyEpisode: {
+        dateKey: plan.dateKey,
+        title: completeToday ? longLoop.dailyEpisode.title || 'Dzień domknięty' : 'Finał dnia',
+        body: completeToday
+          ? 'Grzybnia ma już dzisiejszą pamiątkę.'
+          : plan.goals.length && plan.completedCount >= plan.goals.length
+            ? 'Plan dnia jest gotowy. Można zapisać mały epizod.'
+            : 'Domknij plan dnia, a Pieczarka zapamięta wspólny moment.',
+        completed: completeToday,
+        ready: !completeToday && plan.goals.length > 0 && plan.completedCount >= plan.goals.length,
+        progressLabel: plan.completedCount + '/' + Math.max(1, plan.goals.length)
+      },
+      visitor: visitor,
+      expedition: expedition,
+      season: season,
+      project: project,
+      mementos: mementos,
+      mastery: mastery
+    };
+  }
+
+  function updateLongLoopProgressCore(rawState, event, rules, nowInput, scene) {
+    const now = Number(nowInput) || Date.now();
+    let state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    const sourceEvent = isPlainObject(event) ? event : {};
+    state.longLoop = normalizeLongLoopStateCore(state.longLoop, now);
+    const messages = [];
+
+    if (sourceEvent.type === 'minigame') {
+      updateMinigameMasteryLongLoopCore(state, sourceEvent, rules, now, messages);
+    }
+
+    completeDailyEpisodeIfReadyCore(state, rules, now, scene, messages);
+    updateLegendaryProjectCore(state, sourceEvent, rules, now, messages);
+    return { state: state, messages: messages };
+  }
+
+  function greetHabitatVisitorCore(rawState, visitorId, rules, nowInput, scene) {
+    const now = Number(nowInput) || Date.now();
+    let state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    state.longLoop = normalizeLongLoopStateCore(state.longLoop, now);
+    const visitor = getAvailableHabitatVisitorCore(state, rules, now, scene, state.longLoop);
+    if (!visitor || visitor.id !== visitorId || !visitor.available) {
+      return { ok: false, reason: 'Ten gość już zniknął między źdźbłami.', state: state };
+    }
+
+    const dateKey = getGameplayDateKeyCore(now);
+    const existing = state.longLoop.visitors.seen[visitor.id];
+    const nowIso = new Date(now).toISOString();
+    state.longLoop.visitors.seen[visitor.id] = {
+      id: visitor.id,
+      count: existing ? existing.count + 1 : 1,
+      firstSeenAt: existing && existing.firstSeenAt ? existing.firstSeenAt : nowIso,
+      lastSeenAt: nowIso,
+      mementoId: visitor.memento.id
+    };
+    state.longLoop.visitors.greetedToday = {
+      id: visitor.id,
+      dateKey: dateKey,
+      at: nowIso
+    };
+    addLongLoopMementoCore(state, visitor.memento.id, visitor.memento.label, visitor.label, 'visitor', now);
+    addLongLoopSeasonPointsCore(state, 2, now);
+    state = addRelationshipEntryCore(state, {
+      title: 'Gość w trawie',
+      body: visitor.label + ' zostawił pamiątkę: ' + visitor.memento.label + '.',
+      tone: 'visitor',
+      tag: 'gość'
+    }, now, 8);
+    return {
+      ok: true,
+      state: state,
+      visitor: visitor,
+      message: visitor.label + ' odwiedził grzybnię.'
+    };
+  }
+
+  function startSporeExpeditionCore(rawState, expeditionId, rules, nowInput) {
+    const now = Number(nowInput) || Date.now();
+    let state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    state.longLoop = normalizeLongLoopStateCore(state.longLoop, now);
+    const option = getSporeExpeditionCatalogCore().find(function(item) {
+      return item.id === expeditionId;
+    });
+    if (!option) {
+      return { ok: false, reason: 'Nie ma takiej ścieżki zarodników.', state: state };
+    }
+    if (state.longLoop.expeditions.active) {
+      return { ok: false, reason: 'Jedna wyprawa już wraca przez grzybnię.', state: state };
+    }
+    state.inventory = Object.assign({ spores: 0 }, state.inventory || {});
+    if ((Number(state.inventory.spores) || 0) < option.cost) {
+      return { ok: false, reason: 'Brakuje zarodników na tę wyprawę.', state: state };
+    }
+
+    state.inventory.spores = Math.max(0, Number(state.inventory.spores) - option.cost);
+    state.coins = Math.max(0, Number(state.inventory.spores) || 0);
+    state.longLoop.expeditions.active = {
+      id: option.id,
+      label: option.label,
+      startedAt: new Date(now).toISOString(),
+      returnsAt: new Date(now + option.durationMs).toISOString(),
+      claimedAt: null,
+      mementoId: option.memento.id,
+      sporesCost: option.cost
+    };
+    return { ok: true, state: state, expedition: state.longLoop.expeditions.active };
+  }
+
+  function claimSporeExpeditionCore(rawState, rules, nowInput) {
+    const now = Number(nowInput) || Date.now();
+    let state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    state.longLoop = normalizeLongLoopStateCore(state.longLoop, now);
+    const active = state.longLoop.expeditions.active;
+    if (!active) {
+      return { ok: false, reason: 'Żadna wyprawa nie czeka na odbiór.', state: state };
+    }
+    const returnsAt = Date.parse(active.returnsAt || '');
+    if (!Number.isFinite(returnsAt) || returnsAt > now) {
+      return { ok: false, reason: 'Zarodniki jeszcze wracają przez podłoże.', state: state };
+    }
+
+    const option = getSporeExpeditionCatalogCore().find(function(item) {
+      return item.id === active.id;
+    }) || getSporeExpeditionCatalogCore()[0];
+    state.inventory = Object.assign({ spores: 0, substrate: 0 }, state.inventory || {});
+    state.inventory.spores = Math.max(0, Number(state.inventory.spores) || 0) + option.rewardSpores;
+    state.inventory.substrate = Math.max(0, Number(state.inventory.substrate) || 0) + option.rewardSubstrate;
+    state.coins = Math.max(0, Number(state.inventory.spores) || 0);
+    active.claimedAt = new Date(now).toISOString();
+    state.longLoop.expeditions.completed = [active].concat(state.longLoop.expeditions.completed || []).slice(0, 4);
+    state.longLoop.expeditions.active = null;
+    addLongLoopMementoCore(state, option.memento.id, option.memento.label, option.label, 'expedition', now);
+    addLongLoopSeasonPointsCore(state, 3, now);
+    state = addRelationshipEntryCore(state, {
+      title: 'Wyprawa wróciła',
+      body: option.label + ' przyniosła pamiątkę: ' + option.memento.label + '.',
+      tone: 'expedition',
+      tag: 'wyprawa'
+    }, now, 8);
+    return { ok: true, state: state, expedition: active, option: option };
+  }
+
+  function completeDailyEpisodeIfReadyCore(state, rules, now, scene, messages) {
+    const plan = typeof getDailyCarePlanCore === 'function'
+      ? getDailyCarePlanCore(state, rules, now, scene)
+      : null;
+    if (!plan || !plan.goals || !plan.goals.length || plan.completedCount < plan.goals.length) {
+      return;
+    }
+    if (state.longLoop.dailyEpisode.dateKey === plan.dateKey && state.longLoop.dailyEpisode.completedAt) {
+      return;
+    }
+
+    const rhythmId = state.dailyRhythm && state.dailyRhythm.selectedId || 'natural';
+    const rhythm = typeof getDailyRhythmDefinitionCore === 'function' ? getDailyRhythmDefinitionCore(rhythmId) : null;
+    const title = rhythm ? 'Finał: ' + rhythm.label : 'Finał dnia';
+    const mementoId = 'daily-' + plan.dateKey;
+    const mementoLabel = rhythm ? 'Kadr ' + rhythm.label.toLowerCase() : 'Kadr spokojnego dnia';
+    state.longLoop.dailyEpisode = {
+      dateKey: plan.dateKey,
+      completedAt: new Date(now).toISOString(),
+      title: title,
+      mementoId: mementoId
+    };
+    addLongLoopMementoCore(state, mementoId, mementoLabel, 'Finał dnia', 'daily', now);
+    addLongLoopSeasonPointsCore(state, 4, now);
+    const relationshipState = addRelationshipEntryCore(state, {
+      title: 'Finał dnia',
+      body: 'Plan dnia domknięty. ' + mementoLabel + ' trafił do pamiątek.',
+      tone: 'daily',
+      tag: 'finał'
+    }, now, 8);
+    state.relationship = relationshipState.relationship || state.relationship;
+    if (Array.isArray(messages)) {
+      messages.push('Finał dnia zapisany: ' + mementoLabel + '.');
+    }
+  }
+
+  function updateMinigameMasteryLongLoopCore(state, event, rules, now, messages) {
+    const minigameId = String(event.minigameId || '');
+    if (!minigameId) {
+      return;
+    }
+    const config = rules && rules.minigames && rules.minigames[minigameId] ? rules.minigames[minigameId] : {};
+    const score = clampInteger(event.score, 0, 999999, 0);
+    const mastery = state.longLoop.mastery.minigames[minigameId] || normalizeMinigameMasteryCore({}, minigameId);
+    mastery.plays += 1;
+    mastery.bestScore = Math.max(mastery.bestScore, score);
+    const perfectScore = getMinigamePerfectScoreCore(minigameId, config);
+    const badges = mastery.badges.slice();
+    if (score >= perfectScore) {
+      mastery.perfects += 1;
+      addLongLoopSeasonPointsCore(state, 3, now);
+      if (badges.indexOf('perfect') === -1) {
+        badges.push('perfect');
+        addLongLoopMementoCore(state, 'mastery-' + minigameId + '-perfect', getMinigameMasteryMementoLabelCore(minigameId), config.label || 'Mała gra', 'mastery', now);
+        if (Array.isArray(messages)) {
+          messages.push('Nowa pamiątka mistrzostwa: ' + getMinigameMasteryMementoLabelCore(minigameId) + '.');
+        }
+      }
+    }
+    if (mastery.plays >= 3 && badges.indexOf('practice') === -1) {
+      badges.push('practice');
+      addLongLoopSeasonPointsCore(state, 1, now);
+    }
+    mastery.badges = badges.slice(0, 8);
+    state.longLoop.mastery.minigames[minigameId] = mastery;
+  }
+
+  function updateLegendaryProjectCore(state, event, rules, now, messages) {
+    if (!isGameplayStageAtLeastCore(state.stage, 'legendary')) {
+      return;
+    }
+    const project = getActiveLegendaryProjectCore(state);
+    if (!project) {
+      return;
+    }
+    const progress = state.longLoop.legendaryProjects.progress[project.id] || { id: project.id, points: 0, lastAt: null };
+    const eventPoints = event.type === 'minigame' ? 2 : event.type === 'decoration' ? 3 : event.type === 'harvest' ? 4 : 1;
+    progress.points = clampInteger(progress.points + eventPoints, 0, project.target, 0);
+    progress.lastAt = new Date(now).toISOString();
+    state.longLoop.legendaryProjects.progress[project.id] = progress;
+    if (progress.points >= project.target && !state.longLoop.legendaryProjects.completed[project.id]) {
+      state.longLoop.legendaryProjects.completed[project.id] = {
+        id: project.id,
+        completedAt: new Date(now).toISOString(),
+        mementoId: project.memento.id
+      };
+      addLongLoopMementoCore(state, project.memento.id, project.memento.label, project.label, 'legendary', now);
+      addLongLoopSeasonPointsCore(state, 5, now);
+      if (Array.isArray(messages)) {
+        messages.push('Legendarny projekt gotowy: ' + project.label + '.');
+      }
+    }
+  }
+
+  function getAvailableHabitatVisitorCore(state, rules, now, scene, longLoop) {
+    const loop = longLoop || normalizeLongLoopStateCore(state.longLoop, now);
+    const dateKey = getGameplayDateKeyCore(now);
+    if (loop.visitors.greetedToday && loop.visitors.greetedToday.dateKey === dateKey) {
+      const greeted = getHabitatVisitorCatalogCore().find(function(item) {
+        return item.id === loop.visitors.greetedToday.id;
+      });
+      return greeted ? Object.assign({}, greeted, {
+        available: false,
+        status: 'Odwiedzony dzisiaj'
+      }) : null;
+    }
+
+    const habitat = typeof getHabitatInfluenceCore === 'function' ? getHabitatInfluenceCore(state, rules) : { tags: {} };
+    const tags = habitat.tags || {};
+    const hour = new Date(now).getHours();
+    const dayPhase = scene && scene.dayPhase ? scene.dayPhase : '';
+    const condition = scene && scene.condition ? scene.condition : 'clear';
+    const candidates = getHabitatVisitorCatalogCore().filter(function(visitor) {
+      if (visitor.stage && !isGameplayStageAtLeastCore(state.stage, visitor.stage)) {
+        return false;
+      }
+      if (visitor.night && !(hour >= 19 || hour <= 5 || dayPhase === 'night')) {
+        return false;
+      }
+      if (visitor.weather && visitor.weather.indexOf(condition) === -1) {
+        return false;
+      }
+      return visitor.tags.some(function(tag) {
+        return Number(tags[tag]) > 0;
+      });
+    });
+    if (!candidates.length) {
+      return null;
+    }
+
+    candidates.sort(function(a, b) {
+      const scoreA = getVisitorScoreCore(a, state, tags, now);
+      const scoreB = getVisitorScoreCore(b, state, tags, now);
+      return scoreB - scoreA || a.id.localeCompare(b.id);
+    });
+    return Object.assign({}, candidates[0], {
+      available: true,
+      status: 'Czeka w trawie'
+    });
+  }
+
+  function getVisitorScoreCore(visitor, state, tags, now) {
+    const seen = state.longLoop && state.longLoop.visitors && state.longLoop.visitors.seen
+      ? state.longLoop.visitors.seen[visitor.id]
+      : null;
+    const tagScore = visitor.tags.reduce(function(sum, tag) {
+      return sum + (Number(tags[tag]) || 0);
+    }, 0);
+    const novelty = seen ? Math.max(0, 0.6 - seen.count * 0.08) : 1.4;
+    const seed = hashStringCore((state.playerId || 'player') + ':' + getGameplayDateKeyCore(now) + ':' + visitor.id) % 100 / 100;
+    return tagScore * 0.55 + novelty + seed * 0.3;
+  }
+
+  function getExpeditionDashboardCore(state, longLoop, now) {
+    const active = longLoop.expeditions.active;
+    const options = getSporeExpeditionCatalogCore().map(function(option) {
+      return Object.assign({}, option, {
+        affordable: (Number(state.inventory && state.inventory.spores) || 0) >= option.cost
+      });
+    });
+    if (!active) {
+      return {
+        active: null,
+        ready: false,
+        options: options,
+        body: 'Zarodniki mogą wrócić z drobną pamiątką i śladem świata.'
+      };
+    }
+    const returnsAt = Date.parse(active.returnsAt || '');
+    const remainingMs = Number.isFinite(returnsAt) ? Math.max(0, returnsAt - now) : 0;
+    return {
+      active: active,
+      ready: remainingMs <= 0,
+      remainingMs: remainingMs,
+      remainingLabel: remainingMs <= 0 ? 'Gotowa' : formatRemainingTimeCore(remainingMs),
+      options: options,
+      body: remainingMs <= 0 ? 'Wyprawa wróciła i czeka na odbiór.' : 'Wyprawa wraca przez cichą grzybnię.'
+    };
+  }
+
+  function getSeasonDashboardCore(longLoop, now) {
+    const tiers = getSeasonTierCatalogCore();
+    const points = Number(longLoop.season.points) || 0;
+    const next = tiers.find(function(tier) {
+      return points < tier.points;
+    }) || tiers[tiers.length - 1];
+    const current = tiers.slice().reverse().find(function(tier) {
+      return points >= tier.points;
+    }) || tiers[0];
+    return {
+      monthKey: longLoop.season.monthKey || getLongLoopMonthKeyCore(now),
+      points: points,
+      current: current,
+      next: next,
+      progressLabel: points + '/' + next.points,
+      claimedTiers: longLoop.season.claimedTiers || []
+    };
+  }
+
+  function getLegendaryProjectDashboardCore(state, longLoop) {
+    if (!isGameplayStageAtLeastCore(state.stage, 'legendary')) {
+      return {
+        locked: true,
+        label: 'Projekt legendarny',
+        body: 'Odblokuje się, gdy Pieczarka stanie się legendarna.'
+      };
+    }
+    const project = getActiveLegendaryProjectCore(state);
+    const progress = project && longLoop.legendaryProjects.progress[project.id]
+      ? longLoop.legendaryProjects.progress[project.id]
+      : { points: 0 };
+    const completed = project && longLoop.legendaryProjects.completed[project.id];
+    return {
+      locked: false,
+      project: project,
+      completed: Boolean(completed),
+      points: Number(progress.points) || 0,
+      target: project ? project.target : 1,
+      progressLabel: (Number(progress.points) || 0) + '/' + (project ? project.target : 1)
+    };
+  }
+
+  function getMementoDashboardCore(longLoop) {
+    const owned = Object.keys(longLoop.mementos.owned).map(function(id) {
+      return longLoop.mementos.owned[id];
+    }).sort(function(a, b) {
+      return Date.parse(b.firstSeenAt || '') - Date.parse(a.firstSeenAt || '');
+    });
+    return {
+      count: owned.length,
+      recent: owned.slice(0, 5)
+    };
+  }
+
+  function getMasteryDashboardCore(longLoop, rules) {
+    return Object.keys(rules && rules.minigames || {}).map(function(minigameId) {
+      const config = rules.minigames[minigameId];
+      const mastery = longLoop.mastery.minigames[minigameId] || normalizeMinigameMasteryCore({}, minigameId);
+      return {
+        id: minigameId,
+        label: config.label || minigameId,
+        plays: mastery.plays,
+        bestScore: mastery.bestScore,
+        targetScore: getMinigamePerfectScoreCore(minigameId, config),
+        badges: mastery.badges,
+        perfect: mastery.badges.indexOf('perfect') !== -1
+      };
+    });
+  }
+
+  function addLongLoopMementoCore(state, id, label, source, kind, now) {
+    state.longLoop = normalizeLongLoopStateCore(state.longLoop, now);
+    const mementos = state.longLoop.mementos;
+    const existing = mementos.owned[id];
+    mementos.owned[id] = {
+      id: id,
+      label: label,
+      source: source,
+      kind: kind,
+      firstSeenAt: existing && existing.firstSeenAt ? existing.firstSeenAt : new Date(now).toISOString(),
+      count: existing ? existing.count + 1 : 1
+    };
+    mementos.recent = [id].concat((mementos.recent || []).filter(function(item) {
+      return item !== id;
+    })).slice(0, 6);
+  }
+
+  function addLongLoopSeasonPointsCore(state, points, now) {
+    state.longLoop = normalizeLongLoopStateCore(state.longLoop, now);
+    state.longLoop.season.points = clampInteger((Number(state.longLoop.season.points) || 0) + points, 0, 9999, 0);
+  }
+
+  function getActiveLegendaryProjectCore(state) {
+    const projects = getLegendaryProjectCatalogCore();
+    const selected = state.longLoop && state.longLoop.legendaryProjects && state.longLoop.legendaryProjects.activeId;
+    return projects.find(function(project) {
+      return project.id === selected;
+    }) || projects.find(function(project) {
+      const completed = state.longLoop && state.longLoop.legendaryProjects && state.longLoop.legendaryProjects.completed || {};
+      return !completed[project.id];
+    }) || projects[0];
+  }
+
+  function getHabitatVisitorCatalogCore() {
+    return [
+      {
+        id: 'dewSnail',
+        label: 'Ślimak rosy',
+        body: 'Zostawia srebrny ślad między kroplami.',
+        tags: ['moisture', 'wild'],
+        weather: ['clear', 'cloudy', 'fog', 'rain'],
+        stage: 'baby',
+        memento: { id: 'memento-dew-snail', label: 'Srebrny ślad ślimaka' }
+      },
+      {
+        id: 'beeScout',
+        label: 'Pszczeli zwiadowca',
+        body: 'Sprawdza kwiaty przy kępie koniczyny.',
+        tags: ['flowers', 'insects', 'wild'],
+        weather: ['clear', 'cloudy'],
+        stage: 'baby',
+        memento: { id: 'memento-bee-scout', label: 'Pyłek zwiadowcy' }
+      },
+      {
+        id: 'moonMoth',
+        label: 'Ćma księżycowa',
+        body: 'Mruga skrzydłami przy nocnej latarence.',
+        tags: ['night', 'spores'],
+        night: true,
+        stage: 'young',
+        memento: { id: 'memento-moon-moth', label: 'Łuska księżycowej ćmy' }
+      },
+      {
+        id: 'compostBeetle',
+        label: 'Chrząszcz kompostowy',
+        body: 'Toczy dobry kawałek podłoża pod kapelusz.',
+        tags: ['shelter', 'spores', 'comfort'],
+        stage: 'young',
+        memento: { id: 'memento-compost-beetle', label: 'Bursztynowy okruch kompostu' }
+      }
+    ];
+  }
+
+  function getSporeExpeditionCatalogCore() {
+    return [
+      {
+        id: 'shortMossTrail',
+        label: 'Ścieżka mchu',
+        cost: 1,
+        durationMs: 25 * 60000,
+        rewardSpores: 1,
+        rewardSubstrate: 0,
+        memento: { id: 'memento-moss-map', label: 'Mapka mchu' }
+      },
+      {
+        id: 'deepMycelium',
+        label: 'Głęboka grzybnia',
+        cost: 3,
+        durationMs: 4 * 60 * 60000,
+        rewardSpores: 2,
+        rewardSubstrate: 1,
+        memento: { id: 'memento-mycelium-knot', label: 'Węzeł grzybni' }
+      },
+      {
+        id: 'nightSporeDrift',
+        label: 'Nocny dryf zarodników',
+        cost: 5,
+        durationMs: 10 * 60 * 60000,
+        rewardSpores: 4,
+        rewardSubstrate: 1,
+        memento: { id: 'memento-night-spore', label: 'Ciemny pył zarodników' }
+      }
+    ];
+  }
+
+  function getSeasonTierCatalogCore() {
+    return [
+      { id: 'sprout', label: 'Kiełek sezonu', points: 4 },
+      { id: 'mossFrame', label: 'Mchowa ramka', points: 12 },
+      { id: 'glowFrame', label: 'Świetlista ramka', points: 24 }
+    ];
+  }
+
+  function getLegendaryProjectCatalogCore() {
+    return [
+      {
+        id: 'dewGarden',
+        label: 'Ogród Rosy',
+        body: 'Legendarna grzybnia zbiera poranne krople w spokojny krąg.',
+        target: 18,
+        memento: { id: 'memento-dew-garden', label: 'Kryształ ogrodu rosy' }
+      },
+      {
+        id: 'mossChoir',
+        label: 'Chór Mchu',
+        body: 'Ciche rytmy zostają między źdźbłami po każdej dobrej opiece.',
+        target: 18,
+        memento: { id: 'memento-moss-choir', label: 'Nuta chóru mchu' }
+      },
+      {
+        id: 'wildClearing',
+        label: 'Dzika Polana',
+        body: 'Goście i dekoracje budują miejsce, do którego chce się wracać.',
+        target: 18,
+        memento: { id: 'memento-wild-clearing', label: 'Zielony znak polany' }
+      }
+    ];
+  }
+
+  function getMinigamePerfectScoreCore(minigameId, config) {
+    if (config && Number(config.masteryTarget)) {
+      return Math.max(1, Math.floor(Number(config.masteryTarget)));
+    }
+    if (minigameId === 'dewCatch') {
+      return Math.max(1, Math.floor(Number(config.dropCount) || 24));
+    }
+    if (minigameId === 'sporePop') {
+      return Math.max(1, Math.floor(Number(config.targetCount) || 20));
+    }
+    if (minigameId === 'compostSort') {
+      return Math.max(1, Math.floor(Number(config.pieceCount) || 18));
+    }
+    if (minigameId === 'rhythmHum') {
+      return Math.max(1, Math.floor(Number(config.beatCount) || 8));
+    }
+    return 10;
+  }
+
+  function getMinigameMasteryMementoLabelCore(minigameId) {
+    const labels = {
+      dewCatch: 'Idealna kropla rosy',
+      sporePop: 'Pęknięty gwiezdny zarodnik',
+      compostSort: 'Równy stosik kompostu',
+      rhythmHum: 'Czysta nuta mchu'
+    };
+    return labels[minigameId] || 'Mały znak mistrzostwa';
+  }
+
+  function getLongLoopMonthKeyCore(nowInput) {
+    const date = new Date(Number(nowInput) || Date.now());
+    return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0');
+  }

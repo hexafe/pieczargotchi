@@ -21,6 +21,7 @@
     renderDayPlan();
     renderMinigameOpportunities();
     renderMinigames();
+    renderLongLoop();
     renderHabitatSummary();
     renderDecorations();
     renderCharacterCompass();
@@ -893,6 +894,7 @@
     }
 
     renderMinigameLastScores();
+    renderMinigameMasteryLabels();
     if (dom.minigamePlayfield) {
       dom.minigamePlayfield.hidden = !active;
     }
@@ -909,6 +911,179 @@
     updateMinigameHud(now);
   }
 
+  function renderLongLoop() {
+    if (!dom.longLoopDashboard) {
+      return;
+    }
+
+    const core = window.PieczargotchiCore;
+    if (!core || typeof core.getLongLoopDashboard !== 'function') {
+      dom.longLoopDashboard.innerHTML = '';
+      dom.longLoopDashboard.hidden = true;
+      if (dom.longLoopStatus) {
+        dom.longLoopStatus.textContent = 'Czeka';
+      }
+      return;
+    }
+
+    const dashboard = core.getLongLoopDashboard(runtime.state, rules, getRuntimeNow(), getCurrentWeatherScene());
+    dom.longLoopDashboard.innerHTML = '';
+    dom.longLoopDashboard.hidden = false;
+    if (dom.longLoopStatus) {
+      const count = dashboard.mementos && Number(dashboard.mementos.count) || 0;
+      const points = dashboard.season && Number(dashboard.season.points) || 0;
+      dom.longLoopStatus.textContent = count + ' pamiątek · ' + points + ' pyłku';
+    }
+
+    appendLongLoopDailyCard(dashboard.dailyEpisode);
+    appendLongLoopVisitorCard(dashboard.visitor);
+    appendLongLoopExpeditionCard(dashboard.expedition);
+    appendLongLoopSeasonCard(dashboard.season);
+    appendLongLoopMasteryCard(dashboard.mastery);
+    appendLongLoopProjectCard(dashboard.project);
+    appendLongLoopMementoCard(dashboard.mementos);
+  }
+
+  function appendLongLoopDailyCard(daily) {
+    const card = createLongLoopCard('daily', daily && daily.completed ? 'is-complete' : daily && daily.ready ? 'is-ready' : '');
+    appendLongLoopText(card, daily && daily.title || 'Finał dnia', daily && daily.body || 'Plan dnia zapisze mały kadr.');
+    appendLongLoopMeta(card, daily && daily.completed ? 'Zapisany' : daily && daily.ready ? 'Gotowy' : daily && daily.progressLabel || '0/0');
+    dom.longLoopDashboard.appendChild(card);
+  }
+
+  function appendLongLoopVisitorCard(visitor) {
+    const card = createLongLoopCard('visitor', visitor && visitor.available ? 'is-ready' : '');
+    appendLongLoopText(card, visitor ? visitor.label : 'Cisza w trawie', visitor ? visitor.body || visitor.status : 'Dekoracje i pogoda przyciągną rzadkich gości.');
+    if (visitor && visitor.available) {
+      card.appendChild(createLongLoopButton('Przywitaj', false, function() {
+        handleHabitatVisitorGreet(visitor.id);
+      }));
+    } else {
+      appendLongLoopMeta(card, visitor && visitor.status ? visitor.status : 'Wypatruj śladu');
+    }
+    dom.longLoopDashboard.appendChild(card);
+  }
+
+  function appendLongLoopExpeditionCard(expedition) {
+    const card = createLongLoopCard('expedition', expedition && expedition.ready ? 'is-ready' : '');
+    appendLongLoopText(card, 'Wyprawy zarodników', expedition && expedition.body || 'Zarodniki mogą wrócić z pamiątką.');
+    if (expedition && expedition.active) {
+      appendLongLoopMeta(card, expedition.remainingLabel || 'W drodze');
+      card.appendChild(createLongLoopButton(expedition.ready ? 'Odbierz' : 'W drodze', !expedition.ready, handleSporeExpeditionClaim));
+    } else {
+      const options = document.createElement('div');
+      options.className = 'long-loop-options';
+      (expedition && expedition.options || []).forEach(function(option) {
+        const button = createLongLoopButton(option.label + ' · ' + option.cost, !option.affordable, function() {
+          handleSporeExpeditionStart(option.id);
+        });
+        button.title = formatUiCount(option.cost, ['zarodnik', 'zarodniki', 'zarodników']);
+        options.appendChild(button);
+      });
+      card.appendChild(options);
+    }
+    dom.longLoopDashboard.appendChild(card);
+  }
+
+  function appendLongLoopSeasonCard(season) {
+    const card = createLongLoopCard('season', '');
+    appendLongLoopText(card, season && season.current ? season.current.label : 'Sezon grzybni', season && season.next ? 'Następny próg: ' + season.next.label : 'Zbieraj pyłek za pętle opieki.');
+    const track = document.createElement('div');
+    const fill = document.createElement('div');
+    const max = season && season.next ? Number(season.next.points) || 1 : 1;
+    track.className = 'long-loop-meter';
+    fill.style.width = Math.max(0, Math.min(100, Math.round(((season && Number(season.points) || 0) / max) * 100))) + '%';
+    track.appendChild(fill);
+    card.appendChild(track);
+    appendLongLoopMeta(card, season && season.progressLabel || '0/4');
+    dom.longLoopDashboard.appendChild(card);
+  }
+
+  function appendLongLoopMasteryCard(mastery) {
+    const card = createLongLoopCard('mastery', '');
+    const perfects = (mastery || []).filter(function(item) {
+      return item.perfect;
+    }).length;
+    appendLongLoopText(card, 'Mistrzostwo minigier', perfects ? perfects + ' perfekcyjne znaki w kolekcji.' : 'Perfekcyjne rundy odblokują drobne trofea.');
+    const chips = document.createElement('div');
+    chips.className = 'long-loop-chips';
+    (mastery || []).forEach(function(item) {
+      const chip = document.createElement('span');
+      chip.textContent = (item.perfect ? '✓ ' : '') + item.label + ' ' + (Number(item.bestScore) || 0);
+      chip.title = 'Cel: ' + (Number(item.targetScore) || 0);
+      chip.className = item.perfect ? 'is-complete' : '';
+      chips.appendChild(chip);
+    });
+    card.appendChild(chips);
+    dom.longLoopDashboard.appendChild(card);
+  }
+
+  function appendLongLoopProjectCard(project) {
+    const card = createLongLoopCard('project', project && project.completed ? 'is-complete' : '');
+    if (!project || project.locked) {
+      appendLongLoopText(card, 'Projekt legendarny', 'Odblokuje się na legendarnym etapie.');
+      appendLongLoopMeta(card, 'Zamknięty');
+    } else {
+      appendLongLoopText(card, project.project && project.project.label || 'Projekt legendarny', project.project && project.project.body || 'Długie rytuały budują większą historię.');
+      appendLongLoopMeta(card, project.completed ? 'Gotowy' : project.progressLabel);
+    }
+    dom.longLoopDashboard.appendChild(card);
+  }
+
+  function appendLongLoopMementoCard(mementos) {
+    const card = createLongLoopCard('mementos', '');
+    appendLongLoopText(card, 'Pamiątki', mementos && mementos.count ? 'Ostatnie ślady zostają w grzybni.' : 'Pierwsze pamiątki pojawią się po finale dnia.');
+    const chips = document.createElement('div');
+    chips.className = 'long-loop-chips';
+    (mementos && mementos.recent || []).forEach(function(item) {
+      const chip = document.createElement('span');
+      chip.textContent = item.label;
+      chips.appendChild(chip);
+    });
+    if (!chips.childNodes.length) {
+      const chip = document.createElement('span');
+      chip.textContent = 'Pusta półka';
+      chips.appendChild(chip);
+    }
+    card.appendChild(chips);
+    dom.longLoopDashboard.appendChild(card);
+  }
+
+  function createLongLoopCard(type, extraClass) {
+    const card = document.createElement('div');
+    card.className = 'long-loop-card long-loop-card--' + type + (extraClass ? ' ' + extraClass : '');
+    return card;
+  }
+
+  function appendLongLoopText(card, titleText, bodyText) {
+    const text = document.createElement('div');
+    const title = document.createElement('strong');
+    const body = document.createElement('span');
+    text.className = 'long-loop-card__text';
+    title.textContent = formatMushroomText(titleText || 'Grzybnia');
+    body.textContent = formatMushroomText(bodyText || '');
+    text.appendChild(title);
+    text.appendChild(body);
+    card.appendChild(text);
+  }
+
+  function appendLongLoopMeta(card, text) {
+    const meta = document.createElement('span');
+    meta.className = 'long-loop-meta';
+    meta.textContent = text || '';
+    card.appendChild(meta);
+  }
+
+  function createLongLoopButton(label, disabled, onClick) {
+    const button = document.createElement('button');
+    button.className = 'ghost-button';
+    button.type = 'button';
+    button.textContent = label;
+    button.disabled = Boolean(disabled) || !hasNamedMushroom(runtime.state) || isGameOverUiState();
+    button.addEventListener('click', onClick);
+    return button;
+  }
+
   function renderMinigameLastScores() {
     const items = dom.minigameLastItems && dom.minigameLastItems.length
       ? dom.minigameLastItems
@@ -922,8 +1097,60 @@
       const score = last && last.id === minigameId
         ? Number(last.score) || 0
         : Number(historyItem.lastScore) || 0;
-      item.textContent = getMinigameScoreLabel(minigameId, score);
+      const bestScore = Math.max(Number(historyItem.bestScore) || 0, score);
+      item.textContent = getMinigameScoreLabel(minigameId, score) + ' · rekord ' + bestScore;
     });
+  }
+
+  function renderMinigameMasteryLabels() {
+    if (!dom.minigameMasteryItems || !dom.minigameMasteryItems.length) {
+      return;
+    }
+
+    const core = window.PieczargotchiCore;
+    const dashboard = core && typeof core.getLongLoopDashboard === 'function'
+      ? core.getLongLoopDashboard(runtime.state, rules, getRuntimeNow(), getCurrentWeatherScene())
+      : null;
+    const mastery = dashboard && Array.isArray(dashboard.mastery) ? dashboard.mastery : [];
+    const byId = {};
+    mastery.forEach(function(item) {
+      byId[item.id] = item;
+    });
+
+    dom.minigameMasteryItems.forEach(function(item) {
+      const minigameId = item.dataset.minigameMastery;
+      const entry = byId[minigameId] || {};
+      const best = Number(entry.bestScore) || 0;
+      const target = Number(entry.targetScore) || getMinigameStaticTarget(minigameId);
+      const plays = Number(entry.plays) || 0;
+      const missing = Math.max(0, target - best);
+      item.textContent = entry.perfect
+        ? 'Perfekcyjna pamiątka · rekord ' + best
+        : best
+          ? 'Rekord ' + best + ' · do znaku ' + missing
+          : 'Cel mistrzostwa ' + target + ' · prób ' + plays;
+      item.classList.toggle('is-complete', Boolean(entry.perfect));
+    });
+  }
+
+  function getMinigameStaticTarget(minigameId) {
+    const config = rules.minigames && rules.minigames[minigameId] ? rules.minigames[minigameId] : {};
+    if (Number(config.masteryTarget)) {
+      return Math.max(1, Math.floor(Number(config.masteryTarget)));
+    }
+    if (minigameId === 'dewCatch') {
+      return Math.max(1, Math.floor(Number(config.dropCount) || 24));
+    }
+    if (minigameId === 'sporePop') {
+      return Math.max(1, Math.floor(Number(config.targetCount) || 20));
+    }
+    if (minigameId === 'compostSort') {
+      return Math.max(1, Math.floor(Number(config.pieceCount) || 18));
+    }
+    if (minigameId === 'rhythmHum') {
+      return Math.max(1, Math.floor((Number(config.beatCount) || 8) * 3));
+    }
+    return 10;
   }
 
   function renderDecorations() {

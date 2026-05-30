@@ -164,6 +164,39 @@ function createDefaultStateTemplate() {
       lastDigestAt: null,
       entries: []
     },
+    longLoop: {
+      dailyEpisode: {
+        dateKey: null,
+        completedAt: null,
+        title: null,
+        mementoId: null
+      },
+      visitors: {
+        seen: {},
+        greetedToday: null
+      },
+      mementos: {
+        owned: {},
+        recent: []
+      },
+      mastery: {
+        minigames: {}
+      },
+      expeditions: {
+        active: null,
+        completed: []
+      },
+      season: {
+        monthKey: null,
+        points: 0,
+        claimedTiers: []
+      },
+      legendaryProjects: {
+        activeId: null,
+        progress: {},
+        completed: {}
+      }
+    },
     coins: 0,
     cooldowns: {
       hydrate: 0,

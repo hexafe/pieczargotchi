@@ -208,6 +208,13 @@
 
     if (['victory', 'defeat'].includes(resolved.mode) && core.applyBattleOutcomeRewards) {
       runtime.state = core.applyBattleOutcomeRewards(runtime.state, rules, now).state;
+      if (resolved.mode === 'victory') {
+        applyGameplayEventToState(runtime.state, {
+          type: 'battle',
+          result: 'victory',
+          label: 'Wygrana arena'
+        }, now);
+      }
     }
 
     runtime.state.lastUpdatedAt = new Date(now).toISOString();
@@ -464,6 +471,7 @@
         minigameId: session.id,
         score: session.score
       }, now);
+      setTransientMessage(getMinigameResultTitle(result.state.minigames.lastResult), getMinigameResultBody(session, result.state.minigames.lastResult));
       triggerEffect(getMinigameEffectType(session.id));
     }
 
@@ -502,6 +510,116 @@
     }
 
     runtime.state.stats = clampAllStats(runtime.state.stats);
+    runtime.state.lastUpdatedAt = new Date(now).toISOString();
+    saveState(runtime.state);
+    renderUi();
+  }
+
+  function handleHabitatVisitorGreet(visitorId) {
+    const core = window.PieczargotchiCore;
+    const now = getRuntimeNow();
+    if (!core || typeof core.greetHabitatVisitor !== 'function') {
+      return;
+    }
+    if (!ensureMushroomNamed()) {
+      return;
+    }
+
+    runtime.state = applyElapsedTime(runtime.state, now);
+    if (isGameOverForRuntime()) {
+      renderUi();
+      return;
+    }
+    if (isRecoveryActiveForRuntime(now)) {
+      setTransientMessage('Kuracja', 'Goście wrócą, gdy Pieczarka odpocznie w mchu.');
+      renderUi();
+      return;
+    }
+
+    const scene = typeof getCurrentWeatherScene === 'function' ? getCurrentWeatherScene() : null;
+    const result = core.greetHabitatVisitor(runtime.state, visitorId, rules, now, scene);
+    runtime.state = result.state || runtime.state;
+    if (!result.ok) {
+      setTransientMessage('Gość', result.reason);
+    } else {
+      addLog(runtime.state, result.message || 'Gość zostawił ślad w grzybni.', now);
+      setTransientMessage('Gość w trawie', result.message || 'Ktoś zostawił małą pamiątkę.');
+      triggerEffect('hearts');
+    }
+
+    runtime.state.lastUpdatedAt = new Date(now).toISOString();
+    saveState(runtime.state);
+    renderUi();
+  }
+
+  function handleSporeExpeditionStart(expeditionId) {
+    const core = window.PieczargotchiCore;
+    const now = getRuntimeNow();
+    if (!core || typeof core.startSporeExpedition !== 'function') {
+      return;
+    }
+    if (!ensureMushroomNamed()) {
+      return;
+    }
+
+    runtime.state = applyElapsedTime(runtime.state, now);
+    if (isGameOverForRuntime()) {
+      renderUi();
+      return;
+    }
+    if (isRecoveryActiveForRuntime(now)) {
+      setTransientMessage('Kuracja', 'Zarodniki zostają blisko mchu podczas kuracji.');
+      renderUi();
+      return;
+    }
+
+    const result = core.startSporeExpedition(runtime.state, expeditionId, rules, now);
+    runtime.state = result.state || runtime.state;
+    if (!result.ok) {
+      setTransientMessage('Wyprawa', result.reason);
+    } else {
+      addLog(runtime.state, 'Wyprawa ruszyła: ' + result.expedition.label + '.', now);
+      setTransientMessage('Wyprawa rusza', result.expedition.label + ' wróci z drobnym śladem świata.');
+      triggerEffect('spores');
+    }
+
+    runtime.state.lastUpdatedAt = new Date(now).toISOString();
+    saveState(runtime.state);
+    renderUi();
+  }
+
+  function handleSporeExpeditionClaim() {
+    const core = window.PieczargotchiCore;
+    const now = getRuntimeNow();
+    if (!core || typeof core.claimSporeExpedition !== 'function') {
+      return;
+    }
+    if (!ensureMushroomNamed()) {
+      return;
+    }
+
+    runtime.state = applyElapsedTime(runtime.state, now);
+    if (isGameOverForRuntime()) {
+      renderUi();
+      return;
+    }
+    if (isRecoveryActiveForRuntime(now)) {
+      setTransientMessage('Kuracja', 'Odbiór wyprawy poczeka na spokojniejszy moment.');
+      renderUi();
+      return;
+    }
+
+    const result = core.claimSporeExpedition(runtime.state, rules, now);
+    runtime.state = result.state || runtime.state;
+    if (!result.ok) {
+      setTransientMessage('Wyprawa', result.reason);
+    } else {
+      const label = result.option && result.option.label ? result.option.label : result.expedition.label;
+      addLog(runtime.state, label + ' wróciła z pamiątką.', now);
+      setTransientMessage('Wyprawa wróciła', label + ' przyniosła pamiątkę do grzybni.');
+      triggerEffect('spores');
+    }
+
     runtime.state.lastUpdatedAt = new Date(now).toISOString();
     saveState(runtime.state);
     renderUi();
@@ -609,6 +727,38 @@
       + (rewardParts.length ? ', ' + rewardParts.join(', ') : ', bez nagrody') + '.';
   }
 
+  function getMinigameResultTitle(result) {
+    if (!result) {
+      return 'Runda zapisana';
+    }
+    if (result.newBest && result.tier === 'perfect') {
+      return 'Perfekcyjny rekord';
+    }
+    if (result.newBest) {
+      return 'Nowy rekord';
+    }
+    if (result.tier === 'near') {
+      return 'Blisko znaku';
+    }
+    return 'Runda zapisana';
+  }
+
+  function getMinigameResultBody(session, result) {
+    const score = getMinigameScoreLabel(session.id, session.score);
+    const target = result && Number(result.targetScore) || 0;
+    const combo = result && Number(result.bestCombo) || 0;
+    if (result && result.tier === 'perfect') {
+      return score + ' bez potknięcia. Grzybnia zapamięta ten rytm.';
+    }
+    if (result && result.newBest) {
+      return score + '. Seria x' + combo + ' przesuwa mistrzostwo bliżej.';
+    }
+    if (target) {
+      return score + '. Do znaku mistrzostwa brakuje ' + Math.max(0, target - Number(session.score || 0)) + '.';
+    }
+    return score + '.';
+  }
+
   function buildMinigameSeed(minigameId, now) {
     const source = (runtime.state.playerId || 'player') + ':' + minigameId + ':' + now;
     return Math.floor(hashStringToUnit(source) * 2147483645) + 1;
@@ -637,13 +787,7 @@
 
     const scene = typeof getCurrentWeatherScene === 'function' ? getCurrentWeatherScene() : null;
     const result = core.updateDailyPlanProgress(state, event, rules, now, scene);
-    const nextState = result.state || state;
-    state.dailyPlan = nextState.dailyPlan || state.dailyPlan;
-    state.relationship = nextState.relationship || state.relationship;
-    state.stats = clampAllStats(nextState.stats || state.stats);
-    state.patch = normalizePatch(nextState.patch || state.patch);
-    state.inventory = Object.assign({}, state.inventory || {}, nextState.inventory || {});
-    state.coins = Number(nextState.coins) || Number(state.coins) || 0;
+    mergeGameplayProgressState(state, result.state || state);
 
     (result.completed || []).forEach(function(goal) {
       addLog(state, 'Plan dnia: ' + goal.title + ' ukończony.', now);
@@ -655,6 +799,33 @@
       }, now);
     });
 
+    if (typeof core.updateLongLoopProgress === 'function') {
+      const loopResult = core.updateLongLoopProgress(state, event, rules, now, scene);
+      mergeGameplayProgressState(state, loopResult.state || state);
+      (loopResult.messages || []).forEach(function(message) {
+        addLog(state, message, now);
+      });
+    }
+
+    return state;
+  }
+
+  function mergeGameplayProgressState(state, nextState) {
+    const source = nextState || state;
+    state.dailyPlan = source.dailyPlan || state.dailyPlan;
+    state.relationship = source.relationship || state.relationship;
+    state.journal = source.journal || state.journal;
+    state.longLoop = source.longLoop || state.longLoop;
+    state.discoveries = source.discoveries || state.discoveries;
+    state.decorations = source.decorations || state.decorations;
+    state.minigames = source.minigames || state.minigames;
+    state.recovery = source.recovery || state.recovery;
+    state.gameOver = source.gameOver || state.gameOver;
+    state.stats = clampAllStats(source.stats || state.stats);
+    state.patch = normalizePatch(source.patch || state.patch);
+    state.inventory = Object.assign({}, state.inventory || {}, source.inventory || {});
+    const nextCoins = Number(source.coins);
+    state.coins = Number.isFinite(nextCoins) ? nextCoins : Number(state.coins) || 0;
     return state;
   }
 

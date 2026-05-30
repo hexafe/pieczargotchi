@@ -7,6 +7,9 @@ Current start-here plan: `docs/NEXT_STEPS.md`. This document now preserves
 research context and historical checkpoints; use the current next-steps file
 before taking new implementation work.
 
+Latest minigame retention research and polish notes:
+`docs/MINIGAME_RETENTION_POLISH_2026-05-30.md`.
+
 This plan is for turning the MVP into a real, fun virtual-pet app. It is not a narrow MVP checklist.
 
 ## Current Asset Notes
@@ -114,7 +117,7 @@ Implemented gameplay-loop iteration 3:
 - Evolution variants now expose a small visual identity contract used by UI chips and subtle scene overlays, so Dewcap, Songcap, Wildcap, Ghostcap, Royalcap, and Compostcap read differently after branching.
 - Wake polish now routes through sprite-backed `wake_surprise` activity selection; there is no separate canvas-drawn wake face.
 
-Focused QA now covers v13 migration, first-run naming contracts, daily rhythm selection, siedlisko synergies, the new siedlisko minigames, evolution identity, combined journal rendering contracts, calendar events, one-shot return recaps, Cloudflare static build, and mobile viewport capture.
+Focused QA now covers v14 migration, first-run naming contracts, daily rhythm selection, siedlisko synergies, the new siedlisko minigames, long-loop mementos/visitors/expeditions/mastery, evolution identity, combined journal rendering contracts, calendar events, one-shot return recaps, Cloudflare static build, and mobile viewport capture.
 
 ## Real App Systems Plan
 
@@ -242,7 +245,7 @@ Initial minigames:
 - Dew catch: catch falling drops to hydrate.
 - Spore pop: click drifting spores in time. Implemented as `Pękanie zarodników`.
 - Compost sort: choose good substrate pieces, avoid contaminants. Implemented as `Sortowanie kompostu`.
-- Rhythm hum: simple 3-5 beat music pattern for happiness. Implemented as `Rytmiczne nucenie`.
+- Rhythm hum: arrow-key timing pattern for happiness. Implemented as `Rytmiczne nucenie`.
 
 Design rules:
 

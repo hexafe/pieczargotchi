@@ -12,6 +12,9 @@
     state.decorations = normalizeDecorationsCore(state.decorations);
     state.discoveries = normalizeDiscoveriesState(state.discoveries);
     state.returnRecap = normalizeReturnRecapCore(state.returnRecap);
+    state.longLoop = typeof normalizeLongLoopStateCore === 'function'
+      ? normalizeLongLoopStateCore(state.longLoop)
+      : state.longLoop || {};
     state.recovery = normalizeRecoveryCore(state.recovery);
     state.gameOver = normalizeGameOverCore(state.gameOver);
     return state;
