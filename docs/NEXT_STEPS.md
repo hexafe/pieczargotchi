@@ -1,7 +1,7 @@
 # Pieczargotchi Next Steps
 
 Last updated: 2026-05-30
-Local app version for this checkpoint: `0.1.26`
+Local app version for this checkpoint: `0.1.27`
 State version: `13`
 Primary preview target: Cloudflare static build
 
@@ -11,8 +11,9 @@ should start here first.
 
 Latest release QA baseline: `docs/RELEASE_QA_BASELINE_2026-05-30.md`.
 Latest journal/calendar polish: `docs/JOURNAL_CALENDAR_POLISH_2026-05-30.md`.
-Recommended next implementation slice: continue Slice 2 with event-polaroid
-frame styling and broader mobile journal capture coverage.
+Latest world-scene QA: `docs/WORLD_SCENE_QA_2026-05-30.md`.
+Recommended next implementation slice: continue Slice 5 with focused mobile
+storm, snow, fog, aurora, and night-firefly captures.
 
 ## 1. Current Baseline
 
@@ -519,6 +520,11 @@ Acceptance:
 ### Slice 5: World Life And Weather Enrichment
 
 Goal: make the scene feel naturally alive.
+
+Status: first QA pass recorded for version `0.1.27` on 2026-05-30. Weather
+matrix, stage/activity captures, static asset audits, and ambient-life capture
+found one mobile capture timing issue, fixed in `scripts/capture-app-render.mjs`.
+See `docs/WORLD_SCENE_QA_2026-05-30.md`.
 
 Tasks:
 

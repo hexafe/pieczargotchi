@@ -121,8 +121,8 @@ PIECZARGOTCHI_CAPTURE_VIEWPORT=1 PIECZARGOTCHI_CAPTURE_STAGES=1 PIECZARGOTCHI_CA
 
 Ostatnia walidacja:
 
-- `233` arkusze animacji PNG i `1` asset środowiska przechodza `validate-assets`,
-- manifest czas działania laduje `226` zasobów: stage, activity, easter egg, effect i environment; poza manifestem zostaja swiadomie walidowane tylko mechanizmy zastępcze `assets/activities/*.png`,
+- `253` arkusze animacji PNG i `1` asset środowiska przechodza `validate-assets`,
+- manifest czas działania laduje `246` zasobów: stage, activity, easter egg, effect i environment; poza manifestem zostaja swiadomie walidowane tylko mechanizmy zastępcze `assets/activities/*.png`,
 - stany bazowe, aktywności, neutralne easter eggi i nowe reakcje kursora trzymaja rozmiar/baseline w każdym etapie,
 - dopracowane aktywności są sprawdzane jako `8`-klatkowe, osobne dla etapu arkusze animacji z gęstem w PNG, nie jako 4-klatkowy idle z canvasowym efektem,
 - `spore` activity timing jest one-shot/hold w zakresie ludzkiego okna aktywności, a audyt lapie zbyt duzy drift i cienkie jasne poziome pasy typu "laser",

@@ -1700,6 +1700,7 @@ async function captureViewport(cdp) {
   await waitForExpression(cdp, getAssetStatusReadyExpression(), 6000);
   await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.booted && window.__pieczargotchiRuntime.currentAnimationKey)`, 6000);
   await delay(captureDelayMs);
+  await waitForMobileActionDock(cdp);
 
   const layout = await cdp.send('Runtime.evaluate', {
     expression: `(() => {
@@ -1865,6 +1866,29 @@ async function captureViewport(cdp) {
   }
   console.log(`viewport: ${filePath}`);
   console.log(`viewport layout: side=${Math.round(info.side.width)}x${Math.round(info.side.height)}, canvas=${Math.round(info.canvas.width)}x${Math.round(info.canvas.height)}, actionColumns=${info.actionColumns}`);
+}
+
+async function waitForMobileActionDock(cdp) {
+  if (viewportWidth > 640) {
+    return;
+  }
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      window.dispatchEvent(new Event('resize'));
+      if (window.visualViewport) {
+        window.visualViewport.dispatchEvent(new Event('resize'));
+      }
+      return true;
+    })()`,
+    returnByValue: true
+  });
+
+  await waitForExpression(
+    cdp,
+    `Boolean(document.querySelector('.panel-block--actions.is-adaptive-docked'))`,
+    2500
+  );
 }
 
 function assertMobileLayout(info) {

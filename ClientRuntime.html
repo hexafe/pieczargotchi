@@ -281,6 +281,7 @@
 
     if (assetData && assetData.dataUrl) {
       candidates.push(assetData.dataUrl);
+      addStaticAssetCandidate(candidates, asset);
       return Promise.resolve(candidates);
     }
 
@@ -289,12 +290,20 @@
         if (remoteAssetData && remoteAssetData.dataUrl) {
           candidates.push(remoteAssetData.dataUrl);
         }
+        addStaticAssetCandidate(candidates, asset);
         return candidates;
       });
     }
 
-    candidates.push(getStaticAssetUrl(asset.fileName));
+    addStaticAssetCandidate(candidates, asset);
     return Promise.resolve(candidates);
+  }
+
+  function addStaticAssetCandidate(candidates, asset) {
+    const staticUrl = getStaticAssetUrl(asset && asset.fileName);
+    if (staticUrl && candidates.indexOf(staticUrl) === -1) {
+      candidates.push(staticUrl);
+    }
   }
 
   function getStaticAssetUrl(fileName) {

@@ -508,7 +508,9 @@ function checkAssetFallbackContract() {
   const sprites = readText('ClientSprites.html');
   const assetService = readText('AssetService.gs');
 
-  if (!runtime.includes('function getStaticAssetUrl(fileName)') || !runtime.includes('candidates.push(getStaticAssetUrl(asset.fileName))')) {
+  if (!runtime.includes('function getStaticAssetUrl(fileName)')
+    || !runtime.includes('function addStaticAssetCandidate(')
+    || !runtime.includes('addStaticAssetCandidate(candidates, asset);')) {
     fail('ClientRuntime.html no longer tries local assets as a browser fallback candidate.');
   }
   if (!runtime.includes('Aktywne grafiki zapasowe')) {

@@ -58,6 +58,8 @@ test('Cloudflare static asset manifest cache-busts runtime assets', () => {
     assert(indexHtml.includes(`assets/${fileName}?v=${version}`), `${fileName} should be preloaded with a versioned URL`);
   });
   assert(clientJs.includes('function getStaticAssetUrl('), 'static client should append asset versions at runtime');
+  assert(clientJs.includes('function addStaticAssetCandidate('), 'client should preserve a static asset fallback after data URL lookups');
+  assert(clientJs.includes('addStaticAssetCandidate(candidates, asset);'), 'client should try static assets after missing Drive data URLs');
 });
 
 test('loading and journal paths avoid procedural mushroom fallbacks during normal asset waits', () => {
