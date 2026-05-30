@@ -4,12 +4,15 @@
       ? palette.lighting
       : (typeof getSceneLightingProfile === 'function' ? getSceneLightingProfile(scene || {}, date) : null);
     const visualNightFactor = lighting ? clamp(Number(lighting.nightFactor), 0, 1, 0) : 0;
+    const observer = getSceneObserver(scene || {});
     const skyScene = Object.assign({}, scene || {}, {
+      latitude: observer.latitude,
+      longitude: observer.longitude,
       skyEffectOverride: getDebugSkyEffectOverride()
     });
     const skyEffects = getAmbientSkyEffects(skyScene, date, getRuntimeNow());
     ctx.save();
-    const sun = getSunPosition(scene, date);
+    const sun = getSunPosition(skyScene, date);
     let sunDiagnostics = null;
     if (sun) {
       const sunVisibility = getCelestialCloudVisibility(scene, now, 'sun');
@@ -32,7 +35,7 @@
       };
     }
 
-    const moon = getMoonPosition(scene, date);
+    const moon = getMoonPosition(skyScene, date);
     let moonDiagnostics = null;
     if (moon) {
       const moonVisibility = getCelestialCloudVisibility(scene, now, 'moon');
@@ -73,7 +76,7 @@
       }
     }
     drawMeteorEvent(ctx, skyEffects.meteorEvent, eventStarVisibility, now);
-    recordCelestialDiagnostics(scene, date, sunDiagnostics, moonDiagnostics, skyEffects);
+    recordCelestialDiagnostics(skyScene, date, sunDiagnostics, moonDiagnostics, skyEffects);
     syncSkyDiscoveries(skyEffects, now);
     ctx.restore();
   }
@@ -117,20 +120,22 @@
     ctx.globalCompositeOperation = 'lighter';
     for (let band = 0; band < bandCount; band += 1) {
       const bandSeed = seed + band * 97;
-      const baseY = 66 + band * 18 + seededUnit(bandSeed + 3) * 20;
+      const baseY = 34 + band * 16 + seededUnit(bandSeed + 3) * 16;
       const wave = Math.sin(now / (4200 + band * 430) + bandSeed) * (8 + intensity * 10);
-      const height = 12 + Math.round(intensity * 14) + band * 2;
+      const height = 16 + Math.round(intensity * 18) + band * 2;
       const color = colors[(band + Math.round(Number(aurora.hueShift) * 3)) % colors.length];
       for (let segment = 0; segment < 12; segment += 1) {
         const x = -28 + segment * 48 + Math.round(Math.sin(now / 5600 + segment + band) * 7);
         const curtain = 0.44 + seededUnit(bandSeed + segment * 11) * 0.72;
         const y = Math.round(baseY + wave + Math.sin(segment * 0.92 + now / 3500 + bandSeed) * 7);
         const segmentHeight = Math.round(height * curtain);
-        ctx.globalAlpha = intensity * (0.045 + band * 0.008) * curtain;
+        ctx.globalAlpha = intensity * (0.14 + band * 0.018) * curtain;
         ctx.fillStyle = color;
         ctx.fillRect(x, y, 42, Math.max(2, segmentHeight));
-        ctx.globalAlpha = intensity * 0.03 * curtain;
+        ctx.globalAlpha = intensity * 0.086 * curtain;
         ctx.fillRect(x + 8, y + segmentHeight, 26, Math.max(4, Math.round(segmentHeight * 0.85)));
+        ctx.globalAlpha = intensity * 0.072 * curtain;
+        ctx.fillRect(x + 18, y - 5, 8, Math.max(5, Math.round(segmentHeight * 1.45)));
       }
     }
     ctx.restore();

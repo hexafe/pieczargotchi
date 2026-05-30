@@ -1,7 +1,7 @@
 # Pieczargotchi Next Steps
 
 Last updated: 2026-05-30
-Local app version for this checkpoint: `0.1.27`
+Local app version for this checkpoint: `0.1.28`
 State version: `13`
 Primary preview target: Cloudflare static build
 
@@ -12,13 +12,13 @@ should start here first.
 Latest release QA baseline: `docs/RELEASE_QA_BASELINE_2026-05-30.md`.
 Latest journal/calendar polish: `docs/JOURNAL_CALENDAR_POLISH_2026-05-30.md`.
 Latest world-scene QA: `docs/WORLD_SCENE_QA_2026-05-30.md`.
-Recommended next implementation slice: continue Slice 5 with focused mobile
-storm, snow, fog, aurora, and night-firefly captures.
+Recommended next implementation slice: Cloudflare release smoke and any focused
+fixes found after public preview feedback.
 
 ## 1. Current Baseline
 
 Pieczargotchi is now a Polish pixel-art mushroom care game with a real local
-game loop, Cloudflare preview build, Apps Script compatibility path, sprite
+game loop, Cloudflare release build, Apps Script compatibility scaffold, sprite
 asset pipeline, deterministic Node tests, and browser capture tooling.
 
 Current major systems:
@@ -39,8 +39,8 @@ Current major systems:
 
 Important product direction:
 
-- Cloudflare remains the practical public preview path for friend testing.
-- Apps Script remains supported, but should not block Cloudflare preview polish.
+- Cloudflare is the release and friend-testing target.
+- Apps Script remains a compatibility scaffold, not a release deploy target.
 - The game should feel like a small living world, not a stat dashboard.
 - Core care balance should fit a normal human day and must not create night
   babysitting pressure.
