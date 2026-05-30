@@ -908,17 +908,38 @@
   }
 
   .calendar-checklist__teaser,
+  .calendar-checklist__reward,
   .calendar-event {
     border: 2px solid rgba(60, 43, 32, 0.24);
     border-radius: 6px;
     background: rgba(255, 253, 247, 0.82);
   }
 
-  .calendar-checklist__teaser {
+  .calendar-checklist__teaser,
+  .calendar-checklist__reward {
+    display: grid;
+    gap: 2px;
     padding: 6px 8px;
     color: var(--muted);
     font-size: 11px;
     font-weight: 850;
+  }
+
+  .calendar-checklist__reward {
+    border-color: rgba(76, 124, 62, 0.42);
+    background: #f5f2df;
+  }
+
+  .calendar-checklist__reward strong {
+    color: var(--green-dark);
+    font-size: 12px;
+    font-weight: 900;
+  }
+
+  .calendar-checklist__reward span {
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.22;
   }
 
   .calendar-event {
@@ -1014,6 +1035,8 @@
     grid-template-columns: 164px minmax(0, 1fr);
     gap: 11px;
     width: min(430px, calc(100vw - 24px));
+    max-height: calc(100vh - 16px);
+    overflow: auto;
     padding: 12px 34px 12px 12px;
     border: 2px solid rgba(61, 43, 31, 0.78);
     border-radius: 8px;
@@ -1095,6 +1118,33 @@
     font-weight: 900;
     line-height: 18px;
     cursor: pointer;
+  }
+
+  @media (max-width: 520px) {
+    .journal-polaroid {
+      grid-template-columns: 1fr;
+      justify-items: stretch;
+      width: min(330px, calc(100vw - 18px));
+      gap: 8px;
+      padding: 10px 32px 10px 10px;
+      transform: none;
+    }
+
+    .journal-polaroid__photo {
+      justify-self: center;
+      width: min-content;
+      padding-bottom: 16px;
+    }
+
+    .journal-polaroid h3 {
+      font-size: 14px;
+      line-height: 1.15;
+    }
+
+    .journal-polaroid p {
+      font-size: 11px;
+      line-height: 1.28;
+    }
   }
 
   .action-button {

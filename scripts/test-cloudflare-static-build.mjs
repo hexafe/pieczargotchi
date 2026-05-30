@@ -109,6 +109,11 @@ test('world journal exposes hover notes and polaroid keepsakes', () => {
   assert(distConfig.rules.decorations.some((item) => item.id === 'myceliumCalendar'), 'static config should expose purchasable calendar decoration');
   assert(coreJs.includes('photoCaption'), 'core journal entries should expose photo captions');
   assert(coreJs.includes('conditionNote'), 'core journal entries should expose condition notes');
+  assert(coreJs.includes('sourceType'), 'core calendar entries should expose source category ids');
+  assert(coreJs.includes('sourceLabel'), 'core calendar entries should expose source category labels');
+  assert(coreJs.includes('calendarFrameTiers'), 'core calendar should derive cosmetic frame tiers');
+  assert(clientJs.includes('calendar-checklist__reward'), 'static client should render calendar cosmetic frame progress');
+  assert(clientJs.includes('drawJournalMissingAssetMarker'), 'journal polaroids should mark missing sprites without procedural fallback art');
 });
 
 test('capture tooling can force calendar event screenshots', () => {

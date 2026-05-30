@@ -315,9 +315,11 @@
       label: source.label,
       at: new Date(timestamp).toISOString(),
       body: type === 'calendar'
-        ? 'Do dziennika trafiło nowe święto z kalendarza.'
+        ? 'Do dziennika trafiło nowe święto z kalendarza: ' + (source.sourceCopy || source.sourceLabel || 'źródłowe wydarzenie') + '.'
         : 'Do dziennika trafiło nowe odkrycie z kategorii: ' + typeLabel + '.',
-      category: source.kind || typeLabel
+      category: type === 'calendar'
+        ? source.sourceLabel || source.kind || typeLabel
+        : source.kind || typeLabel
     }].concat(journal.entries).slice(0, 24);
     state.journal = journal;
     return state;
@@ -1047,6 +1049,9 @@
           lastSeenAt: entry ? entry.lastSeenAt || entry.firstSeenAt || null : null,
           hint: getWorldJournalHintCore(type, item),
           rarity: item.rarity || getWorldJournalDefaultRarityCore(type, item),
+          sourceType: item.sourceType || '',
+          sourceLabel: item.sourceLabel || '',
+          sourceCopy: item.sourceCopy || '',
           reaction: item.reaction || getWorldJournalDefaultReactionCore(type, item),
           photoScene: item.photoScene || getWorldJournalDefaultPhotoSceneCore(type, item),
           description: item.description || getWorldJournalDescriptionCore(type, item),

@@ -4,6 +4,7 @@
       label: 'Światowy Dzień Dzikiej Przyrody',
       kind: 'nature',
       rarity: 'roczne',
+      sourceType: 'official',
       dateRule: { type: 'fixed', month: 3, day: 3 },
       dateLabel: '3 marca',
       reaction: 'curious',
@@ -19,6 +20,7 @@
       label: 'Międzynarodowy Dzień Lasów',
       kind: 'forest',
       rarity: 'roczne',
+      sourceType: 'official',
       dateRule: { type: 'fixed', month: 3, day: 21 },
       dateLabel: '21 marca',
       reaction: 'calm',
@@ -34,6 +36,7 @@
       label: 'Światowy Dzień Wody',
       kind: 'water',
       rarity: 'roczne',
+      sourceType: 'official',
       dateRule: { type: 'fixed', month: 3, day: 22 },
       dateLabel: '22 marca',
       reaction: 'happy',
@@ -49,6 +52,7 @@
       label: 'Międzynarodowy Dzień Matki Ziemi',
       kind: 'earth',
       rarity: 'roczne',
+      sourceType: 'official',
       dateRule: { type: 'fixed', month: 4, day: 22 },
       dateLabel: '22 kwietnia',
       reaction: 'warm',
@@ -64,6 +68,7 @@
       label: 'Wiosenny Dzień Ptaków Wędrownych',
       kind: 'migration',
       rarity: 'sezonowe',
+      sourceType: 'official',
       dateRule: { type: 'nthWeekday', month: 5, weekday: 6, occurrence: 2 },
       dateLabel: 'druga sobota maja',
       reaction: 'awe',
@@ -79,6 +84,7 @@
       label: 'Światowy Dzień Pszczół',
       kind: 'pollinator',
       rarity: 'roczne',
+      sourceType: 'official',
       dateRule: { type: 'fixed', month: 5, day: 20 },
       dateLabel: '20 maja',
       reaction: 'happy',
@@ -94,6 +100,7 @@
       label: 'Międzynarodowy Dzień Herbaty',
       kind: 'cozy',
       rarity: 'roczne',
+      sourceType: 'official',
       dateRule: { type: 'fixed', month: 5, day: 21 },
       dateLabel: '21 maja',
       reaction: 'calm',
@@ -109,6 +116,7 @@
       label: 'Międzynarodowy Dzień Bioróżnorodności',
       kind: 'biodiversity',
       rarity: 'roczne',
+      sourceType: 'official',
       dateRule: { type: 'fixed', month: 5, day: 22 },
       dateLabel: '22 maja',
       reaction: 'awe',
@@ -124,6 +132,7 @@
       label: 'Międzynarodowy Dzień Planetoid',
       kind: 'space',
       rarity: 'roczne',
+      sourceType: 'official',
       dateRule: { type: 'fixed', month: 6, day: 30 },
       dateLabel: '30 czerwca',
       reaction: 'curious',
@@ -139,6 +148,7 @@
       label: 'Międzynarodowy Dzień Księżyca',
       kind: 'moon',
       rarity: 'roczne',
+      sourceType: 'official',
       dateRule: { type: 'fixed', month: 7, day: 20 },
       dateLabel: '20 lipca',
       reaction: 'awe',
@@ -154,6 +164,7 @@
       label: 'Noce Perseidów',
       kind: 'meteor',
       rarity: 'sezonowe',
+      sourceType: 'seasonalNatural',
       dateRule: { type: 'range', start: { month: 8, day: 11 }, end: { month: 8, day: 13 } },
       dateLabel: '11-13 sierpnia',
       reaction: 'awe',
@@ -169,6 +180,7 @@
       label: 'Jesienny Dzień Ptaków Wędrownych',
       kind: 'migration',
       rarity: 'sezonowe',
+      sourceType: 'official',
       dateRule: { type: 'nthWeekday', month: 10, weekday: 6, occurrence: 2 },
       dateLabel: 'druga sobota października',
       reaction: 'curious',
@@ -184,6 +196,7 @@
       label: 'Światowy Tydzień Kosmosu',
       kind: 'space',
       rarity: 'sezonowe',
+      sourceType: 'official',
       dateRule: { type: 'range', start: { month: 10, day: 4 }, end: { month: 10, day: 10 } },
       dateLabel: '4-10 października',
       reaction: 'awe',
@@ -199,6 +212,7 @@
       label: 'Dzień Grzyba',
       kind: 'mushroom',
       rarity: 'nieformalne',
+      sourceType: 'informal',
       dateRule: { type: 'fixed', month: 10, day: 15 },
       dateLabel: '15 października',
       reaction: 'proud',
@@ -214,6 +228,7 @@
       label: 'Światowy Dzień Gleby',
       kind: 'soil',
       rarity: 'roczne',
+      sourceType: 'official',
       dateRule: { type: 'fixed', month: 12, day: 5 },
       dateLabel: '5 grudnia',
       reaction: 'calm',
@@ -226,9 +241,61 @@
     }
   ];
 
+  const calendarSourceTypes = {
+    official: {
+      label: 'oficjalne',
+      journalLabel: 'oficjalny dzień świata'
+    },
+    sourceBacked: {
+      label: 'źródłowe',
+      journalLabel: 'wydarzenie opisane w źródłach'
+    },
+    seasonalNatural: {
+      label: 'sezon natury',
+      journalLabel: 'sezonowe zjawisko natury'
+    },
+    informal: {
+      label: 'zabawa',
+      journalLabel: 'nieformalne święto z gry'
+    }
+  };
+
+  const calendarFrameTiers = [
+    {
+      id: 'moss',
+      min: 0,
+      label: 'Ramka mchu',
+      description: 'Prosta zielona ramka dla pierwszych pamiątek.'
+    },
+    {
+      id: 'dew',
+      min: 3,
+      label: 'Ramka rosy',
+      description: 'Jasne krople na rogach polaroidu.'
+    },
+    {
+      id: 'pollen',
+      min: 6,
+      label: 'Ramka pyłku',
+      description: 'Drobny złoty pył dla żywych dni.'
+    },
+    {
+      id: 'stars',
+      min: 10,
+      label: 'Ramka gwiazd',
+      description: 'Nocne piksele dla kosmicznych odkryć.'
+    },
+    {
+      id: 'mycelium',
+      min: 14,
+      label: 'Ramka grzybni',
+      description: 'Pełna kolekcjonerska ramka bez premii do statystyk.'
+    }
+  ];
+
   function getCalendarEventCatalog() {
     return calendarEventCatalog.map(function(item) {
-      return Object.assign({}, item, { dateRule: deepCloneCalendarRule(item.dateRule) });
+      return buildCalendarEventView(item);
     });
   }
 
@@ -245,7 +312,7 @@
       const active = isCalendarEventActiveOnDate(item, date);
       const nextOccurrence = getNextCalendarOccurrence(item, date);
       const discovery = discoveries[item.id] || null;
-      return Object.assign({}, item, {
+      return Object.assign(buildCalendarEventView(item), {
         active: active,
         discovered: Boolean(discovery),
         checked: Boolean(discovery),
@@ -273,16 +340,56 @@
     const checkedCount = events.filter(function(item) {
       return item.checked;
     }).length;
+    const frameReward = getCalendarFrameRewardCore(checkedCount, events.length);
 
     return {
       unlocked: unlocked,
       title: 'Kalendarz grzybni',
       status: unlocked
-        ? checkedCount + '/' + events.length + ' odhaczone'
+        ? checkedCount + '/' + events.length + ' · ' + frameReward.current.label
         : 'Kup w dekoracjach za zarodniki',
       checkedCount: checkedCount,
       totalCount: events.length,
+      frameReward: frameReward,
       events: events
+    };
+  }
+
+  function buildCalendarEventView(item) {
+    const source = getCalendarSourceInfo(item && item.sourceType);
+    return Object.assign({}, item, {
+      dateRule: deepCloneCalendarRule(item.dateRule),
+      sourceType: source.id,
+      sourceLabel: source.label,
+      sourceCopy: source.journalLabel
+    });
+  }
+
+  function getCalendarSourceInfo(sourceType) {
+    const id = calendarSourceTypes[sourceType] ? sourceType : 'sourceBacked';
+    return Object.assign({ id: id }, calendarSourceTypes[id]);
+  }
+
+  function getCalendarFrameRewardCore(checkedCount, totalCount) {
+    const count = clampInteger(checkedCount, 0, 9999, 0);
+    const total = clampInteger(totalCount, 0, 9999, calendarEventCatalog.length);
+    let current = calendarFrameTiers[0];
+    calendarFrameTiers.forEach(function(tier) {
+      if (count >= tier.min) {
+        current = tier;
+      }
+    });
+    const next = calendarFrameTiers.find(function(tier) {
+      return tier.min > count;
+    }) || null;
+    return {
+      current: Object.assign({}, current),
+      next: next ? Object.assign({}, next) : null,
+      remaining: next ? Math.max(0, next.min - count) : 0,
+      totalCount: total,
+      progressLabel: next
+        ? 'Następna: ' + next.label + ' za ' + Math.max(0, next.min - count)
+        : 'Komplet ramek pamiątek'
     };
   }
 
@@ -294,10 +401,11 @@
 
   function recordCalendarDiscovery(rawState, eventId, nowInput) {
     const state = isPlainObject(rawState) ? rawState : {};
-    const item = getCalendarEventDefinition(eventId);
-    if (!item) {
+    const definition = getCalendarEventDefinition(eventId);
+    if (!definition) {
       return { state: state, ok: false, newlyDiscovered: false, label: '', message: '' };
     }
+    const item = buildCalendarEventView(definition);
 
     const date = normalizeDate(nowInput || Date.now());
     const now = date.toISOString();

@@ -2126,8 +2126,15 @@ test('calendar events use local deterministic dates and checklist unlocks throug
     .find((item) => item.id === 'migratoryBirdDaySpring');
 
   assert(tea && tea.active, 'expected International Tea Day to be active on May 21');
+  assert(tea.sourceType === 'official' && tea.sourceLabel === 'oficjalne', 'expected Tea Day to expose an official source label');
   assert(bees && !bees.active, 'expected World Bee Day not to be active on May 21');
   assert(springBirds && springBirds.active, 'expected migratory bird day to match second Saturday in May 2026');
+  const perseids = core.getCalendarEventsForDate(new Date(2026, 7, 12, 23), state, rules)
+    .find((item) => item.id === 'perseidNights');
+  const mushroomDay = core.getCalendarEventsForDate(new Date(2026, 9, 15, 9), state, rules)
+    .find((item) => item.id === 'mushroomDay');
+  assert(perseids && perseids.sourceType === 'seasonalNatural', 'expected Perseids to be marked as a natural season');
+  assert(mushroomDay && mushroomDay.sourceType === 'informal', 'expected Mushroom Day to be marked as informal game flavor');
 
   const lockedChecklist = core.getCalendarChecklist(state, rules, new Date(2026, 4, 21, 9));
   assert(!lockedChecklist.unlocked, 'expected checklist to start locked');
@@ -2142,6 +2149,14 @@ test('calendar events use local deterministic dates and checklist unlocks throug
   const unlockedChecklist = core.getCalendarChecklist(purchase.state, rules, new Date(2026, 4, 21, 9));
   assert(unlockedChecklist.unlocked, 'expected owned calendar to unlock checklist');
   assert(unlockedChecklist.events.length >= 12, 'expected calendar to list annual and seasonal events');
+  assert(unlockedChecklist.frameReward.current.id === 'moss', 'expected initial calendar frame to be moss');
+  ['teaDay', 'worldBeeDay', 'biodiversityDay'].forEach((eventId) => {
+    core.recordCalendarDiscovery(purchase.state, eventId, new Date(2026, 4, 22, 9));
+  });
+  const rewardChecklist = core.getCalendarChecklist(purchase.state, rules, new Date(2026, 4, 23, 9));
+  assert(rewardChecklist.frameReward.current.id === 'dew', 'expected three checked events to unlock dew frame');
+  assert(rewardChecklist.frameReward.next && rewardChecklist.frameReward.next.id === 'pollen', 'expected next cosmetic frame to be pollen');
+  assert(rewardChecklist.status.includes('Ramka rosy'), 'expected checklist status to mention the cosmetic frame');
 });
 
 test('calendar discoveries record once per event and join the world journal', () => {
@@ -2172,8 +2187,10 @@ test('calendar discoveries record once per event and join the world journal', ()
   assert(!normalized.calendar.bogus, 'expected unknown calendar discovery to be dropped');
   assert(tea.discovered, 'expected tea day to be discoverable in journal');
   assert(tea.photoScene === 'teaDay', `expected tea polaroid scene, got ${tea.photoScene}`);
+  assert(tea.sourceLabel === 'oficjalne', 'expected calendar journal item to expose source label');
   assert(journal.discoveredCount === 1, `expected one calendar discovery, got ${journal.discoveredCount}`);
   assert(state.journal.entries.some((entry) => entry.type === 'calendar'), 'expected calendar journal entry');
+  assert(state.journal.entries.some((entry) => entry.category === 'oficjalne'), 'expected calendar journal entry category to use source label');
 });
 
 test('return recap is generated once for long offline windows', () => {

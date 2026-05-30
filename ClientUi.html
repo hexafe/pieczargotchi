@@ -1307,7 +1307,7 @@
         row.disabled = !item.discovered;
         label.textContent = item.discovered ? formatMushroomText(item.label) : '???';
         meta.textContent = item.discovered
-          ? (item.count > 1 ? item.count + ' razy' : 'Odkryte')
+          ? [item.sourceLabel || '', item.count > 1 ? item.count + ' razy' : 'Odkryte'].filter(Boolean).join(' · ')
           : formatMushroomText(item.hint);
         row.setAttribute('aria-label', item.discovered
           ? formatMushroomText(item.label + '. Otwórz pamiątkę odkrycia.')
@@ -1382,11 +1382,21 @@
     if (!checklist.unlocked) {
       const teaser = document.createElement('div');
       teaser.className = 'calendar-checklist__teaser';
-      teaser.textContent = 'W dekoracjach: ' + formatUiCount(12, ['zarodnik', 'zarodniki', 'zarodników']);
+      teaser.textContent = 'W dekoracjach: ' + formatUiCount(12, ['zarodnik', 'zarodniki', 'zarodników']) + ' · ramki pamiątek bez premii do statystyk';
       dom.calendarList.appendChild(teaser);
       if (!events.length) {
         return;
       }
+    } else if (checklist.frameReward && checklist.frameReward.current) {
+      const reward = document.createElement('div');
+      const rewardTitle = document.createElement('strong');
+      const rewardMeta = document.createElement('span');
+      reward.className = 'calendar-checklist__reward';
+      rewardTitle.textContent = 'Odblokowana: ' + formatMushroomText(checklist.frameReward.current.label);
+      rewardMeta.textContent = formatMushroomText(checklist.frameReward.progressLabel + ' · kosmetyczna ramka polaroidów');
+      reward.appendChild(rewardTitle);
+      reward.appendChild(rewardMeta);
+      dom.calendarList.appendChild(reward);
     }
 
     events.forEach(function(event) {
@@ -1414,18 +1424,19 @@
   }
 
   function getCalendarEventMetaLabel(event, unlocked) {
+    const sourceLabel = event.sourceLabel ? ' · ' + formatMushroomText(event.sourceLabel) : '';
     if (event.checked) {
-      return 'odhaczone · ' + formatMushroomText(event.dateLabel || '');
+      return 'odhaczone · ' + formatMushroomText(event.dateLabel || '') + sourceLabel;
     }
     if (event.active) {
-      return 'dziś · ' + formatMushroomText(event.dateLabel || '');
+      return 'dziś · ' + formatMushroomText(event.dateLabel || '') + sourceLabel;
     }
     if (!unlocked) {
       return formatMushroomText(event.unlockHint || event.dateLabel || '');
     }
     const days = Number(event.daysUntil);
     const prefix = days === 0 ? 'dziś' : days === 1 ? 'jutro' : 'za ' + days + ' dni';
-    return prefix + ' · ' + formatMushroomText(event.dateLabel || '');
+    return prefix + ' · ' + formatMushroomText(event.dateLabel || '') + sourceLabel;
   }
 
   function appendInventoryItem(label, value) {

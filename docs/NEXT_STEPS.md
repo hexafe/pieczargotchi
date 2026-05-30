@@ -1,7 +1,7 @@
 # Pieczargotchi Next Steps
 
-Last updated: 2026-05-25
-Local app version for this checkpoint: `0.1.23`
+Last updated: 2026-05-30
+Local app version for this checkpoint: `0.1.25`
 State version: `13`
 Primary preview target: Cloudflare static build
 
@@ -9,7 +9,10 @@ This is the current start-here document for the next Pieczargotchi work. Older
 roadmaps are still useful as history and subsystem notes, but new planning
 should start here first.
 
-Current active UI slice: `docs/SHORT_VIEWPORT_UI_POLISH_PLAN.md`.
+Latest release QA baseline: `docs/RELEASE_QA_BASELINE_2026-05-30.md`.
+Latest journal/calendar polish: `docs/JOURNAL_CALENDAR_POLISH_2026-05-30.md`.
+Recommended next implementation slice: continue Slice 2 with event-specific
+polaroid scenes and mobile journal capture coverage.
 
 ## 1. Current Baseline
 
@@ -436,6 +439,9 @@ Acceptance:
 
 Goal: know whether the current local build is releasable before adding more.
 
+Status: completed for version `0.1.24` on 2026-05-30. See
+`docs/RELEASE_QA_BASELINE_2026-05-30.md`.
+
 Tasks:
 
 - run static/core gates;
@@ -453,6 +459,11 @@ Acceptance:
 ### Slice 2: Journal, Polaroids, And Calendar Polish
 
 Goal: make discoveries feel like memories.
+
+Status: started for version `0.1.25` on 2026-05-30. Calendar event source
+labels, cosmetic frame tiers, mobile-safe polaroid layout, and missing-sprite
+polaroid markers are implemented. See
+`docs/JOURNAL_CALENDAR_POLISH_2026-05-30.md`.
 
 Tasks:
 

@@ -142,9 +142,14 @@
     }
 
     const countText = item.count > 1 ? 'Obserwacje: ' + item.count : 'Pierwsza obserwacja';
+    const detailText = [
+      formatMushroomText(item.description || item.hint || ''),
+      item.sourceLabel ? formatMushroomText(item.sourceLabel) : '',
+      countText
+    ].filter(Boolean).join(' · ');
     dom.journalTooltip.innerHTML = '<strong></strong><span></span>';
     dom.journalTooltip.querySelector('strong').textContent = formatMushroomText(item.label);
-    dom.journalTooltip.querySelector('span').textContent = formatMushroomText(item.description || item.hint || '') + ' · ' + countText;
+    dom.journalTooltip.querySelector('span').textContent = detailText;
     dom.journalTooltip.hidden = false;
     dom.journalTooltip.setAttribute('aria-hidden', 'false');
 
@@ -179,6 +184,7 @@
     const firstSeen = formatWorldJournalDate(item.firstSeenAt);
     const meta = [
       item.groupTitle || 'Dziennik',
+      item.sourceLabel || '',
       item.rarity || '',
       item.count > 1 ? item.count + ' razy' : 'odkryte'
     ].filter(Boolean).join(' · ');
@@ -198,6 +204,7 @@
     if (dom.journalPolaroidNote) {
       dom.journalPolaroidNote.textContent = [
         firstSeen ? 'Pierwszy raz: ' + firstSeen : '',
+        item.sourceCopy ? 'Rodzaj: ' + item.sourceCopy + '.' : '',
         item.conditionNote ? 'Warunki: ' + item.conditionNote : '',
         item.scienceNote || ''
       ].filter(Boolean).join(' ');
@@ -567,8 +574,7 @@
     runtime.assetDiagnostics = runtime.assetDiagnostics || {};
     runtime.assetDiagnostics.journalFallbacks = (runtime.assetDiagnostics.journalFallbacks || 0) + 1;
     drawJournalMushroomPendingPlaceholder(ctx, centerX, baseY);
-    ctx.fillStyle = reaction === 'startled' ? 'rgba(95, 58, 44, 0.36)' : 'rgba(66, 92, 52, 0.32)';
-    ctx.fillRect(centerX - 10, baseY - 47, 20, 4);
+    drawJournalMissingAssetMarker(ctx, centerX, baseY, reaction);
   }
 
   function drawJournalMushroomPendingPlaceholder(ctx, centerX, baseY) {
@@ -581,6 +587,19 @@
       const bladeHeight = 10 + Math.abs((x * 13) % 14);
       ctx.fillRect(centerX + x, baseY - bladeHeight, 2, bladeHeight);
     }
+  }
+
+  function drawJournalMissingAssetMarker(ctx, centerX, baseY, reaction) {
+    const border = reaction === 'startled' ? 'rgba(95, 58, 44, 0.68)' : 'rgba(66, 92, 52, 0.68)';
+    ctx.fillStyle = 'rgba(255,253,247,0.82)';
+    ctx.fillRect(centerX - 10, baseY - 60, 20, 16);
+    ctx.fillStyle = border;
+    ctx.fillRect(centerX - 10, baseY - 60, 20, 2);
+    ctx.fillRect(centerX - 10, baseY - 46, 20, 2);
+    ctx.fillRect(centerX - 10, baseY - 60, 2, 16);
+    ctx.fillRect(centerX + 8, baseY - 60, 2, 16);
+    ctx.fillRect(centerX - 5, baseY - 55, 10, 2);
+    ctx.fillRect(centerX - 2, baseY - 52, 4, 2);
   }
 
   function preloadWorldJournalPolaroidAsset(item) {
