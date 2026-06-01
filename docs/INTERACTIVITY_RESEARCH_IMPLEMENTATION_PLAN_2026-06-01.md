@@ -1,7 +1,7 @@
 # Plan Interaktywności Świata - 2026-06-01
 
-Wersja aplikacji: `0.1.39`  
-Wersja stanu: `16`  
+Wersja aplikacji: `0.1.40`
+Wersja stanu: `16`
 Główny cel podglądu: statyczny build Cloudflare
 
 Ten dokument zbiera research pod następny większy krok: świat ma reagować
@@ -9,6 +9,10 @@ częściej i bardziej wiarygodnie na ruch myszy, kliknięcia, dotyk na telefonie
 przeczesywanie trawy oraz zaczepianie drobnych gości sceny. Celem nie jest nowy
 obowiązek dla gracza, tylko poczucie, że scena żyje między normalnymi akcjami
 opieki.
+
+Follow-up naturalności: jawne celowniki, ramki, krzyżyki i pufy kliknięć zostały
+wycofane z interakcji. Efekty mają być odkrywalne przez ruch trawy, reakcje
+gości i subtelne miny nieba, a nie przez widoczne markery kursora.
 
 ## Podstawa W Repo
 

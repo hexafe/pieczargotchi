@@ -254,6 +254,15 @@ test('sprite-owned activities do not stack canvas visual effects', () => {
   assert(instrumentVariantBuilder.includes('without stacking an extra generated prop over the face'), 'instrument variants should not stack generated props over the source sprite');
 });
 
+test('interaction immersion avoids pointer-local overlay markers', () => {
+  assert(!clientJs.includes('function drawPointerCuriosity('), 'pointer curiosity should not draw cursor-local frames');
+  assert(!clientJs.includes('function drawPointerPesterMarks('), 'pointer pestering should not draw plus marks or target frames');
+  assert(!clientJs.includes('function drawPointerGrassRustle('), 'grass brushing should bend existing grass instead of drawing cursor grass strokes');
+  assert(!clientJs.includes('function drawAmbientPointerCue('), 'ambient interactions should move creatures instead of drawing click rings');
+  assert(!clientJs.includes('function drawCelestialClickPuff('), 'celestial clicks should not draw square hit puffs');
+  assert(clientJs.includes('drawnEffects'), 'interaction diagnostics should expose which effects are actually rendered');
+});
+
 function assertScriptVersion(name, content) {
   const version = getBundleVersion(content);
   const pattern = new RegExp(`<script src="${name}\\.js\\?v=${version}"></script>`);

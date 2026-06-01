@@ -298,13 +298,13 @@
 
   function getCelestialMoodExpression(count) {
     const value = Math.max(0, Number(count) || 0);
-    if (value >= 3) {
+    if (value >= 8) {
       return 'angry';
     }
-    if (value >= 2) {
+    if (value >= 5) {
       return 'annoyed';
     }
-    if (value >= 1) {
+    if (value >= 3) {
       return 'blink';
     }
     return 'neutral';
@@ -335,7 +335,8 @@
     const faceColor = kind === 'sun' ? '#5f3d2e' : '#2f4f35';
 
     ctx.save();
-    ctx.globalAlpha = Math.min(1, drawAlpha + 0.18);
+    const moodAlpha = expression === 'angry' ? 0.82 : (expression === 'annoyed' ? 0.62 : 0.46);
+    ctx.globalAlpha = Math.min(0.82, drawAlpha * moodAlpha);
     ctx.fillStyle = faceColor;
     if (expression === 'blink') {
       ctx.fillRect(leftEyeX - unit, eyeY, unit * 3, unit);

@@ -2425,6 +2425,13 @@ test('hidden grass discovery selector is deterministic and respects care blocker
     grassBrushDistance: 12
   }, now, rules);
   assert(tooShort === null, 'short grass brush should not create a persistent discovery');
+
+  const tooCasual = core.selectGrassInteractionDiscovery(state, scene, {
+    x: 264,
+    y: 426,
+    grassBrushDistance: 88
+  }, now, rules);
+  assert(tooCasual === null, 'casual grass brush should not create a persistent discovery');
 });
 
 test('world journal discovery snapshots preserve the first photographed world state', () => {

@@ -188,7 +188,8 @@ test('pointer grass reaction is fresh and expires instead of sticking forever', 
   const stale = context.getGrassPointerReaction(11550);
 
   assert(fresh && fresh.kind === 'pointer', 'fresh grass pointer should create a local reaction');
-  assert(fresh.strength > 0.2, `fresh pointer should be visible, strength=${fresh && fresh.strength}`);
+  assert(fresh.strength > 0.04 && fresh.strength < 0.16, `fresh pointer should stay subtle, strength=${fresh && fresh.strength}`);
+  assert(fresh.radius <= 44, `fresh pointer should stay local, radius=${fresh && fresh.radius}`);
   assert(fresh.direction === 1, `pointer direction should follow movement, got ${fresh && fresh.direction}`);
   assert(stale === null, 'stale pointer should expire');
 });
@@ -212,8 +213,8 @@ test('grass brush reaction scales with drag distance and expires', () => {
   const fresh = context.collectGrassLocalReactions(5080, null, true).find((reaction) => reaction.kind === 'brush');
   const stale = context.collectGrassLocalReactions(6800, null, true).find((reaction) => reaction.kind === 'brush');
   assert(fresh, 'fresh grass brush should create a local reaction');
-  assert(fresh.strength > 0.35, `brush drag should be visible, strength=${fresh && fresh.strength}`);
-  assert(fresh.radius > 70, `brush radius should scale with distance, radius=${fresh && fresh.radius}`);
+  assert(fresh.strength > 0.12 && fresh.strength < 0.28, `brush drag should stay subtle, strength=${fresh && fresh.strength}`);
+  assert(fresh.radius > 48 && fresh.radius < 64, `brush radius should stay local, radius=${fresh && fresh.radius}`);
   assert(stale === undefined, 'stale grass brush should expire');
 });
 

@@ -249,24 +249,21 @@
       && Number(input.y) > 380) {
       const moveAge = Math.max(0, Number(now) - (Number(input.lastMoveAt) || 0));
       const downAge = Math.max(0, Number(now) - (Number(input.lastDownAt) || 0));
-      const freshMove = moveAge <= 920;
-      const freshTap = downAge <= 1180;
-      if (!freshMove && !freshTap) {
+      const freshTap = downAge <= 620;
+      if (!Boolean(input.isDown) && !freshTap) {
         return null;
       }
 
-      const speed = clamp(Number(input.speed), 0, 2.6, 0);
-      const decay = freshTap
-        ? 1 - smoothStep(760, 1180, downAge)
-        : 1 - smoothStep(520, 920, moveAge);
+      const speed = clamp(Number(input.speed), 0, 1.8, 0);
+      const decay = 1 - smoothStep(260, 620, Math.min(moveAge, downAge));
       const dx = Number(input.x) - Number(input.previousX);
       const direction = Number.isFinite(dx) && Math.abs(dx) > 0.8 ? (dx >= 0 ? 1 : -1) : 1;
       return {
         kind: 'pointer',
         x: Number(input.x),
         y: Number(input.y),
-        radius: freshTap ? 72 : 58,
-        strength: clamp((freshTap ? 0.34 : 0.16) + speed * 0.18 + Math.sin(now / 240) * 0.04, 0, 0.58, 0.22) * decay,
+        radius: 42,
+        strength: clamp(0.08 + speed * 0.045 + Math.sin(now / 260) * 0.018, 0, 0.22, 0.1) * decay,
         direction: direction
       };
     }
@@ -280,24 +277,24 @@
     }
 
     const age = Math.max(0, Number(now) - Number(input.grassBrushLastAt));
-    if (age > 1350 || !Number.isFinite(Number(input.grassBrushX)) || !Number.isFinite(Number(input.grassBrushY))) {
+    if (age > 900 || !Number.isFinite(Number(input.grassBrushX)) || !Number.isFinite(Number(input.grassBrushY))) {
       return null;
     }
 
     const distance = clamp(Number(input.grassBrushDistance), 0, 240, 0);
-    if (distance < 18) {
+    if (distance < 32) {
       return null;
     }
 
     const dx = Number(input.x) - Number(input.previousX);
     const direction = Number.isFinite(dx) && Math.abs(dx) > 0.8 ? (dx >= 0 ? 1 : -1) : 1;
-    const decay = 1 - smoothStep(820, 1350, age);
+    const decay = 1 - smoothStep(540, 900, age);
     return {
       kind: 'brush',
       x: Number(input.grassBrushX),
       y: Math.max(392, Number(input.grassBrushY)),
-      radius: clamp(46 + distance * 0.34, 52, 132, 72),
-      strength: clamp(0.22 + distance * 0.004, 0, 0.78, 0.28) * decay,
+      radius: clamp(34 + distance * 0.18, 38, 78, 46),
+      strength: clamp(0.1 + distance * 0.0017, 0, 0.32, 0.14) * decay,
       direction: direction
     };
   }
@@ -1478,7 +1475,8 @@
         ? (dx >= 0 ? 1 : -1)
         : Number(reaction.direction) || (dx >= 0 ? 1 : -1);
       const pulse = Math.sin(field.now / (180 + seededUnit(seed + 9) * 220) + seed) * 0.55 + 0.45;
-      bend += direction * influence * (Number(reaction.strength) || 0) * (2.2 + height * 0.14) * (0.72 + pulse * 0.48);
+      const subtleScale = reaction.kind === 'pointer' || reaction.kind === 'brush' ? 0.58 : 1;
+      bend += direction * influence * (Number(reaction.strength) || 0) * (1.35 + height * 0.08) * (0.72 + pulse * 0.48) * subtleScale;
     });
     return bend;
   }

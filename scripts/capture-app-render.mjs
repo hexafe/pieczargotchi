@@ -524,7 +524,7 @@ async function captureImmersion(cdp, sample) {
 
 async function captureInteractionSmoke(cdp) {
   const diagnostics = await cdp.send('Runtime.evaluate', {
-    expression: `(() => {
+    expression: `(async () => {
       const canvas = document.getElementById('mushroomCanvas');
       const runtime = window.__pieczargotchiRuntime;
       if (!canvas || !runtime) {
@@ -552,12 +552,23 @@ async function captureInteractionSmoke(cdp) {
       [235, 265, 300, 336].forEach((x) => dispatchPointer('pointermove', x, 426, 'touch', 21));
       dispatchPointer('pointerup', 336, 426, 'touch', 21);
       const brushDistanceAfterBrush = runtime.input && runtime.input.grassBrushDistance;
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const groundAfterBrush = runtime.motionDiagnostics && runtime.motionDiagnostics.ground;
+      const interactionsAfterBrush = runtime.motionDiagnostics && runtime.motionDiagnostics.interactions;
 
       const beforeSun = runtime.motionDiagnostics && runtime.motionDiagnostics.celestial && runtime.motionDiagnostics.celestial.sun;
+      let sunMoodAfterThree = null;
+      let sunMoodCountAfterThree = 0;
       if (beforeSun && beforeSun.visibleForHit) {
         const sx = beforeSun.centerX || beforeSun.x + beforeSun.size / 2;
         const sy = beforeSun.centerY || beforeSun.y + beforeSun.size / 2;
         for (let index = 0; index < 3; index += 1) {
+          dispatchPointer('pointerdown', sx, sy, 'mouse', 31);
+          dispatchPointer('pointerup', sx, sy, 'mouse', 31);
+        }
+        sunMoodAfterThree = runtime.celestialMood && runtime.celestialMood.sun && runtime.celestialMood.sun.expression;
+        sunMoodCountAfterThree = runtime.celestialMood && runtime.celestialMood.sun && runtime.celestialMood.sun.count;
+        for (let index = 0; index < 5; index += 1) {
           dispatchPointer('pointerdown', sx, sy, 'mouse', 31);
           dispatchPointer('pointerup', sx, sy, 'mouse', 31);
         }
@@ -571,9 +582,14 @@ async function captureInteractionSmoke(cdp) {
         brushDistance: brushDistanceAfterBrush,
         lastTarget: runtime.input && runtime.input.lastDownTargetKind,
         activeEffects,
+        sunMoodAfterThree,
+        sunMoodCountAfterThree,
         sunMood: runtime.celestialMood && runtime.celestialMood.sun && runtime.celestialMood.sun.expression,
         sunMoodCount: runtime.celestialMood && runtime.celestialMood.sun && runtime.celestialMood.sun.count,
+        groundAfterBrush,
+        interactionsAfterBrush,
         interactionDiagnostics: runtime.motionDiagnostics && runtime.motionDiagnostics.interactions,
+        groundDiagnostics: runtime.motionDiagnostics && runtime.motionDiagnostics.ground,
         celestialDiagnostics: runtime.motionDiagnostics && runtime.motionDiagnostics.celestial
       };
     })()`,
@@ -596,6 +612,7 @@ async function captureInteractionSmoke(cdp) {
         sunMood: runtime.celestialMood && runtime.celestialMood.sun && runtime.celestialMood.sun.expression,
         sunMoodCount: runtime.celestialMood && runtime.celestialMood.sun && runtime.celestialMood.sun.count,
         interactions: runtime.motionDiagnostics && runtime.motionDiagnostics.interactions,
+        ground: runtime.motionDiagnostics && runtime.motionDiagnostics.ground,
         celestial: runtime.motionDiagnostics && runtime.motionDiagnostics.celestial
       };
     })()`,
@@ -603,6 +620,7 @@ async function captureInteractionSmoke(cdp) {
   });
   const state = after.result.value || {};
   const brushDistance = Math.max(Number(info.brushDistance) || 0, Number(state.brushDistance) || 0);
+  state.brushDistance = brushDistance;
   state.brushDistanceBeforeSkyClicks = Number(info.brushDistance) || 0;
   if (brushDistance < 80) {
     throw new Error(`Interaction capture did not accumulate brush distance: ${JSON.stringify({ before: info, after: state })}`);
@@ -610,7 +628,22 @@ async function captureInteractionSmoke(cdp) {
   if (!Array.isArray(state.activeEffects) || !state.activeEffects.some((type) => String(type).includes('grass'))) {
     throw new Error(`Interaction capture did not create a grass effect: ${JSON.stringify(state)}`);
   }
-  if (state.sunMood !== 'angry' || Number(state.sunMoodCount) < 3) {
+  const groundField = (info.groundAfterBrush && info.groundAfterBrush.field) || {};
+  const localKinds = Array.isArray(groundField.localReactionKinds) ? groundField.localReactionKinds : [];
+  if (groundField.brushActive !== true || !localKinds.includes('brush') || Number(groundField.brushY) < 386) {
+    throw new Error(`Interaction capture did not keep grass brushing as a natural field reaction: ${JSON.stringify({ before: info, after: state })}`);
+  }
+  const drawnEffects = state.interactions && Array.isArray(state.interactions.drawnEffects) ? state.interactions.drawnEffects : [];
+  const forbiddenDrawn = drawnEffects.filter((effect) => !['frogJump'].includes(String(effect.type)));
+  if (forbiddenDrawn.length) {
+    throw new Error(`Interaction capture rendered pointer-local overlays: ${JSON.stringify({ forbiddenDrawn, state })}`);
+  }
+  state.sunMoodAfterThree = info.sunMoodAfterThree;
+  state.sunMoodCountAfterThree = info.sunMoodCountAfterThree;
+  if (state.sunMoodAfterThree === 'angry' || Number(state.sunMoodCountAfterThree) !== 3) {
+    throw new Error(`Interaction capture escalated sun too quickly: ${JSON.stringify(state)}`);
+  }
+  if (state.sunMood !== 'angry' || Number(state.sunMoodCount) < 8) {
     throw new Error(`Interaction capture did not escalate sun mood: ${JSON.stringify(state)}`);
   }
   const image = await cdp.send('Runtime.evaluate', {

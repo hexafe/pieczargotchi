@@ -209,7 +209,7 @@
     runtime.input.grassBrushX = point.x;
     runtime.input.grassBrushY = Math.max(386, point.y);
 
-    if (runtime.input.grassBrushDistance >= 44 && canUseWorldInteractionCooldown('grassBrush', now, 860)) {
+    if (runtime.input.grassBrushDistance >= 72 && canUseWorldInteractionCooldown('grassBrush', now, 1280)) {
       triggerGrassBrushInteraction(point, now);
     }
   }
@@ -365,7 +365,8 @@
       x: point.x,
       y: Math.max(398, point.y),
       startedAt: now,
-      duration: 880
+      duration: 620,
+      visible: false
     });
   }
 
@@ -380,7 +381,8 @@
         label: discovery.label,
         discoveryId: discovery.id,
         startedAt: now,
-        duration: 1900
+        duration: 1500,
+        visible: false
       });
       return;
     }
@@ -390,10 +392,11 @@
         type: 'frogJump',
         kind: 'grass',
         x: point.x,
-        y: Math.max(404, point.y),
+        y: Math.max(428, point.y + 8),
         direction: point.x < 256 ? 1 : -1,
         startedAt: now,
-        duration: 1550
+        duration: 1250,
+        visible: true
       });
       return;
     }
@@ -404,7 +407,8 @@
       x: point.x,
       y: Math.max(398, point.y),
       startedAt: now,
-      duration: 1050
+      duration: 760,
+      visible: false
     });
   }
 
@@ -461,13 +465,16 @@
   }
 
   function shouldTriggerFrogJump(point, now) {
-    if (!canUseWorldInteractionCooldown('frogJump', now, 7200)) {
+    if (Number(runtime.input && runtime.input.grassBrushDistance) < 120) {
+      return false;
+    }
+    if (!canUseWorldInteractionCooldown('frogJump', now, 18000)) {
       return false;
     }
     const scene = typeof getCurrentWeatherScene === 'function' ? getCurrentWeatherScene() : {};
     const moist = scene && (scene.condition === 'rain' || scene.condition === 'fog' || Number(scene.surfaceWetnessTarget) > 0.46 || Number(scene.humidity) > 82);
     const seed = Math.round(point.x * 13 + point.y * 7 + Math.floor(now / 90000) * 97);
-    return moist || interactionSeededUnit(seed) > 0.76;
+    return moist ? interactionSeededUnit(seed) > 0.58 : interactionSeededUnit(seed) > 0.91;
   }
 
   function triggerAmbientPointerEffect(target, point, now) {
@@ -489,7 +496,8 @@
       x: Number(target.x) || point.x,
       y: Number(target.y) || point.y,
       startedAt: now,
-      duration: target.kind === 'visitor' ? 1500 : 1200,
+      duration: target.kind === 'visitor' ? 1150 : 900,
+      visible: false,
       direction: point.x < 256 ? 1 : -1
     });
   }
@@ -513,25 +521,28 @@
       runtime.celestialMood = createDefaultCelestialMoodState();
     }
     const target = runtime.celestialMood[kind] || createDefaultCelestialMoodTarget();
-    const count = now - Number(target.lastAt || 0) <= 2500 ? Math.min(9, Number(target.count || 0) + 1) : 1;
+    const count = now - Number(target.lastAt || 0) <= 10000 ? Math.min(12, Number(target.count || 0) + 1) : 1;
     const expression = typeof getCelestialMoodExpression === 'function'
       ? getCelestialMoodExpression(count)
-      : (count >= 3 ? 'angry' : (count >= 2 ? 'annoyed' : 'blink'));
-    const duration = expression === 'angry' ? 2900 : (expression === 'annoyed' ? 1900 : 950);
+      : (count >= 8 ? 'angry' : (count >= 5 ? 'annoyed' : (count >= 3 ? 'blink' : 'neutral')));
+    const duration = expression === 'angry' ? 2600 : (expression === 'annoyed' ? 1800 : (expression === 'blink' ? 850 : 1));
     runtime.celestialMood[kind] = {
       count: count,
       lastAt: now,
       until: now + duration,
       expression: expression
     };
-    addWorldInteractionEffect({
-      type: 'celestialMood',
-      kind: kind,
-      x: Number(runtime.input.x) || 256,
-      y: Number(runtime.input.y) || 96,
-      startedAt: now,
-      duration: duration
-    });
+    if (expression !== 'neutral') {
+      addWorldInteractionEffect({
+        type: 'celestialMood',
+        kind: kind,
+        x: Number(runtime.input.x) || 256,
+        y: Number(runtime.input.y) || 96,
+        startedAt: now,
+        duration: duration,
+        visible: false
+      });
+    }
   }
 
   function getCanvasPointerPoint(event) {
@@ -727,15 +738,7 @@
   function drawImmersionForeground(ctx, now, wallNow) {
     const active = getActiveImmersionReaction(wallNow);
     if (active) {
-      if (active.id === 'pointerHover' || active.id === 'pointerTap') {
-        drawPointerCuriosity(ctx, now, active);
-      } else if (active.id === 'pointerPester') {
-        drawPointerPesterMarks(ctx, now, active);
-      } else if (active.id === 'pointerGrass' || active.id === 'pointerGrassBrush') {
-        drawPointerGrassRustle(ctx, now, active);
-      } else if (active.id === 'pointerScareButterfly' || active.id === 'pointerScareCrawler' || active.id === 'pointerGreetFirefly' || active.id === 'pointerNudgeVisitor') {
-        drawAmbientPointerCue(ctx, now, active);
-      } else if (active.id === 'snow') {
+      if (active.id === 'snow') {
         drawImmersionSnowBreath(ctx, now, active);
       } else if (active.id === 'stargaze') {
         drawImmersionStarSparkles(ctx, now, active);
@@ -803,103 +806,13 @@
     ctx.restore();
   }
 
-  function drawPointerCuriosity(ctx, now, active) {
-    const input = runtime.input || {};
-    const x = Number(input.x);
-    const y = Number(input.y);
-    const alpha = getImmersionAlpha(active, now);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      return;
-    }
-
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.strokeStyle = active.id === 'pointerTap' ? '#fff3b8' : '#d8e9d2';
-    ctx.lineWidth = 3;
-    const pulse = 10 + Math.sin(now / 120) * 3;
-    ctx.strokeRect(Math.round(x - pulse), Math.round(y - pulse), Math.round(pulse * 2), Math.round(pulse * 2));
-    ctx.fillStyle = active.id === 'pointerTap' ? '#fff3b8' : '#d8e9d2';
-    ctx.globalAlpha = 0.58 * alpha;
-    ctx.fillRect(Math.round(x + 16), Math.round(y - 10), 12, 3);
-    ctx.fillRect(Math.round(x + 20), Math.round(y - 14), 3, 12);
-    ctx.restore();
-  }
-
-  function drawPointerGrassRustle(ctx, now, active) {
-    const input = runtime.input || {};
-    const x = Number(input.grassBrushX || input.x);
-    const y = Number(input.grassBrushY || input.y);
-    const alpha = getImmersionAlpha(active, now);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      return;
-    }
-
-    ctx.save();
-    ctx.globalAlpha = 0.72 * alpha;
-    ctx.strokeStyle = '#d8e48b';
-    ctx.lineWidth = 2;
-    for (let index = -4; index <= 4; index += 1) {
-      const baseX = Math.round(x + index * 10);
-      const baseY = Math.round(Math.max(398, Math.min(462, y + Math.abs(index) * 2)));
-      const sway = Math.sin(now / 130 + index) * 9;
-      ctx.beginPath();
-      ctx.moveTo(baseX, baseY);
-      ctx.lineTo(baseX + sway, baseY - 32 - (index % 3) * 4);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  function drawPointerPesterMarks(ctx, now, active) {
-    const input = runtime.input || {};
-    const x = Number(input.x);
-    const y = Number(input.y);
-    const alpha = getImmersionAlpha(active, now);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      return;
-    }
-
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = '#f1d66a';
-    for (let index = 0; index < 3; index += 1) {
-      const ox = Math.round(x - 18 + index * 16 + Math.sin(now / 130 + index) * 3);
-      const oy = Math.round(y - 34 - index * 5);
-      ctx.fillRect(ox, oy, 10, 3);
-      ctx.fillRect(ox + 3, oy - 5, 3, 13);
-    }
-    ctx.strokeStyle = '#5f3d2e';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(Math.round(x - 15), Math.round(y - 15), 30, 30);
-    ctx.restore();
-  }
-
-  function drawAmbientPointerCue(ctx, now, active) {
-    const input = runtime.input || {};
-    const x = Number(input.x);
-    const y = Number(input.y);
-    const alpha = getImmersionAlpha(active, now);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      return;
-    }
-
-    ctx.save();
-    ctx.globalAlpha = 0.68 * alpha;
-    ctx.strokeStyle = active.id === 'pointerGreetFirefly' ? '#fff3b8' : '#d8e9d2';
-    ctx.lineWidth = 2;
-    for (let index = 0; index < 4; index += 1) {
-      const radius = 10 + index * 8 + Math.sin(now / 180 + index) * 2;
-      ctx.strokeRect(Math.round(x - radius), Math.round(y - radius * 0.5), Math.round(radius * 2), Math.round(radius));
-    }
-    ctx.restore();
-  }
-
   function drawWorldInteractionEffects(ctx, now, wallNow) {
     if (!runtime.worldInteractions || !Array.isArray(runtime.worldInteractions.effects)) {
       return;
     }
 
     const live = [];
+    const drawn = [];
     runtime.worldInteractions.effects.forEach(function(effect) {
       const duration = Math.max(1, Number(effect.duration) || 1000);
       const progress = Math.max(0, Math.min(1, (wallNow - Number(effect.startedAt || wallNow)) / duration));
@@ -907,165 +820,36 @@
         return;
       }
       live.push(effect);
-      if (effect.type === 'frogJump') {
+      if (effect.type === 'frogJump' && effect.visible !== false) {
         drawFrogJumpEffect(ctx, now, effect, progress);
-      } else if (effect.type === 'grassFind') {
-        drawGrassFindEffect(ctx, now, effect, progress);
-      } else if (effect.type === 'butterflyScatter') {
-        drawScatterEffect(ctx, now, effect, progress, '#f4a7d2');
-      } else if (effect.type === 'crawlerHide') {
-        drawCrawlerHideEffect(ctx, now, effect, progress);
-      } else if (effect.type === 'fireflySpark') {
-        drawFireflySparkEffect(ctx, now, effect, progress);
-      } else if (effect.type === 'visitorNudge') {
-        drawVisitorNudgeEffect(ctx, now, effect, progress);
-      } else if (effect.type === 'celestialMood') {
-        drawCelestialClickPuff(ctx, now, effect, progress);
-      } else {
-        drawGrassRustleEffect(ctx, now, effect, progress);
+        drawn.push(effect);
       }
     });
     runtime.worldInteractions.effects = live;
-    recordWorldInteractionDiagnostics(live, wallNow);
-  }
-
-  function drawGrassRustleEffect(ctx, now, effect, progress) {
-    const alpha = getEffectFadeAlpha(progress) * 0.72;
-    const x = Number(effect.x) || 256;
-    const y = Number(effect.y) || 422;
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.strokeStyle = '#c9da73';
-    ctx.lineWidth = 2;
-    for (let index = -3; index <= 3; index += 1) {
-      const sway = Math.sin(now / 120 + index) * 8 * (1 - progress);
-      const baseX = Math.round(x + index * 9);
-      const baseY = Math.round(y + Math.abs(index) * 2);
-      ctx.beginPath();
-      ctx.moveTo(baseX, baseY);
-      ctx.lineTo(baseX + sway, baseY - 26 - Math.abs(index) * 2);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  function drawGrassFindEffect(ctx, now, effect, progress) {
-    drawGrassRustleEffect(ctx, now, effect, progress);
-    const alpha = getEffectFadeAlpha(progress);
-    const x = Number(effect.x) || 256;
-    const y = (Number(effect.y) || 420) - progress * 22;
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = '#fff3b8';
-    for (let index = 0; index < 5; index += 1) {
-      const angle = index * 1.256 + now / 420;
-      const px = Math.round(x + Math.cos(angle) * (10 + progress * 12));
-      const py = Math.round(y + Math.sin(angle) * 6);
-      ctx.fillRect(px, py, 5, 2);
-      ctx.fillRect(px + 1, py - 2, 2, 6);
-    }
-    ctx.fillStyle = '#8ebf63';
-    ctx.fillRect(Math.round(x - 4), Math.round(y + 8), 8, 4);
-    ctx.restore();
+    recordWorldInteractionDiagnostics(live, drawn, wallNow);
   }
 
   function drawFrogJumpEffect(ctx, now, effect, progress) {
     const direction = Number(effect.direction) || 1;
     const startX = Number(effect.x) || 256;
     const startY = Number(effect.y) || 420;
-    const x = Math.round(startX + direction * progress * 86);
-    const y = Math.round(startY - Math.sin(progress * Math.PI) * 54 + progress * 8);
-    const alpha = getEffectFadeAlpha(progress);
+    const x = Math.round(startX + direction * progress * 58);
+    const y = Math.round(startY - Math.sin(progress * Math.PI) * 28 + progress * 6);
+    const alpha = getEffectFadeAlpha(progress) * 0.68;
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.fillStyle = '#5aa65b';
-    ctx.fillRect(x - 8, y - 5, 16, 10);
-    ctx.fillRect(x - 5, y - 11, 10, 7);
-    ctx.fillStyle = '#d8e9d2';
-    ctx.fillRect(x - 4, y - 9, 3, 3);
-    ctx.fillRect(x + 2, y - 9, 3, 3);
-    ctx.fillStyle = '#2f4f35';
-    ctx.fillRect(x - 3, y - 8, 1, 1);
-    ctx.fillRect(x + 3, y - 8, 1, 1);
     ctx.fillStyle = '#477c43';
-    ctx.fillRect(x - 12, y + 1, 7, 3);
-    ctx.fillRect(x + 5, y + 1, 7, 3);
-    ctx.restore();
-  }
-
-  function drawScatterEffect(ctx, now, effect, progress, color) {
-    const alpha = getEffectFadeAlpha(progress);
-    const x = Number(effect.x) || 256;
-    const y = Number(effect.y) || 220;
-    ctx.save();
-    ctx.globalAlpha = 0.72 * alpha;
-    ctx.strokeStyle = color || '#d8e9d2';
-    ctx.lineWidth = 2;
-    for (let index = 0; index < 5; index += 1) {
-      const angle = index * 1.25 + now / 380;
-      const length = 12 + progress * 34;
-      const sx = Math.round(x + Math.cos(angle) * length);
-      const sy = Math.round(y + Math.sin(angle) * length * 0.6);
-      ctx.beginPath();
-      ctx.moveTo(Math.round(x), Math.round(y));
-      ctx.lineTo(sx, sy);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  function drawCrawlerHideEffect(ctx, now, effect, progress) {
-    const alpha = getEffectFadeAlpha(progress);
-    const x = Number(effect.x) || 256;
-    const y = Number(effect.y) || 430;
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = '#7f6a42';
-    for (let index = 0; index < 5; index += 1) {
-      const px = Math.round(x - 16 + index * 8 + Math.sin(now / 180 + index) * 3);
-      const py = Math.round(y + Math.sin(index) * 3 - progress * 8);
-      ctx.fillRect(px, py, 5, 3);
-    }
-    ctx.restore();
-  }
-
-  function drawFireflySparkEffect(ctx, now, effect, progress) {
-    const alpha = getEffectFadeAlpha(progress);
-    const x = Number(effect.x) || 256;
-    const y = Number(effect.y) || 250;
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = 0.42 * alpha;
-    ctx.fillStyle = '#fff3b8';
-    const radius = 14 + Math.sin(now / 180) * 3 + progress * 14;
-    ctx.fillRect(Math.round(x - radius), Math.round(y - 2), Math.round(radius * 2), 4);
-    ctx.fillRect(Math.round(x - 2), Math.round(y - radius), 4, Math.round(radius * 2));
-    ctx.restore();
-  }
-
-  function drawVisitorNudgeEffect(ctx, now, effect, progress) {
-    const alpha = getEffectFadeAlpha(progress);
-    const x = Number(effect.x) || 256;
-    const y = Number(effect.y) || 412;
-    ctx.save();
-    ctx.globalAlpha = 0.62 * alpha;
-    ctx.fillStyle = '#d8e9d2';
-    for (let index = 0; index < 3; index += 1) {
-      ctx.fillRect(Math.round(x + index * 10 - progress * 18), Math.round(y + index * 3), 5, 3);
-    }
-    ctx.restore();
-  }
-
-  function drawCelestialClickPuff(ctx, now, effect, progress) {
-    const alpha = getEffectFadeAlpha(progress);
-    const x = Number(effect.x) || 256;
-    const y = Number(effect.y) || 96;
-    ctx.save();
-    ctx.globalAlpha = 0.42 * alpha;
-    ctx.strokeStyle = effect.kind === 'sun' ? '#fff3b8' : '#d8e9d2';
-    ctx.lineWidth = 2;
-    const size = 12 + progress * 26;
-    ctx.strokeRect(Math.round(x - size / 2), Math.round(y - size / 2), Math.round(size), Math.round(size));
+    ctx.fillRect(x - 6, y - 4, 12, 8);
+    ctx.fillRect(x - 4, y - 9, 8, 6);
+    ctx.fillStyle = '#b7d6a8';
+    ctx.fillRect(x - 3, y - 7, 2, 2);
+    ctx.fillRect(x + 2, y - 7, 2, 2);
+    ctx.fillStyle = '#2f4f35';
+    ctx.fillRect(x - 2, y - 7, 1, 1);
+    ctx.fillRect(x + 3, y - 7, 1, 1);
+    ctx.fillStyle = '#3f6b3c';
+    ctx.fillRect(x - 10, y + 1, 5, 2);
+    ctx.fillRect(x + 5, y + 1, 5, 2);
     ctx.restore();
   }
 
@@ -1124,10 +908,11 @@
     return effect && map[kind] && effect.type === map[kind];
   }
 
-  function recordWorldInteractionDiagnostics(effects, wallNow) {
+  function recordWorldInteractionDiagnostics(effects, drawnEffects, wallNow) {
     if (!runtime.motionDiagnostics) {
       return;
     }
+    const drawn = Array.isArray(drawnEffects) ? drawnEffects : [];
     runtime.motionDiagnostics.interactions = {
       activeEffects: effects.map(function(effect) {
         return {
@@ -1136,6 +921,14 @@
           x: Math.round(Number(effect.x) || 0),
           y: Math.round(Number(effect.y) || 0),
           ageMs: Math.max(0, Math.round(wallNow - Number(effect.startedAt || wallNow)))
+        };
+      }),
+      drawnEffects: drawn.map(function(effect) {
+        return {
+          type: effect.type,
+          kind: effect.kind,
+          x: Math.round(Number(effect.x) || 0),
+          y: Math.round(Number(effect.y) || 0)
         };
       }),
       grassBrushDistance: Math.round(Number(runtime.input && runtime.input.grassBrushDistance) || 0),

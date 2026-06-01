@@ -149,10 +149,14 @@ test('celestial hit testing respects center, margin, and misses', () => {
 
 test('celestial mood expression escalates with repeated clicks', () => {
   assert(context.getCelestialMoodExpression(0) === 'neutral', 'zero clicks should be neutral');
-  assert(context.getCelestialMoodExpression(1) === 'blink', 'first click should blink');
-  assert(context.getCelestialMoodExpression(2) === 'annoyed', 'second click should annoy');
-  assert(context.getCelestialMoodExpression(3) === 'angry', 'third click should be angry');
-  assert(context.getCelestialMoodExpression(8) === 'angry', 'later clicks should stay angry');
+  assert(context.getCelestialMoodExpression(1) === 'neutral', 'first click should stay hidden');
+  assert(context.getCelestialMoodExpression(2) === 'neutral', 'second click should stay hidden');
+  assert(context.getCelestialMoodExpression(3) === 'blink', 'third click should only blink');
+  assert(context.getCelestialMoodExpression(4) === 'blink', 'fourth click should only blink');
+  assert(context.getCelestialMoodExpression(5) === 'annoyed', 'fifth click should begin annoyance');
+  assert(context.getCelestialMoodExpression(7) === 'annoyed', 'seventh click should stay annoyed');
+  assert(context.getCelestialMoodExpression(8) === 'angry', 'eighth click should be angry');
+  assert(context.getCelestialMoodExpression(12) === 'angry', 'later clicks should stay angry');
 });
 
 function getSun(location, isoTimestamp) {
