@@ -485,9 +485,16 @@ function checkGameplayLoopIteration2Config(config) {
   if (!state.returnRecap || !Array.isArray(state.returnRecap.entries)) {
     fail('Default state is missing return recap entries.');
   }
-  if (!state.discoveries || !state.discoveries.instruments || !state.discoveries.calendar) {
-    fail('Default state is missing rare instrument or calendar discoveries.');
+  if (!state.discoveries || !state.discoveries.environment || !state.discoveries.instruments || !state.discoveries.calendar) {
+    fail('Default state is missing environment, rare instrument, or calendar discoveries.');
   }
+
+  const phenomenaCore = readText('ClientCorePhenomena.html');
+  ['grassDewPearl', 'grassPollenSpark', 'grassGuestTrace', 'grassHiddenPebble', 'grassAfterRainScent', 'grassNightGlimmer'].forEach((id) => {
+    if (!phenomenaCore.includes(`id: '${id}'`)) {
+      fail(`Hidden grass discovery catalog is missing ${id}.`);
+    }
+  });
 
   const decorations = Array.isArray(config.rules && config.rules.decorations) ? config.rules.decorations : [];
   const taggedDecorations = decorations.filter((item) => Array.isArray(item.tags) && item.tags.length);

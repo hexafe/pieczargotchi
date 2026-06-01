@@ -10,6 +10,13 @@
     pointerHoverCooldownMs: 900,
     pointerTapDurationMs: 1150,
     pointerTapCooldownMs: 2400,
+    pointerPesterFreshMs: 2800,
+    pointerPesterDurationMs: 1350,
+    pointerPesterCooldownMs: 3200,
+    pointerGrassBrushFreshMs: 1400,
+    pointerGrassBrushMinDistance: 42,
+    pointerGrassBrushDurationMs: 1250,
+    pointerGrassBrushCooldownMs: 1150,
     weatherDurationMs: 2600,
     weatherCooldownMs: 8200,
     celestialDurationMs: 3000,
@@ -19,6 +26,7 @@
     ambientButterflyRadius: 198,
     ambientFireflyRadius: 206,
     ambientCrawlerRadius: 118,
+    ambientPointerFreshMs: 1400,
     ambientLifeDurationMs: 1900,
     ambientLifeCooldownMs: 7200,
     idleFidgetDurationMs: 1900,
@@ -97,15 +105,46 @@
 
     const downAt = readOptionalCoreNumber(input.lastDownAt);
     const consumedDownAt = readOptionalCoreNumber(input.consumedDownAt) || 0;
+    const lastTargetKind = String(input.lastDownTargetKind || '');
+    const clickStreak = Math.max(0, Number(input.clickStreak) || 0);
+    const lastTapAt = readOptionalCoreNumber(input.lastTapAt);
+    if (
+      clickStreak >= 3
+      && lastTapAt !== null
+      && now - lastTapAt >= 0
+      && now - lastTapAt <= config.pointerPesterFreshMs
+      && ['mushroomFace', 'mushroomBody'].includes(lastTargetKind)
+      && !isImmersionTargetCooldownActive(input, 'mushroom', now)
+    ) {
+      const state = selectPointerLookState(input, 'tap');
+      return withImmersionTarget(
+        buildImmersionCandidate('pointerPester', state, 'input', lastTapAt, config.pointerPesterDurationMs, config.pointerPesterCooldownMs, 96, 'watch_cursor', 'annoyed_poke'),
+        'mushroom',
+        'mushroom',
+        true
+      );
+    }
+
+    const ambientTarget = selectPointerAmbientTargetReaction(input, now, config);
+    if (ambientTarget) {
+      return ambientTarget;
+    }
+
     if (
       downAt !== null
       && downAt > consumedDownAt
       && now - downAt >= 0
       && now - downAt <= config.pointerTapFreshMs
       && isPointNearMushroomCore(x, y, 'body', config.pointerFaceRadius + 22)
+      && !isImmersionTargetCooldownActive(input, 'mushroom', now)
     ) {
       const state = selectPointerLookState(input, 'tap');
-      return buildImmersionCandidate('pointerTap', state, 'input', downAt, config.pointerTapDurationMs, config.pointerTapCooldownMs, 92, 'watch_cursor', 'pointer');
+      return withImmersionTarget(
+        buildImmersionCandidate('pointerTap', state, 'input', downAt, config.pointerTapDurationMs, config.pointerTapCooldownMs, 92, 'watch_cursor', 'pointer'),
+        'mushroom',
+        'mushroom',
+        true
+      );
     }
 
     const movedAt = readOptionalCoreNumber(input.lastMoveAt);
@@ -114,33 +153,101 @@
     }
 
     const speed = Math.max(0, Number(input.speed) || 0);
+    const brushAt = readOptionalCoreNumber(input.grassBrushLastAt);
+    const brushDistance = Math.max(0, Number(input.grassBrushDistance) || 0);
+    if (
+      brushAt !== null
+      && now - brushAt >= 0
+      && now - brushAt <= config.pointerGrassBrushFreshMs
+      && brushDistance >= config.pointerGrassBrushMinDistance
+      && !isImmersionTargetCooldownActive(input, 'grass', now)
+    ) {
+      const candidate = buildImmersionCandidate('pointerGrassBrush', 'follow_cursor_after', 'input', brushAt, config.pointerGrassBrushDurationMs, config.pointerGrassBrushCooldownMs, 90, 'follow_cursor', 'grass_brush');
+      candidate.brushDistance = Math.round(brushDistance);
+      return withImmersionTarget(candidate, 'grass', 'grass', false);
+    }
+
     if (
       speed >= config.pointerFastMinSpeed
       && (isPointNearMushroomCore(x, y, 'body', config.pointerFaceRadius + 70) || isPointerPathNearMushroomCore(input, config.pointerFaceRadius + 44))
+      && !isImmersionTargetCooldownActive(input, 'mushroom', now)
     ) {
-      return buildImmersionCandidate('pointerFollowFast', 'follow_cursor_fast', 'input', movedAt, 980, 520, 86, 'follow_cursor', 'pointer');
+      return withImmersionTarget(
+        buildImmersionCandidate('pointerFollowFast', 'follow_cursor_fast', 'input', movedAt, 980, 520, 86, 'follow_cursor', 'pointer'),
+        'mushroom',
+        'mushroom',
+        false
+      );
     }
 
     if (!inside) {
       if (
         now - movedAt <= config.pointerTrailFreshMs
         && (isPointNearMushroomCore(x, y, 'body', config.pointerFaceRadius + 44) || isPointerPathNearMushroomCore(input, config.pointerFaceRadius + 36))
+        && !isImmersionTargetCooldownActive(input, 'mushroom', now)
       ) {
-        return buildImmersionCandidate('pointerFollowAfter', 'follow_cursor_after', 'input', movedAt, 1150, 900, 78, 'follow_cursor', 'pointer');
+        return withImmersionTarget(
+          buildImmersionCandidate('pointerFollowAfter', 'follow_cursor_after', 'input', movedAt, 1150, 900, 78, 'follow_cursor', 'pointer'),
+          'mushroom',
+          'mushroom',
+          false
+        );
       }
       return null;
     }
 
-    if (isPointNearMushroomCore(x, y, 'face', config.pointerFaceRadius)) {
+    if (isPointNearMushroomCore(x, y, 'face', config.pointerFaceRadius) && !isImmersionTargetCooldownActive(input, 'mushroom', now)) {
       const state = selectPointerLookState(input, 'hover');
-      return buildImmersionCandidate('pointerHover', state, 'input', movedAt, config.pointerHoverDurationMs, config.pointerHoverCooldownMs, 80, 'watch_cursor', 'pointer');
+      return withImmersionTarget(
+        buildImmersionCandidate('pointerHover', state, 'input', movedAt, config.pointerHoverDurationMs, config.pointerHoverCooldownMs, 80, 'watch_cursor', 'pointer'),
+        'mushroom',
+        'mushroom',
+        false
+      );
     }
 
-    if (speed >= config.pointerMinSpeed && isPointNearMushroomCore(x, y, 'ground', config.pointerGroundRadius)) {
-      return buildImmersionCandidate('pointerGrass', 'follow_cursor_after', 'input', movedAt, 980, 900, 74, 'follow_cursor', 'pointer');
+    if (speed >= config.pointerMinSpeed && isPointNearMushroomCore(x, y, 'ground', config.pointerGroundRadius) && !isImmersionTargetCooldownActive(input, 'grass', now)) {
+      return withImmersionTarget(
+        buildImmersionCandidate('pointerGrass', 'follow_cursor_after', 'input', movedAt, 980, 900, 74, 'follow_cursor', 'pointer'),
+        'grass',
+        'grass',
+        false
+      );
     }
 
     return null;
+  }
+
+  function selectPointerAmbientTargetReaction(input, now, config) {
+    const targetKind = String(input.lastDownTargetKind || '');
+    const downAt = readOptionalCoreNumber(input.lastDownAt);
+    const consumedDownAt = readOptionalCoreNumber(input.consumedDownAt) || 0;
+    if (
+      downAt === null
+      || downAt <= consumedDownAt
+      || now - downAt < 0
+      || now - downAt > config.ambientPointerFreshMs
+    ) {
+      return null;
+    }
+
+    const definitions = {
+      butterfly: { id: 'pointerScareButterfly', state: 'watch_butterfly', target: 'ambient.butterfly', priority: 91 },
+      crawler: { id: 'pointerScareCrawler', state: 'watch_crawler', target: 'ambient.crawler', priority: 89 },
+      firefly: { id: 'pointerGreetFirefly', state: 'watch_firefly', target: 'ambient.firefly', priority: 88 },
+      visitor: { id: 'pointerNudgeVisitor', state: 'curious', target: 'ambient.visitor', priority: 87 }
+    };
+    const definition = definitions[targetKind];
+    if (!definition || isImmersionTargetCooldownActive(input, definition.target, now)) {
+      return null;
+    }
+
+    return withImmersionTarget(
+      buildImmersionCandidate(definition.id, definition.state, 'input', downAt, 1300, 1600, definition.priority, definition.state, targetKind + '_interaction'),
+      definition.target,
+      definition.target,
+      true
+    );
   }
 
   function selectPointerLookState(input, mode) {
@@ -398,6 +505,20 @@
       cooldownMs: Math.max(0, Number(cooldownMs) || 0),
       priority: Number(priority) || 0
     };
+  }
+
+  function withImmersionTarget(candidate, targetId, cooldownKey, consumeDown) {
+    candidate.targetId = targetId || candidate.id;
+    candidate.cooldownKey = cooldownKey || targetId || candidate.id;
+    candidate.consumeDown = Boolean(consumeDown);
+    return candidate;
+  }
+
+  function isImmersionTargetCooldownActive(input, targetId, now) {
+    if (!targetId || !isPlainObject(input) || !isPlainObject(input.targetCooldowns)) {
+      return false;
+    }
+    return Number(input.targetCooldowns[targetId]) > now;
   }
 
   function isPointNearMushroomCore(x, y, zone, radius) {

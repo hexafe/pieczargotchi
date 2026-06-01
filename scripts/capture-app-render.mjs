@@ -24,6 +24,7 @@ const captureCalendarMatrix = process.env.PIECZARGOTCHI_CAPTURE_CALENDAR_MATRIX 
 const captureCalendarChecklist = process.env.PIECZARGOTCHI_CAPTURE_CALENDAR_CHECKLIST === '1';
 const blockedAssetPatterns = readListEnv('PIECZARGOTCHI_CAPTURE_BLOCK_ASSETS');
 const captureGrassPointer = process.env.PIECZARGOTCHI_CAPTURE_GRASS_POINTER === '1';
+const captureInteractions = process.env.PIECZARGOTCHI_CAPTURE_INTERACTIONS === '1';
 const captureCleanlinessOverride = readOptionalEnvNumber('PIECZARGOTCHI_CAPTURE_CLEANLINESS');
 const captureCleanliness = captureCleanlinessOverride === null
   ? 80
@@ -330,6 +331,9 @@ try {
   await captureState(cdp, 'sleeping');
   await captureState(cdp, 'wake');
   await captureState(cdp, 'awake');
+  if (captureInteractions) {
+    await captureInteractionSmoke(cdp);
+  }
 
   if (process.env.PIECZARGOTCHI_CAPTURE_STAGES === '1') {
     for (const [stage, growth] of stageSamples) {
@@ -516,6 +520,108 @@ async function captureImmersion(cdp, sample) {
     expectedAnimationKey: `adult.${sample.state}`,
     immersion: sample
   });
+}
+
+async function captureInteractionSmoke(cdp) {
+  const diagnostics = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const canvas = document.getElementById('mushroomCanvas');
+      const runtime = window.__pieczargotchiRuntime;
+      if (!canvas || !runtime) {
+        return { ok: false, reason: 'missing-canvas-runtime' };
+      }
+      const rect = canvas.getBoundingClientRect();
+      const toClient = (x, y) => ({
+        x: rect.left + x / 512 * rect.width,
+        y: rect.top + y / 512 * rect.height
+      });
+      const dispatchPointer = (type, x, y, pointerType = 'mouse', pointerId = 11) => {
+        const point = toClient(x, y);
+        canvas.dispatchEvent(new PointerEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          clientX: point.x,
+          clientY: point.y,
+          pointerId,
+          pointerType
+        }));
+      };
+
+      dispatchPointer('pointerenter', 210, 424, 'touch', 21);
+      dispatchPointer('pointerdown', 210, 424, 'touch', 21);
+      [235, 265, 300, 336].forEach((x) => dispatchPointer('pointermove', x, 426, 'touch', 21));
+      dispatchPointer('pointerup', 336, 426, 'touch', 21);
+      const brushDistanceAfterBrush = runtime.input && runtime.input.grassBrushDistance;
+
+      const beforeSun = runtime.motionDiagnostics && runtime.motionDiagnostics.celestial && runtime.motionDiagnostics.celestial.sun;
+      if (beforeSun && beforeSun.visibleForHit) {
+        const sx = beforeSun.centerX || beforeSun.x + beforeSun.size / 2;
+        const sy = beforeSun.centerY || beforeSun.y + beforeSun.size / 2;
+        for (let index = 0; index < 3; index += 1) {
+          dispatchPointer('pointerdown', sx, sy, 'mouse', 31);
+          dispatchPointer('pointerup', sx, sy, 'mouse', 31);
+        }
+      }
+
+      const activeEffects = runtime.worldInteractions && Array.isArray(runtime.worldInteractions.effects)
+        ? runtime.worldInteractions.effects.map((effect) => effect.type)
+        : [];
+      return {
+        ok: true,
+        brushDistance: brushDistanceAfterBrush,
+        lastTarget: runtime.input && runtime.input.lastDownTargetKind,
+        activeEffects,
+        sunMood: runtime.celestialMood && runtime.celestialMood.sun && runtime.celestialMood.sun.expression,
+        sunMoodCount: runtime.celestialMood && runtime.celestialMood.sun && runtime.celestialMood.sun.count,
+        interactionDiagnostics: runtime.motionDiagnostics && runtime.motionDiagnostics.interactions,
+        celestialDiagnostics: runtime.motionDiagnostics && runtime.motionDiagnostics.celestial
+      };
+    })()`,
+    awaitPromise: true,
+    returnByValue: true
+  });
+  const info = diagnostics.result.value || {};
+  if (!info.ok) {
+    throw new Error(`Interaction capture failed to start: ${JSON.stringify(info)}`);
+  }
+  await delay(360);
+  const after = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const runtime = window.__pieczargotchiRuntime || {};
+      return {
+        brushDistance: runtime.input && runtime.input.grassBrushDistance,
+        activeEffects: runtime.worldInteractions && Array.isArray(runtime.worldInteractions.effects)
+          ? runtime.worldInteractions.effects.map((effect) => effect.type)
+          : [],
+        sunMood: runtime.celestialMood && runtime.celestialMood.sun && runtime.celestialMood.sun.expression,
+        sunMoodCount: runtime.celestialMood && runtime.celestialMood.sun && runtime.celestialMood.sun.count,
+        interactions: runtime.motionDiagnostics && runtime.motionDiagnostics.interactions,
+        celestial: runtime.motionDiagnostics && runtime.motionDiagnostics.celestial
+      };
+    })()`,
+    returnByValue: true
+  });
+  const state = after.result.value || {};
+  const brushDistance = Math.max(Number(info.brushDistance) || 0, Number(state.brushDistance) || 0);
+  state.brushDistanceBeforeSkyClicks = Number(info.brushDistance) || 0;
+  if (brushDistance < 80) {
+    throw new Error(`Interaction capture did not accumulate brush distance: ${JSON.stringify({ before: info, after: state })}`);
+  }
+  if (!Array.isArray(state.activeEffects) || !state.activeEffects.some((type) => String(type).includes('grass'))) {
+    throw new Error(`Interaction capture did not create a grass effect: ${JSON.stringify(state)}`);
+  }
+  if (state.sunMood !== 'angry' || Number(state.sunMoodCount) < 3) {
+    throw new Error(`Interaction capture did not escalate sun mood: ${JSON.stringify(state)}`);
+  }
+  const image = await cdp.send('Runtime.evaluate', {
+    expression: `document.getElementById('mushroomCanvas').toDataURL('image/png')`,
+    returnByValue: true
+  });
+  const png = Buffer.from(image.result.value.replace(/^data:image\/png;base64,/, ''), 'base64');
+  const filePath = `${outputPrefix}-interactions.png`;
+  writeFileSync(filePath, png);
+  console.log(`interactions: ${filePath}`);
+  console.log(`interactions diagnostics: ${JSON.stringify(state)}`);
 }
 
 async function captureArena(cdp) {

@@ -54,26 +54,36 @@
       return;
     }
 
+    const influence = typeof getWorldInteractionInfluence === 'function'
+      ? getWorldInteractionInfluence('visitor', anchor.x, anchor.y, now)
+      : { strength: 0, dx: 0, dy: 0, alphaScale: 1 };
+    const drawX = anchor.x + influence.dx;
+    const drawY = anchor.y + influence.dy;
+    const drawAlpha = anchor.alpha * influence.alphaScale;
+
     ctx.save();
-    ctx.globalAlpha = anchor.alpha;
+    ctx.globalAlpha = drawAlpha;
     if (visitor.id === 'dewSnail') {
-      drawPixelDewSnailVisitor(ctx, anchor.x, anchor.y, anchor.direction, palette);
+      drawPixelDewSnailVisitor(ctx, drawX, drawY, anchor.direction, palette);
     } else if (visitor.id === 'beeScout') {
-      drawPixelBee(ctx, anchor.x, anchor.y, anchor.direction, 10, anchor.wing, false, palette);
+      drawPixelBee(ctx, drawX, drawY, anchor.direction, 10, anchor.wing, false, palette);
     } else if (visitor.id === 'moonMoth') {
-      drawPixelMoonMothVisitor(ctx, anchor.x, anchor.y, anchor.direction, anchor.wing);
+      drawPixelMoonMothVisitor(ctx, drawX, drawY, anchor.direction, anchor.wing);
     } else {
-      drawPixelCompostBeetleVisitor(ctx, anchor.x, anchor.y, anchor.direction, anchor.wing);
+      drawPixelCompostBeetleVisitor(ctx, drawX, drawY, anchor.direction, anchor.wing);
     }
     ctx.restore();
 
     if (typeof recordAmbientLifeSample === 'function') {
       recordAmbientLifeSample('visitors', {
         id: visitor.id,
-        x: anchor.x,
-        y: anchor.y,
-        alpha: Number(anchor.alpha.toFixed(3)),
-        direction: anchor.direction
+        x: drawX,
+        y: drawY,
+        alpha: Number(drawAlpha.toFixed(3)),
+        direction: anchor.direction,
+        scareState: influence.strength > 0.05 ? 'nudged' : 'calm',
+        scareOffsetX: Number(influence.dx.toFixed(2)),
+        scareOffsetY: Number(influence.dy.toFixed(2))
       });
     }
   }
@@ -849,14 +859,19 @@
       const path = getButterflyFlightPath(seed, progress, intensity, wind, foreground);
       const size = (foreground ? 6 : 5) + Math.round(seededUnit(seed + 6) * 3 + intensity * (foreground ? 2.4 : 2.0));
       const flap = (Math.sin(now / (92 + seededUnit(seed + 7) * 48) + seed) + 1) / 2;
-      const alpha = (0.58 + intensity * 0.34) * path.visibility;
-      const mushroomOverlap = isMushroomLifeOccluded(path.x, path.y);
+      const influence = typeof getWorldInteractionInfluence === 'function'
+        ? getWorldInteractionInfluence('butterfly', path.x, path.y, now)
+        : { strength: 0, dx: 0, dy: 0, alphaScale: 1 };
+      const drawX = path.x + influence.dx;
+      const drawY = path.y + influence.dy;
+      const alpha = (0.58 + intensity * 0.34) * path.visibility * influence.alphaScale;
+      const mushroomOverlap = isMushroomLifeOccluded(drawX, drawY);
       const visual = getButterflyVisualMetrics(size, flap);
 
       ctx.globalAlpha = foreground ? Math.min(1, alpha * 1.08) : alpha;
-      drawPixelButterfly(ctx, Math.round(path.x), Math.round(path.y), path.direction, size, flap, colors[index % colors.length]);
+      drawPixelButterfly(ctx, Math.round(drawX), Math.round(drawY), path.direction, size, flap, colors[index % colors.length]);
       if (path.grassCover > 0.02) {
-        drawButterflyGrassCover(ctx, Math.round(path.x), Math.round(path.y), size, path.grassCover, colors[index % colors.length]);
+        drawButterflyGrassCover(ctx, Math.round(drawX), Math.round(drawY), size, path.grassCover, colors[index % colors.length]);
       }
       recordAmbientLifeSample('butterflies', {
         seed: seed,
@@ -868,14 +883,17 @@
         routeDirection: path.routeDirection,
         turnbacks: path.turnbacks,
         heightWaves: path.heightWaves,
-        x: Math.round(path.x),
-        y: Math.round(path.y),
+        x: Math.round(drawX),
+        y: Math.round(drawY),
         mushroomOverlap: mushroomOverlap,
         progress: Number(progress.toFixed(3)),
         alpha: Number(alpha.toFixed(3)),
         visualWidth: visual.width,
         visualHeight: visual.height,
-        visibility: Number(path.visibility.toFixed(3))
+        visibility: Number(path.visibility.toFixed(3)),
+        scareState: influence.strength > 0.05 ? 'scatter' : 'calm',
+        scareOffsetX: Number(influence.dx.toFixed(2)),
+        scareOffsetY: Number(influence.dy.toFixed(2))
       });
     }
     ctx.restore();
@@ -1522,29 +1540,37 @@
         + Math.sin(progress * Math.PI * lane.waveCount + seed) * lane.wanderY
         + getCrawlerGrassEmergenceOffset(progress, lane.kind)
         + wind.vectorY * wind.level * 4;
+      const influence = typeof getWorldInteractionInfluence === 'function'
+        ? getWorldInteractionInfluence('crawler', x, y, now)
+        : { strength: 0, dx: 0, dy: 0, alphaScale: 1 };
+      const drawX = x + influence.dx;
+      const drawY = y + influence.dy;
       const direction = lane.to >= lane.from ? 1 : -1;
       const size = lane.size;
-      const decorAvoidance = getCrawlerDecorAvoidance(x, y, size);
+      const decorAvoidance = getCrawlerDecorAvoidance(drawX, drawY, size);
       if (decorAvoidance <= 0.08) {
         continue;
       }
 
-      const alpha = (0.55 + intensity * 0.34) * grassFade * decorAvoidance;
+      const alpha = (0.55 + intensity * 0.34) * grassFade * decorAvoidance * influence.alphaScale;
 
       ctx.globalAlpha = alpha;
-      drawPixelCrawler(ctx, Math.round(x), Math.round(y), direction, size, now, palette, seed);
+      drawPixelCrawler(ctx, Math.round(drawX), Math.round(drawY), direction, size, now, palette, seed);
       if (lane.kind === 'grass') {
-        drawCrawlerGrassCover(ctx, Math.round(x), Math.round(y), size, progress, palette, decorAvoidance);
+        drawCrawlerGrassCover(ctx, Math.round(drawX), Math.round(drawY), size, progress, palette, decorAvoidance);
       }
       recordAmbientLifeSample('crawlers', {
         seed: seed,
         route: lane.variant,
         direction: direction,
-        x: Number(x.toFixed(2)),
-        y: Number(y.toFixed(2)),
+        x: Number(drawX.toFixed(2)),
+        y: Number(drawY.toFixed(2)),
         progress: Number(progress.toFixed(3)),
         alpha: Number(alpha.toFixed(3)),
-        pause: Number(pause.toFixed(3))
+        pause: Number(pause.toFixed(3)),
+        scareState: influence.strength > 0.05 ? 'hidden' : 'calm',
+        scareOffsetX: Number(influence.dx.toFixed(2)),
+        scareOffsetY: Number(influence.dy.toFixed(2))
       });
     }
     ctx.restore();
@@ -1727,27 +1753,35 @@
       const progress = phase / activeSpan;
       const lifeVisibility = fadeGrassEntry(progress);
       const flight = getFireflyFlightPath(seed, progress, intensity, wind, foreground, layer, now);
+      const influence = typeof getWorldInteractionInfluence === 'function'
+        ? getWorldInteractionInfluence('firefly', flight.x, flight.y, now)
+        : { strength: 0, dx: 0, dy: 0, alphaScale: 1 };
+      const displayFlight = Object.assign({}, flight, {
+        x: flight.x + influence.dx * 0.5,
+        y: flight.y + influence.dy * 0.5,
+        lightScale: flight.lightScale + influence.strength * 0.4
+      });
       const pulse = (Math.sin(now / (1500 + seededUnit(seed + 4) * 1900) + seed) + 1) / 2;
       const blinkWindow = getFireflyBlinkWindow(seed, progress, intensity);
       const glow = (0.08 + smoothStep(0.18, 0.96, pulse) * (0.62 + intensity * 0.24)) * blinkWindow;
       const bodyAlpha = (0.10 + 0.22 * lifeVisibility) * layer.alphaScale;
       const alpha = Math.max(bodyAlpha, glow * layer.alphaScale * lifeVisibility);
-      const mushroomOverlap = isMushroomLifeOccluded(flight.x, flight.y);
-      const lightAlpha = glow * layer.alphaScale * lifeVisibility * flight.lightScale;
+      const mushroomOverlap = isMushroomLifeOccluded(displayFlight.x, displayFlight.y);
+      const lightAlpha = glow * layer.alphaScale * lifeVisibility * displayFlight.lightScale;
       const emitting = lightAlpha >= 0.035;
       const visual = getFireflyVisualMetrics(lightAlpha, foreground, emitting);
       if (emitting) {
-        drawFireflyEnvironmentalLight(ctx, flight.x, flight.y, lightAlpha, foreground, palette, flight);
+        drawFireflyEnvironmentalLight(ctx, displayFlight.x, displayFlight.y, lightAlpha, foreground, palette, displayFlight);
       }
-      drawPixelFirefly(ctx, flight.x, flight.y, alpha, foreground, emitting);
+      drawPixelFirefly(ctx, displayFlight.x, displayFlight.y, alpha, foreground, emitting);
 
       recordAmbientLifeSample('fireflies', {
         seed: seed,
         layer: foreground ? 'foreground' : 'background',
         depth: foreground ? 'front' : 'back',
         route: flight.route,
-        x: Number(flight.x.toFixed(2)),
-        y: Number(flight.y.toFixed(2)),
+        x: Number(displayFlight.x.toFixed(2)),
+        y: Number(displayFlight.y.toFixed(2)),
         progress: Number(progress.toFixed(3)),
         alpha: Number(alpha.toFixed(3)),
         glow: Number(glow.toFixed(3)),
@@ -1756,6 +1790,9 @@
         mushroomOverlap: mushroomOverlap,
         direction: flight.direction,
         visibility: Number(lifeVisibility.toFixed(3)),
+        scareState: influence.strength > 0.05 ? 'spark' : 'calm',
+        scareOffsetX: Number(influence.dx.toFixed(2)),
+        scareOffsetY: Number(influence.dy.toFixed(2)),
         excursion: Number(flight.excursion.toFixed(1)),
         glowRadius: Number(getFireflyGlowRadius(lightAlpha, foreground).toFixed(1)),
         lightRadius: Number(getFireflyLightRadius(lightAlpha, foreground, flight).toFixed(1)),

@@ -33,6 +33,9 @@ if (typeof context.getMoonCellLight !== 'function') {
 if (typeof context.getMoonCellGrid !== 'function') {
   throw new Error('getMoonCellGrid was not exposed by ClientSceneCelestial.html');
 }
+if (typeof context.isPointInsideCelestialBody !== 'function') {
+  throw new Error('isPointInsideCelestialBody was not exposed by ClientSceneCelestial.html');
+}
 
 const locations = {
   katowice: { latitude: 50.2649, longitude: 19.0238 },
@@ -114,6 +117,42 @@ test('moon pixel grid stays centered across rendered sizes', () => {
     }
     assert(litColumns >= 2, `expected readable crescent width at size ${size}, got ${litColumns} columns`);
   }
+});
+
+test('celestial hit testing respects center, margin, and misses', () => {
+  const sun = {
+    x: 120,
+    y: 64,
+    size: 36,
+    centerX: 138,
+    centerY: 82,
+    hitRadius: 28,
+    drawAlpha: 0.72
+  };
+  const moon = {
+    x: 300,
+    y: 84,
+    size: 32,
+    centerX: 316,
+    centerY: 100,
+    hitRadius: 26,
+    drawAlpha: 0.66
+  };
+
+  assert(context.isPointInsideCelestialBody({ x: 138, y: 82 }, sun, 'sun', 8), 'expected sun center hit');
+  assert(context.isPointInsideCelestialBody({ x: 112, y: 58 }, sun, 'sun', 8), 'expected sun padded corner hit');
+  assert(!context.isPointInsideCelestialBody({ x: 88, y: 58 }, sun, 'sun', 8), 'expected sun outside miss');
+  assert(context.isPointInsideCelestialBody({ x: 316, y: 100 }, moon, 'moon', 0), 'expected moon center hit');
+  assert(context.isPointInsideCelestialBody({ x: 340, y: 100 }, moon, 'moon', 0), 'expected moon soft edge hit');
+  assert(!context.isPointInsideCelestialBody({ x: 348, y: 100 }, moon, 'moon', 0), 'expected moon outside miss');
+});
+
+test('celestial mood expression escalates with repeated clicks', () => {
+  assert(context.getCelestialMoodExpression(0) === 'neutral', 'zero clicks should be neutral');
+  assert(context.getCelestialMoodExpression(1) === 'blink', 'first click should blink');
+  assert(context.getCelestialMoodExpression(2) === 'annoyed', 'second click should annoy');
+  assert(context.getCelestialMoodExpression(3) === 'angry', 'third click should be angry');
+  assert(context.getCelestialMoodExpression(8) === 'angry', 'later clicks should stay angry');
 });
 
 function getSun(location, isoTimestamp) {

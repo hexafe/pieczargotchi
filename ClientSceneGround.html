@@ -185,6 +185,10 @@
       if (pointer) {
         reactions.push(pointer);
       }
+      const brush = getGrassBrushReaction(now);
+      if (brush) {
+        reactions.push(brush);
+      }
     }
 
     return reactions.slice(0, 7);
@@ -218,6 +222,7 @@
     const currentHas = {
       mushroom: current.some(function(reaction) { return reaction.kind === 'mushroom'; }),
       pointer: current.some(function(reaction) { return reaction.kind === 'pointer'; }),
+      brush: current.some(function(reaction) { return reaction.kind === 'brush'; }),
       firefly: current.some(function(reaction) { return reaction.kind === 'firefly'; })
     };
     current.forEach(function(reaction) {
@@ -226,6 +231,7 @@
     cached.forEach(function(reaction) {
       if ((reaction.kind === 'mushroom' && currentHas.mushroom)
         || (reaction.kind === 'pointer' && currentHas.pointer)
+        || (reaction.kind === 'brush' && currentHas.brush)
         || (reaction.kind === 'firefly' && currentHas.firefly)) {
         return;
       }
@@ -265,6 +271,35 @@
       };
     }
     return null;
+  }
+
+  function getGrassBrushReaction(now) {
+    const input = runtime && runtime.input ? runtime.input : null;
+    if (!input || !Number.isFinite(Number(input.grassBrushLastAt))) {
+      return null;
+    }
+
+    const age = Math.max(0, Number(now) - Number(input.grassBrushLastAt));
+    if (age > 1350 || !Number.isFinite(Number(input.grassBrushX)) || !Number.isFinite(Number(input.grassBrushY))) {
+      return null;
+    }
+
+    const distance = clamp(Number(input.grassBrushDistance), 0, 240, 0);
+    if (distance < 18) {
+      return null;
+    }
+
+    const dx = Number(input.x) - Number(input.previousX);
+    const direction = Number.isFinite(dx) && Math.abs(dx) > 0.8 ? (dx >= 0 ? 1 : -1) : 1;
+    const decay = 1 - smoothStep(820, 1350, age);
+    return {
+      kind: 'brush',
+      x: Number(input.grassBrushX),
+      y: Math.max(392, Number(input.grassBrushY)),
+      radius: clamp(46 + distance * 0.34, 52, 132, 72),
+      strength: clamp(0.22 + distance * 0.004, 0, 0.78, 0.28) * decay,
+      direction: direction
+    };
   }
 
   function drawGeneratedGrassPatch(ctx, palette, scene, patchTop, surface, now, field) {
@@ -549,7 +584,16 @@
         heightScale: Number(grassField.heightScale.toFixed(3)),
         bottomFillCount: grassField.bottomFillCount,
         edgeFillCount: grassField.edgeFillCount,
-        localReactions: grassField.localReactions.length
+        localReactions: grassField.localReactions.length,
+        localReactionKinds: grassField.localReactions.map(function(reaction) { return reaction.kind; }),
+        maxLocalStrength: Number(grassField.localReactions.reduce(function(max, reaction) {
+          return Math.max(max, Number(reaction.strength) || 0);
+        }, 0).toFixed(3)),
+        brushActive: grassField.localReactions.some(function(reaction) { return reaction.kind === 'brush'; }),
+        brushDistance: Math.round(Number(runtime.input && runtime.input.grassBrushDistance) || 0),
+        brushAgeMs: Math.max(0, Math.round((Number(grassField.now) || 0) - (Number(runtime.input && runtime.input.grassBrushLastAt) || 0))),
+        brushX: Number.isFinite(Number(runtime.input && runtime.input.grassBrushX)) ? Math.round(Number(runtime.input.grassBrushX)) : null,
+        brushY: Number.isFinite(Number(runtime.input && runtime.input.grassBrushY)) ? Math.round(Number(runtime.input.grassBrushY)) : null
       }
     };
   }

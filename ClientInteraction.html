@@ -7,8 +7,27 @@
       previousY: null,
       lastMoveAt: 0,
       lastDownAt: 0,
+      lastUpAt: 0,
+      lastCancelAt: 0,
       consumedDownAt: 0,
-      speed: 0
+      speed: 0,
+      isDown: false,
+      pointerId: null,
+      pointerType: 'mouse',
+      downX: null,
+      downY: null,
+      lastDragX: null,
+      lastDragY: null,
+      lastDownTarget: '',
+      lastDownTargetKind: '',
+      lastTapTarget: '',
+      lastTapAt: 0,
+      clickStreak: 0,
+      clickStreakStartedAt: 0,
+      grassBrushDistance: 0,
+      grassBrushLastAt: 0,
+      grassBrushX: null,
+      grassBrushY: null
     };
   }
 
@@ -16,7 +35,32 @@
     return {
       active: null,
       cooldownUntil: 0,
+      cooldowns: {},
       lastVariantByGroup: {}
+    };
+  }
+
+  function createDefaultWorldInteractionState() {
+    return {
+      effects: [],
+      cooldowns: {},
+      grassDiscoveryDateKey: ''
+    };
+  }
+
+  function createDefaultCelestialMoodState() {
+    return {
+      sun: createDefaultCelestialMoodTarget(),
+      moon: createDefaultCelestialMoodTarget()
+    };
+  }
+
+  function createDefaultCelestialMoodTarget() {
+    return {
+      count: 0,
+      lastAt: 0,
+      until: 0,
+      expression: 'neutral'
     };
   }
 
@@ -34,10 +78,18 @@
     runtime.canvas.addEventListener('pointerdown', function(event) {
       updatePointerState(event, true, true);
     });
+    runtime.canvas.addEventListener('pointerup', function(event) {
+      updatePointerState(event, true, false);
+      finishPointerGesture(event, false);
+    });
+    runtime.canvas.addEventListener('pointercancel', function(event) {
+      finishPointerGesture(event, true);
+    });
     runtime.canvas.addEventListener('pointerleave', function() {
       runtime.input.lastMoveAt = getRuntimeNow();
       runtime.input.inside = false;
       runtime.input.speed = 0;
+      finishPointerGesture(null, true);
     });
   }
 
@@ -56,14 +108,430 @@
     runtime.input.x = point.x;
     runtime.input.y = point.y;
     runtime.input.lastMoveAt = now;
+    runtime.input.pointerType = event && event.pointerType ? event.pointerType : runtime.input.pointerType || 'mouse';
     runtime.input.speed = hasPrevious
       ? Math.hypot(point.x - previousX, point.y - previousY) / elapsed
       : 0;
 
     if (isDown) {
       runtime.input.lastDownAt = now;
+      runtime.input.isDown = true;
+      runtime.input.pointerId = event && Number.isFinite(Number(event.pointerId)) ? Number(event.pointerId) : null;
+      runtime.input.downX = point.x;
+      runtime.input.downY = point.y;
+      runtime.input.lastDragX = point.x;
+      runtime.input.lastDragY = point.y;
+      runtime.input.grassBrushDistance = 0;
+      runtime.input.grassBrushX = null;
+      runtime.input.grassBrushY = null;
       runtime.immersion.cooldownUntil = Math.min(Number(runtime.immersion.cooldownUntil) || 0, now);
+      handlePointerDownGesture(point, now);
+    } else if (runtime.input.isDown && inside) {
+      updatePointerDragGesture(point, now);
     }
+  }
+
+  function finishPointerGesture(event, cancelled) {
+    if (!runtime.input) {
+      return;
+    }
+
+    const now = getRuntimeNow();
+    runtime.input.isDown = false;
+    runtime.input.pointerId = null;
+    runtime.input.lastDragX = null;
+    runtime.input.lastDragY = null;
+    if (cancelled) {
+      runtime.input.lastCancelAt = now;
+    } else {
+      runtime.input.lastUpAt = now;
+      if (event && Number.isFinite(Number(event.clientX)) && runtime.canvas) {
+        const point = getCanvasPointerPoint(event);
+        runtime.input.x = point.x;
+        runtime.input.y = point.y;
+      }
+    }
+  }
+
+  function handlePointerDownGesture(point, now) {
+    const target = getPointerInteractionTarget(point, now);
+    runtime.input.lastDownTarget = target.id;
+    runtime.input.lastDownTargetKind = target.kind;
+    updatePointerClickStreak(target.id, now);
+
+    if (target.kind === 'sun' || target.kind === 'moon') {
+      handleCelestialPointerDown(target.kind, now);
+      return;
+    }
+
+    if (target.kind === 'butterfly' || target.kind === 'crawler' || target.kind === 'firefly' || target.kind === 'visitor') {
+      triggerAmbientPointerEffect(target, point, now);
+      return;
+    }
+
+    if (target.kind === 'grass') {
+      triggerGrassTapRustle(point, now);
+    }
+  }
+
+  function updatePointerClickStreak(targetId, now) {
+    const safeTarget = targetId || 'scene';
+    const previousTarget = runtime.input.lastTapTarget || '';
+    const previousAt = Number(runtime.input.lastTapAt) || 0;
+    const sameWindow = previousTarget === safeTarget && now - previousAt <= 2600;
+    runtime.input.clickStreak = sameWindow ? Math.min(9, (Number(runtime.input.clickStreak) || 0) + 1) : 1;
+    runtime.input.clickStreakStartedAt = sameWindow
+      ? Number(runtime.input.clickStreakStartedAt) || now
+      : now;
+    runtime.input.lastTapTarget = safeTarget;
+    runtime.input.lastTapAt = now;
+  }
+
+  function updatePointerDragGesture(point, now) {
+    const previousX = Number(runtime.input.lastDragX);
+    const previousY = Number(runtime.input.lastDragY);
+    if (!Number.isFinite(previousX) || !Number.isFinite(previousY)) {
+      runtime.input.lastDragX = point.x;
+      runtime.input.lastDragY = point.y;
+      return;
+    }
+
+    const segment = Math.hypot(point.x - previousX, point.y - previousY);
+    runtime.input.lastDragX = point.x;
+    runtime.input.lastDragY = point.y;
+
+    if (Math.max(point.y, previousY) < 374 || segment < 0.5) {
+      return;
+    }
+
+    runtime.input.grassBrushDistance = Math.min(999, (Number(runtime.input.grassBrushDistance) || 0) + segment);
+    runtime.input.grassBrushLastAt = now;
+    runtime.input.grassBrushX = point.x;
+    runtime.input.grassBrushY = Math.max(386, point.y);
+
+    if (runtime.input.grassBrushDistance >= 44 && canUseWorldInteractionCooldown('grassBrush', now, 860)) {
+      triggerGrassBrushInteraction(point, now);
+    }
+  }
+
+  function getPointerInteractionTarget(point, now) {
+    const celestial = getCelestialPointerTarget(point, now);
+    if (celestial) {
+      return celestial;
+    }
+
+    const ambient = getAmbientPointerTarget(point, now);
+    if (ambient) {
+      return ambient;
+    }
+
+    if (isPointNearRuntimeMushroom(point.x, point.y, 'face', 158)) {
+      return { id: 'mushroom:face', kind: 'mushroomFace' };
+    }
+    if (isPointNearRuntimeMushroom(point.x, point.y, 'body', 176)) {
+      return { id: 'mushroom:body', kind: 'mushroomBody' };
+    }
+    if (point.y >= 374) {
+      return { id: 'grass', kind: 'grass' };
+    }
+    return { id: 'scene', kind: 'scene' };
+  }
+
+  function getCelestialPointerTarget(point, now) {
+    const celestial = runtime.motionDiagnostics && runtime.motionDiagnostics.celestial;
+    if (!celestial) {
+      return null;
+    }
+
+    const targets = [];
+    ['sun', 'moon'].forEach(function(kind) {
+      const body = celestial[kind];
+      const drawAlpha = Number.isFinite(Number(body && body.drawAlpha)) ? Number(body.drawAlpha) : Number(body && body.alpha);
+      if (!body || drawAlpha < 0.08 || body.visibleForHit === false) {
+        return;
+      }
+      const hit = typeof isPointInsideCelestialBody === 'function'
+        ? isPointInsideCelestialBody(point, body, kind, 10)
+        : isPointInsideCelestialBox(point, body, 10);
+      if (!hit) {
+        return;
+      }
+      const centerX = Number(body.x) + Number(body.size) / 2;
+      const centerY = Number(body.y) + Number(body.size) / 2;
+      targets.push({
+        id: 'celestial:' + kind,
+        kind: kind,
+        distance: Math.hypot(point.x - centerX, point.y - centerY),
+        alpha: drawAlpha || 0
+      });
+    });
+
+    if (!targets.length) {
+      return null;
+    }
+
+    targets.sort(function(a, b) {
+      if (Math.abs(a.distance - b.distance) > 0.01) {
+        return a.distance - b.distance;
+      }
+      return b.alpha - a.alpha;
+    });
+    return targets[0];
+  }
+
+  function isPointInsideCelestialBox(point, body, padding) {
+    const x = Number(body.x);
+    const y = Number(body.y);
+    const size = Number(body.size);
+    const pad = Number(padding) || 0;
+    return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(size)
+      && point.x >= x - pad
+      && point.x <= x + size + pad
+      && point.y >= y - pad
+      && point.y <= y + size + pad;
+  }
+
+  function getAmbientPointerTarget(point, now) {
+    const diagnostics = runtime.motionDiagnostics || {};
+    const groups = [
+      { key: 'butterflies', kind: 'butterfly', radius: 28 },
+      { key: 'fireflies', kind: 'firefly', radius: 24 },
+      { key: 'crawlers', kind: 'crawler', radius: 26 },
+      { key: 'visitors', kind: 'visitor', radius: 34 }
+    ];
+    let best = null;
+
+    groups.forEach(function(group) {
+      const samples = Array.isArray(diagnostics[group.key]) ? diagnostics[group.key] : [];
+      samples.forEach(function(sample, index) {
+        const x = Number(sample.x);
+        const y = Number(sample.y);
+        const alpha = Number(sample.alpha) || Number(sample.lightAlpha) || Number(sample.glow) || 0;
+        if (!Number.isFinite(x) || !Number.isFinite(y) || alpha < 0.035) {
+          return;
+        }
+        const distance = Math.hypot(point.x - x, point.y - y);
+        if (distance > group.radius) {
+          return;
+        }
+        if (!best || distance < best.distance) {
+          best = {
+            id: group.kind + ':' + (sample.id || sample.seed || index),
+            kind: group.kind,
+            x: x,
+            y: y,
+            sample: sample,
+            distance: distance,
+            sourceAt: now
+          };
+        }
+      });
+    });
+
+    return best;
+  }
+
+  function isPointNearRuntimeMushroom(x, y, zone, radius) {
+    const centers = {
+      face: { x: 256, y: 260, rx: radius, ry: radius * 0.72 },
+      body: { x: 256, y: 300, rx: radius, ry: radius * 0.95 }
+    };
+    const center = centers[zone] || centers.body;
+    const dx = (Number(x) - center.x) / center.rx;
+    const dy = (Number(y) - center.y) / center.ry;
+    return dx * dx + dy * dy <= 1;
+  }
+
+  function canUseWorldInteractionCooldown(key, now, cooldownMs) {
+    if (!runtime.worldInteractions) {
+      runtime.worldInteractions = createDefaultWorldInteractionState();
+    }
+    const cooldowns = runtime.worldInteractions.cooldowns || {};
+    if (Number(cooldowns[key]) > now) {
+      return false;
+    }
+    cooldowns[key] = now + Math.max(0, Number(cooldownMs) || 0);
+    runtime.worldInteractions.cooldowns = cooldowns;
+    return true;
+  }
+
+  function triggerGrassTapRustle(point, now) {
+    if (!canUseWorldInteractionCooldown('grassTap', now, 780)) {
+      return;
+    }
+    addWorldInteractionEffect({
+      type: 'grassRustle',
+      kind: 'grass',
+      x: point.x,
+      y: Math.max(398, point.y),
+      startedAt: now,
+      duration: 880
+    });
+  }
+
+  function triggerGrassBrushInteraction(point, now) {
+    const discovery = maybeRecordGrassInteractionDiscovery(point, now);
+    if (discovery) {
+      addWorldInteractionEffect({
+        type: 'grassFind',
+        kind: 'grass',
+        x: point.x,
+        y: Math.max(396, point.y),
+        label: discovery.label,
+        discoveryId: discovery.id,
+        startedAt: now,
+        duration: 1900
+      });
+      return;
+    }
+
+    if (shouldTriggerFrogJump(point, now)) {
+      addWorldInteractionEffect({
+        type: 'frogJump',
+        kind: 'grass',
+        x: point.x,
+        y: Math.max(404, point.y),
+        direction: point.x < 256 ? 1 : -1,
+        startedAt: now,
+        duration: 1550
+      });
+      return;
+    }
+
+    addWorldInteractionEffect({
+      type: 'grassRustle',
+      kind: 'grass',
+      x: point.x,
+      y: Math.max(398, point.y),
+      startedAt: now,
+      duration: 1050
+    });
+  }
+
+  function maybeRecordGrassInteractionDiscovery(point, now) {
+    if (!runtime.state || isRuntimeImmersionBlocked(now)) {
+      return null;
+    }
+    if (!window.PieczargotchiCore
+      || typeof window.PieczargotchiCore.selectGrassInteractionDiscovery !== 'function'
+      || typeof window.PieczargotchiCore.recordEnvironmentDiscovery !== 'function') {
+      return null;
+    }
+
+    const dateKey = typeof getLocalDateKey === 'function'
+      ? getLocalDateKey()
+      : new Date(now).toISOString().slice(0, 10);
+    if (runtime.worldInteractions && runtime.worldInteractions.grassDiscoveryDateKey === dateKey) {
+      return null;
+    }
+
+    const selection = window.PieczargotchiCore.selectGrassInteractionDiscovery(
+      runtime.state,
+      getCurrentWeatherScene(),
+      Object.assign({}, runtime.input || {}, { x: point.x, y: point.y }),
+      now,
+      rules
+    );
+    if (!selection || !selection.id) {
+      return null;
+    }
+
+    const result = window.PieczargotchiCore.recordEnvironmentDiscovery(runtime.state, selection.id, now, {
+      scene: typeof getCurrentWeatherScene === 'function' ? getCurrentWeatherScene() : null,
+      grassInteraction: {
+        x: Math.round(point.x),
+        y: Math.round(point.y),
+        brushDistance: Math.round(Number(runtime.input.grassBrushDistance) || 0)
+      }
+    });
+    if (!result || !result.ok) {
+      return null;
+    }
+
+    runtime.worldInteractions.grassDiscoveryDateKey = dateKey;
+    if (result.newlyDiscovered) {
+      addLog(runtime.state, result.message, now);
+    }
+    saveState(runtime.state);
+    renderUi();
+    return {
+      id: selection.id,
+      label: selection.label || result.label || ''
+    };
+  }
+
+  function shouldTriggerFrogJump(point, now) {
+    if (!canUseWorldInteractionCooldown('frogJump', now, 7200)) {
+      return false;
+    }
+    const scene = typeof getCurrentWeatherScene === 'function' ? getCurrentWeatherScene() : {};
+    const moist = scene && (scene.condition === 'rain' || scene.condition === 'fog' || Number(scene.surfaceWetnessTarget) > 0.46 || Number(scene.humidity) > 82);
+    const seed = Math.round(point.x * 13 + point.y * 7 + Math.floor(now / 90000) * 97);
+    return moist || interactionSeededUnit(seed) > 0.76;
+  }
+
+  function triggerAmbientPointerEffect(target, point, now) {
+    const cooldownKey = 'ambient:' + target.id;
+    if (!canUseWorldInteractionCooldown(cooldownKey, now, target.kind === 'visitor' ? 1800 : 1200)) {
+      return;
+    }
+
+    const typeByKind = {
+      butterfly: 'butterflyScatter',
+      crawler: 'crawlerHide',
+      firefly: 'fireflySpark',
+      visitor: 'visitorNudge'
+    };
+    addWorldInteractionEffect({
+      type: typeByKind[target.kind] || 'ambientStartle',
+      kind: target.kind,
+      targetId: target.id,
+      x: Number(target.x) || point.x,
+      y: Number(target.y) || point.y,
+      startedAt: now,
+      duration: target.kind === 'visitor' ? 1500 : 1200,
+      direction: point.x < 256 ? 1 : -1
+    });
+  }
+
+  function addWorldInteractionEffect(effect) {
+    if (!runtime.worldInteractions) {
+      runtime.worldInteractions = createDefaultWorldInteractionState();
+    }
+
+    runtime.worldInteractions.effects = (runtime.worldInteractions.effects || []).concat(Object.assign({
+      startedAt: getRuntimeNow(),
+      duration: 1000,
+      x: 256,
+      y: 420,
+      kind: 'scene'
+    }, effect || {})).slice(-12);
+  }
+
+  function handleCelestialPointerDown(kind, now) {
+    if (!runtime.celestialMood) {
+      runtime.celestialMood = createDefaultCelestialMoodState();
+    }
+    const target = runtime.celestialMood[kind] || createDefaultCelestialMoodTarget();
+    const count = now - Number(target.lastAt || 0) <= 2500 ? Math.min(9, Number(target.count || 0) + 1) : 1;
+    const expression = typeof getCelestialMoodExpression === 'function'
+      ? getCelestialMoodExpression(count)
+      : (count >= 3 ? 'angry' : (count >= 2 ? 'annoyed' : 'blink'));
+    const duration = expression === 'angry' ? 2900 : (expression === 'annoyed' ? 1900 : 950);
+    runtime.celestialMood[kind] = {
+      count: count,
+      lastAt: now,
+      until: now + duration,
+      expression: expression
+    };
+    addWorldInteractionEffect({
+      type: 'celestialMood',
+      kind: kind,
+      x: Number(runtime.input.x) || 256,
+      y: Number(runtime.input.y) || 96,
+      startedAt: now,
+      duration: duration
+    });
   }
 
   function getCanvasPointerPoint(event) {
@@ -88,10 +556,11 @@
     const active = runtime.immersion.active;
     if (active && Number(active.until) > wallNow && !isRuntimeImmersionBlocked(wallNow)) {
       const refreshed = selectRuntimeImmersionCandidate(wallNow);
-      if (shouldRuntimeReplaceImmersion(active, refreshed, wallNow)) {
+      if (shouldRuntimeReplaceImmersion(active, refreshed, wallNow) && !isRuntimeImmersionCandidateOnCooldown(refreshed, wallNow)) {
         runtime.immersion.active = activateImmersionCandidate(refreshed, wallNow);
+        applyRuntimeImmersionCooldown(refreshed, wallNow);
         rememberImmersionVariant(refreshed);
-        if (refreshed.id === 'pointerTap') {
+        if (refreshed.consumeDown) {
           runtime.input.consumedDownAt = refreshed.sourceAt || wallNow;
         }
         return runtime.immersion.active;
@@ -100,7 +569,7 @@
     }
 
     runtime.immersion.active = null;
-    if (isRuntimeImmersionBlocked(wallNow) || Number(runtime.immersion.cooldownUntil) > wallNow) {
+    if (isRuntimeImmersionBlocked(wallNow)) {
       return null;
     }
 
@@ -113,16 +582,20 @@
       return null;
     }
 
-    if (candidate.source === 'input' && candidate.sourceAt && runtime.input.consumedDownAt >= candidate.sourceAt) {
+    if (isRuntimeImmersionCandidateOnCooldown(candidate, wallNow)) {
+      return null;
+    }
+
+    if (candidate.source === 'input' && candidate.sourceAt && candidate.consumeDown && runtime.input.consumedDownAt >= candidate.sourceAt) {
       return null;
     }
 
     const next = activateImmersionCandidate(candidate, wallNow);
     runtime.immersion.active = next;
-    runtime.immersion.cooldownUntil = wallNow + candidate.cooldownMs;
+    applyRuntimeImmersionCooldown(candidate, wallNow);
     rememberImmersionVariant(candidate);
 
-    if (candidate.id === 'pointerTap') {
+    if (candidate.consumeDown) {
       runtime.input.consumedDownAt = candidate.sourceAt || wallNow;
     }
 
@@ -145,6 +618,9 @@
     const input = Object.assign({}, runtime.input || {}, {
       lastVariantByGroup: runtime.immersion && runtime.immersion.lastVariantByGroup
         ? runtime.immersion.lastVariantByGroup
+        : {},
+      targetCooldowns: runtime.immersion && runtime.immersion.cooldowns
+        ? runtime.immersion.cooldowns
         : {}
     });
     return window.PieczargotchiCore.selectImmersionReaction(
@@ -154,6 +630,36 @@
       wallNow,
       rules
     );
+  }
+
+  function isRuntimeImmersionCandidateOnCooldown(candidate, wallNow) {
+    if (!candidate) {
+      return false;
+    }
+    if (candidate.source !== 'input' && Number(runtime.immersion.cooldownUntil) > wallNow) {
+      return true;
+    }
+    const cooldowns = runtime.immersion && runtime.immersion.cooldowns ? runtime.immersion.cooldowns : {};
+    const key = getRuntimeImmersionCooldownKey(candidate);
+    return Number(cooldowns[key]) > wallNow;
+  }
+
+  function applyRuntimeImmersionCooldown(candidate, wallNow) {
+    if (!candidate) {
+      return;
+    }
+    if (!runtime.immersion.cooldowns) {
+      runtime.immersion.cooldowns = {};
+    }
+    const until = wallNow + Math.max(0, Number(candidate.cooldownMs) || 0);
+    runtime.immersion.cooldowns[getRuntimeImmersionCooldownKey(candidate)] = until;
+    if (candidate.source !== 'input') {
+      runtime.immersion.cooldownUntil = until;
+    }
+  }
+
+  function getRuntimeImmersionCooldownKey(candidate) {
+    return candidate.cooldownKey || candidate.id || candidate.source || 'global';
   }
 
   function activateImmersionCandidate(candidate, wallNow) {
@@ -220,26 +726,34 @@
 
   function drawImmersionForeground(ctx, now, wallNow) {
     const active = getActiveImmersionReaction(wallNow);
-    if (!active) {
-      return;
+    if (active) {
+      if (active.id === 'pointerHover' || active.id === 'pointerTap') {
+        drawPointerCuriosity(ctx, now, active);
+      } else if (active.id === 'pointerPester') {
+        drawPointerPesterMarks(ctx, now, active);
+      } else if (active.id === 'pointerGrass' || active.id === 'pointerGrassBrush') {
+        drawPointerGrassRustle(ctx, now, active);
+      } else if (active.id === 'pointerScareButterfly' || active.id === 'pointerScareCrawler' || active.id === 'pointerGreetFirefly' || active.id === 'pointerNudgeVisitor') {
+        drawAmbientPointerCue(ctx, now, active);
+      } else if (active.id === 'snow') {
+        drawImmersionSnowBreath(ctx, now, active);
+      } else if (active.id === 'stargaze') {
+        drawImmersionStarSparkles(ctx, now, active);
+      } else if (active.id === 'wind') {
+        drawImmersionWindLines(ctx, now, active, true);
+      }
     }
-
-    if (active.id === 'pointerHover' || active.id === 'pointerTap') {
-      drawPointerCuriosity(ctx, now, active);
-    } else if (active.id === 'pointerGrass') {
-      drawPointerGrassRustle(ctx, now, active);
-    } else if (active.id === 'snow') {
-      drawImmersionSnowBreath(ctx, now, active);
-    } else if (active.id === 'stargaze') {
-      drawImmersionStarSparkles(ctx, now, active);
-    } else if (active.id === 'wind') {
-      drawImmersionWindLines(ctx, now, active, true);
-    }
+    drawWorldInteractionEffects(ctx, now, wallNow);
   }
 
   function getImmersionProgress(active, now) {
     const duration = Math.max(1, Number(active.durationMs) || 1);
-    return Math.max(0, Math.min(1, (now - Number(active.startedAt || now)) / duration));
+    const startedAt = Number(active.startedAt || now);
+    const rawNow = Number(now);
+    const frameNow = Number.isFinite(rawNow) && rawNow + 60000 < startedAt && typeof getRuntimeNow === 'function'
+      ? getRuntimeNow()
+      : rawNow;
+    return Math.max(0, Math.min(1, (frameNow - startedAt) / duration));
   }
 
   function getImmersionAlpha(active, now) {
@@ -313,8 +827,8 @@
 
   function drawPointerGrassRustle(ctx, now, active) {
     const input = runtime.input || {};
-    const x = Number(input.x);
-    const y = Number(input.y);
+    const x = Number(input.grassBrushX || input.x);
+    const y = Number(input.grassBrushY || input.y);
     const alpha = getImmersionAlpha(active, now);
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
       return;
@@ -334,6 +848,321 @@
       ctx.stroke();
     }
     ctx.restore();
+  }
+
+  function drawPointerPesterMarks(ctx, now, active) {
+    const input = runtime.input || {};
+    const x = Number(input.x);
+    const y = Number(input.y);
+    const alpha = getImmersionAlpha(active, now);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#f1d66a';
+    for (let index = 0; index < 3; index += 1) {
+      const ox = Math.round(x - 18 + index * 16 + Math.sin(now / 130 + index) * 3);
+      const oy = Math.round(y - 34 - index * 5);
+      ctx.fillRect(ox, oy, 10, 3);
+      ctx.fillRect(ox + 3, oy - 5, 3, 13);
+    }
+    ctx.strokeStyle = '#5f3d2e';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(Math.round(x - 15), Math.round(y - 15), 30, 30);
+    ctx.restore();
+  }
+
+  function drawAmbientPointerCue(ctx, now, active) {
+    const input = runtime.input || {};
+    const x = Number(input.x);
+    const y = Number(input.y);
+    const alpha = getImmersionAlpha(active, now);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
+
+    ctx.save();
+    ctx.globalAlpha = 0.68 * alpha;
+    ctx.strokeStyle = active.id === 'pointerGreetFirefly' ? '#fff3b8' : '#d8e9d2';
+    ctx.lineWidth = 2;
+    for (let index = 0; index < 4; index += 1) {
+      const radius = 10 + index * 8 + Math.sin(now / 180 + index) * 2;
+      ctx.strokeRect(Math.round(x - radius), Math.round(y - radius * 0.5), Math.round(radius * 2), Math.round(radius));
+    }
+    ctx.restore();
+  }
+
+  function drawWorldInteractionEffects(ctx, now, wallNow) {
+    if (!runtime.worldInteractions || !Array.isArray(runtime.worldInteractions.effects)) {
+      return;
+    }
+
+    const live = [];
+    runtime.worldInteractions.effects.forEach(function(effect) {
+      const duration = Math.max(1, Number(effect.duration) || 1000);
+      const progress = Math.max(0, Math.min(1, (wallNow - Number(effect.startedAt || wallNow)) / duration));
+      if (progress >= 1) {
+        return;
+      }
+      live.push(effect);
+      if (effect.type === 'frogJump') {
+        drawFrogJumpEffect(ctx, now, effect, progress);
+      } else if (effect.type === 'grassFind') {
+        drawGrassFindEffect(ctx, now, effect, progress);
+      } else if (effect.type === 'butterflyScatter') {
+        drawScatterEffect(ctx, now, effect, progress, '#f4a7d2');
+      } else if (effect.type === 'crawlerHide') {
+        drawCrawlerHideEffect(ctx, now, effect, progress);
+      } else if (effect.type === 'fireflySpark') {
+        drawFireflySparkEffect(ctx, now, effect, progress);
+      } else if (effect.type === 'visitorNudge') {
+        drawVisitorNudgeEffect(ctx, now, effect, progress);
+      } else if (effect.type === 'celestialMood') {
+        drawCelestialClickPuff(ctx, now, effect, progress);
+      } else {
+        drawGrassRustleEffect(ctx, now, effect, progress);
+      }
+    });
+    runtime.worldInteractions.effects = live;
+    recordWorldInteractionDiagnostics(live, wallNow);
+  }
+
+  function drawGrassRustleEffect(ctx, now, effect, progress) {
+    const alpha = getEffectFadeAlpha(progress) * 0.72;
+    const x = Number(effect.x) || 256;
+    const y = Number(effect.y) || 422;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = '#c9da73';
+    ctx.lineWidth = 2;
+    for (let index = -3; index <= 3; index += 1) {
+      const sway = Math.sin(now / 120 + index) * 8 * (1 - progress);
+      const baseX = Math.round(x + index * 9);
+      const baseY = Math.round(y + Math.abs(index) * 2);
+      ctx.beginPath();
+      ctx.moveTo(baseX, baseY);
+      ctx.lineTo(baseX + sway, baseY - 26 - Math.abs(index) * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawGrassFindEffect(ctx, now, effect, progress) {
+    drawGrassRustleEffect(ctx, now, effect, progress);
+    const alpha = getEffectFadeAlpha(progress);
+    const x = Number(effect.x) || 256;
+    const y = (Number(effect.y) || 420) - progress * 22;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#fff3b8';
+    for (let index = 0; index < 5; index += 1) {
+      const angle = index * 1.256 + now / 420;
+      const px = Math.round(x + Math.cos(angle) * (10 + progress * 12));
+      const py = Math.round(y + Math.sin(angle) * 6);
+      ctx.fillRect(px, py, 5, 2);
+      ctx.fillRect(px + 1, py - 2, 2, 6);
+    }
+    ctx.fillStyle = '#8ebf63';
+    ctx.fillRect(Math.round(x - 4), Math.round(y + 8), 8, 4);
+    ctx.restore();
+  }
+
+  function drawFrogJumpEffect(ctx, now, effect, progress) {
+    const direction = Number(effect.direction) || 1;
+    const startX = Number(effect.x) || 256;
+    const startY = Number(effect.y) || 420;
+    const x = Math.round(startX + direction * progress * 86);
+    const y = Math.round(startY - Math.sin(progress * Math.PI) * 54 + progress * 8);
+    const alpha = getEffectFadeAlpha(progress);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#5aa65b';
+    ctx.fillRect(x - 8, y - 5, 16, 10);
+    ctx.fillRect(x - 5, y - 11, 10, 7);
+    ctx.fillStyle = '#d8e9d2';
+    ctx.fillRect(x - 4, y - 9, 3, 3);
+    ctx.fillRect(x + 2, y - 9, 3, 3);
+    ctx.fillStyle = '#2f4f35';
+    ctx.fillRect(x - 3, y - 8, 1, 1);
+    ctx.fillRect(x + 3, y - 8, 1, 1);
+    ctx.fillStyle = '#477c43';
+    ctx.fillRect(x - 12, y + 1, 7, 3);
+    ctx.fillRect(x + 5, y + 1, 7, 3);
+    ctx.restore();
+  }
+
+  function drawScatterEffect(ctx, now, effect, progress, color) {
+    const alpha = getEffectFadeAlpha(progress);
+    const x = Number(effect.x) || 256;
+    const y = Number(effect.y) || 220;
+    ctx.save();
+    ctx.globalAlpha = 0.72 * alpha;
+    ctx.strokeStyle = color || '#d8e9d2';
+    ctx.lineWidth = 2;
+    for (let index = 0; index < 5; index += 1) {
+      const angle = index * 1.25 + now / 380;
+      const length = 12 + progress * 34;
+      const sx = Math.round(x + Math.cos(angle) * length);
+      const sy = Math.round(y + Math.sin(angle) * length * 0.6);
+      ctx.beginPath();
+      ctx.moveTo(Math.round(x), Math.round(y));
+      ctx.lineTo(sx, sy);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawCrawlerHideEffect(ctx, now, effect, progress) {
+    const alpha = getEffectFadeAlpha(progress);
+    const x = Number(effect.x) || 256;
+    const y = Number(effect.y) || 430;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#7f6a42';
+    for (let index = 0; index < 5; index += 1) {
+      const px = Math.round(x - 16 + index * 8 + Math.sin(now / 180 + index) * 3);
+      const py = Math.round(y + Math.sin(index) * 3 - progress * 8);
+      ctx.fillRect(px, py, 5, 3);
+    }
+    ctx.restore();
+  }
+
+  function drawFireflySparkEffect(ctx, now, effect, progress) {
+    const alpha = getEffectFadeAlpha(progress);
+    const x = Number(effect.x) || 256;
+    const y = Number(effect.y) || 250;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.42 * alpha;
+    ctx.fillStyle = '#fff3b8';
+    const radius = 14 + Math.sin(now / 180) * 3 + progress * 14;
+    ctx.fillRect(Math.round(x - radius), Math.round(y - 2), Math.round(radius * 2), 4);
+    ctx.fillRect(Math.round(x - 2), Math.round(y - radius), 4, Math.round(radius * 2));
+    ctx.restore();
+  }
+
+  function drawVisitorNudgeEffect(ctx, now, effect, progress) {
+    const alpha = getEffectFadeAlpha(progress);
+    const x = Number(effect.x) || 256;
+    const y = Number(effect.y) || 412;
+    ctx.save();
+    ctx.globalAlpha = 0.62 * alpha;
+    ctx.fillStyle = '#d8e9d2';
+    for (let index = 0; index < 3; index += 1) {
+      ctx.fillRect(Math.round(x + index * 10 - progress * 18), Math.round(y + index * 3), 5, 3);
+    }
+    ctx.restore();
+  }
+
+  function drawCelestialClickPuff(ctx, now, effect, progress) {
+    const alpha = getEffectFadeAlpha(progress);
+    const x = Number(effect.x) || 256;
+    const y = Number(effect.y) || 96;
+    ctx.save();
+    ctx.globalAlpha = 0.42 * alpha;
+    ctx.strokeStyle = effect.kind === 'sun' ? '#fff3b8' : '#d8e9d2';
+    ctx.lineWidth = 2;
+    const size = 12 + progress * 26;
+    ctx.strokeRect(Math.round(x - size / 2), Math.round(y - size / 2), Math.round(size), Math.round(size));
+    ctx.restore();
+  }
+
+  function getEffectFadeAlpha(progress) {
+    if (progress < 0.16) {
+      return progress / 0.16;
+    }
+    if (progress > 0.72) {
+      return Math.max(0, (1 - progress) / 0.28);
+    }
+    return 1;
+  }
+
+  function getWorldInteractionInfluence(kind, x, y, now) {
+    const effects = runtime.worldInteractions && Array.isArray(runtime.worldInteractions.effects)
+      ? runtime.worldInteractions.effects
+      : [];
+    let best = null;
+    effects.forEach(function(effect) {
+      if (!doesEffectInfluenceKind(effect, kind)) {
+        return;
+      }
+      const duration = Math.max(1, Number(effect.duration) || 1000);
+      const progress = Math.max(0, Math.min(1, (now - Number(effect.startedAt || now)) / duration));
+      if (progress >= 1) {
+        return;
+      }
+      const dx = Number(x) - (Number(effect.x) || 0);
+      const dy = Number(y) - (Number(effect.y) || 0);
+      const distance = Math.hypot(dx, dy);
+      const radius = kind === 'visitor' ? 80 : 64;
+      if (distance > radius) {
+        return;
+      }
+      const strength = (1 - distance / radius) * getEffectFadeAlpha(progress);
+      if (!best || strength > best.strength) {
+        const direction = Number(effect.direction) || (dx >= 0 ? 1 : -1);
+        best = {
+          strength: strength,
+          dx: direction * strength * (kind === 'butterfly' ? 34 : 18),
+          dy: (kind === 'crawler' ? 10 : -18) * strength,
+          alphaScale: Math.max(0.24, 1 - strength * (kind === 'crawler' ? 0.72 : 0.38))
+        };
+      }
+    });
+    return best || { strength: 0, dx: 0, dy: 0, alphaScale: 1 };
+  }
+
+  function doesEffectInfluenceKind(effect, kind) {
+    const map = {
+      butterfly: 'butterflyScatter',
+      crawler: 'crawlerHide',
+      firefly: 'fireflySpark',
+      visitor: 'visitorNudge'
+    };
+    return effect && map[kind] && effect.type === map[kind];
+  }
+
+  function recordWorldInteractionDiagnostics(effects, wallNow) {
+    if (!runtime.motionDiagnostics) {
+      return;
+    }
+    runtime.motionDiagnostics.interactions = {
+      activeEffects: effects.map(function(effect) {
+        return {
+          type: effect.type,
+          kind: effect.kind,
+          x: Math.round(Number(effect.x) || 0),
+          y: Math.round(Number(effect.y) || 0),
+          ageMs: Math.max(0, Math.round(wallNow - Number(effect.startedAt || wallNow)))
+        };
+      }),
+      grassBrushDistance: Math.round(Number(runtime.input && runtime.input.grassBrushDistance) || 0),
+      lastDownTargetKind: runtime.input ? runtime.input.lastDownTargetKind || '' : ''
+    };
+  }
+
+  function getCelestialMoodDiagnostics(wallNow) {
+    const mood = runtime.celestialMood || {};
+    const result = {};
+    ['sun', 'moon'].forEach(function(kind) {
+      const target = mood[kind] || {};
+      result[kind] = {
+        expression: Number(target.until) > wallNow ? target.expression || 'neutral' : 'neutral',
+        count: Number(target.count) || 0,
+        active: Number(target.until) > wallNow
+      };
+    });
+    return result;
+  }
+
+  function interactionSeededUnit(seed) {
+    let value = Math.imul(Math.floor(seed) ^ 0x9e3779b9, 0x85ebca6b);
+    value ^= value >>> 13;
+    value = Math.imul(value, 0xc2b2ae35);
+    value ^= value >>> 16;
+    return (value >>> 0) / 4294967295;
   }
 
   function drawImmersionSnowBreath(ctx, now, active) {

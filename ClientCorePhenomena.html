@@ -97,6 +97,105 @@
     }
   ];
 
+  const grassFindDiscoveryCatalog = [
+    {
+      id: 'grassDewPearl',
+      label: 'Perła rosy w trawie',
+      kind: 'grassFind',
+      rarity: 'rzadkie',
+      reaction: 'curious',
+      photoScene: 'grassDewPearl',
+      description: 'Między źdźbłami siedzi okrągła kropla, jasna jak małe szkiełko.',
+      scienceNote: 'Największe krople powstają przy spokojnym, wilgotnym powietrzu i chłodnym podłożu.',
+      conditionNote: 'Poranek, wilgoć i ostrożne przeczesanie trawy.',
+      photoCaption: 'Trawa ukryła jedną idealną kroplę.'
+    },
+    {
+      id: 'grassPollenSpark',
+      label: 'Błyszczący pyłek',
+      kind: 'grassFind',
+      rarity: 'częste',
+      reaction: 'happy',
+      photoScene: 'grassPollenSpark',
+      description: 'Mały obłoczek pyłku błyska przy kwiatach i znika po chwili.',
+      scienceNote: 'Pyłek łatwiej unosi się przy suchszej, spokojnej pogodzie i blisko kwiatów.',
+      conditionNote: 'Dzień, kwiaty lub koniczyna i lekki ruch trawy.',
+      photoCaption: 'Przez sekundę trawa miała własne iskierki.'
+    },
+    {
+      id: 'grassGuestTrace',
+      label: 'Ślad małego gościa',
+      kind: 'grassFind',
+      rarity: 'częste',
+      reaction: 'curious',
+      photoScene: 'grassGuestTrace',
+      description: 'W trawie zostaje drobna ścieżka, jakby ktoś właśnie tamtędy przeszedł.',
+      scienceNote: 'Małe owady i ślimaki zostawiają ślady w wilgotnym, gęstym podłożu.',
+      conditionNote: 'Żywa scena, owady, goście albo wilgotny dzień.',
+      photoCaption: 'Ktoś był tu przed chwilą.'
+    },
+    {
+      id: 'grassHiddenPebble',
+      label: 'Gładki kamyk',
+      kind: 'grassFind',
+      rarity: 'rzadkie',
+      reaction: 'curious',
+      photoScene: 'grassHiddenPebble',
+      description: 'Pod trawą leżał mały, gładki kamyk ogrzany przez dzień.',
+      scienceNote: 'Kamienie przy ziemi długo trzymają ciepło i zmieniają mikroklimat trawy.',
+      conditionNote: 'Spokojny dzień i dokładne przeczesanie trawy.',
+      photoCaption: 'Zwykły kamyk, ale Pieczarka obejrzała go bardzo poważnie.'
+    },
+    {
+      id: 'grassAfterRainScent',
+      label: 'Zapach po deszczu',
+      kind: 'grassFind',
+      rarity: 'częste',
+      reaction: 'calm',
+      photoScene: 'grassAfterRainScent',
+      description: 'Przy ziemi unosi się świeży zapach mokrej trawy i ciepłego podłoża.',
+      scienceNote: 'Po deszczu związki z gleby i roślin łatwiej trafiają do powietrza.',
+      conditionNote: 'Mokra trawa, niedawny deszcz albo wysoka wilgotność.',
+      photoCaption: 'Świat pachniał, jakby dopiero się obudził.'
+    },
+    {
+      id: 'grassNightGlimmer',
+      label: 'Nocny błysk w trawie',
+      kind: 'grassFind',
+      rarity: 'rzadkie',
+      reaction: 'awe',
+      photoScene: 'grassNightGlimmer',
+      description: 'W ciemnej trawie miga krótkie światełko, za szybkie, by je złapać.',
+      scienceNote: 'Nocne owady, rosa i odbite światło mogą tworzyć krótkie punkty blasku.',
+      conditionNote: 'Noc, spokojna pogoda i żywe świetliki.',
+      photoCaption: 'Trawa mrugnęła pierwsza.'
+    },
+    {
+      id: 'grassMossBell',
+      label: 'Dźwięk mchu',
+      kind: 'grassFind',
+      rarity: 'rzadkie',
+      reaction: 'calm',
+      photoScene: 'grassMossBell',
+      description: 'Przy mchu słychać cichutkie drgnięcie, jak miniaturowy dzwonek.',
+      scienceNote: 'Wilgotny mech tłumi kroki, ale drobne ozdoby i źdźbła mogą delikatnie rezonować.',
+      conditionNote: 'Mchowy dzwonek, wilgoć i spokojny ruch trawy.',
+      photoCaption: 'Mchowy dzwonek odezwał się prawie bezgłośnie.'
+    },
+    {
+      id: 'grassCloverLeaf',
+      label: 'Czterolistna koniczynka',
+      kind: 'grassFind',
+      rarity: 'bardzo rzadkie',
+      reaction: 'happy',
+      photoScene: 'grassCloverLeaf',
+      description: 'Między listkami widać jedną koniczynkę, która wygląda trochę zbyt idealnie.',
+      scienceNote: 'Czterolistne koniczyny są naturalną, rzadką odmianą kształtu liści.',
+      conditionNote: 'Kępa koniczyny i cierpliwe przeczesywanie trawy.',
+      photoCaption: 'Pieczarka znalazła listkowy sekret.'
+    }
+  ];
+
   function calculateAmbientPhenomena(scene, dateInput, nowInput) {
     const source = isPlainObject(scene) ? scene : {};
     const date = normalizeDate(dateInput);
@@ -201,9 +300,50 @@
   }
 
   function getEnvironmentDiscoveryCatalog() {
-    return environmentDiscoveryCatalog.map(function(item) {
+    return environmentDiscoveryCatalog.concat(grassFindDiscoveryCatalog).map(function(item) {
       return Object.assign({}, item);
     });
+  }
+
+  function selectGrassInteractionDiscovery(rawState, scene, interaction, nowInput, rules) {
+    const state = isPlainObject(rawState) ? rawState : {};
+    const source = isPlainObject(scene) ? scene : {};
+    const input = isPlainObject(interaction) ? interaction : {};
+    const now = Number.isFinite(Number(nowInput)) ? Number(nowInput) : Date.now();
+    if (!isGrassInteractionEligible(state, source, input, now, rules || {})) {
+      return null;
+    }
+
+    const candidates = getGrassInteractionDiscoveryCandidates(state, source, input, now)
+      .filter(function(candidate) {
+        return candidate.score >= 0.24 && !wasGrassDiscoverySeenToday(state, candidate.id, now);
+      })
+      .sort(function(a, b) {
+        if (Math.abs(b.score - a.score) > 0.0001) {
+          return b.score - a.score;
+        }
+        return a.id < b.id ? -1 : 1;
+      });
+    if (!candidates.length) {
+      return null;
+    }
+
+    const seedBase = getGrassInteractionSeed(state, source, input, now);
+    for (let index = 0; index < candidates.length; index += 1) {
+      const candidate = candidates[index];
+      if (candidate.score >= 0.86) {
+        const item = getEnvironmentDiscoveryDefinition(candidate.id);
+        return item ? Object.assign({}, item, { score: Number(candidate.score.toFixed(3)) }) : null;
+      }
+      const roll = phenomenaSeededUnit(seedBase + index * 997 + candidate.id.length * 31);
+      const chance = clampNumber(0.18 + candidate.score * 0.58 + Math.min(0.18, (Number(input.grassBrushDistance) || 0) / 520), 0.18, 0.92, 0.32);
+      if (roll <= chance) {
+        const item = getEnvironmentDiscoveryDefinition(candidate.id);
+        return item ? Object.assign({}, item, { score: Number(candidate.score.toFixed(3)) }) : null;
+      }
+    }
+
+    return null;
   }
 
   function recordEnvironmentDiscovery(rawState, discoveryId, nowInput, context) {
@@ -241,9 +381,92 @@
   }
 
   function getEnvironmentDiscoveryDefinition(discoveryId) {
-    return environmentDiscoveryCatalog.find(function(item) {
+    return environmentDiscoveryCatalog.concat(grassFindDiscoveryCatalog).find(function(item) {
       return item.id === discoveryId;
     }) || null;
+  }
+
+  function isGrassInteractionEligible(state, scene, input, now, rules) {
+    if (!isPlainObject(state) || state.gameOver && state.gameOver.active) {
+      return false;
+    }
+    if (state.recovery && state.recovery.active) {
+      return false;
+    }
+    if (state.mode === 'sleeping') {
+      return false;
+    }
+    if (typeof getActiveActivityCore === 'function' && getActiveActivityCore(state, now)) {
+      return false;
+    }
+    if (typeof getStrongestNeedCore === 'function' && getStrongestNeedCore(state, rules || {})) {
+      return false;
+    }
+    const y = Number(input.y);
+    const brushDistance = Number(input.grassBrushDistance) || Number(input.brushDistance) || 0;
+    return Number.isFinite(y) && y >= 374 && brushDistance >= 44;
+  }
+
+  function getGrassInteractionDiscoveryCandidates(state, scene, input, now) {
+    const date = normalizeDate(now);
+    const hour = date.getHours() + date.getMinutes() / 60;
+    const condition = scene.condition || 'clear';
+    const dayPhase = scene.dayPhase || '';
+    const isDay = scene.isDay !== false && dayPhase !== 'night';
+    const humidity = clampNumber(Number(scene.humidity), 0, 100, 62);
+    const wetness = clampNumber(Number(scene.surfaceWetnessTarget), 0, 1, condition === 'rain' ? 0.54 : 0);
+    const recentRain = clampNumber(Math.max(Number(scene.rainbowRecentRainScore) || 0, wetness * 0.7), 0, 1, 0);
+    const windLevel = clampNumber(Number(scene.windLevel), 0, 1, 0);
+    const activeDecorations = state.decorations && Array.isArray(state.decorations.active) ? state.decorations.active : [];
+    const hasClover = activeDecorations.includes('cloverPatch');
+    const hasMossBell = activeDecorations.includes('mossBell');
+    const hasLantern = activeDecorations.includes('sporeLantern');
+    const hasFlowers = hasClover || activeDecorations.includes('dewStone');
+    const brush = clampNumber((Number(input.grassBrushDistance) || 0) / 140, 0, 1, 0);
+    const calm = clampNumber(1 - windLevel, 0, 1, 1);
+    const morning = Math.max(
+      getPhenomenaWindow(hour, 4.6, 5.3, 8.4, 9.8),
+      dayPhase === 'morning' || dayPhase === 'sunrise' ? 0.72 : 0
+    );
+    const night = getPhenomenaNightFactor(scene, hour);
+    const wetScore = clampNumber(Math.max(wetness, (humidity - 68) / 28, recentRain), 0, 1, 0);
+
+    return [
+      { id: 'grassDewPearl', score: morning * wetScore * calm + brush * 0.16 },
+      { id: 'grassPollenSpark', score: (isDay ? 0.34 : 0.05) + (hasFlowers ? 0.34 : 0) + brush * 0.18 },
+      { id: 'grassGuestTrace', score: (wetScore * 0.28) + (hasClover ? 0.22 : 0) + brush * 0.22 },
+      { id: 'grassHiddenPebble', score: 0.20 + brush * 0.24 + calm * 0.08 },
+      { id: 'grassAfterRainScent', score: recentRain * 0.62 + wetness * 0.28 + brush * 0.12 },
+      { id: 'grassNightGlimmer', score: night * (0.26 + (hasLantern ? 0.28 : 0) + brush * 0.2) },
+      { id: 'grassMossBell', score: hasMossBell ? wetScore * 0.28 + calm * 0.26 + brush * 0.18 : 0 },
+      { id: 'grassCloverLeaf', score: hasClover ? 0.24 + brush * 0.2 + calm * 0.12 : 0 }
+    ];
+  }
+
+  function wasGrassDiscoverySeenToday(state, discoveryId, now) {
+    const known = state.discoveries && state.discoveries.environment
+      ? state.discoveries.environment[discoveryId]
+      : null;
+    if (!known || !known.lastSeenAt) {
+      return false;
+    }
+    return String(known.lastSeenAt).slice(0, 10) === normalizeDate(now).toISOString().slice(0, 10);
+  }
+
+  function getGrassInteractionSeed(state, scene, input, now) {
+    const date = normalizeDate(now);
+    const dateKey = date.toISOString().slice(0, 10);
+    const bucket = Math.floor(date.getHours() / 6);
+    const player = String(state.playerId || 'anon');
+    const x = Math.round((Number(input.x) || 0) / 32);
+    const y = Math.round((Number(input.y) || 0) / 32);
+    const text = player + '|' + dateKey + '|' + bucket + '|' + x + '|' + y + '|' + (scene.condition || 'clear');
+    let hash = 2166136261;
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
   }
 
   function createAmbientPhenomenon(id, intensity, seed, threshold) {

@@ -1,7 +1,7 @@
 # Pieczargotchi Next Steps
 
-Last updated: 2026-05-31
-Local app version for this checkpoint: `0.1.37`
+Last updated: 2026-06-01
+Local app version for this checkpoint: `0.1.39`
 State version: `16`
 Primary preview target: Cloudflare static build
 
@@ -17,8 +17,11 @@ Latest minigame retention polish: `docs/MINIGAME_RETENTION_POLISH_2026-05-30.md`
 Latest post-legendary game slice: `docs/POST_LEGENDARY_GAMES_PLAN_2026-05-31.md`.
 Latest minigame gameplay upgrade: `docs/MINIGAME_GAMEPLAY_UPGRADE_2026-05-31.md`.
 Latest minigame launch UX plan: `docs/MINIGAME_LAUNCH_UX_PLAN_2026-05-31.md`.
-Recommended next implementation slice: guided minigame launch UX with
-auto-scroll, focus transfer, countdown, and browser-capture validation.
+Latest world interactivity research: `docs/INTERACTIVITY_RESEARCH_IMPLEMENTATION_PLAN_2026-06-01.md`.
+Recommended next implementation slice: interaction instrumentation plus
+brushable grass, gentle mushroom pokes, and browser-capture validation.
+Current implementation slice: session world interactions, hidden grass finds,
+ambient guest reactions, and celestial mood overlays.
 
 ## 1. Current Baseline
 

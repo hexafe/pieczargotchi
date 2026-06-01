@@ -18,20 +18,30 @@
       const sunVisibility = getCelestialCloudVisibility(scene, now, 'sun');
       const weatherAlpha = scene.condition === 'rain' || scene.condition === 'storm' ? 0.22 : 0.72;
       const twilightAlpha = scene.isDay ? 1 : 0.48;
-      ctx.globalAlpha = weatherAlpha * twilightAlpha * sun.alpha * sunVisibility;
-      if (ctx.globalAlpha > 0.015) {
+      const drawAlpha = weatherAlpha * twilightAlpha * sun.alpha * sunVisibility;
+      ctx.globalAlpha = drawAlpha;
+      if (drawAlpha > 0.015) {
         ctx.fillStyle = palette.sun || '#ffe596';
         ctx.fillRect(sun.x, sun.y, sun.size, sun.size);
         ctx.fillStyle = palette.sunCore || '#fff3b8';
         ctx.fillRect(sun.x + sun.coreInset, sun.y + sun.coreInset, sun.coreSize, sun.coreSize);
+        drawCelestialMoodFace(ctx, sun, 'sun', drawAlpha, now, palette);
       }
       sunDiagnostics = {
         x: sun.x,
         y: sun.y,
+        centerX: Number((sun.x + sun.size / 2).toFixed(2)),
+        centerY: Number((sun.y + sun.size / 2).toFixed(2)),
         size: sun.size,
+        hitRadius: Number(getCelestialHitRadius(sun).toFixed(2)),
         altitude: Number(sun.altitude.toFixed(2)),
         azimuth: Number(sun.azimuth.toFixed(2)),
-        alpha: Number((sun.alpha * sunVisibility).toFixed(3))
+        alpha: Number((sun.alpha * sunVisibility).toFixed(3)),
+        cloudVisibility: Number(sunVisibility.toFixed(3)),
+        weatherAlpha: Number(weatherAlpha.toFixed(3)),
+        phaseAlpha: Number(twilightAlpha.toFixed(3)),
+        drawAlpha: Number(drawAlpha.toFixed(3)),
+        visibleForHit: drawAlpha >= 0.08
       };
     }
 
@@ -41,17 +51,27 @@
       const moonVisibility = getCelestialCloudVisibility(scene, now, 'moon');
       const weatherAlpha = scene.condition === 'rain' || scene.condition === 'storm' ? 0.34 : 0.78;
       const daylightAlpha = scene.isDay ? 0.34 : 1;
-      ctx.globalAlpha = weatherAlpha * daylightAlpha * moon.alpha * moonVisibility;
-      if (ctx.globalAlpha > 0.015) {
+      const drawAlpha = weatherAlpha * daylightAlpha * moon.alpha * moonVisibility;
+      ctx.globalAlpha = drawAlpha;
+      if (drawAlpha > 0.015) {
         drawPixelMoon(ctx, moon);
+        drawCelestialMoodFace(ctx, moon, 'moon', drawAlpha, now, palette);
       }
       moonDiagnostics = {
         x: moon.x,
         y: moon.y,
+        centerX: Number((moon.x + moon.size / 2).toFixed(2)),
+        centerY: Number((moon.y + moon.size / 2).toFixed(2)),
         size: moon.size,
+        hitRadius: Number(getCelestialHitRadius(moon).toFixed(2)),
         altitude: Number(moon.altitude.toFixed(2)),
         azimuth: Number(moon.azimuth.toFixed(2)),
-        alpha: Number((moon.alpha * moonVisibility).toFixed(3))
+        alpha: Number((moon.alpha * moonVisibility).toFixed(3)),
+        cloudVisibility: Number(moonVisibility.toFixed(3)),
+        weatherAlpha: Number(weatherAlpha.toFixed(3)),
+        phaseAlpha: Number(daylightAlpha.toFixed(3)),
+        drawAlpha: Number(drawAlpha.toFixed(3)),
+        visibleForHit: drawAlpha >= 0.08
       };
     }
 
@@ -215,13 +235,25 @@
       return;
     }
 
+    const mood = typeof getCelestialMoodDiagnostics === 'function'
+      ? getCelestialMoodDiagnostics(getRuntimeNow())
+      : {};
+    if (sun) {
+      sun.mood = mood.sun || null;
+    }
+    if (moon) {
+      moon.mood = mood.moon || null;
+    }
+
     runtime.motionDiagnostics.celestial = {
+      recordedAt: getRuntimeNow(),
       dayPhase: scene && scene.dayPhase ? scene.dayPhase : null,
       latitude: scene && Number.isFinite(Number(scene.latitude)) ? Number(Number(scene.latitude).toFixed(4)) : null,
       longitude: scene && Number.isFinite(Number(scene.longitude)) ? Number(Number(scene.longitude).toFixed(4)) : null,
       month: date.getMonth() + 1,
       sun: sun,
       moon: moon,
+      mood: mood,
       skyEffects: {
         starVisibility: skyEffects ? skyEffects.starVisibility : null,
         activeMeteorShower: skyEffects ? skyEffects.activeMeteorShower : null,
@@ -230,6 +262,100 @@
         discoveries: skyEffects ? skyEffects.discoveries : []
       }
     };
+  }
+
+  function isPointInsideCelestialBody(point, body, kind, padding) {
+    if (!point || !body) {
+      return false;
+    }
+    const x = Number(point.x);
+    const y = Number(point.y);
+    const centerX = Number.isFinite(Number(body.centerX)) ? Number(body.centerX) : Number(body.x) + Number(body.size) / 2;
+    const centerY = Number.isFinite(Number(body.centerY)) ? Number(body.centerY) : Number(body.y) + Number(body.size) / 2;
+    const hitRadius = Number.isFinite(Number(body.hitRadius))
+      ? Number(body.hitRadius)
+      : getCelestialHitRadius(body) + (Number(padding) || 0);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(centerX) || !Number.isFinite(centerY) || !Number.isFinite(hitRadius)) {
+      return false;
+    }
+    if (kind === 'sun') {
+      const size = Number(body.size);
+      const left = Number(body.x) - (Number(padding) || 0);
+      const top = Number(body.y) - (Number(padding) || 0);
+      return Number.isFinite(size)
+        && x >= left
+        && x <= left + size + (Number(padding) || 0) * 2
+        && y >= top
+        && y <= top + size + (Number(padding) || 0) * 2;
+    }
+    return Math.hypot(x - centerX, y - centerY) <= hitRadius + (Number(padding) || 0);
+  }
+
+  function getCelestialHitRadius(body) {
+    const size = Math.max(1, Number(body && body.size) || 1);
+    return size / 2 + clamp(size * 0.3, 10, 18, 10);
+  }
+
+  function getCelestialMoodExpression(count) {
+    const value = Math.max(0, Number(count) || 0);
+    if (value >= 3) {
+      return 'angry';
+    }
+    if (value >= 2) {
+      return 'annoyed';
+    }
+    if (value >= 1) {
+      return 'blink';
+    }
+    return 'neutral';
+  }
+
+  function drawCelestialMoodFace(ctx, body, kind, drawAlpha, now, palette) {
+    if (!runtime || !runtime.celestialMood || !body || drawAlpha < 0.055) {
+      return;
+    }
+    const mood = runtime.celestialMood[kind] || {};
+    const wallNow = typeof getRuntimeNow === 'function' ? getRuntimeNow() : now;
+    if (!mood || Number(mood.until) <= wallNow) {
+      return;
+    }
+    const expression = mood.expression || getCelestialMoodExpression(mood.count);
+    if (expression === 'neutral') {
+      return;
+    }
+
+    const size = Number(body.size) || 28;
+    const x = Math.round(Number(body.x) || 0);
+    const y = Math.round(Number(body.y) || 0);
+    const unit = Math.max(2, Math.round(size / 12));
+    const eyeY = y + Math.round(size * 0.38);
+    const leftEyeX = x + Math.round(size * 0.32);
+    const rightEyeX = x + Math.round(size * 0.62);
+    const mouthY = y + Math.round(size * 0.66);
+    const faceColor = kind === 'sun' ? '#5f3d2e' : '#2f4f35';
+
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, drawAlpha + 0.18);
+    ctx.fillStyle = faceColor;
+    if (expression === 'blink') {
+      ctx.fillRect(leftEyeX - unit, eyeY, unit * 3, unit);
+      ctx.fillRect(rightEyeX - unit, eyeY, unit * 3, unit);
+    } else {
+      ctx.fillRect(leftEyeX, eyeY, unit, unit * 2);
+      ctx.fillRect(rightEyeX, eyeY, unit, unit * 2);
+      if (expression === 'angry') {
+        ctx.fillRect(leftEyeX - unit, eyeY - unit, unit * 3, unit);
+        ctx.fillRect(rightEyeX - unit, eyeY - unit, unit * 3, unit);
+      }
+    }
+    if (expression === 'annoyed') {
+      ctx.fillRect(x + Math.round(size * 0.38), mouthY, Math.round(size * 0.25), unit);
+    } else if (expression === 'angry') {
+      ctx.fillRect(x + Math.round(size * 0.38), mouthY + unit, Math.round(size * 0.25), unit);
+      ctx.fillRect(x + Math.round(size * 0.34), mouthY, unit, unit * 2);
+      ctx.fillRect(x + Math.round(size * 0.62), mouthY, unit, unit * 2);
+    }
+    ctx.restore();
   }
 
   function getCelestialCloudVisibility(scene, now, type) {

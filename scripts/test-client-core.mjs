@@ -1242,6 +1242,97 @@ test('cursor immersion follows direction and fast fly-by path', () => {
   assert(after && after.state === 'follow_cursor_after', `expected after-follow outside canvas, got ${after && after.state}`);
 });
 
+test('interactive world gestures select pester, brush, and ambient reactions with target cooldowns', () => {
+  const now = 1_320_000;
+  const rules = {
+    attention: { mildThreshold: 45, criticalThreshold: 25 },
+    needDefinitions: {
+      hydration: { category: 'physical', actionId: 'hydrate' }
+    }
+  };
+  const state = {
+    mode: 'awake',
+    stats: { hydration: 82, nutrients: 82, happiness: 82, cleanliness: 82, energy: 82, health: 100 },
+    patch: { quality: 82 },
+    attention: {}
+  };
+  const scene = { condition: 'clear', isDay: true, cloudCover: 82, precipitation: 0 };
+
+  const pester = core.selectImmersionReaction(state, scene, {
+    inside: true,
+    x: 262,
+    y: 266,
+    previousX: 262,
+    previousY: 266,
+    lastMoveAt: now - 70,
+    lastDownAt: now - 90,
+    consumedDownAt: 0,
+    lastDownTargetKind: 'mushroomBody',
+    lastTapTarget: 'mushroom:body',
+    lastTapAt: now - 60,
+    clickStreak: 3,
+    speed: 0.1,
+    targetCooldowns: {}
+  }, now, rules);
+  assert(pester && pester.id === 'pointerPester', `expected pester reaction, got ${pester && pester.id}`);
+  assert(pester.targetId === 'mushroom' && pester.consumeDown, 'expected pester to target mushroom and consume tap');
+
+  const brush = core.selectImmersionReaction(state, scene, {
+    inside: true,
+    x: 300,
+    y: 426,
+    previousX: 250,
+    previousY: 424,
+    lastMoveAt: now - 40,
+    grassBrushLastAt: now - 35,
+    grassBrushDistance: 88,
+    speed: 0.9,
+    targetCooldowns: {}
+  }, now, rules);
+  assert(brush && brush.id === 'pointerGrassBrush', `expected grass brush reaction, got ${brush && brush.id}`);
+  assert(brush.targetId === 'grass' && brush.brushDistance === 88, 'expected brush target and distance metadata');
+
+  const blockedBrush = core.selectImmersionReaction(state, scene, {
+    inside: true,
+    x: 300,
+    y: 426,
+    previousX: 250,
+    previousY: 424,
+    lastMoveAt: now - 40,
+    grassBrushLastAt: now - 35,
+    grassBrushDistance: 88,
+    speed: 0.9,
+    targetCooldowns: { grass: now + 1000 }
+  }, now, rules);
+  assert(!blockedBrush || blockedBrush.id !== 'pointerGrassBrush', 'grass cooldown should block only the brush reaction');
+
+  const mushroomTap = core.selectImmersionReaction(state, scene, {
+    inside: true,
+    x: 260,
+    y: 268,
+    lastMoveAt: now - 80,
+    lastDownAt: now - 120,
+    consumedDownAt: 0,
+    speed: 0.2,
+    targetCooldowns: { grass: now + 1000 }
+  }, now, rules);
+  assert(mushroomTap && mushroomTap.id === 'pointerTap', `grass cooldown should not block mushroom tap, got ${mushroomTap && mushroomTap.id}`);
+
+  const butterfly = core.selectImmersionReaction(state, scene, {
+    inside: true,
+    x: 188,
+    y: 210,
+    lastMoveAt: now - 80,
+    lastDownAt: now - 90,
+    consumedDownAt: 0,
+    lastDownTargetKind: 'butterfly',
+    speed: 0.1,
+    targetCooldowns: {}
+  }, now, rules);
+  assert(butterfly && butterfly.id === 'pointerScareButterfly', `expected butterfly scare reaction, got ${butterfly && butterfly.id}`);
+  assert(butterfly.state === 'watch_butterfly', `expected butterfly watch state, got ${butterfly && butterfly.state}`);
+});
+
 test('immersion reaction maps weather and celestial context to dedicated animation states', () => {
   const now = 2_000_000;
   const rules = {
@@ -2262,21 +2353,78 @@ test('environment discoveries normalize and record first sightings once', () => 
   const state = { discoveries: { sky: {}, environment: {} }, log: [] };
   const first = core.recordEnvironmentDiscovery(state, 'dew', Date.parse('2026-06-21T04:20:00.000Z'));
   const second = core.recordEnvironmentDiscovery(state, 'dew', Date.parse('2026-06-21T04:25:00.000Z'));
+  const grass = core.recordEnvironmentDiscovery(state, 'grassDewPearl', Date.parse('2026-06-21T04:26:00.000Z'));
   const unknown = core.recordEnvironmentDiscovery(state, 'impossibleThing', Date.parse('2026-06-21T04:30:00.000Z'));
   const normalized = core.normalizeDiscoveriesState({
     sky: { aurora: { firstSeenAt: '2026-01-12T22:30:00.000Z', count: 1 } },
     environment: {
       dew: { firstSeenAt: '2026-06-21T04:20:00.000Z', count: 2 },
+      grassDewPearl: { firstSeenAt: '2026-06-21T04:26:00.000Z', count: 1 },
       bogus: { firstSeenAt: '2026-06-21T04:20:00.000Z', count: 1 }
     }
   });
 
   assert(first.newlyDiscovered, 'expected first dew discovery');
   assert(!second.newlyDiscovered, 'expected repeated dew to be known');
+  assert(grass.newlyDiscovered, 'expected first hidden grass discovery');
   assert(!unknown.ok, 'unknown environment discovery should be rejected');
   assert(state.discoveries.environment.dew.count === 2, `expected dew count 2, got ${state.discoveries.environment.dew.count}`);
+  assert(state.discoveries.environment.grassDewPearl.count === 1, 'expected hidden grass discovery to be recorded');
   assert(normalized.environment.dew.count === 2, 'expected normalized dew discovery');
+  assert(normalized.environment.grassDewPearl.count === 1, 'expected normalized hidden grass discovery');
   assert(!normalized.environment.bogus, 'expected unknown environment discovery to be dropped');
+});
+
+test('hidden grass discovery selector is deterministic and respects care blockers', () => {
+  const now = Date.parse('2026-06-21T05:50:00.000Z');
+  const rules = {
+    attention: { mildThreshold: 45, criticalThreshold: 25 },
+    needDefinitions: {
+      hydration: { category: 'physical', actionId: 'hydrate' }
+    }
+  };
+  const state = getGameplayLoopTestState({
+    playerId: 'grass-finds-test',
+    mode: 'awake',
+    stats: { hydration: 88, nutrients: 88, energy: 88, happiness: 88, cleanliness: 88, health: 100, growth: 40 },
+    patch: { quality: 86, mycelium: 20, careStreak: 4 },
+    decorations: { owned: ['dewStone', 'cloverPatch'], active: ['dewStone', 'cloverPatch'] },
+    discoveries: { sky: {}, environment: {}, instruments: {}, calendar: {} }
+  });
+  const scene = {
+    condition: 'clear',
+    isDay: true,
+    dayPhase: 'morning',
+    humidity: 92,
+    surfaceWetnessTarget: 0.82,
+    windLevel: 0.04,
+    precipitation: 0
+  };
+  const interaction = { x: 264, y: 426, grassBrushDistance: 160 };
+  const first = core.selectGrassInteractionDiscovery(state, scene, interaction, now, rules);
+  const second = core.selectGrassInteractionDiscovery(state, scene, interaction, now, rules);
+
+  assert(first && first.id === 'grassDewPearl', `expected deterministic dew pearl, got ${first && first.id}`);
+  assert(second && second.id === first.id, 'expected repeated selector call to be deterministic');
+
+  const blockedNeed = core.selectGrassInteractionDiscovery({
+    ...state,
+    stats: { ...state.stats, hydration: 20 }
+  }, scene, interaction, now, rules);
+  assert(blockedNeed === null, 'urgent care need should block hidden grass discovery');
+
+  const sleeping = core.selectGrassInteractionDiscovery({
+    ...state,
+    mode: 'sleeping'
+  }, scene, interaction, now, rules);
+  assert(sleeping === null, 'sleep should block hidden grass discovery');
+
+  const tooShort = core.selectGrassInteractionDiscovery(state, scene, {
+    x: 264,
+    y: 426,
+    grassBrushDistance: 12
+  }, now, rules);
+  assert(tooShort === null, 'short grass brush should not create a persistent discovery');
 });
 
 test('world journal discovery snapshots preserve the first photographed world state', () => {
