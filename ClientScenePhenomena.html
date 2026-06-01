@@ -294,11 +294,15 @@
     const known = runtime.state.discoveries && runtime.state.discoveries.environment
       ? runtime.state.discoveries.environment
       : {};
+    const snapshotContext = {
+      scene: typeof getCurrentWeatherScene === 'function' ? getCurrentWeatherScene() : null,
+      environmentProfile: profile
+    };
     profile.discoveries.forEach(function(discoveryId) {
       if (known[discoveryId]) {
         return;
       }
-      const result = core.recordEnvironmentDiscovery(runtime.state, discoveryId, now);
+      const result = core.recordEnvironmentDiscovery(runtime.state, discoveryId, now, snapshotContext);
       if (result && result.newlyDiscovered) {
         addLog(runtime.state, result.message, now);
         changed = true;

@@ -37,7 +37,7 @@
         <div class="topbar__status" aria-live="polite">
           <div class="view-switch" data-view-switch hidden>
             <button class="view-switch__button" type="button" data-view-care aria-pressed="true">Opieka</button>
-            <button class="view-switch__button" type="button" data-view-arena aria-pressed="false">Arena</button>
+            <button class="view-switch__button" type="button" data-view-arena aria-pressed="false">Legendy</button>
           </div>
           <span class="status-pill" data-mode-pill>Śpi</span>
           <button class="ghost-button" type="button" data-reset-button title="Wyczyść zapis gry">Od nowa</button>
@@ -238,10 +238,38 @@
             </div>
           </section>
 
-          <section class="panel-block panel-block--arena" data-arena-panel hidden aria-label="Panel areny">
+          <section class="panel-block panel-block--arena" data-arena-panel hidden aria-label="Panel legend">
             <div class="block-heading">
-              <h2>Arena</h2>
+              <h2>Legendy</h2>
               <span data-battle-record>0-0</span>
+            </div>
+
+            <div class="legendary-hub" data-legendary-games>
+              <div class="legendary-status-row">
+                <strong>Legendarne gry</strong>
+                <span data-legendary-games-status>0/6 pyłku projektów</span>
+              </div>
+              <div class="legendary-game-grid" data-legendary-game-list></div>
+              <div class="legendary-game-playfield" data-legendary-game-playfield hidden>
+                <canvas
+                  class="legendary-game-canvas"
+                  data-legendary-game-canvas
+                  width="300"
+                  height="180"
+                  aria-label="Legendarna minigra pieczarki"
+                  hidden
+                ></canvas>
+                <div class="minigame-hud legendary-game-hud">
+                  <span data-legendary-minigame-score>0 punktów</span>
+                  <span data-legendary-minigame-time>0 s</span>
+                  <span data-legendary-minigame-combo>Czysto</span>
+                  <button class="ghost-button" type="button" data-legendary-minigame-end>Zakończ</button>
+                  <span class="minigame-progress" aria-hidden="true">
+                    <i data-legendary-minigame-progress></i>
+                  </span>
+                </div>
+              </div>
+              <div class="legendary-album" data-legendary-album></div>
             </div>
 
             <div class="arena-command-row">
@@ -454,7 +482,7 @@
           <canvas
             data-journal-polaroid-canvas
             width="192"
-            height="144"
+            height="192"
             aria-label="Pamiątkowy kadr odkrycia"
           ></canvas>
         </div>

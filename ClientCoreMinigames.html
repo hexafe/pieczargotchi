@@ -5,6 +5,9 @@
     if (!config) {
       return { ok: false, reason: 'Nieznana minigra.' };
     }
+    if (config.requiresStage && rawState && !isGameplayStageAtLeastCore(rawState.stage, config.requiresStage)) {
+      return { ok: false, reason: 'To wyzwanie czeka na legendarną Pieczarkę.' };
+    }
 
     const seed = clampInteger(seedInput || timestamp, 1, 2147483646, 1);
     const habitat = rawState ? getHabitatInfluenceCore(rawState, rules) : { tags: {} };
@@ -32,6 +35,13 @@
     const timestamp = Number(now) || Date.now();
     if (!config) {
       return { ok: false, reason: 'Nieznana minigra.', state: state };
+    }
+    if (config.requiresStage && !isGameplayStageAtLeastCore(state.stage, config.requiresStage)) {
+      state.minigames = {
+        active: null,
+        lastResult: state.minigames && state.minigames.lastResult || null
+      };
+      return { ok: false, reason: 'To wyzwanie czeka na legendarną Pieczarkę.', state: state };
     }
 
     const score = clampInteger(session.score, 0, 999, 0);
@@ -173,6 +183,39 @@
       return 'near';
     }
     return 'practice';
+  }
+
+  function judgeRhythmInputCore(expectedLane, inputLane, deltaMs, windows, offsetMs) {
+    const timing = windows || {};
+    const offset = Number(offsetMs) || 0;
+    const delta = (Number(deltaMs) || 0) + offset;
+    const abs = Math.abs(delta);
+    const ok = Math.max(110, Number(timing.ok) || 190);
+    const good = Math.max(75, Number(timing.good) || 125);
+    const perfect = Math.max(40, Number(timing.perfect) || 70);
+    const miss = Math.max(ok, Number(timing.miss) || 260);
+    const expected = String(expectedLane || '');
+    const input = String(inputLane || '');
+
+    if (!expected) {
+      return { judgment: 'miss', points: 0, timing: 'stray', delta: delta, expectedLane: expected, inputLane: input };
+    }
+    if (input !== expected) {
+      return { judgment: 'bad', points: 0, timing: 'wrongLane', delta: delta, expectedLane: expected, inputLane: input };
+    }
+    if (abs > miss) {
+      return { judgment: 'miss', points: 0, timing: delta < 0 ? 'early' : 'late', delta: delta, expectedLane: expected, inputLane: input };
+    }
+    if (abs > ok) {
+      return { judgment: 'miss', points: 0, timing: delta < 0 ? 'early' : 'late', delta: delta, expectedLane: expected, inputLane: input };
+    }
+    if (abs <= perfect) {
+      return { judgment: 'perfect', points: 3, timing: 'perfect', delta: delta, expectedLane: expected, inputLane: input };
+    }
+    if (abs <= good) {
+      return { judgment: 'good', points: 2, timing: delta < 0 ? 'slightlyEarly' : 'slightlyLate', delta: delta, expectedLane: expected, inputLane: input };
+    }
+    return { judgment: 'ok', points: 1, timing: delta < 0 ? 'earlyOk' : 'lateOk', delta: delta, expectedLane: expected, inputLane: input };
   }
 
   function calculateMinigameSporeRewardCore(rewardRules, score) {

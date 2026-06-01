@@ -56,6 +56,7 @@
     result.battle = Object.assign({}, base.battle, override.battle || {});
     result.evolution = Object.assign({}, base.evolution, override.evolution || {});
     result.minigames = Object.assign({}, base.minigames, override.minigames || {});
+    result.legendaryGames = Object.assign({}, base.legendaryGames, override.legendaryGames || {});
     result.dailyPlan = Object.assign({}, base.dailyPlan, override.dailyPlan || {});
     result.dailyRhythm = Object.assign({}, base.dailyRhythm, override.dailyRhythm || {});
     result.relationship = Object.assign({}, base.relationship, override.relationship || {});
@@ -114,6 +115,7 @@
       state.history = state.history || {};
       state.evolution = state.evolution || { variant: null, decidedAt: null, reason: null };
       state.minigames = state.minigames || { active: null, lastResult: null };
+      state.legendaryGames = state.legendaryGames || {};
       state.dailyPlan = state.dailyPlan || { dateKey: null, activeIds: [], completed: {} };
       state.dailyRhythm = state.dailyRhythm || { dateKey: null, selectedId: null, options: [] };
       state.relationship = state.relationship || { entries: [] };
@@ -129,6 +131,7 @@
     state.history = normalized.history;
     state.evolution = normalized.evolution;
     state.minigames = normalized.minigames;
+    state.legendaryGames = normalized.legendaryGames || state.legendaryGames || {};
     state.dailyPlan = normalized.dailyPlan || state.dailyPlan || { dateKey: null, activeIds: [], completed: {} };
     state.dailyRhythm = normalized.dailyRhythm || state.dailyRhythm || { dateKey: null, selectedId: null, options: [] };
     state.relationship = normalized.relationship || state.relationship || { entries: [] };

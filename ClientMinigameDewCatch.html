@@ -12,6 +12,8 @@
 
     if (session.id === 'dewCatch') {
       startDewCatchRuntime(session);
+    } else if (isLegendaryMinigameRuntimeId(session.id) && typeof startLegendaryGameRuntime === 'function') {
+      startLegendaryGameRuntime(session);
     } else if (session.id === 'sporePop' && typeof startSporePopRuntime === 'function') {
       startSporePopRuntime(session);
     } else if (session.id === 'compostSort' && typeof startCompostSortRuntime === 'function') {
@@ -89,6 +91,7 @@
     updateDewCatchBucket(canvas, deltaMs);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawDewCatchBackground(ctx, canvas.width, canvas.height, now, progress);
+    drawDewCatchLandingPreviews(ctx, canvas.width, canvas.height, now, progress);
     runtime.minigame.drawnDrops = 0;
     runtime.minigame.drops.forEach(function(drop) {
       if (isDewDropResolved(session, drop.id)) {
@@ -200,7 +203,7 @@
       return;
     }
 
-    const ease = Math.min(0.38, 0.10 + deltaMs / 210);
+    const ease = Math.min(0.44, 0.16 + deltaMs / 190);
     bucket.x += (bucket.targetX - bucket.x) * ease;
     bucket.x = clampDewBucketX(bucket.x, canvas.width, bucket.width);
   }
@@ -224,9 +227,9 @@
     const bucketY = getDewBucketY(canvas.height, bucket);
     const mouthHalf = bucket.width / 2 - 4;
     const dropBottom = position.y + size + 5;
-    return Math.abs(position.x - bucket.x) <= mouthHalf + size * 0.45
+    return Math.abs(position.x - bucket.x) <= mouthHalf + size * 0.62
       && dropBottom >= bucketY + 3
-      && position.y <= bucketY + 13;
+      && position.y <= bucketY + 17;
   }
 
   function catchDewDrop(drop, position, now) {
@@ -459,6 +462,35 @@
     }
   }
 
+  function drawDewCatchLandingPreviews(ctx, width, height, now, progress) {
+    const bucket = runtime.minigame && runtime.minigame.bucket;
+    const session = runtime.minigame && runtime.minigame.session;
+    if (!bucket || !session) {
+      return;
+    }
+    const bucketY = getDewBucketY(height, bucket);
+    runtime.minigame.drops.forEach(function(drop) {
+      if (isDewDropResolved(session, drop.id)) {
+        return;
+      }
+      const position = getDewDropPosition(drop, progress, width, height);
+      const remainingPx = bucketY - position.y;
+      if (remainingPx < 8 || remainingPx > 62) {
+        return;
+      }
+      const alpha = Math.max(0.1, Math.min(0.42, 1 - remainingPx / 70));
+      const size = drop.kind === 'leaf' ? 11 : drop.kind === 'glint' ? 13 : 9;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = drop.kind === 'leaf' ? '#8b5f31' : drop.kind === 'glint' ? '#fff0a8' : '#82d7f0';
+      ctx.fillRect(Math.round(position.x - size / 2), bucketY + 12, size, 2);
+      ctx.globalAlpha = Math.min(0.28, alpha);
+      ctx.fillStyle = '#1b301e';
+      ctx.fillRect(Math.round(position.x - size / 2 - 2), bucketY + 15, size + 4, 2);
+      ctx.restore();
+    });
+  }
+
   function drawDewLeaf(ctx, x, y, size, phase) {
     const tilt = Math.round(Math.sin(phase) * 2);
     ctx.fillStyle = '#5a3322';
@@ -585,20 +617,35 @@
 
     const session = runtime.minigame.session;
     const secondsLeft = Math.max(0, Math.ceil((Number(session.until) - now) / 1000));
-    if (dom.minigameScore) {
-      dom.minigameScore.textContent = getMinigameScoreLabel(session.id, session.score);
-    }
-    if (dom.minigameTime) {
-      dom.minigameTime.textContent = secondsLeft + ' s';
-    }
+    setMinigameHudText('Score', getMinigameScoreLabel(session.id, session.score));
+    setMinigameHudText('Time', secondsLeft + ' s');
     if (dom.minigameCombo) {
       const combo = Number(session.combo) || 0;
       const mistakes = Number(session.mistakes) || 0;
-      dom.minigameCombo.textContent = combo ? 'Seria x' + combo : mistakes ? 'Potknięć ' + mistakes : 'Czysto';
+      setMinigameHudText('Combo', combo ? 'Seria x' + combo : mistakes ? 'Potknięć ' + mistakes : 'Czysto');
     }
+    const progress = Math.max(0, Math.min(1, (now - Number(session.startedAt)) / Math.max(1, Number(session.until) - Number(session.startedAt))));
+    setMinigameHudProgress(progress);
+  }
+
+  function setMinigameHudText(kind, text) {
+    const careNode = dom['minigame' + kind];
+    const legendaryNode = dom['legendaryMinigame' + kind];
+    if (careNode) {
+      careNode.textContent = text;
+    }
+    if (legendaryNode) {
+      legendaryNode.textContent = text;
+    }
+  }
+
+  function setMinigameHudProgress(progress) {
+    const value = 'scaleX(' + Math.max(0, Math.min(1, Number(progress) || 0)).toFixed(3) + ')';
     if (dom.minigameProgress) {
-      const progress = Math.max(0, Math.min(1, (now - Number(session.startedAt)) / Math.max(1, Number(session.until) - Number(session.startedAt))));
-      dom.minigameProgress.style.transform = 'scaleX(' + progress.toFixed(3) + ')';
+      dom.minigameProgress.style.transform = value;
+    }
+    if (dom.legendaryMinigameProgress) {
+      dom.legendaryMinigameProgress.style.transform = value;
     }
   }
 
@@ -615,10 +662,17 @@
     if (dom.rhythmHumCanvas) {
       dom.rhythmHumCanvas.hidden = minigameId !== 'rhythmHum';
     }
+    if (dom.legendaryGameCanvas) {
+      dom.legendaryGameCanvas.hidden = !isLegendaryMinigameRuntimeId(minigameId);
+    }
   }
 
   function getMinigameScoreLabel(minigameId, score) {
     const amount = Number(score) || 0;
+    const config = rules.minigames && rules.minigames[minigameId] ? rules.minigames[minigameId] : {};
+    if (Array.isArray(config.scoreLabelForms)) {
+      return formatMinigameCount(amount, config.scoreLabelForms);
+    }
     if (minigameId === 'sporePop') {
       return formatMinigameCount(amount, ['zarodnik', 'zarodniki', 'zarodników']);
     }

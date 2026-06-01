@@ -133,6 +133,33 @@ function createDefaultStateTemplate() {
       active: null,
       lastResult: null
     },
+    legendaryGames: {
+      version: 1,
+      daily: {
+        dateKey: null,
+        projectPointsEarned: 0,
+        featuredIds: []
+      },
+      trail: {
+        plays: 0,
+        bestScore: 0,
+        discoveredNodes: {},
+        lastPlayedAt: null
+      },
+      league: {
+        rank: 1,
+        streak: 0,
+        bestStreak: 0,
+        badges: {},
+        dailyRewardWins: 0
+      },
+      garden: {
+        layouts: {},
+        discoveredSets: {},
+        lastBonusAt: null
+      },
+      lastResult: null
+    },
     dailyPlan: {
       dateKey: null,
       activeIds: [],

@@ -389,15 +389,15 @@ test('corrupted save shape falls back to a normal migration target', () => {
   assert(migrated.battle && migrated.battle.rewards.wins === 0, 'expected normalized battle rewards');
 });
 
-test('v2 saves migrate to v14 progression history, discoveries, evolution, minigames, decorations, daily rhythm, journal, return recap, relationship, naming gate, calendar, and long loop', () => {
+test('v2 saves migrate to v16 progression history, discoveries, evolution, minigames, decorations, daily rhythm, journal, return recap, relationship, naming gate, calendar, long loop, legendary games, and journal snapshots', () => {
   const migrated = core.migrateStateVersion({
     version: 2,
     stage: 'adult',
     stats: { growth: 70 },
     history: { actionsPerformed: { hydrate: 2 } }
-  }, 14);
+  }, 16);
 
-  assert(migrated.version === 14, `expected version 14, got ${migrated.version}`);
+  assert(migrated.version === 16, `expected version 16, got ${migrated.version}`);
   assert(migrated.mushroomName === '', 'expected unnamed default mushroom for first-run naming gate');
   assert(migrated.flags && migrated.flags.nameConfirmed === false, 'expected name confirmation flag to default to false');
   assert(migrated.history.actionsPerformed.hydrate === 2, 'expected action history to survive migration');
@@ -419,6 +419,8 @@ test('v2 saves migrate to v14 progression history, discoveries, evolution, minig
   assert(migrated.returnRecap && Array.isArray(migrated.returnRecap.entries), 'expected return recap defaults');
   assert(migrated.longLoop && migrated.longLoop.mementos && migrated.longLoop.mastery, 'expected long-loop defaults');
   assert(migrated.longLoop.expeditions && migrated.longLoop.expeditions.active === null, 'expected empty expedition state');
+  assert(migrated.legendaryGames && migrated.legendaryGames.daily && migrated.legendaryGames.trail, 'expected legendary game defaults');
+  assert(migrated.legendaryGames.league && migrated.legendaryGames.garden, 'expected legendary league and garden defaults');
 });
 
 test('custom mushroom names survive migration as confirmed names', () => {
@@ -426,9 +428,9 @@ test('custom mushroom names survive migration as confirmed names', () => {
     version: 11,
     mushroomName: 'Borowik',
     flags: {}
-  }, 14);
+  }, 16);
 
-  assert(migrated.version === 14, `expected version 14, got ${migrated.version}`);
+  assert(migrated.version === 16, `expected version 16, got ${migrated.version}`);
   assert(migrated.mushroomName === 'Borowik', `expected custom name to survive, got ${migrated.mushroomName}`);
   assert(migrated.flags && migrated.flags.nameConfirmed === true, 'expected custom legacy name to count as confirmed');
 });
@@ -543,6 +545,107 @@ test('long-loop legendary projects finish at the legendary stage', () => {
 
   assert(result.state.longLoop.legendaryProjects.completed.dewGarden, 'expected legendary project completion');
   assert(result.state.longLoop.mementos.owned['memento-dew-garden'], 'expected legendary memento');
+});
+
+test('post-legendary games are locked before legendary and available after evolution', () => {
+  const now = Date.parse('2026-05-21T13:00:00.000Z');
+  const rules = getGameplayLoopTestRules();
+  const locked = core.createMinigameSession('sporeTrail', rules, now, 111, getGameplayLoopTestState({
+    stage: 'adult',
+    stats: { growth: 70 }
+  }), {});
+  const opened = core.createMinigameSession('sporeTrail', rules, now, 111, getGameplayLoopTestState({
+    stage: 'legendary',
+    stats: { growth: 100 }
+  }), {});
+  const dashboard = core.getLegendaryGamesDashboard({
+    stage: 'legendary',
+    minigames: {},
+    cooldowns: {},
+    legendaryGames: {},
+    longLoop: {}
+  }, rules, now, {});
+
+  assert(!locked.ok, 'expected legendary game to be locked before legendary stage');
+  assert(opened.ok, `expected legendary game session: ${opened.reason}`);
+  assert(opened.session.label === 'Szlak Zarodników', `unexpected legendary session label: ${opened.session.label}`);
+  assert(dashboard.unlocked, 'expected legendary dashboard to unlock at legendary stage');
+  assert(dashboard.games.length === 3, `expected three legendary games, got ${dashboard.games.length}`);
+});
+
+test('post-legendary game finish and long-loop rewards stay locked before legendary', () => {
+  const now = Date.parse('2026-05-21T13:30:00.000Z');
+  const rules = getGameplayLoopTestRules();
+  const adultState = getGameplayLoopTestState({
+    stage: 'adult',
+    stats: { growth: 70 },
+    minigames: {
+      active: { id: 'sporeTrail', score: 18 },
+      lastResult: null
+    }
+  });
+  const finish = core.finishMinigame(adultState, {
+    id: 'sporeTrail',
+    score: 18,
+    bestCombo: 4,
+    mistakes: 0
+  }, rules, now);
+  const loop = core.updateLongLoopProgress(adultState, { type: 'minigame', minigameId: 'sporeTrail', score: 18 }, rules, now, {});
+
+  assert(!finish.ok, 'expected forged legendary finish to stay locked before legendary');
+  assert(!loop.state.longLoop.mementos.owned['memento-spore-trail-map'], 'adult legendary result should not award album memento');
+  assert(!loop.state.legendaryGames.lastResult, 'adult legendary result should not record last result');
+});
+
+test('post-legendary game results update album, project progress, and daily cap', () => {
+  const now = Date.parse('2026-05-21T14:00:00.000Z');
+  const rules = getGameplayLoopTestRules();
+  const state = getGameplayLoopTestState({
+    stage: 'legendary',
+    stats: { growth: 100 },
+    longLoop: {
+      legendaryProjects: {
+        activeId: 'dewGarden',
+        progress: { dewGarden: { points: 15 } },
+        completed: {}
+      }
+    }
+  });
+  const updated = core.updateLongLoopProgress(state, { type: 'minigame', minigameId: 'sporeTrail', score: 18 }, rules, now, {});
+
+  assert(updated.state.legendaryGames.trail.plays === 1, 'expected trail play count');
+  assert(updated.state.legendaryGames.trail.bestScore === 18, 'expected trail best score');
+  assert(updated.state.legendaryGames.daily.projectPointsEarned === 3, 'expected project points to count against daily cap');
+  assert(updated.state.longLoop.legendaryProjects.completed.dewGarden, 'expected legendary project completion from trail');
+  assert(updated.state.longLoop.mementos.owned['memento-spore-trail-map'], 'expected trail album memento');
+});
+
+test('post-legendary project progress is capped per day without blocking records', () => {
+  const now = Date.parse('2026-05-21T15:00:00.000Z');
+  const rules = getGameplayLoopTestRules();
+  const state = getGameplayLoopTestState({
+    stage: 'legendary',
+    stats: { growth: 100 },
+    legendaryGames: {
+      daily: {
+        dateKey: '2026-05-21',
+        projectPointsEarned: 5,
+        featuredIds: ['sporeTrail']
+      }
+    },
+    longLoop: {
+      legendaryProjects: {
+        activeId: 'mossChoir',
+        progress: { mossChoir: { points: 2 } },
+        completed: {}
+      }
+    }
+  });
+  const updated = core.updateLongLoopProgress(state, { type: 'minigame', minigameId: 'memoryGarden', score: 15 }, rules, now, {});
+
+  assert(updated.state.legendaryGames.garden.layouts['2026-05-21'] === 15, 'expected garden record despite daily cap');
+  assert(updated.state.legendaryGames.daily.projectPointsEarned === 6, 'expected daily project cap to stop at six');
+  assert(updated.state.longLoop.legendaryProjects.progress.mossChoir.points === 3, `expected one capped project point, got ${updated.state.longLoop.legendaryProjects.progress.mossChoir.points}`);
 });
 
 test('daily rhythm selection reshapes the same-day care plan once', () => {
@@ -1655,6 +1758,23 @@ test('new habitat minigames grant bounded substrate and rhythm rewards', () => {
   assert(rhythm.state.stats.energy === 62.5, `expected small rhythm energy reward, got ${rhythm.state.stats.energy}`);
 });
 
+test('rhythm input judgment explains timing and lane mistakes', () => {
+  const windows = { perfect: 90, good: 155, ok: 235, miss: 360 };
+  const perfect = core.judgeRhythmInput('left', 'left', 12, windows, 0);
+  const goodEarly = core.judgeRhythmInput('left', 'left', -120, windows, 0);
+  const okLate = core.judgeRhythmInput('left', 'left', 220, windows, 0);
+  const tooEarly = core.judgeRhythmInput('left', 'left', -300, windows, 0);
+  const tooLate = core.judgeRhythmInput('left', 'left', 410, windows, 0);
+  const wrongLane = core.judgeRhythmInput('left', 'right', 10, windows, 0);
+
+  assert(perfect.judgment === 'perfect' && perfect.points === 3, 'expected perfect timing');
+  assert(goodEarly.judgment === 'good' && goodEarly.timing === 'slightlyEarly', 'expected early good timing');
+  assert(okLate.judgment === 'ok' && okLate.timing === 'lateOk', 'expected late ok timing');
+  assert(tooEarly.judgment === 'miss' && tooEarly.timing === 'early', 'expected early miss');
+  assert(tooLate.judgment === 'miss' && tooLate.timing === 'late', 'expected late miss');
+  assert(wrongLane.judgment === 'bad' && wrongLane.timing === 'wrongLane', 'expected wrong lane feedback');
+});
+
 test('evolution variant reacts to care history and legendary threshold', () => {
   const rules = {
     evolution: {
@@ -2159,6 +2279,88 @@ test('environment discoveries normalize and record first sightings once', () => 
   assert(!normalized.environment.bogus, 'expected unknown environment discovery to be dropped');
 });
 
+test('world journal discovery snapshots preserve the first photographed world state', () => {
+  const state = getGameplayLoopTestState({
+    stage: 'juvenile',
+    mode: 'awake',
+    stats: { hydration: 88, nutrients: 72, energy: 80, happiness: 91, cleanliness: 90, health: 100, growth: 44 },
+    patch: { quality: 82, mycelium: 12, careStreak: 3 },
+    decorations: { owned: ['dewStone'], active: ['dewStone'] },
+    discoveries: { sky: {}, environment: {}, instruments: {}, calendar: {} },
+    journal: { entries: [] }
+  });
+  const firstContext = {
+    scene: {
+      condition: 'snow',
+      dayPhase: 'night',
+      dayTone: 'night',
+      isDay: false,
+      temperature: -2.4,
+      humidity: 94,
+      precipitation: 2,
+      snowfall: 2,
+      snowIntensity: 0.58,
+      cloudCover: 72,
+      frostRisk: 0.8
+    },
+    environmentProfile: {
+      id: 'snow-night',
+      discoveries: ['frost'],
+      frost: { visible: true, intensity: 0.9 }
+    }
+  };
+  const secondContext = {
+    scene: {
+      condition: 'clear',
+      dayPhase: 'day',
+      isDay: true,
+      humidity: 48,
+      cloudCover: 0
+    }
+  };
+
+  const first = core.recordEnvironmentDiscovery(state, 'frost', Date.parse('2026-01-03T22:15:00.000Z'), firstContext);
+  state.stage = 'adult';
+  state.stats.growth = 80;
+  const second = core.recordEnvironmentDiscovery(state, 'frost', Date.parse('2026-01-03T22:25:00.000Z'), secondContext);
+  const snapshot = state.discoveries.environment.frost.photoSnapshot;
+
+  assert(first.newlyDiscovered, 'expected first frost snapshot');
+  assert(!second.newlyDiscovered, 'expected repeated frost to keep the original snapshot');
+  assert(snapshot && !snapshot.fallback, 'expected live snapshot on discovery');
+  assert(snapshot.stage === 'juvenile', `expected first stage juvenile, got ${snapshot.stage}`);
+  assert(snapshot.growth === 44, `expected first growth 44, got ${snapshot.growth}`);
+  assert(snapshot.weather.condition === 'snow', `expected first weather snow, got ${snapshot.weather.condition}`);
+  assert(snapshot.weather.dayPhase === 'night', `expected first phase night, got ${snapshot.weather.dayPhase}`);
+  assert(snapshot.environment.discoveries.includes('frost'), 'expected environment profile discoveries in snapshot');
+  assert(snapshot.world.decorations.includes('dewStone'), 'expected active decorations in snapshot');
+});
+
+test('world journal sky snapshots do not leak sky discovery ids into environment fields', () => {
+  const state = getGameplayLoopTestState({
+    discoveries: { sky: {}, environment: {}, instruments: {}, calendar: {} },
+    journal: { entries: [] }
+  });
+  const context = {
+    scene: {
+      condition: 'clear',
+      dayPhase: 'night',
+      isDay: false,
+      cloudCover: 12
+    },
+    skyEffects: {
+      discoveries: ['aurora']
+    }
+  };
+
+  const result = core.recordSkyDiscovery(state, 'aurora', Date.parse('2026-01-12T22:30:00.000Z'), context);
+  const snapshot = state.discoveries.sky.aurora.photoSnapshot;
+
+  assert(result.newlyDiscovered, 'expected first aurora discovery');
+  assert(snapshot.sky.activeIds.includes('aurora'), 'expected sky snapshot to preserve sky discovery ids');
+  assert(snapshot.environment.discoveries.length === 0, 'expected sky snapshot not to copy sky ids into environment discoveries');
+});
+
 test('world journal combines sky, environment, and rare instrument discoveries with locked hints', () => {
   const state = getGameplayLoopTestState({
     discoveries: { sky: {}, environment: {}, instruments: {} },
@@ -2195,6 +2397,7 @@ test('world journal combines sky, environment, and rare instrument discoveries w
   assert(dew.discovered, 'expected dew to be discovered');
   assert(rare.discovered, 'expected rare instrument to be discovered');
   assert(aurora.photoScene === 'aurora', `expected aurora photo scene, got ${aurora.photoScene}`);
+  assert(aurora.photoSnapshot && aurora.photoSnapshot.fallback === false, 'expected aurora to expose a live photo snapshot');
   assert(aurora.reaction === 'awe', `expected aurora awe reaction, got ${aurora.reaction}`);
   assert(aurora.description.includes('Zielonkawe'), 'expected aurora to expose journal description');
   assert(aurora.scienceNote.includes('geomagnetyczna'), 'expected aurora to expose science note');
@@ -2205,6 +2408,31 @@ test('world journal combines sky, environment, and rare instrument discoveries w
   assert(comet && !comet.discovered && comet.hint, 'expected locked sky item to keep a hint');
   assert(state.journal.entries.length === 3, 'expected first sightings to create journal entries');
   assert(state.journal.entries.every((entry) => !/dopisało|dopisał/.test(entry.body)), 'expected natural journal entry wording');
+});
+
+test('legacy world journal discoveries get deterministic fallback photo snapshots', () => {
+  const state = getGameplayLoopTestState({
+    discoveries: {
+      sky: {
+        comet: {
+          firstSeenAt: '2026-01-12T22:30:00.000Z',
+          count: 1
+        }
+      },
+      environment: {},
+      instruments: {},
+      calendar: {}
+    },
+    journal: { entries: [] }
+  });
+  const journal = core.getWorldJournal(state, getGameplayLoopTestRules());
+  const sky = journal.groups.find((group) => group.id === 'sky');
+  const comet = sky.items.find((item) => item.id === 'comet');
+
+  assert(comet.discovered, 'expected legacy comet discovery');
+  assert(comet.photoSnapshot && comet.photoSnapshot.fallback, 'expected fallback snapshot for legacy discovery');
+  assert(comet.photoSnapshot.weather.dayPhase === 'night', 'expected comet fallback to preserve night atmosphere');
+  assert(comet.photoSnapshot.stage === 'adult', 'expected fallback stage to be adult');
 });
 
 test('calendar events use local deterministic dates and checklist unlocks through owned decoration', () => {
@@ -2359,7 +2587,13 @@ function getGameplayLoopTestRules() {
       dewCatch: { id: 'dewCatch', label: 'Łapanie rosy' },
       sporePop: { id: 'sporePop', label: 'Pękanie zarodników' },
       compostSort: { id: 'compostSort', label: 'Sortowanie kompostu' },
-      rhythmHum: { id: 'rhythmHum', label: 'Rytmiczne nucenie' }
+      rhythmHum: { id: 'rhythmHum', label: 'Rytmiczne nucenie' },
+      ...getLegendaryGameTestRules()
+    },
+    legendaryGames: {
+      unlockStage: 'legendary',
+      dailyProjectPointCap: 6,
+      games: getLegendaryGameTestRules()
     },
     instrumentCatalog: {
       stages: {
@@ -2374,9 +2608,47 @@ function getGameplayLoopTestRules() {
   };
 }
 
+function getLegendaryGameTestRules() {
+  return {
+    sporeTrail: {
+      id: 'sporeTrail',
+      label: 'Szlak Zarodników',
+      requiresStage: 'legendary',
+      legendary: true,
+      masteryTarget: 18,
+      targetCount: 18,
+      projectPoints: 3,
+      seasonPoints: 2,
+      memento: { id: 'memento-spore-trail-map', label: 'Mapa szlaku zarodników' }
+    },
+    myceliumLeague: {
+      id: 'myceliumLeague',
+      label: 'Liga Grzybni',
+      requiresStage: 'legendary',
+      legendary: true,
+      masteryTarget: 24,
+      targetCount: 16,
+      projectPoints: 2,
+      seasonPoints: 3,
+      memento: { id: 'memento-mycelium-league-badge', label: 'Odznaka ligi grzybni' }
+    },
+    memoryGarden: {
+      id: 'memoryGarden',
+      label: 'Ogród Pamiątek',
+      requiresStage: 'legendary',
+      legendary: true,
+      masteryTarget: 15,
+      targetCount: 12,
+      projectPoints: 3,
+      seasonPoints: 2,
+      memento: { id: 'memento-memory-garden-frame', label: 'Ramka ogrodu pamiątek' }
+    }
+  };
+}
+
 function getGameplayLoopTestState(overrides = {}) {
   return {
-    version: 14,
+    version: 15,
     playerId: 'test-player',
     mushroomName: overrides.mushroomName || 'Testek',
     createdAt: overrides.createdAt || '2026-05-20T08:00:00.000Z',
@@ -2407,6 +2679,7 @@ function getGameplayLoopTestState(overrides = {}) {
     careMistakes: overrides.careMistakes || { physical: 0, mental: 0, environment: 0, rest: 0 },
     evolution: overrides.evolution || { variant: null, decidedAt: null, reason: null },
     minigames: overrides.minigames || { active: null, lastResult: null },
+    legendaryGames: overrides.legendaryGames || {},
     dailyPlan: overrides.dailyPlan || { dateKey: null, activeIds: [], completed: {} },
     dailyRhythm: overrides.dailyRhythm || { dateKey: null, selectedId: null, options: [] },
     relationship: overrides.relationship || { entries: [] },

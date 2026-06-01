@@ -22,6 +22,7 @@
     renderMinigameOpportunities();
     renderMinigames();
     renderLongLoop();
+    renderLegendaryGames();
     renderHabitatSummary();
     renderDecorations();
     renderCharacterCompass();
@@ -83,7 +84,7 @@
     }
 
     if (dom.stageEyebrow) {
-      dom.stageEyebrow.textContent = runtime.viewMode === 'arena' ? 'Arena' : 'Grzybnia';
+      dom.stageEyebrow.textContent = runtime.viewMode === 'arena' ? 'Legendy' : 'Grzybnia';
     }
   }
 
@@ -875,11 +876,18 @@
     const gameOver = isGameOverUiState();
     const now = getRuntimeNow();
     const minigameRules = rules.minigames || {};
-    const cooldowns = Object.keys(minigameRules).map(function(minigameId) {
+    const visibleMinigameIds = Object.keys(minigameRules).filter(function(minigameId) {
+      return !minigameRules[minigameId].legendary;
+    });
+    const cooldowns = visibleMinigameIds.map(function(minigameId) {
       const cooldownUntil = Number(runtime.state.cooldowns[getMinigameCooldownKey(minigameId)]) || 0;
       return Math.max(0, cooldownUntil - now);
     }).filter(Boolean);
     const remaining = cooldowns.length ? Math.min.apply(null, cooldowns) : 0;
+    const readyVisible = visibleMinigameIds.some(function(minigameId) {
+      const cooldownUntil = Number(runtime.state.cooldowns[getMinigameCooldownKey(minigameId)]) || 0;
+      return cooldownUntil <= now;
+    });
     const unnamed = !hasNamedMushroom(runtime.state);
     if (unnamed) {
       dom.minigameStatus.textContent = 'Najpierw imię';
@@ -887,7 +895,7 @@
       dom.minigameStatus.textContent = 'Koniec gry';
     } else if (active) {
       dom.minigameStatus.textContent = active.label || (minigameRules[active.id] && minigameRules[active.id].label) || 'Trwa';
-    } else if (remaining) {
+    } else if (remaining && !readyVisible) {
       dom.minigameStatus.textContent = 'Za ' + formatRemainingLabel(remaining);
     } else {
       dom.minigameStatus.textContent = 'Gotowe';
@@ -896,7 +904,7 @@
     renderMinigameLastScores();
     renderMinigameMasteryLabels();
     if (dom.minigamePlayfield) {
-      dom.minigamePlayfield.hidden = !active;
+      dom.minigamePlayfield.hidden = !active || isLegendaryMinigameRuntimeId(active.id);
     }
     if (typeof setActiveMinigameCanvas === 'function') {
       setActiveMinigameCanvas(active && active.id);
@@ -1082,6 +1090,95 @@
     button.disabled = Boolean(disabled) || !hasNamedMushroom(runtime.state) || isGameOverUiState();
     button.addEventListener('click', onClick);
     return button;
+  }
+
+  function renderLegendaryGames() {
+    if (!dom.legendaryGames || !dom.legendaryGameList) {
+      return;
+    }
+
+    const core = window.PieczargotchiCore;
+    const dashboard = core && typeof core.getLegendaryGamesDashboard === 'function'
+      ? core.getLegendaryGamesDashboard(runtime.state, rules, getRuntimeNow(), getCurrentWeatherScene())
+      : null;
+    const active = runtime.state.minigames && runtime.state.minigames.active;
+    const activeLegendary = active && isLegendaryMinigameRuntimeId(active.id);
+    dom.legendaryGameList.innerHTML = '';
+    if (!dashboard) {
+      dom.legendaryGames.hidden = true;
+      return;
+    }
+
+    dom.legendaryGames.hidden = false;
+    if (dom.legendaryGamesStatus) {
+      dom.legendaryGamesStatus.textContent = dashboard.status || 'Czeka';
+    }
+    if (dom.legendaryGamePlayfield) {
+      dom.legendaryGamePlayfield.hidden = !activeLegendary;
+    }
+
+    (dashboard.games || []).forEach(function(game) {
+      const card = document.createElement('div');
+      const text = document.createElement('div');
+      const title = document.createElement('strong');
+      const meta = document.createElement('span');
+      const button = document.createElement('button');
+      const blocked = !dashboard.unlocked
+        || isGameOverUiState()
+        || isRecoveryActiveForRuntime(getRuntimeNow())
+        || !hasNamedMushroom(runtime.state)
+        || runtime.state.mode !== 'awake'
+        || Boolean(active && active.id !== game.id)
+        || Number(game.cooldownMs) > 0;
+
+      card.className = 'legendary-game-card' + (game.featured ? ' is-featured' : '') + (game.active ? ' is-active' : '');
+      title.textContent = game.label;
+      meta.textContent = game.featured
+        ? 'Dzisiejszy trop · rekord ' + game.bestScore + '/' + game.targetScore
+        : 'Rekord ' + game.bestScore + '/' + game.targetScore;
+      button.className = 'ghost-button';
+      button.type = 'button';
+      button.textContent = !dashboard.unlocked
+        ? 'Zamknięte'
+        : game.active
+          ? 'Trwa'
+          : game.cooldownMs
+            ? formatCooldownLabel(game.cooldownMs)
+            : 'Start';
+      button.disabled = blocked;
+      button.title = game.prompt || game.label;
+      button.addEventListener('click', function() {
+        handleMinigameStart(game.id);
+      });
+
+      text.appendChild(title);
+      text.appendChild(meta);
+      card.appendChild(text);
+      card.appendChild(button);
+      dom.legendaryGameList.appendChild(card);
+    });
+
+    renderLegendaryAlbum(dashboard.album);
+  }
+
+  function renderLegendaryAlbum(album) {
+    if (!dom.legendaryAlbum) {
+      return;
+    }
+    dom.legendaryAlbum.innerHTML = '';
+    const title = document.createElement('strong');
+    const chips = document.createElement('div');
+    title.textContent = 'Album legend ' + (album ? album.owned : 0) + '/' + (album ? album.total : 0);
+    chips.className = 'legendary-album__chips';
+    (album && album.entries || []).forEach(function(entry) {
+      const chip = document.createElement('span');
+      chip.className = entry.owned ? 'is-complete' : '';
+      chip.textContent = entry.owned ? entry.label : 'Nieodkryty ślad';
+      chip.title = entry.label + ' · rekord ' + entry.bestScore;
+      chips.appendChild(chip);
+    });
+    dom.legendaryAlbum.appendChild(title);
+    dom.legendaryAlbum.appendChild(chips);
   }
 
   function renderMinigameLastScores() {
@@ -1531,6 +1628,10 @@
         row.setAttribute('data-discovery-group', group.id);
         row.setAttribute('data-discovery-id', item.id);
         row.setAttribute('data-discovered', item.discovered ? 'true' : 'false');
+        if (item.discovered) {
+          row.classList.add('discovery-item--polaroid');
+          row.style.setProperty('--journal-tilt', getWorldJournalItemTilt(group.id, item));
+        }
         row.disabled = !item.discovered;
         label.textContent = item.discovered ? formatMushroomText(item.label) : '???';
         meta.textContent = item.discovered
@@ -1546,6 +1647,16 @@
 
       dom.skyDiscoveries.appendChild(section);
     });
+  }
+
+  function getWorldJournalItemTilt(groupId, item) {
+    const seed = [
+      groupId || 'journal',
+      item && item.id || 'item',
+      item && item.firstSeenAt || ''
+    ].join(':');
+    const tilt = -3.8 + hashStringToUnit(seed) * 7.6;
+    return tilt.toFixed(2) + 'deg';
   }
 
   function syncCalendarDiscoveries() {
@@ -1564,7 +1675,11 @@
     let changed = false;
 
     events.forEach(function(event) {
-      const result = core.recordCalendarDiscovery(runtime.state, event.id, now);
+      const result = core.recordCalendarDiscovery(runtime.state, event.id, now, {
+        scene: typeof getCurrentWeatherScene === 'function' ? getCurrentWeatherScene() : null,
+        calendarEvent: event,
+        calendarEvents: events
+      });
       runtime.state = result.state || runtime.state;
       if (result.ok && result.newlyDiscovered) {
         addLog(runtime.state, result.message, now);

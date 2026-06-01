@@ -451,6 +451,17 @@
     dom.battleMoves = document.querySelector('[data-battle-moves]');
     dom.battleTraining = document.querySelector('[data-battle-training]');
     dom.battleLog = document.querySelector('[data-battle-log]');
+    dom.legendaryGames = document.querySelector('[data-legendary-games]');
+    dom.legendaryGamesStatus = document.querySelector('[data-legendary-games-status]');
+    dom.legendaryGameList = document.querySelector('[data-legendary-game-list]');
+    dom.legendaryGamePlayfield = document.querySelector('[data-legendary-game-playfield]');
+    dom.legendaryGameCanvas = document.querySelector('[data-legendary-game-canvas]');
+    dom.legendaryMinigameScore = document.querySelector('[data-legendary-minigame-score]');
+    dom.legendaryMinigameTime = document.querySelector('[data-legendary-minigame-time]');
+    dom.legendaryMinigameCombo = document.querySelector('[data-legendary-minigame-combo]');
+    dom.legendaryMinigameEnd = document.querySelector('[data-legendary-minigame-end]');
+    dom.legendaryMinigameProgress = document.querySelector('[data-legendary-minigame-progress]');
+    dom.legendaryAlbum = document.querySelector('[data-legendary-album]');
     dom.minigameStatus = document.querySelector('[data-minigame-status]');
     dom.minigameOpportunities = document.querySelector('[data-minigame-opportunities]');
     dom.minigameLast = document.querySelector('[data-minigame-last]');
@@ -564,9 +575,20 @@
     }
     if (dom.compostSortCanvas) {
       dom.compostSortCanvas.addEventListener('pointerdown', handleCompostSortPointer);
+      dom.compostSortCanvas.addEventListener('pointermove', handleCompostSortPointer);
+      dom.compostSortCanvas.addEventListener('pointerup', handleCompostSortPointer);
+      dom.compostSortCanvas.addEventListener('pointercancel', handleCompostSortPointer);
     }
     if (dom.rhythmHumCanvas) {
       dom.rhythmHumCanvas.addEventListener('pointerdown', handleRhythmHumPointer);
+    }
+    if (dom.legendaryGameCanvas) {
+      dom.legendaryGameCanvas.addEventListener('pointerdown', handleLegendaryGamePointer);
+    }
+    if (dom.legendaryMinigameEnd) {
+      dom.legendaryMinigameEnd.addEventListener('click', function() {
+        handleMinigameEnd('manual');
+      });
     }
     if (dom.exportButton) {
       dom.exportButton.addEventListener('click', handleExportState);

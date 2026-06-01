@@ -79,6 +79,35 @@ Arena jest osobnym systemem dla Legendarnej Pieczarki, nie rozszerzeniem pasków
 - trening i ruchy walki są konfiguracją reguł, nie akcjami opieki,
 - reducer walki ma być deterministyczny i oparty o zapisany seed RNG.
 
+## Minigry
+
+Minigry mają działać jako opcjonalne krótkie rytuały kompetencji, a nie
+obowiązkowa praca domowa:
+
+- domyślny profil trudności to `cozy mastery`: wejście i średni wynik są łatwe,
+  perfekcja wymaga nauki;
+- słaby wynik nie obniża care stats i nie psuje dnia;
+- każda minigra musi mieć własną decyzję gracza, a nie tylko reskin
+  kliknięcia świecącego celu;
+- timing, strefy dropu, dobry/zły wybór i następny cel muszą być widoczne na
+  canvasie zanim gracz zostanie oceniony;
+- replay value ma pochodzić z rekordów, mastery, pamiątek, albumu i dziennych
+  rekomendacji bez kar za pominięcie.
+
+## Legendarne Gry
+
+Po osiągnięciu etapu `legendary` gra może mieć dodatkowe aktywności, ale ich
+cel jest retencyjny i kosmetyczno-narracyjny, nie opiekuńczo-karny:
+
+- gry legendarne są opcjonalne i nie mają kar za przerwy,
+- nie mogą tworzyć nocnych deadline'ów ani obowiązkowych streaków,
+- podczas kuracji i po `gameOver.active` są zablokowane tak jak minigry i Arena,
+- postęp projektów legendarnych ma dzienny cap, żeby nie zachęcać do grindu,
+- wyniki mogą budować album, pamiątki, sezon i projekty, ale nie powinny pompować
+  podstawowych statystyk opieki,
+- logika celu, wyniku, nagród i limitów mieszka w core/config; renderer canvas
+  tylko rysuje symbole, feedback i interakcję.
+
 ## Zasady Implementacyjne
 
 - Najpierw kontrakt i test, potem efekt wizualny.

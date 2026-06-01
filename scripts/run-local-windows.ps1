@@ -133,6 +133,7 @@ function Test-RequiredFiles {
     'StateModel.gs',
     'GameRules.gs',
     'MinigamesConfig.gs',
+    'LegendaryGamesConfig.gs',
     'EvolutionRules.gs',
     'DecorationStore.gs',
     'SyncService.gs',

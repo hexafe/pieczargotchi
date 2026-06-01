@@ -150,7 +150,7 @@
     };
   }
 
-  function recordSkyDiscovery(rawState, discoveryId, nowInput) {
+  function recordSkyDiscovery(rawState, discoveryId, nowInput, context) {
     const state = isPlainObject(rawState) ? rawState : {};
     const item = getSkyDiscoveryDefinition(discoveryId);
     if (!item) {
@@ -160,12 +160,16 @@
     const now = normalizeDate(nowInput || Date.now()).toISOString();
     state.discoveries = normalizeDiscoveriesState(state.discoveries);
     const existing = state.discoveries.sky[item.id];
+    const photoSnapshot = existing && existing.photoSnapshot
+      ? existing.photoSnapshot
+      : buildWorldJournalPhotoSnapshotCore(state, 'sky', item, Date.parse(now), context);
     state.discoveries.sky[item.id] = {
       id: item.id,
       label: item.label,
       firstSeenAt: existing && existing.firstSeenAt ? existing.firstSeenAt : now,
       lastSeenAt: now,
-      count: clampInteger(existing && existing.count ? existing.count + 1 : 1, 1, 999999, 1)
+      count: clampInteger(existing && existing.count ? existing.count + 1 : 1, 1, 999999, 1),
+      photoSnapshot: photoSnapshot
     };
     if (!existing && typeof addWorldJournalDiscoveryEntryCore === 'function') {
       addWorldJournalDiscoveryEntryCore(state, 'sky', item, Date.parse(now));
@@ -197,7 +201,8 @@
         label: definition.label,
         firstSeenAt: item.firstSeenAt || null,
         lastSeenAt: item.lastSeenAt || item.firstSeenAt || null,
-        count: clampInteger(item.count, 1, 999999, 1)
+        count: clampInteger(item.count, 1, 999999, 1),
+        photoSnapshot: normalizeWorldJournalPhotoSnapshotCore(item.photoSnapshot)
       };
     });
 
@@ -223,7 +228,8 @@
         label: definition.label,
         firstSeenAt: item.firstSeenAt || null,
         lastSeenAt: item.lastSeenAt || item.firstSeenAt || null,
-        count: clampInteger(item.count, 1, 999999, 1)
+        count: clampInteger(item.count, 1, 999999, 1),
+        photoSnapshot: normalizeWorldJournalPhotoSnapshotCore(item.photoSnapshot)
       };
     });
     return result;
@@ -247,7 +253,8 @@
         stage: String(item.stage || '').slice(0, 24),
         firstSeenAt: item.firstSeenAt || null,
         lastSeenAt: item.lastSeenAt || item.firstSeenAt || null,
-        count: clampInteger(item.count, 1, 999999, 1)
+        count: clampInteger(item.count, 1, 999999, 1),
+        photoSnapshot: normalizeWorldJournalPhotoSnapshotCore(item.photoSnapshot)
       };
     });
 

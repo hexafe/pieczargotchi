@@ -79,8 +79,295 @@
       label: label,
       at: source.at || source.firstSeenAt || null,
       body: String(source.body || '').slice(0, 180),
-      category: String(source.category || '').slice(0, 32)
+      category: String(source.category || '').slice(0, 32),
+      photoSnapshot: normalizeWorldJournalPhotoSnapshotCore(source.photoSnapshot)
     };
+  }
+
+  function normalizeWorldJournalPhotoSnapshotCore(snapshot) {
+    if (!isPlainObject(snapshot)) {
+      return null;
+    }
+
+    const weather = normalizeWorldJournalSnapshotWeatherCore(snapshot.weather || snapshot.scene);
+    const sky = normalizeWorldJournalSnapshotMapCore(snapshot.sky, ['discoveryId', 'kind', 'dayPhase', 'moonPhaseLabel']);
+    const environment = normalizeWorldJournalSnapshotMapCore(snapshot.environment, ['discoveryId', 'profileId']);
+    const calendar = normalizeWorldJournalSnapshotMapCore(snapshot.calendar, ['eventId', 'dateKey', 'sourceLabel']);
+    const world = normalizeWorldJournalSnapshotMapCore(snapshot.world, ['frameTier', 'patchQuality']);
+
+    return {
+      version: clampInteger(snapshot.version, 1, 9, 1),
+      capturedAt: snapshot.capturedAt || snapshot.at || null,
+      seed: String(snapshot.seed || '').slice(0, 96),
+      stage: String(snapshot.stage || '').slice(0, 24),
+      growth: clampNumber(Number(snapshot.growth), 0, 100, 0),
+      mode: String(snapshot.mode || '').slice(0, 24),
+      mood: String(snapshot.mood || '').slice(0, 24),
+      activityType: String(snapshot.activityType || '').slice(0, 32),
+      reaction: String(snapshot.reaction || '').slice(0, 24),
+      fallback: Boolean(snapshot.fallback),
+      weather: weather,
+      sky: sky,
+      environment: environment,
+      calendar: calendar,
+      world: world
+    };
+  }
+
+  function normalizeWorldJournalSnapshotWeatherCore(weather) {
+    const source = isPlainObject(weather) ? weather : {};
+    const dayPhase = String(source.dayPhase || '').slice(0, 24);
+    const inferredIsDay = dayPhase ? !['night', 'dusk'].includes(dayPhase) : true;
+    return {
+      condition: String(source.condition || 'clear').slice(0, 32),
+      dayPhase: dayPhase,
+      dayTone: String(source.dayTone || '').slice(0, 24),
+      isDay: typeof source.isDay === 'boolean' ? source.isDay : inferredIsDay,
+      temperature: readOptionalJournalSnapshotNumberCore(source.temperature),
+      apparentTemperature: readOptionalJournalSnapshotNumberCore(source.apparentTemperature),
+      humidity: clampNumber(Number(source.humidity), 0, 100, 60),
+      precipitation: clampNumber(Number(source.precipitation), 0, 80, 0),
+      rain: clampNumber(Number(source.rain), 0, 80, 0),
+      snowfall: clampNumber(Number(source.snowfall), 0, 80, 0),
+      rainIntensity: clampNumber(Number(source.rainIntensity), 0, 1, 0),
+      snowIntensity: clampNumber(Number(source.snowIntensity), 0, 1, 0),
+      stormIntensity: clampNumber(Number(source.stormIntensity), 0, 1, 0),
+      windLevel: clampNumber(Number(source.windLevel), 0, 1, 0),
+      cloudCover: clampNumber(Number(source.cloudCover), 0, 100, 0),
+      cloudCoverLow: clampNumber(Number(source.cloudCoverLow), 0, 100, clampNumber(Number(source.cloudCover), 0, 100, 0)),
+      cloudCoverMid: clampNumber(Number(source.cloudCoverMid), 0, 100, clampNumber(Number(source.cloudCover), 0, 100, 0)),
+      cloudCoverHigh: clampNumber(Number(source.cloudCoverHigh), 0, 100, clampNumber(Number(source.cloudCover), 0, 100, 0)),
+      surfaceWetness: clampNumber(Number(source.surfaceWetness), 0, 1, 0),
+      frostRisk: clampNumber(Number(source.frostRisk), 0, 1, 0),
+      fogPotential: clampNumber(Number(source.fogPotential), 0, 1, 0)
+    };
+  }
+
+  function normalizeWorldJournalSnapshotMapCore(map, stringKeys) {
+    const source = isPlainObject(map) ? map : {};
+    const result = {};
+    (Array.isArray(stringKeys) ? stringKeys : []).forEach(function(key) {
+      if (typeof source[key] !== 'undefined' && source[key] !== null) {
+        result[key] = String(source[key]).slice(0, 96);
+      }
+    });
+    if (Array.isArray(source.activeIds)) {
+      result.activeIds = source.activeIds.map(function(id) {
+        return String(id).slice(0, 64);
+      }).filter(Boolean).slice(0, 12);
+    }
+    if (Array.isArray(source.discoveries)) {
+      result.discoveries = source.discoveries.map(function(id) {
+        return String(id).slice(0, 64);
+      }).filter(Boolean).slice(0, 12);
+    }
+    if (Array.isArray(source.decorations)) {
+      result.decorations = source.decorations.map(function(id) {
+        return String(id).slice(0, 64);
+      }).filter(Boolean).slice(0, 8);
+    }
+    ['dew', 'frost', 'fogbow', 'moonHalo', 'sunbeams', 'steam', 'heatHaze', 'clearingAfterRain'].forEach(function(key) {
+      if (isPlainObject(source[key])) {
+        result[key] = {
+          visible: Boolean(source[key].visible),
+          intensity: clampNumber(Number(source[key].intensity), 0, 1, 0)
+        };
+      }
+    });
+    ['patchQuality', 'mycelium', 'careStreak'].forEach(function(key) {
+      if (typeof source[key] !== 'undefined' && source[key] !== null) {
+        result[key] = clampNumber(Number(source[key]), 0, 999999, 0);
+      }
+    });
+    return result;
+  }
+
+  function readOptionalJournalSnapshotNumberCore(value) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? Math.round(numeric * 10) / 10 : null;
+  }
+
+  function buildWorldJournalPhotoSnapshotCore(rawState, type, item, nowInput, context) {
+    const state = isPlainObject(rawState) ? rawState : {};
+    const source = isPlainObject(item) ? item : {};
+    const details = isPlainObject(context) ? context : {};
+    const scene = isPlainObject(details.scene) ? details.scene : {};
+    const timestamp = Number(nowInput) || Date.now();
+    const capturedAt = normalizeDate(timestamp).toISOString();
+    const stats = isPlainObject(state.stats) ? state.stats : {};
+    const patch = isPlainObject(state.patch) ? state.patch : {};
+    const environmentProfile = isPlainObject(details.environmentProfile) ? details.environmentProfile
+      : isPlainObject(details.profile) ? details.profile
+        : {};
+    const skyEffects = isPlainObject(details.skyEffects) ? details.skyEffects : {};
+    const calendarEvents = Array.isArray(details.calendarEvents) ? details.calendarEvents : [];
+    const calendarEvent = isPlainObject(details.calendarEvent) ? details.calendarEvent : {};
+    const skyDiscoveries = Array.isArray(skyEffects.discoveries) ? skyEffects.discoveries : [];
+    const environmentDiscoveries = Array.isArray(environmentProfile.discoveries) ? environmentProfile.discoveries : [];
+
+    return normalizeWorldJournalPhotoSnapshotCore({
+      version: 1,
+      capturedAt: capturedAt,
+      seed: [
+        type || 'journal',
+        source.id || source.discoveryId || 'discovery',
+        capturedAt,
+        state.playerId || 'player'
+      ].join(':'),
+      stage: state.stage || source.stage || '',
+      growth: stats.growth,
+      mode: state.mode || '',
+      mood: getWorldJournalSnapshotMoodCore(state),
+      activityType: state.currentActivity && state.currentActivity.type ? state.currentActivity.type : '',
+      reaction: source.reaction || getWorldJournalDefaultReactionCore(type, source),
+      fallback: false,
+      weather: {
+        condition: scene.condition,
+        dayPhase: scene.dayPhase,
+        dayTone: scene.dayTone,
+        isDay: scene.isDay,
+        temperature: scene.temperature,
+        apparentTemperature: scene.apparentTemperature,
+        humidity: scene.humidity,
+        precipitation: scene.precipitation,
+        rain: scene.rain,
+        snowfall: scene.snowfall,
+        rainIntensity: scene.rainIntensity,
+        snowIntensity: scene.snowIntensity,
+        stormIntensity: scene.stormIntensity,
+        windLevel: scene.windLevel,
+        cloudCover: scene.cloudCover,
+        cloudCoverLow: scene.cloudCoverLow,
+        cloudCoverMid: scene.cloudCoverMid,
+        cloudCoverHigh: scene.cloudCoverHigh,
+        surfaceWetness: scene.surfaceWetness,
+        frostRisk: scene.frostRisk,
+        fogPotential: scene.fogPotential
+      },
+      sky: {
+        discoveryId: type === 'sky' ? source.id : '',
+        kind: source.kind || '',
+        dayPhase: scene.dayPhase,
+        moonPhaseLabel: scene.moonPhaseLabel || '',
+        activeIds: skyDiscoveries
+      },
+      environment: {
+        discoveryId: type === 'environment' ? source.id : '',
+        profileId: environmentProfile.id || '',
+        discoveries: environmentDiscoveries,
+        dew: environmentProfile.dew,
+        frost: environmentProfile.frost,
+        fogbow: environmentProfile.fogbow,
+        moonHalo: environmentProfile.moonHalo,
+        sunbeams: environmentProfile.sunbeams,
+        steam: environmentProfile.steam,
+        heatHaze: environmentProfile.heatHaze,
+        clearingAfterRain: environmentProfile.clearingAfterRain
+      },
+      calendar: {
+        eventId: type === 'calendar' ? source.id : calendarEvent.id || '',
+        dateKey: calendarEvent.dateKey || '',
+        sourceLabel: source.sourceLabel || calendarEvent.sourceLabel || '',
+        activeIds: calendarEvents.filter(function(event) {
+          return event && event.active;
+        }).map(function(event) {
+          return event.id;
+        })
+      },
+      world: {
+        frameTier: details.frameTier || '',
+        decorations: state.decorations && Array.isArray(state.decorations.active) ? state.decorations.active : [],
+        patchQuality: patch.quality,
+        mycelium: patch.mycelium,
+        careStreak: patch.careStreak
+      }
+    });
+  }
+
+  function getWorldJournalSnapshotFallbackCore(type, item, discovery) {
+    const source = isPlainObject(item) ? item : {};
+    const entry = isPlainObject(discovery) ? discovery : {};
+    const scene = source.photoScene || source.id || '';
+    const nightScenes = ['aurora', 'moonHalo', 'comet', 'shootingStar', 'meteorShower', 'asteroidDay', 'moonDay', 'spaceWeek'];
+    const frostScenes = ['frost', 'snowDay'];
+    const rainyScenes = ['clearingAfterRain', 'waterDay'];
+    return normalizeWorldJournalPhotoSnapshotCore({
+      version: 1,
+      capturedAt: entry.firstSeenAt || entry.lastSeenAt || null,
+      seed: [type || 'journal', source.id || 'discovery', entry.firstSeenAt || 'legacy'].join(':'),
+      stage: entry.stage || 'adult',
+      growth: entry.stage === 'legendary' ? 100 : 70,
+      mode: 'awake',
+      mood: 'content',
+      activityType: '',
+      reaction: source.reaction || getWorldJournalDefaultReactionCore(type, source),
+      fallback: true,
+      weather: {
+        condition: frostScenes.includes(scene) ? 'snow' : rainyScenes.includes(scene) ? 'rain' : 'clear',
+        dayPhase: nightScenes.includes(scene) ? 'night' : scene === 'dew' ? 'morning' : 'day',
+        dayTone: nightScenes.includes(scene) ? 'night' : scene === 'dew' ? 'morning' : 'day',
+        isDay: !nightScenes.includes(scene),
+        humidity: scene === 'dew' || rainyScenes.includes(scene) ? 92 : 60,
+        precipitation: rainyScenes.includes(scene) ? 4 : 0,
+        rain: rainyScenes.includes(scene) ? 4 : 0,
+        snowfall: frostScenes.includes(scene) ? 2 : 0,
+        rainIntensity: rainyScenes.includes(scene) ? 0.55 : 0,
+        snowIntensity: frostScenes.includes(scene) ? 0.38 : 0,
+        stormIntensity: 0,
+        windLevel: 0.16,
+        cloudCover: rainyScenes.includes(scene) ? 58 : nightScenes.includes(scene) ? 18 : 28,
+        cloudCoverLow: rainyScenes.includes(scene) ? 42 : 16,
+        cloudCoverMid: rainyScenes.includes(scene) ? 48 : 20,
+        cloudCoverHigh: nightScenes.includes(scene) ? 18 : 26,
+        surfaceWetness: scene === 'dew' || rainyScenes.includes(scene) ? 0.7 : 0,
+        frostRisk: frostScenes.includes(scene) ? 0.8 : 0,
+        fogPotential: scene === 'fogbow' ? 0.72 : 0
+      },
+      sky: {
+        discoveryId: type === 'sky' ? source.id : '',
+        kind: source.kind || '',
+        activeIds: type === 'sky' ? [source.id] : []
+      },
+      environment: {
+        discoveryId: type === 'environment' ? source.id : '',
+        discoveries: type === 'environment' ? [source.id] : []
+      },
+      calendar: {
+        eventId: type === 'calendar' ? source.id : '',
+        sourceLabel: source.sourceLabel || '',
+        activeIds: type === 'calendar' ? [source.id] : []
+      },
+      world: {
+        frameTier: '',
+        decorations: [],
+        patchQuality: 72,
+        mycelium: 0,
+        careStreak: 0
+      }
+    });
+  }
+
+  function getWorldJournalSnapshotMoodCore(state) {
+    const stats = isPlainObject(state && state.stats) ? state.stats : {};
+    if ((Number(stats.health) || 0) < 35) {
+      return 'sick';
+    }
+    if ((Number(stats.hydration) || 0) < 35) {
+      return 'dry';
+    }
+    if ((Number(stats.nutrients) || 0) < 35) {
+      return 'hungry';
+    }
+    if ((Number(stats.cleanliness) || 0) < 35) {
+      return 'dirty';
+    }
+    if ((Number(stats.energy) || 0) < 25) {
+      return 'tired';
+    }
+    if ((Number(stats.happiness) || 0) > 78 && (Number(stats.health) || 0) > 72) {
+      return 'happy';
+    }
+    return 'content';
   }
 
   function normalizeReturnRecapCore(returnRecap) {
@@ -325,7 +612,7 @@
     return state;
   }
 
-  function recordInstrumentDiscoveryCore(rawState, instrument, nowInput) {
+  function recordInstrumentDiscoveryCore(rawState, instrument, nowInput, context) {
     const state = isPlainObject(rawState) ? rawState : {};
     const item = isPlainObject(instrument) ? instrument : {};
     const discoveryId = item.discoveryId || item.id;
@@ -337,13 +624,20 @@
     const now = new Date(timestamp).toISOString();
     state.discoveries = normalizeDiscoveriesState(state.discoveries);
     const existing = state.discoveries.instruments[discoveryId];
+    const photoSnapshot = existing && existing.photoSnapshot
+      ? existing.photoSnapshot
+      : buildWorldJournalPhotoSnapshotCore(state, 'instrument', Object.assign({}, item, {
+        id: discoveryId,
+        reaction: 'proud'
+      }), timestamp, context);
     state.discoveries.instruments[discoveryId] = {
       id: String(discoveryId).slice(0, 64),
       label: String(item.label).slice(0, 80),
       stage: String(item.stage || '').slice(0, 24),
       firstSeenAt: existing && existing.firstSeenAt ? existing.firstSeenAt : now,
       lastSeenAt: now,
-      count: clampInteger(existing && existing.count ? existing.count + 1 : 1, 1, 999999, 1)
+      count: clampInteger(existing && existing.count ? existing.count + 1 : 1, 1, 999999, 1),
+      photoSnapshot: photoSnapshot
     };
     if (!existing) {
       addWorldJournalDiscoveryEntryCore(state, 'instrument', {
@@ -1039,6 +1333,9 @@
       title: title,
       items: (Array.isArray(catalog) ? catalog : []).map(function(item) {
         const entry = map[item.id] || null;
+        const photoSnapshot = entry
+          ? entry.photoSnapshot || getWorldJournalSnapshotFallbackCore(type, item, entry)
+          : null;
         return {
           id: item.id,
           label: item.label,
@@ -1057,7 +1354,8 @@
           description: item.description || getWorldJournalDescriptionCore(type, item),
           scienceNote: item.scienceNote || getWorldJournalScienceNoteCore(type, item),
           conditionNote: item.conditionNote || getWorldJournalConditionNoteCore(type, item),
-          photoCaption: item.photoCaption || getWorldJournalPhotoCaptionCore(type, item)
+          photoCaption: item.photoCaption || getWorldJournalPhotoCaptionCore(type, item),
+          photoSnapshot: photoSnapshot
         };
       })
     };

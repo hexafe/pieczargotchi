@@ -399,7 +399,7 @@
     return owned.indexOf('myceliumCalendar') !== -1;
   }
 
-  function recordCalendarDiscovery(rawState, eventId, nowInput) {
+  function recordCalendarDiscovery(rawState, eventId, nowInput, context) {
     const state = isPlainObject(rawState) ? rawState : {};
     const definition = getCalendarEventDefinition(eventId);
     if (!definition) {
@@ -422,13 +422,17 @@
       };
     }
     const isNewDate = !existing || existing.lastSeenDateKey !== dateKey;
+    const photoSnapshot = existing && existing.photoSnapshot
+      ? existing.photoSnapshot
+      : buildWorldJournalPhotoSnapshotCore(state, 'calendar', item, date.getTime(), context);
     state.discoveries.calendar[item.id] = {
       id: item.id,
       label: item.label,
       firstSeenAt: existing && existing.firstSeenAt ? existing.firstSeenAt : now,
       lastSeenAt: now,
       lastSeenDateKey: dateKey,
-      count: clampInteger(existing && existing.count && isNewDate ? existing.count + 1 : existing && existing.count || 1, 1, 999999, 1)
+      count: clampInteger(existing && existing.count && isNewDate ? existing.count + 1 : existing && existing.count || 1, 1, 999999, 1),
+      photoSnapshot: photoSnapshot
     };
 
     if (!existing && typeof addWorldJournalDiscoveryEntryCore === 'function') {
@@ -462,7 +466,8 @@
         firstSeenAt: item.firstSeenAt || null,
         lastSeenAt: item.lastSeenAt || item.firstSeenAt || null,
         lastSeenDateKey: item.lastSeenDateKey || '',
-        count: clampInteger(item.count, 1, 999999, 1)
+        count: clampInteger(item.count, 1, 999999, 1),
+        photoSnapshot: normalizeWorldJournalPhotoSnapshotCore(item.photoSnapshot)
       };
     });
     return result;

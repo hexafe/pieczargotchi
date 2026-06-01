@@ -242,6 +242,9 @@
 
     if (sourceEvent.type === 'minigame') {
       updateMinigameMasteryLongLoopCore(state, sourceEvent, rules, now, messages);
+      if (typeof registerLegendaryGameResultCore === 'function') {
+        state = registerLegendaryGameResultCore(state, sourceEvent, rules, now, scene, messages);
+      }
     }
 
     completeDailyEpisodeIfReadyCore(state, rules, now, scene, messages);
@@ -431,7 +434,19 @@
       return;
     }
     const progress = state.longLoop.legendaryProjects.progress[project.id] || { id: project.id, points: 0, lastAt: null };
-    const eventPoints = event.type === 'minigame' ? 2 : event.type === 'decoration' ? 3 : event.type === 'harvest' ? 4 : 1;
+    let eventPoints = event.type === 'minigame' ? 2 : event.type === 'decoration' ? 3 : event.type === 'harvest' ? 4 : 1;
+    if (event.type === 'minigame' && typeof isLegendaryGameIdCore === 'function' && isLegendaryGameIdCore(event.minigameId, rules)) {
+      const config = typeof getLegendaryGameConfigCore === 'function' ? getLegendaryGameConfigCore(event.minigameId, rules) : null;
+      eventPoints = Number(config && config.projectPoints) || 3;
+      if (typeof applyLegendaryProjectDailyCapCore === 'function') {
+        const capped = applyLegendaryProjectDailyCapCore(state, eventPoints, rules, now);
+        state = capped.state || state;
+        eventPoints = capped.points;
+        if (!eventPoints) {
+          return;
+        }
+      }
+    }
     progress.points = clampInteger(progress.points + eventPoints, 0, project.target, 0);
     progress.lastAt = new Date(now).toISOString();
     state.longLoop.legendaryProjects.progress[project.id] = progress;
@@ -768,7 +783,10 @@
       dewCatch: 'Idealna kropla rosy',
       sporePop: 'Pęknięty gwiezdny zarodnik',
       compostSort: 'Równy stosik kompostu',
-      rhythmHum: 'Czysta nuta mchu'
+      rhythmHum: 'Czysta nuta mchu',
+      sporeTrail: 'Mapa szlaku zarodników',
+      myceliumLeague: 'Odznaka ligi grzybni',
+      memoryGarden: 'Ramka ogrodu pamiątek'
     };
     return labels[minigameId] || 'Mały znak mistrzostwa';
   }

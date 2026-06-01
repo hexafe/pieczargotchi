@@ -1,6 +1,6 @@
 {
   "name": "pieczargotchi",
-  "version": "0.1.32",
+  "version": "0.1.37",
   "private": true,
   "scripts": {
     "build": "node scripts/build-cloudflare-static.mjs",
@@ -13,6 +13,7 @@
     "test:palette": "node scripts/test-scene-palette.mjs",
     "test:weather": "node scripts/test-weather-precip-motion.mjs",
     "test:grass-wind": "node scripts/test-grass-wind-motion.mjs",
+    "balance:minigames": "node scripts/simulate-minigame-balance.mjs",
     "audit:polish-copy": "node scripts/audit-polish-copy.mjs",
     "test:cloudflare-static": "node scripts/test-cloudflare-static-build.mjs"
   }

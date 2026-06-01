@@ -90,6 +90,7 @@ test('static build exposes a subtle build version badge', () => {
   assert(indexHtml.includes('data-build-badge'), 'static HTML should include the build badge anchor');
   assert(clientJs.includes('function renderBuildBadge()'), 'static client should render the build badge');
   assert(distConfig.build && distConfig.build.version === packageJson.version, 'static config should expose the package version');
+  assert(distConfig.appVersion === packageJson.version, 'static config appVersion should match package version');
   assert(/^[a-f0-9]{7}$/.test(distConfig.build.id), 'static build id should be a short source hash');
   assert(distConfig.build.label === `v${distConfig.build.version}+${distConfig.build.id}`, 'static build label should combine version and build id');
 });
@@ -107,6 +108,8 @@ test('world journal exposes hover notes and polaroid keepsakes', () => {
   assert(indexHtml.includes('data-calendar-checklist'), 'static HTML should include the purchasable calendar checklist');
   assert(clientJs.includes('function bindWorldJournalInteractions()'), 'static client should bind journal interactions');
   assert(clientJs.includes('function drawWorldJournalPolaroidScene('), 'static client should render journal polaroid scenes');
+  assert(clientJs.includes('function drawWorldJournalSnapshotScene('), 'static client should render snapshot-based journal scenes');
+  assert(clientJs.includes('data-frame-tier'), 'journal polaroids should expose calendar frame tiers');
   assert(clientJs.includes('function renderCalendarChecklist()'), 'static client should render the event checklist');
   assert(clientJs.includes('function drawCalendarEventForeground('), 'static client should render calendar event accents');
   assert(clientJs.includes('calendarPixelSprites'), 'static client should include the event pixel sprite pack');
@@ -119,6 +122,8 @@ test('world journal exposes hover notes and polaroid keepsakes', () => {
   assert(coreJs.includes('teaDay'), 'core calendar should include International Tea Day');
   assert(distConfig.rules.decorations.some((item) => item.id === 'myceliumCalendar'), 'static config should expose purchasable calendar decoration');
   assert(coreJs.includes('photoCaption'), 'core journal entries should expose photo captions');
+  assert(coreJs.includes('photoSnapshot'), 'core journal discoveries should expose preserved photo snapshots');
+  assert(coreJs.includes('buildWorldJournalPhotoSnapshot'), 'core should export journal snapshot capture helpers');
   assert(coreJs.includes('conditionNote'), 'core journal entries should expose condition notes');
   assert(coreJs.includes('sourceType'), 'core calendar entries should expose source category ids');
   assert(coreJs.includes('sourceLabel'), 'core calendar entries should expose source category labels');
@@ -139,6 +144,29 @@ test('long-loop grzybnia panel exposes retention controls and pixel visitors', (
   assert(coreJs.includes('startSporeExpedition'), 'core should export spore expeditions');
 });
 
+test('post-legendary games expose rules, hub, runtime, and capture hooks', () => {
+  assert(indexHtml.includes('data-legendary-games'), 'static HTML should include the legendary games hub');
+  assert(indexHtml.includes('data-legendary-game-canvas'), 'static HTML should include the legendary game canvas');
+  assert(indexHtml.includes('data-legendary-album'), 'static HTML should include the legendary album');
+  assert(coreJs.includes('getLegendaryGamesDashboard'), 'core should export the legendary games dashboard API');
+  assert(coreJs.includes('normalizeLegendaryGamesState'), 'core should export legendary state normalization');
+  assert(clientJs.includes('function startLegendaryGameRuntime('), 'static client should include legendary game runtime');
+  assert(clientJs.includes('function handleLegendaryGamePointer('), 'static client should score legendary pointer input');
+  assert(clientJs.includes('wrongOrder'), 'legendary trail and memory games should enforce ordered choices');
+  assert(clientJs.includes('wrongCounter'), 'league game should score stance counters instead of raw target tapping');
+  assert(clientJs.includes('function renderLegendaryGames()'), 'static client should render the legendary hub');
+  assert(distConfig.rules.legendaryGames && distConfig.rules.legendaryGames.dailyProjectPointCap === 6, 'static config should expose legendary daily project cap');
+  ['sporeTrail', 'myceliumLeague', 'memoryGarden'].forEach((id) => {
+    assert(distConfig.rules.minigames[id], `static config should expose ${id}`);
+    assert(distConfig.rules.minigames[id].requiresStage === 'legendary', `${id} should be legendary-gated`);
+  });
+  const captureScript = readFileSync(path.join(rootDir, 'scripts', 'capture-app-render.mjs'), 'utf8');
+  assert(captureScript.includes('PIECZARGOTCHI_CAPTURE_LEGENDARY_GAMES'), 'capture script should expose legendary game screenshots');
+  assert(captureScript.includes("id: 'sporeTrail'"), 'capture script should include spore trail capture');
+  assert(captureScript.includes('state.stats.growth = ${Number(sample.growth) || 70};'), 'configured minigame capture should honor sample growth');
+  assert(captureScript.includes("state.stage = state.stats.growth >= 100 ? 'legendary' : 'adult';"), 'configured minigame capture should unlock legendary stage fixtures');
+});
+
 test('capture tooling can force calendar event screenshots', () => {
   const captureScript = readFileSync(path.join(rootDir, 'scripts', 'capture-app-render.mjs'), 'utf8');
   assert(captureScript.includes('PIECZARGOTCHI_DEBUG_CALENDAR_EVENT'), 'capture script should accept a forced calendar event id');
@@ -147,6 +175,7 @@ test('capture tooling can force calendar event screenshots', () => {
   assert(captureScript.includes('PIECZARGOTCHI_CAPTURE_JOURNAL_DISCOVERY'), 'capture script should allow forced journal discovery screenshots');
   assert(captureScript.includes('PIECZARGOTCHI_CAPTURE_MINIGAME_PANEL'), 'capture tooling should verify minigame panel HUD layout');
   assert(captureScript.includes('polaroidInViewport'), 'capture script should assert journal polaroid viewport geometry');
+  assert(captureScript.includes('expectedFrameTier'), 'capture script should assert journal polaroid frame tier matches the saved snapshot');
   assert(captureScript.includes('calendarCaptureSamples'), 'capture script should define calendar matrix samples');
   assert(captureScript.includes('getCalendarEventCaptureTimestamp'), 'capture script should map event ids to deterministic dates');
 });
@@ -156,6 +185,7 @@ test('dew catch minigame uses bucket catching instead of click-to-collect drops'
   assert(clientJs.includes('function canDewBucketCatchDrop('), 'dew catch should score through bucket/drop collision');
   assert(clientJs.includes('function drawDewGrassLayer('), 'dew catch should render layered grass');
   assert(clientJs.includes('function drawDewDrop('), 'dew catch should render custom pixel-art drops');
+  assert(clientJs.includes('function drawDewCatchLandingPreviews('), 'dew catch should show landing previews for falling drops');
   assert(clientJs.includes('missed'), 'dew catch should track missed drops so they do not respawn');
   assert(!clientJs.includes('Math.abs(drop.x - x) <= radius && Math.abs(dropY - y) <= radius'), 'dew catch should not use click-to-collect hit testing');
 });
@@ -166,11 +196,17 @@ test('static build includes habitat minigames and evolution identity polish', ()
   assert(clientJs.includes('function startCompostSortRuntime('), 'static client should include compost runtime');
   assert(clientJs.includes('function startRhythmHumRuntime('), 'static client should include rhythm runtime');
   assert(clientJs.includes('function drawSporePopBursts('), 'spore pop should render pixel burst feedback');
+  assert(clientJs.includes('function drawSporePopTelegraph('), 'spore pop should telegraph incoming targets');
+  assert(clientJs.includes('function finishCompostSortDrag('), 'compost sort should use a drag/drop sorting loop');
   assert(clientJs.includes('function drawRhythmPatternRail('), 'rhythm hum should render the visible pattern rail');
+  assert(clientJs.includes('function drawRhythmHumTimingBands('), 'rhythm hum should render timing windows');
+  assert(clientJs.includes('function getRhythmHumTimingCue('), 'rhythm hum should compute press-now cues from timing windows');
   assert(clientJs.includes('RHYTHM_HUM_KEY_TO_LANE'), 'rhythm hum should map keyboard arrows to rhythm lanes');
   assert(clientJs.includes('function handleRhythmHumKeydown('), 'rhythm hum should score keyboard timing input');
+  assert(clientJs.includes('scoreRhythmHumLane(lane.id, now)'), 'rhythm hum touch pads should score through the same lane path');
   assert(clientJs.includes('function markRhythmHumMisses('), 'rhythm hum should auto-mark missed notes');
   assert(clientJs.includes('rhythmJudgments'), 'rhythm hum should persist per-note timing judgments');
+  assert(coreJs.includes('judgeRhythmInput'), 'core should export rhythm input judgment for tests');
   assert(!clientJs.includes("const pads = ['low', 'mid', 'high']"), 'rhythm hum should not use the old three-click pad pattern');
   assert(indexHtml.includes('data-minigame-combo'), 'static HTML should expose minigame combo HUD');
   assert(indexHtml.includes('data-minigame-progress'), 'static HTML should expose minigame progress HUD');
@@ -187,11 +223,14 @@ test('static build includes habitat minigames and evolution identity polish', ()
   assert(distConfig.rules.minigames.rhythmHum, 'static config should expose rhythm hum rules');
 });
 
-test('capture tooling performs scripted rhythm keyboard input', () => {
+test('capture tooling performs scripted minigame interactions', () => {
   const captureScript = readFileSync(path.join(rootDir, 'scripts', 'capture-app-render.mjs'), 'utf8');
   assert(captureScript.includes('performConfiguredMinigameInteraction'), 'capture script should exercise minigame input paths');
   assert(captureScript.includes("sample.id === 'rhythmHum'"), 'capture script should have a rhythm-specific keyboard smoke');
-  assert(captureScript.includes("new KeyboardEvent('keydown'"), 'rhythm capture should dispatch keyboard input');
+  assert(captureScript.includes("rhythmInputMode: 'touch'"), 'rhythm capture should exercise touch pad scoring');
+  assert(captureScript.includes("new KeyboardEvent('keydown'"), 'rhythm capture should keep keyboard input support');
+  assert(captureScript.includes("sample.id === 'compostSort'"), 'capture script should drag a compost piece');
+  assert(captureScript.includes("sample.id === 'sporePop'"), 'capture script should tap a spore target');
   assert(captureScript.includes('interactionMinScore'), 'rhythm capture should fail if scripted input does not score');
 });
 

@@ -206,7 +206,7 @@
     });
   }
 
-  function recordEnvironmentDiscovery(rawState, discoveryId, nowInput) {
+  function recordEnvironmentDiscovery(rawState, discoveryId, nowInput, context) {
     const state = isPlainObject(rawState) ? rawState : {};
     const item = getEnvironmentDiscoveryDefinition(discoveryId);
     if (!item) {
@@ -216,12 +216,16 @@
     const now = normalizeDate(nowInput || Date.now()).toISOString();
     state.discoveries = normalizeDiscoveriesState(state.discoveries);
     const existing = state.discoveries.environment[item.id];
+    const photoSnapshot = existing && existing.photoSnapshot
+      ? existing.photoSnapshot
+      : buildWorldJournalPhotoSnapshotCore(state, 'environment', item, Date.parse(now), context);
     state.discoveries.environment[item.id] = {
       id: item.id,
       label: item.label,
       firstSeenAt: existing && existing.firstSeenAt ? existing.firstSeenAt : now,
       lastSeenAt: now,
-      count: clampInteger(existing && existing.count ? existing.count + 1 : 1, 1, 999999, 1)
+      count: clampInteger(existing && existing.count ? existing.count + 1 : 1, 1, 999999, 1),
+      photoSnapshot: photoSnapshot
     };
     if (!existing && typeof addWorldJournalDiscoveryEntryCore === 'function') {
       addWorldJournalDiscoveryEntryCore(state, 'environment', item, Date.parse(now));

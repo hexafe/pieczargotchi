@@ -1,8 +1,8 @@
 # Long-Loop Retention Slice
 
 Date: 2026-05-30
-App version: `0.1.32`
-State version: `14`
+App version: `0.1.34`
+State version: `15`
 Primary target: Cloudflare static build
 
 ## Research Basis
@@ -31,7 +31,8 @@ Design translation:
 
 ## Implemented Systems
 
-- `state.longLoop` persisted under state version `14`.
+- `state.longLoop` persists under the current state model and now works with
+  `state.legendaryGames` for post-legendary records and daily caps.
 - Daily finale creates one daily memento after all active daily-plan goals are
   complete.
 - Grzybnia visitors can appear from decoration tags and can be greeted once per
@@ -44,6 +45,9 @@ Design translation:
 - Season progress gains points from long-loop accomplishments.
 - Legendary projects unlock at the legendary stage and complete through normal
   events.
+- Post-legendary games now extend this event path through
+  `docs/POST_LEGENDARY_GAMES_PLAN_2026-05-31.md`, with a daily project-progress
+  cap and album mementos.
 - The side panel includes a compact `Grzybnia` dashboard below minigames.
 - The canvas draws the currently available grzybnia visitor as a small animated
   pixel creature in the foreground life layer.
@@ -51,8 +55,8 @@ Design translation:
 ## Acceptance Criteria
 
 - No long-loop action is required during quiet hours or recovery.
-- Existing saves migrate safely to version `14` and receive normalized
-  `longLoop` defaults.
+- Existing saves migrate safely to the current state version and receive
+  normalized `longLoop` and post-legendary defaults.
 - Normal care/minigame/decor/battle events update daily finale, mastery,
   season, and legendary progress through the shared event path.
 - Mobile first viewport keeps Status, Opieka, and Gry readable; `Grzybnia`

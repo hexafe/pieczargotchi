@@ -1,7 +1,7 @@
 # Minigame Retention Polish - 2026-05-30
 
-App version: `0.1.32`
-State version: `14`
+App version: `0.1.34`
+State version: `15`
 Primary preview target: Cloudflare static build
 
 ## Research Takeaways
@@ -65,6 +65,10 @@ Primary preview target: Cloudflare static build
 
 ## Follow-Up Candidates
 
+- The next gameplay pass is implemented in
+  `docs/MINIGAME_GAMEPLAY_UPGRADE_2026-05-31.md`.
+- Post-legendary games now continue this direction in
+  `docs/POST_LEGENDARY_GAMES_PLAN_2026-05-31.md`.
 - Simulate one pointer hit in browser capture for every minigame and assert
   visible feedback pixels after the hit.
 - Add frame-diff checks for minigame animation, not only nonblank canvas checks.

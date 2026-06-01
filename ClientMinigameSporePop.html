@@ -50,6 +50,8 @@
       const position = getSporePopPosition(spore, progress, canvas.width, canvas.height);
       if (position.visible) {
         drawSporePopTarget(ctx, position.x, position.y, spore, position, spore.phase + now / 310);
+      } else if (position.raw >= -0.18 && position.raw < 0) {
+        drawSporePopTelegraph(ctx, position.x, position.y, spore, position, now);
       }
     });
     drawSporePopBursts(ctx, now);
@@ -80,7 +82,8 @@
       }
 
       const position = getSporePopPosition(spore, progress, canvas.width, canvas.height);
-      const radius = spore.size + 10;
+      const config = rules.minigames && rules.minigames.sporePop ? rules.minigames.sporePop : {};
+      const radius = spore.size + 10 + (Number(config.forgivenessMs) ? 2 : 0);
       return position.visible && Math.abs(position.x - x) <= radius && Math.abs(position.y - y) <= radius;
     });
 
@@ -158,6 +161,7 @@
     return {
       x: Math.round(Math.max(10, Math.min(width - 10, spore.x + spore.driftX * local + pulse * 4))),
       y: Math.round(Math.max(10, Math.min(height - 18, spore.y + spore.driftY * local + Math.cos(local * 5 + spore.phase) * 5))),
+      raw: raw,
       local: local,
       visible: raw >= 0 && raw <= 1,
       alpha: fadeIn * fadeOut,
@@ -207,6 +211,13 @@
     const size = Math.max(5, Math.round((spore.size + 2) * position.scale));
     const glow = Math.sin(phase) * 0.5 + 0.5;
     ctx.save();
+    if (spore.kind === 'quick') {
+      ctx.globalAlpha = Math.max(0.12, position.alpha * 0.32);
+      ctx.fillStyle = '#e6ffd0';
+      const trail = Math.round(10 + Math.sin(phase) * 3);
+      ctx.fillRect(Math.round(x - trail - 5), Math.round(y - 1), trail, 2);
+      ctx.fillRect(Math.round(x + 5), Math.round(y - 1), trail, 2);
+    }
     ctx.globalAlpha = Math.max(0.16, position.alpha);
     ctx.fillStyle = spore.kind === 'golden' ? '#fff0a8' : spore.kind === 'quick' ? '#e6ffd0' : '#fff2a5';
     ctx.fillRect(Math.round(x - size - 5), Math.round(y - 1), size * 2 + 10, 2);
@@ -236,6 +247,21 @@
       ctx.fillStyle = '#fff2a5';
       ctx.fillRect(Math.round(x + size / 2), Math.round(y - size / 2 - 1), 2, 2);
     }
+    ctx.restore();
+  }
+
+  function drawSporePopTelegraph(ctx, x, y, spore, position, now) {
+    const wake = Math.max(0, Math.min(1, (position.raw + 0.18) / 0.18));
+    const size = Math.round((spore.size + 12) * (0.65 + wake * 0.35));
+    const pulse = 0.5 + Math.sin(now / 110 + spore.phase) * 0.5;
+    ctx.save();
+    ctx.globalAlpha = 0.12 + wake * 0.28 + pulse * 0.08;
+    ctx.fillStyle = spore.kind === 'golden' ? '#fff0a8' : spore.kind === 'quick' ? '#e6ffd0' : '#fff2a5';
+    ctx.fillRect(Math.round(x - size), Math.round(y - 1), size * 2, 2);
+    ctx.fillRect(Math.round(x - 1), Math.round(y - size), 2, size * 2);
+    ctx.globalAlpha = 0.22 + wake * 0.18;
+    ctx.fillStyle = '#3c2b20';
+    ctx.fillRect(Math.round(x - 4), Math.round(y - 4), 8, 8);
     ctx.restore();
   }
 

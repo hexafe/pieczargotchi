@@ -227,6 +227,7 @@ function buildClientConfig() {
     'AnimationConfig.gs',
     'StateModel.gs',
     'MinigamesConfig.gs',
+    'LegendaryGamesConfig.gs',
     'EvolutionRules.gs',
     'DecorationStore.gs',
     'SyncService.gs',

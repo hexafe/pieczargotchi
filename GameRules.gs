@@ -204,6 +204,7 @@ function getGameRulesConfig() {
       stormCleanlinessPerHour: -0.8
     },
     minigames: getMinigamesConfig(),
+    legendaryGames: getLegendaryGamesConfig(),
     evolution: getEvolutionRulesConfig(),
     decorations: getDecorationCatalog(),
     battle: {

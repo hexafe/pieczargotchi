@@ -16,6 +16,7 @@ const requiredSourceFiles = [
   'StateModel.gs',
   'GameRules.gs',
   'MinigamesConfig.gs',
+  'LegendaryGamesConfig.gs',
   'EvolutionRules.gs',
   'DecorationStore.gs',
   'SyncService.gs',
@@ -36,6 +37,7 @@ const requiredSourceFiles = [
   'ClientCoreProgression.html',
   'ClientCoreGameplay.html',
   'ClientCoreLongLoop.html',
+  'ClientCoreLegendaryGames.html',
   'ClientCoreMinigames.html',
   'ClientCoreExports.html',
   'ClientBoot.html',
@@ -48,6 +50,7 @@ const requiredSourceFiles = [
   'ClientMinigameSporePop.html',
   'ClientMinigameCompostSort.html',
   'ClientMinigameRhythmHum.html',
+  'ClientLegendaryGames.html',
   'ClientBackup.html',
   'ClientJournalPopover.html',
   'ClientUi.html',
@@ -84,6 +87,7 @@ const expectedCoreIncludes = [
   'ClientCoreProgression',
   'ClientCoreGameplay',
   'ClientCoreLongLoop',
+  'ClientCoreLegendaryGames',
   'ClientCoreMinigames',
   'ClientCoreExports'
 ];
@@ -99,6 +103,7 @@ const expectedClientIncludes = [
   'ClientMinigameSporePop',
   'ClientMinigameCompostSort',
   'ClientMinigameRhythmHum',
+  'ClientLegendaryGames',
   'ClientBackup',
   'ClientJournalPopover',
   'ClientUi',
@@ -285,7 +290,7 @@ function checkStaticConfig() {
   if (config.storageKey !== 'pieczargotchi_state_v2') {
     fail(`Unexpected storage key: ${config.storageKey}`);
   }
-  if (config.stateVersion !== 14) {
+  if (config.stateVersion !== 16) {
     fail(`Unexpected state version: ${config.stateVersion}`);
   }
   if (!config.runtime || config.runtime.debugEnabled !== false) {
@@ -375,6 +380,7 @@ function checkLocalPreviewConfig() {
     'AnimationConfig.gs',
     'StateModel.gs',
     'MinigamesConfig.gs',
+    'LegendaryGamesConfig.gs',
     'EvolutionRules.gs',
     'DecorationStore.gs',
     'SyncService.gs',
@@ -442,8 +448,8 @@ function checkGameplayLoopIteration2Config(config) {
     return;
   }
 
-  if (config.stateVersion !== 14 || config.state.version !== config.stateVersion || state.version !== config.stateVersion) {
-    fail('Named first-run flow requires state version 14 across static config and default state.');
+  if (config.stateVersion !== 16 || config.state.version !== config.stateVersion || state.version !== config.stateVersion) {
+    fail('Named first-run flow requires state version 16 across static config and default state.');
   }
 
   if (state.mushroomName !== '') {

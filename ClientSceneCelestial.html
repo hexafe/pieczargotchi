@@ -189,11 +189,15 @@
 
     let changed = false;
     const known = runtime.state.discoveries && runtime.state.discoveries.sky ? runtime.state.discoveries.sky : {};
+    const snapshotContext = {
+      scene: typeof getCurrentWeatherScene === 'function' ? getCurrentWeatherScene() : null,
+      skyEffects: skyEffects
+    };
     skyEffects.discoveries.forEach(function(discoveryId) {
       if (known[discoveryId]) {
         return;
       }
-      const result = core.recordSkyDiscovery(runtime.state, discoveryId, now);
+      const result = core.recordSkyDiscovery(runtime.state, discoveryId, now, snapshotContext);
       if (result && result.newlyDiscovered) {
         addLog(runtime.state, result.message, now);
         changed = true;

@@ -1,12 +1,19 @@
 function getMinigamesConfig() {
-  return {
+  const baseMinigames = {
     dewCatch: {
       id: 'dewCatch',
       label: 'Łapanie rosy',
+      difficultyProfile: 'cozy',
+      interactionKind: 'catch',
       durationMs: 20000,
       dropCount: 24,
+      telegraphMs: 900,
+      mobileForgivenessMs: 6,
       cooldownMs: 25 * 60000,
       masteryTarget: 32,
+      scoreTargetCasual: 18,
+      scoreTargetMastery: 32,
+      perfectTarget: 36,
       rewards: {
         hydrationBase: 4,
         hydrationPerCatch: 2,
@@ -18,10 +25,17 @@ function getMinigamesConfig() {
     sporePop: {
       id: 'sporePop',
       label: 'Pękanie zarodników',
+      difficultyProfile: 'cozy',
+      interactionKind: 'tap',
       durationMs: 18000,
       targetCount: 20,
+      telegraphMs: 520,
+      forgivenessMs: 8,
       cooldownMs: 30 * 60000,
       masteryTarget: 30,
+      scoreTargetCasual: 18,
+      scoreTargetMastery: 30,
+      perfectTarget: 34,
       rewards: {
         happinessBase: 2,
         happinessPerPop: 1,
@@ -33,10 +47,17 @@ function getMinigamesConfig() {
     compostSort: {
       id: 'compostSort',
       label: 'Sortowanie kompostu',
+      difficultyProfile: 'cozy',
+      interactionKind: 'sort',
       durationMs: 22000,
       pieceCount: 18,
+      telegraphMs: 600,
+      forgivenessMs: 10,
       cooldownMs: 28 * 60000,
       masteryTarget: 23,
+      scoreTargetCasual: 14,
+      scoreTargetMastery: 23,
+      perfectTarget: 27,
       rewards: {
         nutrientsBase: 2,
         nutrientsPerPoint: 1.2,
@@ -51,16 +72,23 @@ function getMinigamesConfig() {
     rhythmHum: {
       id: 'rhythmHum',
       label: 'Rytmiczne nucenie',
+      difficultyProfile: 'cozy',
+      interactionKind: 'rhythm',
       durationMs: 18000,
       beatCount: 8,
-      noteLeadMs: 1600,
-      beatIntervalMs: 1150,
-      perfectWindowMs: 70,
-      goodWindowMs: 125,
-      okWindowMs: 190,
-      missWindowMs: 260,
+      noteLeadMs: 1750,
+      beatIntervalMs: 1250,
+      perfectWindowMs: 90,
+      goodWindowMs: 155,
+      okWindowMs: 235,
+      missWindowMs: 360,
+      rhythmVisualOffsetMs: 0,
+      mobileForgivenessMs: 45,
       cooldownMs: 24 * 60000,
       masteryTarget: 24,
+      scoreTargetCasual: 14,
+      scoreTargetMastery: 24,
+      perfectTarget: 27,
       rewards: {
         happinessBase: 2,
         happinessPerPoint: 1.1,
@@ -71,4 +99,8 @@ function getMinigamesConfig() {
       }
     }
   };
+  const legendaryMinigames = typeof getLegendaryMinigamesConfig === 'function'
+    ? getLegendaryMinigamesConfig()
+    : {};
+  return Object.assign({}, baseMinigames, legendaryMinigames);
 }

@@ -421,6 +421,11 @@
       renderUi();
       return;
     }
+    if (minigameRules.requiresStage && !isStageAtLeast(runtime.state.stage, minigameRules.requiresStage)) {
+      setTransientMessage('Legendy', 'To wyzwanie czeka na legendarną Pieczarkę.');
+      renderUi();
+      return;
+    }
     const cooldownKey = getMinigameCooldownKey(minigameId);
     const cooldownUntil = Number(runtime.state.cooldowns[cooldownKey]) || 0;
     if (cooldownUntil > now) {
@@ -439,6 +444,9 @@
 
     runtime.state.minigames.active = result.session;
     runtime.state.lastUpdatedAt = new Date(now).toISOString();
+    if (minigameRules.legendary) {
+      runtime.viewMode = 'arena';
+    }
     saveState(runtime.state);
     startMinigameRuntime(result.session);
     renderUi();
@@ -816,6 +824,7 @@
     state.relationship = source.relationship || state.relationship;
     state.journal = source.journal || state.journal;
     state.longLoop = source.longLoop || state.longLoop;
+    state.legendaryGames = source.legendaryGames || state.legendaryGames;
     state.discoveries = source.discoveries || state.discoveries;
     state.decorations = source.decorations || state.decorations;
     state.minigames = source.minigames || state.minigames;
@@ -936,7 +945,9 @@
       return;
     }
 
-    const result = core.recordInstrumentDiscovery(state, instrument, now);
+    const result = core.recordInstrumentDiscovery(state, instrument, now, {
+      scene: typeof getCurrentWeatherScene === 'function' ? getCurrentWeatherScene() : null
+    });
     state.discoveries = result.state && result.state.discoveries ? result.state.discoveries : state.discoveries;
     state.journal = result.state && result.state.journal ? result.state.journal : state.journal;
     addLog(state, result.newlyDiscovered

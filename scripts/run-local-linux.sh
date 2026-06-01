@@ -221,6 +221,7 @@ check_required_files() {
     "StateModel.gs"
     "GameRules.gs"
     "MinigamesConfig.gs"
+    "LegendaryGamesConfig.gs"
     "EvolutionRules.gs"
     "DecorationStore.gs"
     "SyncService.gs"

@@ -1,0 +1,449 @@
+  const LEGENDARY_GAME_RUNTIME_IDS = ['sporeTrail', 'myceliumLeague', 'memoryGarden'];
+
+  function isLegendaryMinigameRuntimeId(minigameId) {
+    return LEGENDARY_GAME_RUNTIME_IDS.indexOf(String(minigameId || '')) !== -1;
+  }
+
+  function startLegendaryGameRuntime(session) {
+    if (!session || !isLegendaryMinigameRuntimeId(session.id) || !dom.legendaryGameCanvas) {
+      return;
+    }
+
+    stopMinigameRuntime();
+    const canvas = dom.legendaryGameCanvas;
+    const ctx = canvas.getContext('2d');
+    setActiveMinigameCanvas(session.id);
+    runtime.minigame = {
+      session: Object.assign({}, session, {
+        score: Number(session.score) || 0,
+        caught: Array.isArray(session.caught) ? session.caught.slice() : [],
+        mistakes: Number(session.mistakes) || 0,
+        combo: Number(session.combo) || 0,
+        bestCombo: Number(session.bestCombo) || 0
+      }),
+      ctx: ctx,
+      targets: buildLegendaryGameTargets(session),
+      pulses: [],
+      floaters: [],
+      lastFrameAt: getRuntimeNow(),
+      animationFrame: 0
+    };
+    canvas.tabIndex = 0;
+    canvas.setAttribute('role', 'application');
+    canvas.setAttribute('aria-label', getLegendaryGameAriaLabel(session.id));
+    ctx.imageSmoothingEnabled = false;
+    renderLegendaryGameFrame();
+  }
+
+  function renderLegendaryGameFrame() {
+    if (!runtime.minigame || !isLegendaryMinigameRuntimeId(runtime.minigame.session.id) || !dom.legendaryGameCanvas) {
+      return;
+    }
+
+    const now = getRuntimeNow();
+    const session = runtime.minigame.session;
+    if (now >= Number(session.until)) {
+      handleMinigameEnd('timeout');
+      return;
+    }
+
+    const ctx = runtime.minigame.ctx;
+    const canvas = dom.legendaryGameCanvas;
+    const progress = (now - Number(session.startedAt)) / Math.max(1, Number(session.until) - Number(session.startedAt));
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawLegendaryGameBackground(ctx, canvas.width, canvas.height, session.id, now, progress);
+    drawLegendaryGameGuide(ctx, canvas.width, canvas.height, session.id, now);
+    drawLegendaryGameTargets(ctx, canvas.width, canvas.height, now);
+    drawLegendaryGamePulses(ctx, now);
+    drawMinigameFloaters(ctx, now);
+    updateMinigameHud(now);
+    runtime.minigame.animationFrame = window.requestAnimationFrame(renderLegendaryGameFrame);
+  }
+
+  function handleLegendaryGamePointer(event) {
+    if (!runtime.minigame || !isLegendaryMinigameRuntimeId(runtime.minigame.session.id) || !dom.legendaryGameCanvas) {
+      return;
+    }
+
+    event.preventDefault();
+    const canvas = dom.legendaryGameCanvas;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / Math.max(1, rect.width);
+    const scaleY = canvas.height / Math.max(1, rect.height);
+    const x = (event.clientX - rect.left) * scaleX;
+    const y = (event.clientY - rect.top) * scaleY;
+    const now = getRuntimeNow();
+    const target = getLegendaryPointerTarget(x, y, now);
+    if (!target) {
+      registerLegendaryGameMiss(x, y, now);
+      return;
+    }
+    if (target.wrongOrder) {
+      registerLegendaryGameMiss(x, y, now, 'zgubiony trop');
+      return;
+    }
+    if (target.wrongCounter) {
+      registerLegendaryGameMiss(x, y, now, 'zły znak');
+      return;
+    }
+
+    scoreLegendaryGameTarget(target, now);
+  }
+
+  function buildLegendaryGameTargets(session) {
+    const config = rules.minigames && rules.minigames[session.id] ? rules.minigames[session.id] : {};
+    const count = Math.max(8, Number(config.targetCount) || 12);
+    const start = Number(session.startedAt) || getRuntimeNow();
+    const duration = Math.max(12000, Number(session.until) - start || Number(config.durationMs) || 42000);
+    const windowMs = session.id === 'myceliumLeague' ? 1500 : session.id === 'memoryGarden' ? 1800 : 2200;
+    const span = Math.max(1, duration - windowMs - 1600);
+    const targets = [];
+
+    for (let index = 0; index < count; index += 1) {
+      const point = getLegendaryTargetPoint(session.id, Number(session.seed) || 1, index);
+      const appearsAt = start + 900 + Math.floor((index / count) * span);
+      const rare = seededLegendaryUnit(session.seed, index, 5) > 0.86;
+      targets.push({
+        id: session.id + '_' + index,
+        x: point.x,
+        y: point.y,
+        radius: point.radius || 14,
+        lane: point.lane || '',
+        kind: rare ? 'rare' : point.kind || 'good',
+        points: rare ? 2 : 1,
+        appearsAt: appearsAt,
+        expiresAt: appearsAt + windowMs
+      });
+    }
+
+    return targets;
+  }
+
+  function getLegendaryTargetPoint(gameId, seed, index) {
+    if (gameId === 'myceliumLeague') {
+      const lanes = [
+        { lane: 'strike', x: 78, y: 126, kind: 'strike' },
+        { lane: 'guard', x: 150, y: 126, kind: 'guard' },
+        { lane: 'focus', x: 222, y: 126, kind: 'focus' }
+      ];
+      return lanes[(index + Math.floor(seededLegendaryUnit(seed, index, 1) * lanes.length)) % lanes.length];
+    }
+    if (gameId === 'memoryGarden') {
+      const col = (index + Math.floor(seededLegendaryUnit(seed, index, 2) * 3)) % 3;
+      const row = (Math.floor(index / 3) + Math.floor(seededLegendaryUnit(seed, index, 3) * 3)) % 3;
+      return {
+        x: 82 + col * 68,
+        y: 58 + row * 38,
+        radius: 16,
+        kind: 'memory'
+      };
+    }
+
+    return {
+      x: 30 + (index % 6) * 48 + Math.round((seededLegendaryUnit(seed, index, 1) - 0.5) * 10),
+      y: 125 - (index % 4) * 24 + Math.round((seededLegendaryUnit(seed, index, 2) - 0.5) * 8),
+      radius: 13,
+      kind: 'trail'
+    };
+  }
+
+  function getLegendaryPointerTarget(x, y, now) {
+    const session = runtime.minigame.session;
+    const caught = session.caught || [];
+    if (session.id === 'myceliumLeague') {
+      const active = getActiveLegendaryTarget(now);
+      const lane = getLegendaryLeagueLaneAt(x, y);
+      if (!active || !lane) {
+        return null;
+      }
+      if (lane.lane !== active.lane) {
+        return Object.assign({ wrongCounter: true, inputLane: lane.lane, inputX: lane.x, inputY: lane.y }, active);
+      }
+      return Object.assign({ inputLane: lane.lane, inputX: lane.x, inputY: lane.y }, active);
+    }
+
+    let best = null;
+    const expected = (session.id === 'sporeTrail' || session.id === 'memoryGarden')
+      ? getNextLegendaryTarget(now)
+      : null;
+    runtime.minigame.targets.forEach(function(target) {
+      if (caught.indexOf(target.id) !== -1 || now < target.appearsAt || now > target.expiresAt) {
+        return;
+      }
+      const distance = Math.sqrt(Math.pow(x - target.x, 2) + Math.pow(y - target.y, 2));
+      if (distance <= target.radius + 7 && (!best || distance < best.distance)) {
+        best = Object.assign({ distance: distance }, target);
+      }
+    });
+    if (best && expected && best.id !== expected.id) {
+      return Object.assign({ wrongOrder: true }, best);
+    }
+    return best;
+  }
+
+  function scoreLegendaryGameTarget(target, now) {
+    const session = runtime.minigame.session;
+    if (session.caught.indexOf(target.id) !== -1) {
+      return;
+    }
+    session.caught.push(target.id);
+    session.score += Number(target.points) || 1;
+    session.combo = (Number(session.combo) || 0) + 1;
+    session.bestCombo = Math.max(Number(session.bestCombo) || 0, Number(session.combo) || 0);
+    runtime.minigame.pulses.push({
+      x: target.inputX || target.x,
+      y: target.inputY || target.y,
+      kind: target.kind,
+      startedAt: now
+    });
+    pushMinigameFloater('+' + (Number(target.points) || 1), target.inputX || target.x, (target.inputY || target.y) - 12, target.kind === 'rare' ? 'rare' : 'good', now);
+    if (session.combo >= 5 && session.combo % 5 === 0) {
+      pushMinigameFloater('seria x' + session.combo, target.inputX || target.x, (target.inputY || target.y) - 28, 'combo', now);
+    }
+    syncLegendaryGameActiveSession(true);
+    updateMinigameHud(now);
+  }
+
+  function registerLegendaryGameMiss(x, y, now, label) {
+    const session = runtime.minigame.session;
+    session.mistakes = (Number(session.mistakes) || 0) + 1;
+    session.combo = 0;
+    session.score = Math.max(0, Number(session.score) - 1);
+    pushMinigameFloater(label || 'pudło', x, y - 10, 'bad', now);
+    runtime.minigame.pulses.push({
+      x: x,
+      y: y,
+      kind: 'miss',
+      startedAt: now
+    });
+    syncLegendaryGameActiveSession(true);
+    updateMinigameHud(now);
+  }
+
+  function syncLegendaryGameActiveSession(shouldSave) {
+    const session = runtime.minigame.session;
+    runtime.state.minigames.active = Object.assign({}, session, {
+      caught: session.caught.slice(),
+      mistakes: Number(session.mistakes) || 0,
+      combo: Number(session.combo) || 0,
+      bestCombo: Number(session.bestCombo) || 0
+    });
+    if (shouldSave) {
+      saveState(runtime.state);
+    }
+  }
+
+  function drawLegendaryGameBackground(ctx, width, height, gameId, now, progress) {
+    const theme = getLegendaryGameTheme(gameId);
+    ctx.fillStyle = theme.sky;
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = theme.ground;
+    ctx.fillRect(0, Math.floor(height * 0.62), width, Math.ceil(height * 0.38));
+    ctx.fillStyle = theme.shadow;
+    ctx.fillRect(18, height - 28, width - 36, 8);
+    for (let i = 0; i < 18; i += 1) {
+      const x = (i * 31 + Math.floor(progress * 80)) % width;
+      const y = 18 + (i * 17) % 76;
+      ctx.fillStyle = i % 3 === 0 ? theme.spark : 'rgba(255, 253, 247, 0.38)';
+      ctx.fillRect(x, y, 2, 2);
+    }
+    if (gameId === 'myceliumLeague') {
+      drawLeagueRunes(ctx, width, height, theme, now);
+    } else if (gameId === 'memoryGarden') {
+      drawMemoryGardenGrid(ctx, theme);
+    } else {
+      drawSporeTrailPath(ctx, width, height, theme);
+    }
+  }
+
+  function drawLegendaryGameGuide(ctx, width, height, gameId, now) {
+    const theme = getLegendaryGameTheme(gameId);
+    const label = rules.minigames && rules.minigames[gameId] ? rules.minigames[gameId].label : 'Legendy';
+    ctx.fillStyle = 'rgba(45, 39, 32, 0.78)';
+    ctx.fillRect(8, 8, width - 16, 20);
+    ctx.fillStyle = theme.spark;
+    ctx.font = '12px monospace';
+    ctx.fillText(label, 14, 22);
+    if (gameId === 'myceliumLeague') {
+      ctx.fillText('traf znak aury', width - 116, 22);
+    } else if (gameId === 'memoryGarden') {
+      ctx.fillText('układaj światła', width - 120, 22);
+    } else {
+      ctx.fillText('zbieraj tropy', width - 100, 22);
+    }
+  }
+
+  function drawLegendaryGameTargets(ctx, width, height, now) {
+    const session = runtime.minigame.session;
+    const caught = session.caught || [];
+    runtime.minigame.targets.forEach(function(target) {
+      if (caught.indexOf(target.id) !== -1 || now > target.expiresAt + 220) {
+        return;
+      }
+      const warmup = Math.max(0, Math.min(1, (now - target.appearsAt + 260) / 260));
+      const life = Math.max(0, Math.min(1, (target.expiresAt - now) / Math.max(1, target.expiresAt - target.appearsAt)));
+      if (warmup <= 0) {
+        drawUpcomingLegendaryTarget(ctx, target, session.id, now);
+        return;
+      }
+      drawActiveLegendaryTarget(ctx, target, session.id, now, warmup, life);
+    });
+  }
+
+  function drawUpcomingLegendaryTarget(ctx, target, gameId, now) {
+    if (target.appearsAt - now > 900) {
+      return;
+    }
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = getLegendaryGameTheme(gameId).spark;
+    ctx.fillRect(Math.round(target.x) - 2, Math.round(target.y) - 2, 4, 4);
+    ctx.globalAlpha = 1;
+  }
+
+  function drawActiveLegendaryTarget(ctx, target, gameId, now, warmup, life) {
+    const theme = getLegendaryGameTheme(gameId);
+    const expected = (gameId === 'sporeTrail' || gameId === 'memoryGarden') ? getNextLegendaryTarget(now) : null;
+    const current = !expected || expected.id === target.id;
+    const pulse = Math.sin(now / 120 + target.x * 0.03) * 2;
+    const radius = Math.max(5, target.radius * warmup + pulse);
+    ctx.globalAlpha = current ? Math.max(0.35, Math.min(1, life + 0.2)) : 0.24;
+    ctx.fillStyle = target.kind === 'rare' ? '#fff0a8' : theme.spark;
+    ctx.fillRect(Math.round(target.x - radius), Math.round(target.y - 2), Math.round(radius * 2), 4);
+    ctx.fillRect(Math.round(target.x - 2), Math.round(target.y - radius), 4, Math.round(radius * 2));
+    ctx.fillStyle = theme.ink;
+    ctx.fillRect(Math.round(target.x - 6), Math.round(target.y - 6), 12, 12);
+    ctx.fillStyle = target.kind === 'rare' ? '#fff8d8' : theme.spark;
+    ctx.fillRect(Math.round(target.x - 3), Math.round(target.y - 3), 6, 6);
+    if (gameId === 'myceliumLeague') {
+      ctx.fillStyle = '#fffdf7';
+      ctx.font = '10px monospace';
+      ctx.fillText(getLegendaryLaneGlyph(target.lane), Math.round(target.x - 4), Math.round(target.y + 4));
+    } else if (current) {
+      ctx.globalAlpha = Math.max(0.28, life * 0.55);
+      ctx.fillStyle = '#fffdf7';
+      ctx.fillRect(Math.round(target.x - radius - 4), Math.round(target.y - radius - 4), Math.round(radius * 2 + 8), 2);
+      ctx.fillRect(Math.round(target.x - radius - 4), Math.round(target.y + radius + 2), Math.round(radius * 2 + 8), 2);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawLegendaryGamePulses(ctx, now) {
+    runtime.minigame.pulses = (runtime.minigame.pulses || []).filter(function(pulse) {
+      return now - Number(pulse.startedAt) < 420;
+    });
+    runtime.minigame.pulses.forEach(function(pulse) {
+      const age = Math.max(0, now - Number(pulse.startedAt));
+      const progress = age / 420;
+      const size = 8 + progress * 20;
+      ctx.globalAlpha = 1 - progress;
+      ctx.strokeStyle = pulse.kind === 'miss' ? '#b85b4b' : pulse.kind === 'rare' ? '#fff0a8' : '#d8f4ff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(Math.round(pulse.x - size / 2), Math.round(pulse.y - size / 2), Math.round(size), Math.round(size));
+      ctx.globalAlpha = 1;
+    });
+  }
+
+  function drawSporeTrailPath(ctx, width, height, theme) {
+    ctx.fillStyle = 'rgba(60, 43, 32, 0.22)';
+    for (let i = 0; i < 7; i += 1) {
+      ctx.fillRect(22 + i * 42, 126 - (i % 4) * 22, 28, 4);
+    }
+    ctx.fillStyle = theme.ink;
+    ctx.fillRect(20, height - 39, 12, 12);
+    ctx.fillRect(width - 34, 42, 12, 12);
+  }
+
+  function drawLeagueRunes(ctx, width, height, theme, now) {
+    const active = getActiveLegendaryTarget(now);
+    const lanes = [
+      { x: 78, label: 'C' },
+      { x: 150, label: 'O' },
+      { x: 222, label: 'S' }
+    ];
+    lanes.forEach(function(lane, index) {
+      const laneId = index === 0 ? 'strike' : index === 1 ? 'guard' : 'focus';
+      const activeLane = active && active.lane === laneId;
+      ctx.fillStyle = activeLane ? theme.spark : 'rgba(255, 253, 247, 0.62)';
+      ctx.fillRect(lane.x - 23, height - 42, 46, 12);
+      ctx.fillStyle = theme.ink;
+      ctx.font = '12px monospace';
+      ctx.fillText(lane.label, lane.x - 4, height - 32);
+      if (activeLane) {
+        ctx.globalAlpha = 0.34 + Math.sin(now / 130) * 0.16;
+        ctx.fillStyle = '#fffdf7';
+        ctx.fillRect(lane.x - 25, height - 45, 50, 2);
+        ctx.globalAlpha = 1;
+      }
+    });
+  }
+
+  function getActiveLegendaryTarget(now) {
+    const caught = runtime.minigame.session.caught || [];
+    return runtime.minigame.targets.find(function(target) {
+      return caught.indexOf(target.id) === -1 && now >= target.appearsAt && now <= target.expiresAt;
+    }) || null;
+  }
+
+  function getNextLegendaryTarget(now) {
+    const caught = runtime.minigame.session.caught || [];
+    return runtime.minigame.targets.find(function(target) {
+      return caught.indexOf(target.id) === -1 && (!Number(now) || now <= target.expiresAt);
+    }) || null;
+  }
+
+  function getLegendaryLeagueLaneAt(x, y) {
+    if (!dom.legendaryGameCanvas) {
+      return null;
+    }
+    const height = dom.legendaryGameCanvas.height;
+    const lanes = [
+      { lane: 'strike', x: 78, y: height - 36 },
+      { lane: 'guard', x: 150, y: height - 36 },
+      { lane: 'focus', x: 222, y: height - 36 }
+    ];
+    return lanes.find(function(lane) {
+      return Math.abs(lane.x - x) <= 28 && Math.abs(lane.y - y) <= 22;
+    }) || null;
+  }
+
+  function drawMemoryGardenGrid(ctx, theme) {
+    for (let row = 0; row < 3; row += 1) {
+      for (let col = 0; col < 3; col += 1) {
+        const x = 62 + col * 68;
+        const y = 39 + row * 38;
+        ctx.fillStyle = 'rgba(255, 253, 247, 0.42)';
+        ctx.fillRect(x, y, 40, 24);
+        ctx.fillStyle = theme.shadow;
+        ctx.fillRect(x + 4, y + 20, 32, 3);
+      }
+    }
+  }
+
+  function getLegendaryGameTheme(gameId) {
+    if (gameId === 'myceliumLeague') {
+      return { sky: '#6f7993', ground: '#d8cfa7', shadow: 'rgba(42, 45, 56, 0.3)', spark: '#ffe08a', ink: '#5b3f62' };
+    }
+    if (gameId === 'memoryGarden') {
+      return { sky: '#9fc0b4', ground: '#dfd2a0', shadow: 'rgba(54, 70, 45, 0.25)', spark: '#f5b46b', ink: '#536d4a' };
+    }
+    return { sky: '#8db9c7', ground: '#d5d69f', shadow: 'rgba(44, 66, 44, 0.24)', spark: '#d8f4ff', ink: '#4f8f39' };
+  }
+
+  function getLegendaryLaneGlyph(lane) {
+    const labels = {
+      strike: 'C',
+      guard: 'O',
+      focus: 'S'
+    };
+    return labels[lane] || '*';
+  }
+
+  function getLegendaryGameAriaLabel(gameId) {
+    const config = rules.minigames && rules.minigames[gameId] ? rules.minigames[gameId] : {};
+    return (config.label || 'Legendarna minigra') + '. Klikaj rozświetlone symbole.';
+  }
+
+  function seededLegendaryUnit(seed, index, salt) {
+    const value = Math.sin((Number(seed) || 1) * 0.00013 + index * 64.719 + salt * 23.41) * 10000;
+    return value - Math.floor(value);
+  }

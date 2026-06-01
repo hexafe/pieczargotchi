@@ -5,6 +5,9 @@
     state.history = normalizeHistoryCore(state.history, actions);
     state.evolution = normalizeEvolutionCore(state.evolution);
     state.minigames = normalizeMinigamesCore(state.minigames);
+    state.legendaryGames = typeof normalizeLegendaryGamesStateCore === 'function'
+      ? normalizeLegendaryGamesStateCore(state.legendaryGames, Date.now(), rules)
+      : state.legendaryGames || {};
     state.dailyPlan = normalizeDailyPlanCore(state.dailyPlan);
     state.dailyRhythm = normalizeDailyRhythmCore(state.dailyRhythm);
     state.relationship = normalizeRelationshipCore(state.relationship);

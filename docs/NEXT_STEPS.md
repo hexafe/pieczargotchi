@@ -1,8 +1,8 @@
 # Pieczargotchi Next Steps
 
-Last updated: 2026-05-30
-Local app version for this checkpoint: `0.1.32`
-State version: `14`
+Last updated: 2026-05-31
+Local app version for this checkpoint: `0.1.37`
+State version: `16`
 Primary preview target: Cloudflare static build
 
 This is the current start-here document for the next Pieczargotchi work. Older
@@ -14,9 +14,11 @@ Latest journal/calendar polish: `docs/JOURNAL_CALENDAR_POLISH_2026-05-30.md`.
 Latest world-scene QA: `docs/WORLD_SCENE_QA_2026-05-30.md`.
 Latest long-loop retention slice: `docs/LONG_LOOP_RETENTION_2026-05-30.md`.
 Latest minigame retention polish: `docs/MINIGAME_RETENTION_POLISH_2026-05-30.md`.
-Recommended next implementation slice: Cloudflare release smoke and focused
-fixes found after public preview feedback on the new `Grzybnia` loop and
-minigame polish.
+Latest post-legendary game slice: `docs/POST_LEGENDARY_GAMES_PLAN_2026-05-31.md`.
+Latest minigame gameplay upgrade: `docs/MINIGAME_GAMEPLAY_UPGRADE_2026-05-31.md`.
+Latest minigame launch UX plan: `docs/MINIGAME_LAUNCH_UX_PLAN_2026-05-31.md`.
+Recommended next implementation slice: guided minigame launch UX with
+auto-scroll, focus transfer, countdown, and browser-capture validation.
 
 ## 1. Current Baseline
 
@@ -31,7 +33,8 @@ Current major systems:
   over, cooldowns, daily rhythm, daily plan, care history, relationship history,
   spores, decorations, minigames, evolution variants, journal, calendar,
   daily finales, rare grzybnia visitors, mementos, spore expeditions, seasonal
-  progress, and legendary projects;
+  progress, legendary projects, post-legendary games, upgraded minigame
+  timing, drag sorting, ordered path play, stance counters, and memory choices;
 - Cloudflare static bundle generated from the Apps Script partial app;
 - five growth stages: `spore`, `baby`, `young`, `adult`, `legendary`;
 - 34 state animation sheets per growth stage, documented in
@@ -40,7 +43,7 @@ Current major systems:
   sheets under `assets/activities/`;
 - canvas-rendered scene systems for palette, celestial bodies, phenomena,
   weather, clouds, precipitation, ambient life, grass/ground, sprites, calendar
-  accents, minigames, and journal polaroids.
+  accents, minigames, legendary games, and journal polaroids.
 
 Important product direction:
 
@@ -82,7 +85,7 @@ Known doc conflicts to resolve later:
 - `docs/CALENDAR_EVENTS_POLISH_PLAN.md` still labels the original calendar
   build slice as `0.1.5`; the feature has since moved forward with the app.
 - Some `PROJECT_STATE_*` notes reference older state versions, while current
-  live state version is `14`.
+  live state version is `16`.
 
 ## 3. Subagent Workstreams For The Next Audit
 
