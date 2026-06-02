@@ -1,6 +1,6 @@
 # Plan Interaktywności Świata - 2026-06-01
 
-Wersja aplikacji: `0.1.40`
+Wersja aplikacji: `0.1.41`
 Wersja stanu: `16`
 Główny cel podglądu: statyczny build Cloudflare
 
@@ -13,6 +13,10 @@ opieki.
 Follow-up naturalności: jawne celowniki, ramki, krzyżyki i pufy kliknięć zostały
 wycofane z interakcji. Efekty mają być odkrywalne przez ruch trawy, reakcje
 gości i subtelne miny nieba, a nie przez widoczne markery kursora.
+
+Desktop hotfix: zwykły ruch myszy po trawie znowu liczy się jako delikatne
+przeczesywanie, a pierwszy klik w słońce lub księżyc daje subtelne mrugnięcie
+bez przywracania celowników.
 
 ## Podstawa W Repo
 

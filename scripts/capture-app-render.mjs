@@ -547,10 +547,8 @@ async function captureInteractionSmoke(cdp) {
         }));
       };
 
-      dispatchPointer('pointerenter', 210, 424, 'touch', 21);
-      dispatchPointer('pointerdown', 210, 424, 'touch', 21);
-      [235, 265, 300, 336].forEach((x) => dispatchPointer('pointermove', x, 426, 'touch', 21));
-      dispatchPointer('pointerup', 336, 426, 'touch', 21);
+      dispatchPointer('pointerenter', 210, 424, 'mouse', 21);
+      [235, 265, 300, 336].forEach((x) => dispatchPointer('pointermove', x, 426, 'mouse', 21));
       const brushDistanceAfterBrush = runtime.input && runtime.input.grassBrushDistance;
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const groundAfterBrush = runtime.motionDiagnostics && runtime.motionDiagnostics.ground;

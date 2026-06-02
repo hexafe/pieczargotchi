@@ -128,6 +128,8 @@
       handlePointerDownGesture(point, now);
     } else if (runtime.input.isDown && inside) {
       updatePointerDragGesture(point, now);
+    } else if (inside) {
+      updatePointerHoverBrushGesture(point, now);
     }
   }
 
@@ -210,6 +212,33 @@
     runtime.input.grassBrushY = Math.max(386, point.y);
 
     if (runtime.input.grassBrushDistance >= 72 && canUseWorldInteractionCooldown('grassBrush', now, 1280)) {
+      triggerGrassBrushInteraction(point, now);
+    }
+  }
+
+  function updatePointerHoverBrushGesture(point, now) {
+    if (runtime.input.pointerType !== 'mouse') {
+      return;
+    }
+
+    const previousX = Number(runtime.input.previousX);
+    const previousY = Number(runtime.input.previousY);
+    if (!Number.isFinite(previousX) || !Number.isFinite(previousY)) {
+      return;
+    }
+
+    const segment = Math.hypot(point.x - previousX, point.y - previousY);
+    if (Math.max(point.y, previousY) < 382 || segment < 2 || segment > 90) {
+      return;
+    }
+
+    const recent = now - (Number(runtime.input.grassBrushLastAt) || 0) <= 1500;
+    runtime.input.grassBrushDistance = Math.min(999, (recent ? Number(runtime.input.grassBrushDistance) || 0 : 0) + segment);
+    runtime.input.grassBrushLastAt = now;
+    runtime.input.grassBrushX = point.x;
+    runtime.input.grassBrushY = Math.max(386, point.y);
+
+    if (runtime.input.grassBrushDistance >= 96 && canUseWorldInteractionCooldown('grassBrushHover', now, 1900)) {
       triggerGrassBrushInteraction(point, now);
     }
   }
@@ -524,7 +553,7 @@
     const count = now - Number(target.lastAt || 0) <= 10000 ? Math.min(12, Number(target.count || 0) + 1) : 1;
     const expression = typeof getCelestialMoodExpression === 'function'
       ? getCelestialMoodExpression(count)
-      : (count >= 8 ? 'angry' : (count >= 5 ? 'annoyed' : (count >= 3 ? 'blink' : 'neutral')));
+      : (count >= 8 ? 'angry' : (count >= 5 ? 'annoyed' : (count >= 1 ? 'blink' : 'neutral')));
     const duration = expression === 'angry' ? 2600 : (expression === 'annoyed' ? 1800 : (expression === 'blink' ? 850 : 1));
     runtime.celestialMood[kind] = {
       count: count,

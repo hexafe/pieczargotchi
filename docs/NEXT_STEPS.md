@@ -1,7 +1,7 @@
 # Pieczargotchi Next Steps
 
 Last updated: 2026-06-01
-Local app version for this checkpoint: `0.1.40`
+Local app version for this checkpoint: `0.1.41`
 State version: `16`
 Primary preview target: Cloudflare static build
 

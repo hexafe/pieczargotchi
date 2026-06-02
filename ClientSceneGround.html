@@ -249,8 +249,9 @@
       && Number(input.y) > 380) {
       const moveAge = Math.max(0, Number(now) - (Number(input.lastMoveAt) || 0));
       const downAge = Math.max(0, Number(now) - (Number(input.lastDownAt) || 0));
+      const freshMove = moveAge <= 760;
       const freshTap = downAge <= 620;
-      if (!Boolean(input.isDown) && !freshTap) {
+      if (!Boolean(input.isDown) && !freshTap && !freshMove) {
         return null;
       }
 
