@@ -298,13 +298,13 @@
 
   function getCelestialMoodExpression(count) {
     const value = Math.max(0, Number(count) || 0);
-    if (value >= 8) {
+    if (value >= 9) {
       return 'angry';
     }
-    if (value >= 5) {
+    if (value >= 6) {
       return 'annoyed';
     }
-    if (value >= 1) {
+    if (value >= 3) {
       return 'blink';
     }
     return 'neutral';

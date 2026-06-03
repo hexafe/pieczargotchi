@@ -149,13 +149,13 @@ test('celestial hit testing respects center, margin, and misses', () => {
 
 test('celestial mood expression escalates with repeated clicks', () => {
   assert(context.getCelestialMoodExpression(0) === 'neutral', 'zero clicks should be neutral');
-  assert(context.getCelestialMoodExpression(1) === 'blink', 'first click should blink without anger');
-  assert(context.getCelestialMoodExpression(2) === 'blink', 'second click should only blink');
-  assert(context.getCelestialMoodExpression(3) === 'blink', 'third click should only blink');
-  assert(context.getCelestialMoodExpression(4) === 'blink', 'fourth click should only blink');
-  assert(context.getCelestialMoodExpression(5) === 'annoyed', 'fifth click should begin annoyance');
-  assert(context.getCelestialMoodExpression(7) === 'annoyed', 'seventh click should stay annoyed');
-  assert(context.getCelestialMoodExpression(8) === 'angry', 'eighth click should be angry');
+  assert(context.getCelestialMoodExpression(1) === 'neutral', 'first accidental click should stay neutral');
+  assert(context.getCelestialMoodExpression(2) === 'neutral', 'second accidental click should stay neutral');
+  assert(context.getCelestialMoodExpression(3) === 'blink', 'third click should start a small reaction');
+  assert(context.getCelestialMoodExpression(5) === 'blink', 'fifth click should still only blink');
+  assert(context.getCelestialMoodExpression(6) === 'annoyed', 'sixth click should begin annoyance');
+  assert(context.getCelestialMoodExpression(8) === 'annoyed', 'eighth click should stay annoyed');
+  assert(context.getCelestialMoodExpression(9) === 'angry', 'ninth click should be angry');
   assert(context.getCelestialMoodExpression(12) === 'angry', 'later clicks should stay angry');
 });
 

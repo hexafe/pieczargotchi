@@ -275,8 +275,11 @@
     const targets = [];
     ['sun', 'moon'].forEach(function(kind) {
       const body = celestial[kind];
-      const drawAlpha = Number.isFinite(Number(body && body.drawAlpha)) ? Number(body.drawAlpha) : Number(body && body.alpha);
-      if (!body || drawAlpha < 0.08 || body.visibleForHit === false) {
+      if (!body) {
+        return;
+      }
+      const drawAlpha = Number.isFinite(Number(body.drawAlpha)) ? Number(body.drawAlpha) : Number(body.alpha);
+      if (drawAlpha < 0.08 || body.visibleForHit === false) {
         return;
       }
       const hit = typeof isPointInsideCelestialBody === 'function'
@@ -395,7 +398,7 @@
       y: Math.max(398, point.y),
       startedAt: now,
       duration: 620,
-      visible: false
+      visible: true
     });
   }
 
@@ -411,7 +414,7 @@
         discoveryId: discovery.id,
         startedAt: now,
         duration: 1500,
-        visible: false
+        visible: true
       });
       return;
     }
@@ -437,7 +440,7 @@
       y: Math.max(398, point.y),
       startedAt: now,
       duration: 760,
-      visible: false
+      visible: true
     });
   }
 
@@ -497,13 +500,15 @@
     if (Number(runtime.input && runtime.input.grassBrushDistance) < 120) {
       return false;
     }
-    if (!canUseWorldInteractionCooldown('frogJump', now, 18000)) {
+    if (isWorldInteractionCooldownActive('frogJump', now)) {
       return false;
     }
     const scene = typeof getCurrentWeatherScene === 'function' ? getCurrentWeatherScene() : {};
     const moist = scene && (scene.condition === 'rain' || scene.condition === 'fog' || Number(scene.surfaceWetnessTarget) > 0.46 || Number(scene.humidity) > 82);
     const seed = Math.round(point.x * 13 + point.y * 7 + Math.floor(now / 90000) * 97);
-    return moist ? interactionSeededUnit(seed) > 0.58 : interactionSeededUnit(seed) > 0.91;
+    const roll = interactionSeededUnit(seed);
+    const triggered = moist ? roll > 0.82 : roll > 0.96;
+    return triggered && canUseWorldInteractionCooldown('frogJump', now, 18000);
   }
 
   function triggerAmbientPointerEffect(target, point, now) {
@@ -526,9 +531,16 @@
       y: Number(target.y) || point.y,
       startedAt: now,
       duration: target.kind === 'visitor' ? 1150 : 900,
-      visible: false,
+      visible: true,
       direction: point.x < 256 ? 1 : -1
     });
+  }
+
+  function isWorldInteractionCooldownActive(key, now) {
+    const cooldowns = runtime.worldInteractions && runtime.worldInteractions.cooldowns
+      ? runtime.worldInteractions.cooldowns
+      : {};
+    return Number(cooldowns[key]) > now;
   }
 
   function addWorldInteractionEffect(effect) {
@@ -553,7 +565,7 @@
     const count = now - Number(target.lastAt || 0) <= 10000 ? Math.min(12, Number(target.count || 0) + 1) : 1;
     const expression = typeof getCelestialMoodExpression === 'function'
       ? getCelestialMoodExpression(count)
-      : (count >= 8 ? 'angry' : (count >= 5 ? 'annoyed' : (count >= 1 ? 'blink' : 'neutral')));
+      : (count >= 9 ? 'angry' : (count >= 6 ? 'annoyed' : (count >= 3 ? 'blink' : 'neutral')));
     const duration = expression === 'angry' ? 2600 : (expression === 'annoyed' ? 1800 : (expression === 'blink' ? 850 : 1));
     runtime.celestialMood[kind] = {
       count: count,
@@ -849,8 +861,29 @@
         return;
       }
       live.push(effect);
-      if (effect.type === 'frogJump' && effect.visible !== false) {
+      if (effect.visible === false) {
+        return;
+      }
+      if (effect.type === 'frogJump') {
         drawFrogJumpEffect(ctx, now, effect, progress);
+        drawn.push(effect);
+      } else if (effect.type === 'grassFind') {
+        drawGrassFindEffect(ctx, now, effect, progress);
+        drawn.push(effect);
+      } else if (effect.type === 'grassRustle') {
+        drawGrassRustleEffect(ctx, now, effect, progress);
+        drawn.push(effect);
+      } else if (effect.type === 'butterflyScatter') {
+        drawScatterEffect(ctx, now, effect, progress, '#f4a7d2');
+        drawn.push(effect);
+      } else if (effect.type === 'crawlerHide') {
+        drawCrawlerHideEffect(ctx, now, effect, progress);
+        drawn.push(effect);
+      } else if (effect.type === 'fireflySpark') {
+        drawFireflySparkEffect(ctx, now, effect, progress);
+        drawn.push(effect);
+      } else if (effect.type === 'visitorNudge') {
+        drawVisitorNudgeEffect(ctx, now, effect, progress);
         drawn.push(effect);
       }
     });
@@ -879,6 +912,109 @@
     ctx.fillStyle = '#3f6b3c';
     ctx.fillRect(x - 10, y + 1, 5, 2);
     ctx.fillRect(x + 5, y + 1, 5, 2);
+    ctx.restore();
+  }
+
+  function drawGrassRustleEffect(ctx, now, effect, progress) {
+    const alpha = getEffectFadeAlpha(progress) * 0.44;
+    const x = Number(effect.x) || 256;
+    const y = Number(effect.y) || 422;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = '#c9da73';
+    ctx.lineWidth = 2;
+    for (let index = -2; index <= 2; index += 1) {
+      const sway = Math.sin(now / 130 + index) * 6 * (1 - progress);
+      const baseX = Math.round(x + index * 10);
+      const baseY = Math.round(y + Math.abs(index) * 2);
+      ctx.beginPath();
+      ctx.moveTo(baseX, baseY);
+      ctx.lineTo(baseX + sway, baseY - 18 - Math.abs(index) * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawGrassFindEffect(ctx, now, effect, progress) {
+    drawGrassRustleEffect(ctx, now, effect, progress);
+    const alpha = getEffectFadeAlpha(progress) * 0.72;
+    const x = Number(effect.x) || 256;
+    const y = (Number(effect.y) || 420) - progress * 18;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#fff3b8';
+    for (let index = 0; index < 4; index += 1) {
+      const angle = index * 1.57 + now / 440;
+      const px = Math.round(x + Math.cos(angle) * (9 + progress * 10));
+      const py = Math.round(y + Math.sin(angle) * 5);
+      ctx.fillRect(px, py, 4, 2);
+      ctx.fillRect(px + 1, py - 2, 2, 6);
+    }
+    ctx.fillStyle = '#8ebf63';
+    ctx.fillRect(Math.round(x - 4), Math.round(y + 8), 8, 4);
+    ctx.restore();
+  }
+
+  function drawScatterEffect(ctx, now, effect, progress, color) {
+    const alpha = getEffectFadeAlpha(progress) * 0.42;
+    const x = Number(effect.x) || 256;
+    const y = Number(effect.y) || 220;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = color || '#d8e9d2';
+    ctx.lineWidth = 2;
+    for (let index = 0; index < 4; index += 1) {
+      const angle = index * 1.57 + now / 420;
+      const length = 8 + progress * 24;
+      const sx = Math.round(x + Math.cos(angle) * length);
+      const sy = Math.round(y + Math.sin(angle) * length * 0.6);
+      ctx.beginPath();
+      ctx.moveTo(Math.round(x), Math.round(y));
+      ctx.lineTo(sx, sy);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawCrawlerHideEffect(ctx, now, effect, progress) {
+    const alpha = getEffectFadeAlpha(progress) * 0.5;
+    const x = Number(effect.x) || 256;
+    const y = Number(effect.y) || 430;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#7f6a42';
+    for (let index = 0; index < 4; index += 1) {
+      const px = Math.round(x - 12 + index * 8 + Math.sin(now / 190 + index) * 2);
+      const py = Math.round(y + Math.sin(index) * 3 - progress * 7);
+      ctx.fillRect(px, py, 5, 3);
+    }
+    ctx.restore();
+  }
+
+  function drawFireflySparkEffect(ctx, now, effect, progress) {
+    const alpha = getEffectFadeAlpha(progress) * 0.32;
+    const x = Number(effect.x) || 256;
+    const y = Number(effect.y) || 250;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#fff3b8';
+    const radius = 10 + Math.sin(now / 180) * 2 + progress * 10;
+    ctx.fillRect(Math.round(x - radius), Math.round(y - 1), Math.round(radius * 2), 2);
+    ctx.fillRect(Math.round(x - 1), Math.round(y - radius), 2, Math.round(radius * 2));
+    ctx.restore();
+  }
+
+  function drawVisitorNudgeEffect(ctx, now, effect, progress) {
+    const alpha = getEffectFadeAlpha(progress) * 0.42;
+    const x = Number(effect.x) || 256;
+    const y = Number(effect.y) || 412;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#d8e9d2';
+    for (let index = 0; index < 3; index += 1) {
+      ctx.fillRect(Math.round(x + index * 9 - progress * 16), Math.round(y + index * 3), 5, 3);
+    }
     ctx.restore();
   }
 
