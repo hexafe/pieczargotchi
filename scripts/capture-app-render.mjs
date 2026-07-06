@@ -89,6 +89,7 @@ function createCaptureDebugSettings() {
   const constellation = process.env.PIECZARGOTCHI_DEBUG_CONSTELLATION || 'auto';
   const skyEffect = process.env.PIECZARGOTCHI_DEBUG_SKY_EFFECT || 'auto';
   const rainbow = process.env.PIECZARGOTCHI_DEBUG_RAINBOW || 'auto';
+  const phenomenon = process.env.PIECZARGOTCHI_DEBUG_PHENOMENON || 'auto';
   const calendarTimestamp = debugCalendarEvent ? getCalendarEventCaptureTimestamp(debugCalendarEvent) : null;
   const hasDebugWeather = deterministicBaseline
     || weather !== 'auto'
@@ -103,6 +104,7 @@ function createCaptureDebugSettings() {
     || constellation !== 'auto'
     || skyEffect !== 'auto'
     || rainbow !== 'auto'
+    || phenomenon !== 'auto'
     || calendarTimestamp !== null;
 
   if (!hasDebugWeather) {
@@ -125,6 +127,7 @@ function createCaptureDebugSettings() {
     forcedConstellation: constellation,
     skyEffectOverride: skyEffect,
     forcedAnimation: 'auto',
+    phenomenonOverride: phenomenon,
     forcedAnimationStartedAt: 0,
     neutralEasterEggOverride: calendarTimestamp !== null && easterEgg === 'auto' ? 'off' : easterEgg,
     calendarEventOverride: debugCalendarEvent || 'auto',
@@ -2080,6 +2083,8 @@ async function captureCanvas(cdp, label, options) {
           activityBody: diagnostics.activityBody || null,
           idleBody: diagnostics.idleBody || null,
           conditionOverlay: diagnostics.conditionOverlay || null,
+          rainbow: diagnostics.rainbow || null,
+          cloudOptics: diagnostics.cloudOptics || null,
           sunbeams: diagnostics.sunbeams || null,
           clouds: diagnostics.clouds || null,
           ground: diagnostics.ground || null,
@@ -2119,6 +2124,7 @@ async function captureCanvas(cdp, label, options) {
           rainbowDropletScore: scene.rainbowDropletScore,
           rainbowRecentRainScore: scene.rainbowRecentRainScore,
           rainbowSunWindowScore: scene.rainbowSunWindowScore,
+          rainbowRedShiftScore: scene.rainbowRedShiftScore,
           rainbowPotential: scene.rainbowPotential,
           rainbowVariant: scene.rainbowVariant,
           snowStyle: scene.snowStyle,

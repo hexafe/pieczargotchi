@@ -1,6 +1,6 @@
 # System Pogody
 
-Stan na 2026-05-20. Dokument jest praktyczną ściągawką dla implementacji i balansu pogody w Pieczargotchi. Nie jest planem refaktoru.
+Stan na 2026-07-06. Dokument jest praktyczną ściągawką dla implementacji i balansu pogody w Pieczargotchi. Nie jest planem refaktoru.
 
 ## Cel Systemu
 
@@ -19,7 +19,7 @@ Główne zasady:
 - `ClientWeather.html` pobiera lokalizację, odpytuje Open-Meteo i buduje `weatherScene`.
 - tryb zapasowy lokalizacji to Katowice; tryb zapasowy pogody to lokalna pogodna scena z realnym rytmem dnia.
 - Open-Meteo dostarcza m.in. temperaturę, wilgotność, punkt rosy, opad, deszcz, przelotne opady, śnieg, grubość śniegu, zachmurzenie warstwowe, ciśnienie, widzialność, VPD, ET0, wilgotność/temperaturę gleby oraz wiatr i porywy.
-- `ClientCore.html` klasyfikuje warunki i wylicza pola immersji: typ deszczu, Beaufort, potencjał mgły, mokrość podłoża, pokrywę śnieżną, formy chmur, trend ciśnienia, nadchodzącą pogodę, potencjał tęczy i profil życia sceny.
+- `ClientCore.html` klasyfikuje warunki i wylicza pola immersji: typ deszczu, Beaufort, potencjał mgły, mokrość podłoża, pokrywę śnieżną, formy chmur, trend ciśnienia, nadchodzącą pogodę, potencjał tęczy, czerwone przesunięcie tęczy i profil życia sceny.
 - `ClientState.html` nakłada tylko łagodne delty statów z `calculateWeatherStatDeltas`.
 - `ClientScene.html` składa warstwy: niebo, ciała niebieskie, tęcza, chmury, opad/wiatr, podłoże, życie sceny i foreground.
 
@@ -37,10 +37,10 @@ Główne zasady:
 | Śnieg | snowfall, snow depth, temperatura, wiatr | `powder`, `wet`, `blowing`, pokrywa śnieżna i bielsze podłoże |
 | Mgła | wilgotność, punkt rosy, widzialność, niski wiatr, low cloud | warstwy mgły, słabszy kontrast i miększe podłoże |
 | Mokrość podłoża | deszcz, wilgotność, mgła, temperatura, VPD, ET0 | mokra trawa, krawędzie wody, kałuże, późniejsze wysychanie |
-| Tęcza | krople, niedawny deszcz, okno słońca, niska pozycja słońca | pierwotny łuk, czasem wtórny łuk i ciemniejszy pas między nimi |
+| Tęcza | krople, niedawny deszcz, okno słońca, niska pozycja słońca | pierwotny łuk, czasem wtórny łuk, czerwony wariant i ciemniejszy pas między łukami |
 | Życie sceny | sezon, pora dnia, temperatura, wiatr, opad, wilgotność | motyle, małe owady latające, robaczki naziemne, świetliki |
-| Zjawiska nieba | data, lokalizacja, noc, zachmurzenie, opad, Kp NOAA/tryb zapasowy | meteory, roje meteorów, komety, zorza, odkrycia w kolekcji |
-| Zjawiska środowiskowe | pora dnia, wilgotność, temperatura, wiatr, mokrość, zachmurzenie, mgła | rosa, szron, fogbow, halo, promienie, parowanie, drżenie powietrza |
+| Zjawiska nieba | data, lokalizacja, noc/zmierzch, zachmurzenie, opad, Kp NOAA/tryb zapasowy | meteory, roje meteorów, komety, zorza, obłoki świecące nocą, odkrycia w kolekcji |
+| Zjawiska środowiskowe | pora dnia, wilgotność, temperatura, wiatr, mokrość, zachmurzenie, mgła, widzialność | rosa, szron, fogbow, czerwona tęcza, halo, parhelia, słupy światła, iryzacja chmur, promienie, parowanie, drżenie powietrza |
 
 ## Wpływ Na Gameplay
 
@@ -86,7 +86,8 @@ Pogoda nie tworzy obecnie błędów opieki sama z siebie. Może pogorszyć lub p
 - Meteory i komety są rzadkimi zdarzeniami nocnymi, wygaszanymi przez chmury, opad i dzień; wymuszanie debug służy tylko do QA.
 - Roje meteorów mają okna sezonowe: Perseidy, Geminidy, Kwadrantydy, Orionidy i Leonidy.
 - Zorza korzysta z live Kp NOAA, kiedy fetch jest dostępny; bez live danych działa deterministyczny tryb zapasowy dla wysokich szerokości geograficznych, nocy i przejrzystego nieba.
-- Rosa, szron, fogbow, halo księżycowe, promienie przez chmury, parowanie po deszczu, drżenie powietrza i przejaśnienie po deszczu są liczone deterministycznie z profilu sceny, a renderer tylko rysuje warstwy.
+- Obłoki świecące nocą są sezonowym efektem czystego letniego zmierzchu/świtu i średnich szerokości geograficznych; renderer rysuje tylko subtelne srebrno-niebieskie pasma.
+- Rosa, szron, fogbow, czerwona tęcza, halo księżycowe, boczne słońce, słup światła, perłowe brzegi chmur, promienie przez chmury, parowanie po deszczu, drżenie powietrza i przejaśnienie po deszczu są liczone deterministycznie z profilu sceny, a renderer tylko rysuje warstwy.
 - Pierwsze zaobserwowanie specjalnego zjawiska zapisuje kolekcję odkryć w stanie gry.
 
 ## Życie Sceny
@@ -108,6 +109,7 @@ Pogoda nie tworzy obecnie błędów opieki sama z siebie. Może pogorszyć lub p
 - Kometa jest jeszcze rzadsza, wolniejsza i ma dłuższy ogon.
 - Roje meteorów zwiększają szanse na meteory w znanych oknach sezonowych, ale nadal nie robią ciągłego deszczu gwiazd.
 - Zorza jest niska, pasmowa i rysowana za gwiazdami/chmurami jako segmenty pixel-art, nie jako gładki gradient.
+- Obłoki świecące nocą pojawiają się w letnim niebieskim zmierzchu albo świcie, kiedy niskie i średnie chmury nie zasłaniają horyzontu.
 - `discoveries.sky` przechowuje pierwsze odkrycie, ostatni czas i licznik nieba; `discoveries.environment` robi to samo dla efektów środowiskowych. Migracja stanu to v9.
 - Debug ma `Zjawisko nieba`, a capture wspiera `PIECZARGOTCHI_DEBUG_SKY_EFFECT`.
 
@@ -118,13 +120,17 @@ Pogoda nie tworzy obecnie błędów opieki sama z siebie. Może pogorszyć lub p
 - Rosa pojawia się głównie rano przy wysokiej wilgotności, słabym wietrze, braku opadu i wilgotnym podłożu.
 - Szron jest porannym wariantem zimna, wilgoci i ciszy; nie powinien wyglądać jak zwykła rosa.
 - Fogbow jest bladym łukiem przy mgle, niskim słońcu i bez ciężkiego opadu.
+- Czerwona tęcza używa tego samego potencjału tęczy, ale wymaga bardzo niskiego ciepłego światła świtu albo zachodu.
 - Halo księżycowe wymaga nocy, chmur wysokich/cienkich i braku opadu.
+- Boczne słońce wymaga niskiego słońca, cienkich wysokich chmur, dobrej widzialności i chłodniejszego powietrza.
+- Słup światła wymaga mrozu, spokojnego wiatru, kryształków lodu i niskiego światła.
+- Perłowe brzegi chmur wymagają dnia, dobrej widzialności, cienkich średnich/wysokich chmur i braku mocnego opadu.
 - Promienie słońca pojawiają się przy niskim słońcu, przerwach w chmurach i bez ciężkiego opadu.
 - Parowanie po deszczu wymaga mokrego podłoża, ciepła i spokojniejszego powietrza.
 - Drżenie powietrza jest subtelne i dotyczy suchego, gorącego południa.
 - Przejaśnienie po deszczu dodaje drobne błyski w trawie, kiedy podłoże jest jeszcze mokre, a niebo zaczyna się otwierać.
 
-Capture wspiera scenariusze `phenomena-*` oraz dodatkowe override'y warstw chmur: `PIECZARGOTCHI_DEBUG_CLOUD_LOW`, `PIECZARGOTCHI_DEBUG_CLOUD_MID` i `PIECZARGOTCHI_DEBUG_CLOUD_HIGH`.
+Capture wspiera scenariusze `phenomena-*`, dodatkowe override'y warstw chmur: `PIECZARGOTCHI_DEBUG_CLOUD_LOW`, `PIECZARGOTCHI_DEBUG_CLOUD_MID` i `PIECZARGOTCHI_DEBUG_CLOUD_HIGH`, oraz wymuszenie trudnych efektów optycznych przez `PIECZARGOTCHI_DEBUG_PHENOMENON=cloudIridescence|sunDog|lightPillar`. Normalna symulacja nadal liczy je z profilu pogody.
 
 ## Tęcza
 
@@ -135,9 +141,12 @@ Tęcza jest liczona z kilku bramek:
 - mgła, śnieg i noc wygaszają efekt,
 - burza może dać słaby potencjał, ale nie powinna robić czystej, intensywnej tęczy,
 - niski kąt słońca daje większą i czytelniejszą tęczę,
+- niski czerwony świt albo zachód może zmienić paletę w prawie monochromatyczną czerwoną tęczę,
 - przy mocnym potencjale możliwy jest drugi, słabszy łuk z odwróconą kolejnością kolorów i ciemniejszym pasem między łukami.
 
 Renderer ustawia środek łuku po stronie przeciwnej do słońca w ekranowej projekcji. To jest uproszczenie obserwatora na stałej scenie, ale trzyma najważniejszą zasadę: tęcza pojawia się po przeciwnej stronie od źródła światła.
+
+Capture wspiera `PIECZARGOTCHI_DEBUG_RAINBOW=red` i `PIECZARGOTCHI_DEBUG_RAINBOW=redDouble`, żeby sprawdzić paletę i drugi łuk bez czekania na rzadkie warunki.
 
 ## Co Jest Zgodne Z Rzeczywistością
 
@@ -150,7 +159,10 @@ Renderer ustawia środek łuku po stronie przeciwnej do słońca w ekranowej pro
 - Motyle realnie zależą od temperatury, promieniowania słonecznego i wiatru; deszcz jest dla nich niekorzystny.
 - Świetliki lubią ciepłe, wilgotne siedliska i wysoką trawę, a ich aktywność jest nocna lub zmierzchowa.
 - Tęcza wymaga kropli wody przed obserwatorem i słońca za obserwatorem; wysoka pozycja słońca zmniejsza widoczny łuk.
+- Czerwona tęcza jest uproszczona jako wariant niskiego, ciepłego światła, gdy krótsze barwy są mocno osłabione.
+- Halo, parhelia, słupy światła i iryzacja są traktowane jako stylizowane odpowiedzi na cienkie chmury/kryształki i dobrą widzialność, nie jako pełny model optyki atmosferycznej.
 - Widoczność zorzy zależy od geomagnetycznej aktywności Kp, szerokości geograficznej, ciemności i zachmurzenia.
+- Obłoki świecące nocą są sezonowe i zmierzchowe, z mocnym wygaszeniem przy niskich/średnich chmurach.
 - Perseidy i inne roje meteorów mają sezonowe okna aktywności, a nie równą częstotliwość przez cały rok.
 
 ## Uproszczenia Gry
@@ -184,6 +196,8 @@ Renderer ustawia środek łuku po stronie przeciwnej do słońca w ekranowej pro
 
 - Open-Meteo Forecast API: https://open-meteo.com/en/docs
 - Met Office, rainbows: https://weather.metoffice.gov.uk/learn-about/weather/optical-effects/rainbows
+- Met Office, why is the sky blue: https://weather.metoffice.gov.uk/learn-about/weather/optical-effects/why-is-the-sky-blue
+- Met Office, optical effects: https://weather.metoffice.gov.uk/learn-about/weather/optical-effects
 - Met Office, fog: https://weather.metoffice.gov.uk/learn-about/weather/types-of-weather/fog
 - NOAA/NWS, Beaufort Wind Scale: https://www.weather.gov/boi/beaufort
 - NOAA/NESDIS, cloud types: https://www.nesdis.noaa.gov/about/k-12-education/atmosphere/types-of-clouds
@@ -193,4 +207,5 @@ Renderer ustawia środek łuku po stronie przeciwnej do słońca w ekranowej pro
 - Washington State University, butterflies and rain: https://askdruniverse.wsu.edu/2017/12/18/butterflies-go-rains/
 - NOAA SWPC, Planetary K-index: https://www.swpc.noaa.gov/products/planetary-k-index
 - NOAA SWPC, tips for viewing aurora: https://www.swpc.noaa.gov/content/tips-viewing-aurora
+- NASA AIM mission: https://science.nasa.gov/mission/aim/
 - NASA, Perseids: https://science.nasa.gov/solar-system/meteors-meteorites/perseids

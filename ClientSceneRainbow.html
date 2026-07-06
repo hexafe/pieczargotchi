@@ -1,16 +1,26 @@
   function drawRainbowLayer(ctx, scene, palette, now) {
     const metrics = getRainbowMetrics(scene, now);
     if (!metrics) {
+      recordRainbowDiagnostics({ visible: false, reason: 'metrics' });
       return;
     }
 
-    const colors = getRainbowColors(palette);
+    const colors = getRainbowColors(palette, metrics);
+    recordRainbowDiagnostics({
+      visible: true,
+      variant: metrics.variant,
+      alpha: Number(metrics.alpha.toFixed(3)),
+      redShiftScore: Number(metrics.redShiftScore.toFixed(3)),
+      showSecondary: metrics.showSecondary,
+      supernumerary: metrics.supernumeraryAlpha > 0.01
+    });
     ctx.save();
     if (metrics.showSecondary) {
       drawRainbowAlexanderBand(ctx, metrics, metrics.secondaryRadius - 22, metrics.alpha * 0.11);
       drawPixelRainbowArc(ctx, metrics, colors, metrics.secondaryRadius, metrics.alpha * 0.24, true, 2);
     }
     drawPixelRainbowArc(ctx, metrics, colors, metrics.primaryRadius, metrics.alpha, false, metrics.bandSize);
+    drawRainbowSupernumeraryArcs(ctx, metrics);
     ctx.restore();
   }
 
@@ -31,7 +41,8 @@
       return null;
     }
 
-    const weatherPotential = override === 'force'
+    const forced = override === 'force' || override === 'red' || override === 'redDouble';
+    const weatherPotential = forced
       ? 0.94
       : clamp(Number(scene.rainbowPotential), 0, 1, 0);
     if (weatherPotential <= 0.04) {
@@ -42,7 +53,7 @@
     const breakthrough = typeof getSunBreakthroughFactor === 'function'
       ? getSunBreakthroughFactor(scene, now)
       : 0;
-    const lightScore = override === 'force'
+    const lightScore = forced
       ? Math.max(0.68, sunVisibility)
       : clamp(sunVisibility * 0.82 + breakthrough * 0.32, 0, 1, 0);
     const horizonFade = clamp((altitude - 0.6) / 4.2, 0, 1, 0);
@@ -59,7 +70,15 @@
     const horizonY = 432;
     const centerY = horizonY + altitude * degToPx;
     const primaryRadius = 42 * degToPx;
-    const showSecondary = (override === 'force' || scene.rainbowVariant === 'double' || weatherPotential > 0.78)
+    const variant = override === 'red'
+      ? 'red'
+      : override === 'redDouble'
+        ? 'redDouble'
+        : (scene.rainbowVariant || 'none');
+    const redShiftScore = override === 'red' || override === 'redDouble'
+      ? 1
+      : clamp(Number(scene.rainbowRedShiftScore), 0, 1, 0);
+    const showSecondary = (override === 'force' || override === 'redDouble' || variant === 'double' || variant === 'redDouble' || weatherPotential > 0.78)
       && alpha > 0.18
       && altitude < 34;
 
@@ -71,6 +90,9 @@
       alpha: alpha,
       bandSize: alpha > 0.34 ? 3 : 2,
       showSecondary: showSecondary,
+      variant: variant,
+      redShiftScore: redShiftScore,
+      supernumeraryAlpha: (variant === 'red' || variant === 'redDouble' ? 0.22 : 0.14) * alpha * clamp(dropletScore + weatherPotential * 0.4, 0, 1, 0),
       groundCutoff: 428,
       angleStart: Math.PI + 0.03,
       angleEnd: Math.PI * 2 - 0.03
@@ -84,7 +106,18 @@
     return value || 'auto';
   }
 
-  function getRainbowColors(palette) {
+  function getRainbowColors(palette, metrics) {
+    if (metrics && (metrics.variant === 'red' || metrics.variant === 'redDouble')) {
+      return [
+        '#8e2f38',
+        '#b9473e',
+        '#d85a42',
+        '#f0794d',
+        '#ffad61',
+        '#ffd17c'
+      ];
+    }
+
     return [
       palette && palette.rainbowRed || '#ff7a6b',
       palette && palette.rainbowOrange || '#ffb45d',
@@ -129,6 +162,40 @@
         ctx.fillRect(Math.round(x), Math.round(y), 4, 4);
       }
     }
+  }
+
+  function drawRainbowSupernumeraryArcs(ctx, metrics) {
+    if (!metrics || metrics.supernumeraryAlpha <= 0.01) {
+      return;
+    }
+
+    const colors = metrics.variant === 'red' || metrics.variant === 'redDouble'
+      ? ['#ffbc63', '#e35c43', '#ffd589']
+      : ['#fff3a4', '#d9fff0', '#ffd6eb'];
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let arc = 0; arc < 3; arc += 1) {
+      const radius = metrics.primaryRadius - 48 - arc * 10;
+      ctx.fillStyle = colors[arc % colors.length];
+      ctx.globalAlpha = metrics.supernumeraryAlpha * (1 - arc * 0.24);
+      for (let angle = metrics.angleStart + 0.09; angle <= metrics.angleEnd - 0.09; angle += 0.024) {
+        const shimmer = Math.sin(angle * 7 + arc * 1.4) * 1.2;
+        const x = metrics.centerX + Math.cos(angle) * (radius + shimmer);
+        const y = metrics.centerY + Math.sin(angle) * (radius + shimmer);
+        if (!isRainbowPointVisible(x, y, metrics)) {
+          continue;
+        }
+        ctx.fillRect(Math.round(x), Math.round(y), 2, 1);
+      }
+    }
+    ctx.restore();
+  }
+
+  function recordRainbowDiagnostics(sample) {
+    if (!runtime || !runtime.motionDiagnostics) {
+      return;
+    }
+    runtime.motionDiagnostics.rainbow = sample;
   }
 
   function isRainbowPointVisible(x, y, metrics) {

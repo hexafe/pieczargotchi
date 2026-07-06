@@ -76,6 +76,7 @@
     }
 
     drawAurora(ctx, skyEffects.aurora, now);
+    drawNoctilucentClouds(ctx, skyEffects.noctilucentClouds, now);
 
     const cloudStarVisibility = getCelestialCloudVisibility(scene, now, 'stars');
     const eventStarVisibility = Math.min(cloudStarVisibility, skyEffects.starVisibility);
@@ -112,6 +113,7 @@
       activeMeteorShower: null,
       meteorEvent: null,
       aurora: { visible: false, intensity: 0, source: 'none', kp: null, bandCount: 0, hueShift: 0, seed: 0 },
+      noctilucentClouds: { visible: false, intensity: 0, potential: 0, bandCount: 0, seed: 0 },
       discoveries: []
     };
   }
@@ -156,6 +158,43 @@
         ctx.fillRect(x + 8, y + segmentHeight, 26, Math.max(4, Math.round(segmentHeight * 0.85)));
         ctx.globalAlpha = intensity * 0.072 * curtain;
         ctx.fillRect(x + 18, y - 5, 8, Math.max(5, Math.round(segmentHeight * 1.45)));
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawNoctilucentClouds(ctx, clouds, now) {
+    if (!clouds || !clouds.visible || Number(clouds.intensity) <= 0.03) {
+      return;
+    }
+
+    const intensity = clamp(Number(clouds.intensity), 0, 1, 0);
+    const seed = Number(clouds.seed) || 0;
+    const bandCount = Math.max(2, Math.min(6, Math.round(Number(clouds.bandCount) || 4)));
+    const colors = ['#d8f1ff', '#b8d7ff', '#eef8ff'];
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let band = 0; band < bandCount; band += 1) {
+      const bandSeed = seed + band * 61;
+      const baseY = 42 + band * 13 + seededUnit(bandSeed + 3) * 10;
+      const drift = Math.sin(now / (9000 + band * 640) + bandSeed) * 10;
+      const length = 96 + seededUnit(bandSeed + 4) * 88;
+      const startX = -28 + band * 76 + seededUnit(bandSeed + 5) * 36 + drift;
+      ctx.fillStyle = colors[band % colors.length];
+      ctx.globalAlpha = intensity * (0.07 + band * 0.006);
+      for (let step = 0; step < length; step += 7) {
+        const wave = Math.sin(step * 0.075 + now / 5200 + bandSeed) * (4 + intensity * 4);
+        const x = startX + step;
+        const y = baseY + wave;
+        if (x < -12 || x > 524) {
+          continue;
+        }
+        ctx.fillRect(Math.round(x), Math.round(y), 8, 2);
+        if (step % 21 === 0) {
+          ctx.globalAlpha = intensity * 0.035;
+          ctx.fillRect(Math.round(x + 2), Math.round(y + 3), 12, 1);
+          ctx.globalAlpha = intensity * (0.07 + band * 0.006);
+        }
       }
     }
     ctx.restore();
@@ -259,6 +298,7 @@
         activeMeteorShower: skyEffects ? skyEffects.activeMeteorShower : null,
         meteorEvent: skyEffects ? skyEffects.meteorEvent : null,
         aurora: skyEffects ? skyEffects.aurora : null,
+        noctilucentClouds: skyEffects ? skyEffects.noctilucentClouds : null,
         discoveries: skyEffects ? skyEffects.discoveries : []
       }
     };

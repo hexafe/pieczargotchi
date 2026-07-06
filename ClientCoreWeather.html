@@ -135,6 +135,7 @@
       rainbowDropletScore: rainbow.dropletScore,
       rainbowRecentRainScore: rainbow.recentRainScore,
       rainbowSunWindowScore: rainbow.sunWindowScore,
+      rainbowRedShiftScore: rainbow.redShiftScore,
       rainbowPotential: rainbow.potential,
       rainbowVariant: rainbow.variant
     };
@@ -418,18 +419,25 @@
     const recentRainScore = getRainbowRecentRainScore(weatherHours, now);
     const sunWindowScore = getRainbowSunWindowScore(scene, factors);
     const weatherGate = getRainbowWeatherGate(scene, factors);
+    const redShiftScore = getRainbowRedShiftScore(scene, now, Object.assign({}, factors, {
+      sunWindowScore: sunWindowScore
+    }));
     const waterScore = Math.max(dropletScore, recentRainScore * 0.78);
     const potential = roundWeatherUnit(waterScore * sunWindowScore * daylightScore * weatherGate);
-    const variant = potential > 0.72 && dropletScore > 0.54 && sunWindowScore > 0.46
-      ? 'double'
-      : potential > 0.10
-        ? 'primary'
-        : 'none';
+    const strongDouble = potential > 0.72 && dropletScore > 0.54 && sunWindowScore > 0.46;
+    const variant = potential <= 0.10
+      ? 'none'
+      : redShiftScore > 0.58
+        ? (strongDouble ? 'redDouble' : 'red')
+        : strongDouble
+          ? 'double'
+          : 'primary';
 
     return {
       dropletScore: roundWeatherUnit(dropletScore),
       recentRainScore: roundWeatherUnit(recentRainScore),
       sunWindowScore: roundWeatherUnit(sunWindowScore),
+      redShiftScore: roundWeatherUnit(redShiftScore),
       potential: potential,
       variant: variant
     };
@@ -524,6 +532,61 @@
       return 0.42;
     }
     return 1;
+  }
+
+  function getRainbowRedShiftScore(scene, now, factors) {
+    if (scene.isDay === false || scene.dayPhase === 'night') {
+      return 0;
+    }
+
+    const phaseScore = scene.dayPhase === 'sunrise' || scene.dayPhase === 'sunset'
+      ? 1
+      : scene.dayPhase === 'morning'
+        ? 0.28
+        : scene.dayPhase === 'evening'
+          ? 0.34
+          : 0;
+    const toneScore = scene.dayTone === 'dawnGold' || scene.dayTone === 'duskGold'
+      ? 1
+      : scene.dayTone === 'dawnBlue' || scene.dayTone === 'duskBlue'
+        ? 0.62
+        : 0;
+    const sunTimesScore = getRainbowSunTimesLowLightScore(scene, now);
+    const lowLight = Math.max(phaseScore, toneScore, sunTimesScore);
+    if (lowLight <= 0) {
+      return 0;
+    }
+
+    const visibilityScore = factors.visibility === null
+      ? 0.82
+      : clampNumber((factors.visibility - 3600) / 5200, 0, 1, 0);
+    const lowCloudWindow = clampNumber(1 - factors.cloudCoverLow / 120, 0, 1, 1);
+    const midCloudWindow = clampNumber(1 - factors.cloudCoverMid / 140, 0, 1, 1);
+    const sunWindow = clampNumber(Number(factors.sunWindowScore), 0, 1, 0);
+    return clampNumber(lowLight * visibilityScore * (lowCloudWindow * 0.64 + midCloudWindow * 0.22 + sunWindow * 0.14), 0, 1, 0);
+  }
+
+  function getRainbowSunTimesLowLightScore(scene, now) {
+    const timestamp = now instanceof Date ? now.getTime() : normalizeDate(now).getTime();
+    const candidates = [scene.sunriseAt, scene.sunsetAt].map(function(value) {
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date.getTime();
+    }).filter(function(value) {
+      return value !== null;
+    });
+    if (!candidates.length || !Number.isFinite(timestamp)) {
+      return 0;
+    }
+
+    return candidates.reduce(function(best, time) {
+      const minutes = Math.abs(timestamp - time) / 60000;
+      const score = minutes <= 28
+        ? 1
+        : minutes <= 118
+          ? clampNumber(1 - (minutes - 28) / 90, 0, 1, 0)
+          : 0;
+      return Math.max(best, score);
+    }, 0);
   }
 
   function getPressureTrend(scene, weatherHours, previousScene, now) {

@@ -36,6 +36,18 @@
       photoCaption: 'Tęcza, która mówiła szeptem.'
     },
     {
+      id: 'redRainbow',
+      label: 'Czerwona tęcza',
+      kind: 'optics',
+      rarity: 'bardzo rzadkie',
+      reaction: 'awe',
+      photoScene: 'redRainbow',
+      description: 'Po deszczu łuk robi się prawie jednobarwny, jak cicha, rubinowa wstążka na niskim niebie.',
+      scienceNote: 'Przy świcie albo zachodzie długa droga światła przez atmosferę tłumi krótsze barwy i zostawia czerwień.',
+      conditionNote: 'Krople w powietrzu, dobra widoczność i bardzo niskie słońce.',
+      photoCaption: 'Tęcza przyszła tylko w czerwieni.'
+    },
+    {
       id: 'moonHalo',
       label: 'Halo księżycowe',
       kind: 'optics',
@@ -48,6 +60,30 @@
       photoCaption: 'Księżyc założył świetlistą obrączkę.'
     },
     {
+      id: 'sunDog',
+      label: 'Boczne słońce',
+      kind: 'optics',
+      rarity: 'rzadkie',
+      reaction: 'awe',
+      photoScene: 'sunDog',
+      description: 'Obok niskiego słońca zapala się mały, jasny kawałek tęczy.',
+      scienceNote: 'Parhelia powstają, gdy światło załamuje się w płaskich kryształkach lodu wysoko w chmurach.',
+      conditionNote: 'Niskie słońce, cienkie wysokie chmury i chłodne powietrze.',
+      photoCaption: 'Słońce miało przez chwilę małego towarzysza.'
+    },
+    {
+      id: 'lightPillar',
+      label: 'Słup światła',
+      kind: 'optics',
+      rarity: 'sezonowe',
+      reaction: 'awe',
+      photoScene: 'lightPillar',
+      description: 'Nad horyzontem stoi pionowa smuga światła, spokojna i lekko zimowa.',
+      scienceNote: 'Słupy światła tworzą się, gdy kryształki lodu odbijają niskie światło jak drobne lusterka.',
+      conditionNote: 'Mróz, spokojny wiatr, cienkie kryształki lodu i niskie światło.',
+      photoCaption: 'Niebo postawiło świecącą kolumnę.'
+    },
+    {
       id: 'sunbeams',
       label: 'Promienie przez chmury',
       kind: 'light',
@@ -58,6 +94,18 @@
       scienceNote: 'Promienie są widoczne, gdy światło rozprasza się na drobinach w powietrzu i przechodzi przez przerwy w chmurach.',
       conditionNote: 'Wschód lub zachód, niskie słońce i nierówna warstwa chmur.',
       photoCaption: 'Światło znalazło własną ścieżkę.'
+    },
+    {
+      id: 'cloudIridescence',
+      label: 'Perłowe brzegi chmur',
+      kind: 'optics',
+      rarity: 'rzadkie',
+      reaction: 'curious',
+      photoScene: 'cloudIridescence',
+      description: 'Cienkie chmury przy słońcu łapią blade róże, zielenie i fiolety jak masa perłowa.',
+      scienceNote: 'Iryzacja i korony pojawiają się, gdy światło ulega dyfrakcji na drobnych, podobnych kroplach lub kryształkach.',
+      conditionNote: 'Dzień, dobra widoczność, cienkie średnie lub wysokie chmury i brak mocnego opadu.',
+      photoCaption: 'Chmura miała na brzegu perłowy sekret.'
     },
     {
       id: 'steam',
@@ -212,7 +260,12 @@
     const fogPotential = clampNumber(Number(source.fogPotential), 0, 1, condition === 'fog' ? 0.82 : 0);
     const cloudCover = clampNumber(Number(source.cloudCover), 0, 100, 20);
     const lowCloud = clampNumber(Number(source.cloudCoverLow), 0, 100, cloudCover);
+    const midCloud = clampNumber(Number(source.cloudCoverMid), 0, 100, cloudCover);
     const highCloud = clampNumber(Number(source.cloudCoverHigh), 0, 100, cloudCover);
+    const visibility = Number(source.visibility);
+    const visibilityScore = Number.isFinite(visibility)
+      ? clampNumber((visibility - 2500) / 6200, 0, 1, 0)
+      : 0.72;
     const dayLight = getPhenomenaDaylightFactor(source, hour);
     const lowSun = getPhenomenaLowSunFactor(source, hour);
     const dawn = getPhenomenaWindow(hour, 4.5, 5.4, 7.6, 9.2);
@@ -232,6 +285,10 @@
       clampNumber((cloudCover - 52) / 44, 0, 1, 0) * 0.54
     );
     const highCloudHalo = highCloudScore * clampNumber(1 - lowCloud / 120, 0, 1, 1);
+    const thinCloudOptics = Math.max(
+      clampNumber((highCloud - 18) / 54, 0, 1, 0) * clampNumber(1 - lowCloud / 112, 0, 1, 1),
+      clampNumber((midCloud - 16) / 48, 0, 1, 0) * clampNumber(1 - lowCloud / 96, 0, 1, 1) * 0.72
+    );
     const clearingWeather = condition === 'clear' || condition === 'cloudy';
     const wetWarmWeather = condition === 'clear' || condition === 'cloudy' || condition === 'fog';
     const seed = getPhenomenaDaySeed(date) * 1291 + Math.floor(now / 300000) * 37;
@@ -252,15 +309,42 @@
       seed + 307,
       0.2
     );
+    const redRainbow = createAmbientPhenomenon('redRainbow',
+      clampNumber(Number(source.rainbowPotential), 0, 1, 0)
+        * clampNumber(Number(source.rainbowRedShiftScore), 0, 1, 0)
+        * (source.rainbowVariant === 'red' || source.rainbowVariant === 'redDouble' ? 1 : 0.32),
+      seed + 349,
+      0.18
+    );
     const moonHalo = createAmbientPhenomenon('moonHalo',
       night * highCloudHalo * noPrecip * (condition === 'storm' || condition === 'snow' ? 0 : 1),
       seed + 401,
       0.24
     );
+    const sunDog = createAmbientPhenomenon('sunDog',
+      dayLight * lowSun * highCloudHalo * visibilityScore * noHeavyPrecip
+        * (condition === 'clear' || condition === 'cloudy' ? 1 : 0.18)
+        * (temperature === null ? 0.38 : clampNumber((12 - temperature) / 22, 0, 1, 0)),
+      seed + 457,
+      0.24
+    );
+    const lightPillar = createAmbientPhenomenon('lightPillar',
+      lowSun * highCloudHalo * coldFactor * calm * noPrecip * visibilityScore
+        * (condition === 'clear' || condition === 'cloudy' || condition === 'snow' ? 1 : 0),
+      seed + 487,
+      0.2
+    );
     const sunbeams = createAmbientPhenomenon('sunbeams',
       dayLight * lowSun * cloudGap * noHeavyPrecip * (condition === 'clear' || condition === 'cloudy' ? 1 : 0.35) * pulse,
       seed + 503,
       0.26
+    );
+    const cloudIridescence = createAmbientPhenomenon('cloudIridescence',
+      dayLight * thinCloudOptics * visibilityScore * noHeavyPrecip
+        * (condition === 'clear' || condition === 'cloudy' ? 1 : 0)
+        * clampNumber(0.46 + cloudGap * 0.54, 0, 1, 0),
+      seed + 541,
+      0.22
     );
     const steam = createAmbientPhenomenon('steam',
       recentRain * warmFactor * calm * noPrecip * (wetWarmWeather ? 1 : 0) * getPhenomenaWindow(hour, 6.4, 8.4, 15.5, 18.4),
@@ -278,7 +362,7 @@
       0.24
     );
 
-    const discoveries = [dew, frost, fogbow, moonHalo, sunbeams, steam, heatHaze, clearingAfterRain]
+    const discoveries = [dew, frost, fogbow, redRainbow, moonHalo, sunDog, lightPillar, sunbeams, cloudIridescence, steam, heatHaze, clearingAfterRain]
       .filter(function(item) {
         return item.discoverable;
       })
@@ -290,8 +374,12 @@
       dew: dew,
       frost: frost,
       fogbow: fogbow,
+      redRainbow: redRainbow,
       moonHalo: moonHalo,
+      sunDog: sunDog,
+      lightPillar: lightPillar,
       sunbeams: sunbeams,
+      cloudIridescence: cloudIridescence,
       steam: steam,
       heatHaze: heatHaze,
       clearingAfterRain: clearingAfterRain,

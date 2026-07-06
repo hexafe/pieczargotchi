@@ -166,7 +166,7 @@
         return String(id).slice(0, 64);
       }).filter(Boolean).slice(0, 8);
     }
-    ['dew', 'frost', 'fogbow', 'moonHalo', 'sunbeams', 'steam', 'heatHaze', 'clearingAfterRain'].forEach(function(key) {
+    ['dew', 'frost', 'fogbow', 'redRainbow', 'moonHalo', 'sunDog', 'lightPillar', 'sunbeams', 'cloudIridescence', 'steam', 'heatHaze', 'clearingAfterRain'].forEach(function(key) {
       if (isPlainObject(source[key])) {
         result[key] = {
           visible: Boolean(source[key].visible),
@@ -258,8 +258,12 @@
         dew: environmentProfile.dew,
         frost: environmentProfile.frost,
         fogbow: environmentProfile.fogbow,
+        redRainbow: environmentProfile.redRainbow,
         moonHalo: environmentProfile.moonHalo,
+        sunDog: environmentProfile.sunDog,
+        lightPillar: environmentProfile.lightPillar,
         sunbeams: environmentProfile.sunbeams,
+        cloudIridescence: environmentProfile.cloudIridescence,
         steam: environmentProfile.steam,
         heatHaze: environmentProfile.heatHaze,
         clearingAfterRain: environmentProfile.clearingAfterRain
@@ -288,9 +292,11 @@
     const source = isPlainObject(item) ? item : {};
     const entry = isPlainObject(discovery) ? discovery : {};
     const scene = source.photoScene || source.id || '';
-    const nightScenes = ['aurora', 'moonHalo', 'comet', 'shootingStar', 'meteorShower', 'asteroidDay', 'moonDay', 'spaceWeek'];
+    const nightScenes = ['aurora', 'moonHalo', 'comet', 'shootingStar', 'meteorShower', 'noctilucentClouds', 'asteroidDay', 'moonDay', 'spaceWeek'];
     const frostScenes = ['frost', 'snowDay'];
-    const rainyScenes = ['clearingAfterRain', 'waterDay'];
+    const sunriseScenes = ['dew', 'lightPillar'];
+    const sunsetScenes = ['redRainbow', 'sunDog', 'sunbeams'];
+    const rainyScenes = ['clearingAfterRain', 'waterDay', 'redRainbow'];
     return normalizeWorldJournalPhotoSnapshotCore({
       version: 1,
       capturedAt: entry.firstSeenAt || entry.lastSeenAt || null,
@@ -304,8 +310,8 @@
       fallback: true,
       weather: {
         condition: frostScenes.includes(scene) ? 'snow' : rainyScenes.includes(scene) ? 'rain' : 'clear',
-        dayPhase: nightScenes.includes(scene) ? 'night' : scene === 'dew' ? 'morning' : 'day',
-        dayTone: nightScenes.includes(scene) ? 'night' : scene === 'dew' ? 'morning' : 'day',
+        dayPhase: nightScenes.includes(scene) ? 'night' : sunriseScenes.includes(scene) ? 'sunrise' : sunsetScenes.includes(scene) ? 'sunset' : 'day',
+        dayTone: nightScenes.includes(scene) ? 'night' : sunriseScenes.includes(scene) ? 'dawnGold' : sunsetScenes.includes(scene) ? 'duskGold' : 'day',
         isDay: !nightScenes.includes(scene),
         humidity: scene === 'dew' || rainyScenes.includes(scene) ? 92 : 60,
         precipitation: rainyScenes.includes(scene) ? 4 : 0,
@@ -1382,7 +1388,7 @@
       return item && item.reaction ? item.reaction : 'curious';
     }
     if (type === 'sky') {
-      return item && item.kind === 'meteor' ? 'awe' : item && item.kind === 'aurora' ? 'awe' : 'curious';
+      return item && (item.kind === 'meteor' || item.kind === 'aurora' || item.kind === 'twilight') ? 'awe' : 'curious';
     }
     if (item && item.kind === 'light') {
       return 'warm';
@@ -1401,7 +1407,7 @@
       return item && item.photoScene ? item.photoScene : item && item.id ? item.id : 'calendar';
     }
     if (type === 'sky') {
-      return item && item.kind === 'aurora' ? 'aurora' : item && item.kind === 'shower' ? 'meteorShower' : item && item.id === 'comet' ? 'comet' : 'shootingStar';
+      return item && item.photoScene ? item.photoScene : item && item.kind === 'aurora' ? 'aurora' : item && item.kind === 'shower' ? 'meteorShower' : item && item.id === 'comet' ? 'comet' : 'shootingStar';
     }
     return item && item.id ? item.id : 'environment';
   }
@@ -1468,6 +1474,9 @@
       }
       if (kind === 'shower') {
         return 'sezon gwiazd';
+      }
+      if (kind === 'twilight') {
+        return 'letni zmierzch';
       }
       return 'ciemne niebo';
     }

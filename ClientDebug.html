@@ -11,6 +11,8 @@
       moonPhaseOverride: 'auto',
       forcedConstellation: 'auto',
       skyEffectOverride: 'auto',
+      rainbowOverride: 'auto',
+      phenomenonOverride: 'auto',
       forcedAnimation: 'auto',
       forcedAnimationStartedAt: 0,
       neutralEasterEggOverride: 'auto',
@@ -59,8 +61,14 @@
     result.forcedConstellation = ['auto', 'bigDipper', 'cassiopeia', 'orion', 'cygnus'].includes(result.forcedConstellation)
       ? result.forcedConstellation
       : 'auto';
-    result.skyEffectOverride = ['auto', 'shootingStar', 'comet', 'perseids', 'aurora'].includes(result.skyEffectOverride)
+    result.skyEffectOverride = ['auto', 'shootingStar', 'comet', 'perseids', 'aurora', 'noctilucentClouds'].includes(result.skyEffectOverride)
       ? result.skyEffectOverride
+      : 'auto';
+    result.rainbowOverride = ['auto', 'off', 'force', 'red', 'redDouble'].includes(result.rainbowOverride)
+      ? result.rainbowOverride
+      : 'auto';
+    result.phenomenonOverride = ['auto', 'off', 'cloudIridescence', 'sunDog', 'lightPillar'].includes(result.phenomenonOverride)
+      ? result.phenomenonOverride
       : 'auto';
     result.forcedAnimation = debugAnimationOptions.some(function(option) {
       return option.id === result.forcedAnimation;
@@ -135,6 +143,9 @@
     }
     if (dom.debugSkyEffect) {
       dom.debugSkyEffect.value = debug.skyEffectOverride || 'auto';
+    }
+    if (dom.debugPhenomenon) {
+      dom.debugPhenomenon.value = debug.phenomenonOverride || 'auto';
     }
     renderDebugWeatherMeters();
     dom.debugMode.value = runtime.state && runtime.state.mode === 'sleeping' ? 'sleeping' : 'awake';
@@ -300,6 +311,15 @@
       dom.debugSkyEffect.addEventListener('change', function() {
         enableDebugMode();
         runtime.debug.skyEffectOverride = dom.debugSkyEffect.value;
+        resetDebugSceneMotion();
+        commitDebugChanges(false);
+      });
+    }
+
+    if (dom.debugPhenomenon) {
+      dom.debugPhenomenon.addEventListener('change', function() {
+        enableDebugMode();
+        runtime.debug.phenomenonOverride = dom.debugPhenomenon.value;
         resetDebugSceneMotion();
         commitDebugChanges(false);
       });

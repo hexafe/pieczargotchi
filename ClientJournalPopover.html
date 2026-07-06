@@ -504,8 +504,8 @@
 
   function drawJournalPhotoSky(ctx, width, height, item) {
     const scene = item.photoScene || item.id || '';
-    const night = ['aurora', 'moonHalo', 'comet', 'shootingStar', 'meteorShower', 'asteroidDay', 'moonDay', 'spaceWeek'].includes(scene);
-    const warm = scene === 'sunbeams' || scene === 'clearingAfterRain' || scene === 'teaDay' || scene === 'beeDay' || scene === 'biodiversityDay' || scene === 'earthDay' || scene === 'mushroomDay';
+    const night = ['aurora', 'moonHalo', 'comet', 'shootingStar', 'meteorShower', 'noctilucentClouds', 'asteroidDay', 'moonDay', 'spaceWeek'].includes(scene);
+    const warm = scene === 'sunbeams' || scene === 'redRainbow' || scene === 'sunDog' || scene === 'lightPillar' || scene === 'clearingAfterRain' || scene === 'teaDay' || scene === 'beeDay' || scene === 'biodiversityDay' || scene === 'earthDay' || scene === 'mushroomDay';
     const frost = scene === 'frost';
     const top = night ? '#222c54' : warm ? '#d9987c' : frost ? '#cbd7d5' : '#9fb8c4';
     const bottom = night ? '#4b4d70' : warm ? '#f0be85' : frost ? '#e7ebdc' : '#d8d8b3';
@@ -545,6 +545,16 @@
       drawJournalMeteorShower(ctx, width);
     } else if (scene === 'fogbow') {
       drawJournalFogbow(ctx, width, height);
+    } else if (scene === 'redRainbow') {
+      drawJournalRedRainbow(ctx, width, height);
+    } else if (scene === 'cloudIridescence') {
+      drawJournalCloudIridescence(ctx, width, height);
+    } else if (scene === 'sunDog') {
+      drawJournalSunDog(ctx, width, height);
+    } else if (scene === 'lightPillar') {
+      drawJournalLightPillar(ctx, width, height);
+    } else if (scene === 'noctilucentClouds') {
+      drawJournalNoctilucentClouds(ctx, width, height);
     } else if (scene === 'sunbeams') {
       drawJournalSunbeams(ctx, width, height);
     } else if (scene === 'dew' || scene === 'frost') {
@@ -630,6 +640,54 @@
     ctx.beginPath();
     ctx.arc(width / 2, height + 18, 86, Math.PI * 1.08, Math.PI * 1.92);
     ctx.stroke();
+  }
+
+  function drawJournalRedRainbow(ctx, width, height) {
+    ['rgba(142,47,56,0.58)', 'rgba(216,90,66,0.5)', 'rgba(255,173,97,0.42)'].forEach(function(color, index) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(width / 2, height + 20, 92 - index * 7, Math.PI * 1.08, Math.PI * 1.92);
+      ctx.stroke();
+    });
+  }
+
+  function drawJournalCloudIridescence(ctx, width) {
+    ['#ffd8d6', '#f4ffa8', '#bff7e8', '#c8d5ff'].forEach(function(color, index) {
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.34;
+      ctx.fillRect(38 + index * 14, 34 + index * 4, 58, 3);
+      ctx.fillRect(54 + index * 12, 42 + index * 3, 42, 2);
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  function drawJournalSunDog(ctx, width) {
+    ctx.fillStyle = '#ffd978';
+    ctx.fillRect(width - 52, 28, 12, 12);
+    ctx.fillStyle = 'rgba(255,196,118,0.52)';
+    ctx.fillRect(width - 112, 33, 28, 4);
+    ctx.fillStyle = 'rgba(216,106,102,0.38)';
+    ctx.fillRect(width - 106, 39, 18, 2);
+  }
+
+  function drawJournalLightPillar(ctx, width, height) {
+    const x = width - 48;
+    ctx.fillStyle = 'rgba(255,232,160,0.36)';
+    ctx.fillRect(x, 24, 7, height - 56);
+    ctx.fillStyle = '#ffe9a8';
+    ctx.fillRect(x - 9, height - 34, 25, 2);
+  }
+
+  function drawJournalNoctilucentClouds(ctx, width) {
+    ['rgba(216,241,255,0.48)', 'rgba(184,215,255,0.38)', 'rgba(238,248,255,0.42)'].forEach(function(color, band) {
+      ctx.fillStyle = color;
+      for (let step = 0; step < 9; step += 1) {
+        const x = 8 + step * 23;
+        const y = 26 + band * 12 + Math.round(Math.sin(step * 0.9 + band) * 4);
+        ctx.fillRect(x, y, 24, 2);
+      }
+    });
   }
 
   function drawJournalSunbeams(ctx, width, height) {

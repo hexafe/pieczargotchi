@@ -304,6 +304,48 @@ test('weather immersion carries weak rainbow potential after recent rain and cle
   assert(immersion.rainbowPotential > 0.05, `expected weak post-rain rainbow potential, got ${immersion.rainbowPotential}`);
 });
 
+test('weather immersion exposes red rainbow only during low warm light', () => {
+  const red = core.deriveWeatherImmersionFields({
+    condition: 'rain',
+    dayPhase: 'sunset',
+    dayTone: 'duskGold',
+    isDay: true,
+    cloudCover: 36,
+    cloudCoverLow: 14,
+    cloudCoverMid: 24,
+    cloudCoverHigh: 30,
+    precipitation: 2.2,
+    rain: 1.8,
+    showers: 0.7,
+    snowfall: 0,
+    humidity: 90,
+    visibility: 10200,
+    windSpeed: 7
+  }, [], null, Date.parse('2026-09-12T18:02:00.000Z'));
+  const noon = core.deriveWeatherImmersionFields({
+    condition: 'rain',
+    dayPhase: 'noon',
+    dayTone: 'neutral',
+    isDay: true,
+    cloudCover: 36,
+    cloudCoverLow: 14,
+    cloudCoverMid: 24,
+    cloudCoverHigh: 30,
+    precipitation: 2.2,
+    rain: 1.8,
+    showers: 0.7,
+    snowfall: 0,
+    humidity: 90,
+    visibility: 10200,
+    windSpeed: 7
+  }, [], null, Date.parse('2026-09-12T12:02:00.000Z'));
+
+  assert(red.rainbowRedShiftScore > 0.58, `expected strong red-shift score, got ${red.rainbowRedShiftScore}`);
+  assert(red.rainbowVariant === 'red' || red.rainbowVariant === 'redDouble', `expected red rainbow variant, got ${red.rainbowVariant}`);
+  assert(noon.rainbowRedShiftScore === 0, `expected noon red-shift suppression, got ${noon.rainbowRedShiftScore}`);
+  assert(noon.rainbowVariant === 'primary' || noon.rainbowVariant === 'double', `expected noon regular rainbow, got ${noon.rainbowVariant}`);
+});
+
 test('weather immersion suppresses rainbow for dry clear, snow, and night scenes', () => {
   const dry = core.deriveWeatherImmersionFields({
     condition: 'clear',
@@ -2194,6 +2236,7 @@ test('ambient sky suppresses meteors and aurora in storm weather', () => {
   assert(profile.starVisibility < 0.05, `expected hidden stars, got ${profile.starVisibility}`);
   assert(!profile.meteorEvent, 'expected no meteor in storm');
   assert(!profile.aurora.visible, 'expected aurora hidden in storm');
+  assert(!profile.noctilucentClouds.visible, 'expected noctilucent clouds hidden in storm');
 });
 
 test('ambient sky uses live Kp for aurora eligibility', () => {
@@ -2210,6 +2253,25 @@ test('ambient sky uses live Kp for aurora eligibility', () => {
 
   assert(profile.aurora.visible, 'expected live Kp aurora in Tromso');
   assert(profile.aurora.source === 'live', `expected live source, got ${profile.aurora.source}`);
+});
+
+test('ambient sky recognizes noctilucent clouds in clear summer twilight', () => {
+  const profile = core.calculateAmbientSkyEffects({
+    condition: 'clear',
+    isDay: false,
+    dayPhase: 'sunset',
+    dayTone: 'duskBlue',
+    latitude: 50.2649,
+    longitude: 19.0238,
+    cloudCover: 4,
+    cloudCoverLow: 0,
+    cloudCoverMid: 2,
+    cloudCoverHigh: 8,
+    precipitation: 0
+  }, new Date(2026, 5, 21, 22, 5), Date.parse('2026-06-21T20:05:00.000Z'));
+
+  assert(profile.noctilucentClouds.visible, `expected noctilucent clouds, got ${profile.noctilucentClouds.intensity}`);
+  assert(profile.discoveries.includes('noctilucentClouds'), 'expected noctilucent discovery');
 });
 
 test('ambient environment phenomena detect moisture, optics, light, and heat windows', () => {
@@ -2265,6 +2327,23 @@ test('ambient environment phenomena detect moisture, optics, light, and heat win
   }, fogbowDate, fogbowDate.getTime());
   assert(fogbow.fogbow.visible, `expected visible fogbow, got ${fogbow.fogbow.intensity}`);
 
+  const redRainbowDate = new Date(2026, 8, 12, 18, 2);
+  const redRainbow = core.calculateAmbientPhenomena({
+    condition: 'rain',
+    isDay: true,
+    dayPhase: 'sunset',
+    dayTone: 'duskGold',
+    precipitation: 1.8,
+    rainbowPotential: 0.82,
+    rainbowRedShiftScore: 0.86,
+    rainbowVariant: 'redDouble',
+    cloudCover: 36,
+    cloudCoverLow: 14,
+    cloudCoverMid: 24,
+    cloudCoverHigh: 30
+  }, redRainbowDate, redRainbowDate.getTime());
+  assert(redRainbow.redRainbow.visible, `expected visible red rainbow, got ${redRainbow.redRainbow.intensity}`);
+
   const haloDate = new Date(2026, 10, 22, 23, 30);
   const halo = core.calculateAmbientPhenomena({
     condition: 'cloudy',
@@ -2276,6 +2355,59 @@ test('ambient environment phenomena detect moisture, optics, light, and heat win
     cloudCoverHigh: 84
   }, haloDate, haloDate.getTime());
   assert(halo.moonHalo.visible, `expected visible moon halo, got ${halo.moonHalo.intensity}`);
+
+  const crystalDate = new Date(2026, 0, 18, 15, 25);
+  const crystalOptics = core.calculateAmbientPhenomena({
+    condition: 'clear',
+    isDay: true,
+    dayPhase: 'sunset',
+    dayTone: 'duskGold',
+    temperature: -5,
+    humidity: 72,
+    windLevel: 0.03,
+    precipitation: 0,
+    visibility: 11000,
+    cloudCover: 54,
+    cloudCoverLow: 6,
+    cloudCoverMid: 18,
+    cloudCoverHigh: 74
+  }, crystalDate, crystalDate.getTime());
+  assert(crystalOptics.sunDog.visible, `expected visible sun dog, got ${crystalOptics.sunDog.intensity}`);
+
+  const pillarDate = new Date(2026, 0, 18, 7, 5);
+  const pillar = core.calculateAmbientPhenomena({
+    condition: 'clear',
+    isDay: true,
+    dayPhase: 'sunrise',
+    dayTone: 'dawnGold',
+    temperature: -8,
+    humidity: 78,
+    windLevel: 0.02,
+    precipitation: 0,
+    visibility: 9000,
+    cloudCover: 58,
+    cloudCoverLow: 5,
+    cloudCoverMid: 16,
+    cloudCoverHigh: 82
+  }, pillarDate, pillarDate.getTime());
+  assert(pillar.lightPillar.visible, `expected visible light pillar, got ${pillar.lightPillar.intensity}`);
+
+  const iridescenceDate = new Date(2026, 5, 21, 15, 40);
+  const iridescence = core.calculateAmbientPhenomena({
+    condition: 'clear',
+    isDay: true,
+    dayPhase: 'afternoon',
+    temperature: 22,
+    humidity: 58,
+    windLevel: 0.12,
+    precipitation: 0,
+    visibility: 12000,
+    cloudCover: 44,
+    cloudCoverLow: 4,
+    cloudCoverMid: 46,
+    cloudCoverHigh: 62
+  }, iridescenceDate, iridescenceDate.getTime());
+  assert(iridescence.cloudIridescence.visible, `expected visible cloud iridescence, got ${iridescence.cloudIridescence.intensity}`);
 
   const steamDate = new Date(2026, 8, 12, 9, 20);
   const steam = core.calculateAmbientPhenomena({

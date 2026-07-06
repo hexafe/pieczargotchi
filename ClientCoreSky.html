@@ -36,6 +36,18 @@
       photoCaption: 'Tego światła nie da się pomylić z niczym innym.'
     },
     {
+      id: 'noctilucentClouds',
+      label: 'Obłoki świecące nocą',
+      kind: 'twilight',
+      rarity: 'bardzo rzadkie',
+      reaction: 'awe',
+      photoScene: 'noctilucentClouds',
+      description: 'Po zmierzchu wysoko nad trawą falują srebrno-niebieskie pasma, jakby noc miała własne chmury.',
+      scienceNote: 'Obłoki świecące nocą są bardzo wysokimi chmurami lodowymi widocznymi, gdy Słońce oświetla je spod horyzontu.',
+      conditionNote: 'Letni świt albo zmierzch, czysty horyzont i mało niskich chmur.',
+      photoCaption: 'Noc zostawiła na niebie srebrny ślad.'
+    },
+    {
       id: 'perseids',
       label: 'Perseidy',
       kind: 'shower',
@@ -114,6 +126,7 @@
     const activeMeteorShower = getActiveMeteorShower(date);
     const meteorEvent = getAmbientMeteorEvent(source, date, now, starVisibility, activeMeteorShower, override);
     const aurora = getAmbientAuroraProfile(source, date, now, starVisibility, spaceWeather, override);
+    const noctilucentClouds = getAmbientNoctilucentCloudsProfile(source, date, now, override);
     const discoveries = [];
 
     if (meteorEvent && meteorEvent.visible) {
@@ -122,12 +135,16 @@
     if (aurora.visible) {
       discoveries.push('aurora');
     }
+    if (noctilucentClouds.visible) {
+      discoveries.push('noctilucentClouds');
+    }
 
     return {
       starVisibility: roundSkyValue(starVisibility),
       activeMeteorShower: activeMeteorShower,
       meteorEvent: meteorEvent,
       aurora: aurora,
+      noctilucentClouds: noctilucentClouds,
       discoveries: discoveries
     };
   }
@@ -407,6 +424,68 @@
       hueShift: roundSkyValue(skySeededUnit(fallbackSeed + 31)),
       seed: fallbackSeed
     };
+  }
+
+  function getAmbientNoctilucentCloudsProfile(scene, date, now, override) {
+    const forced = override === 'noctilucentClouds';
+    const latitude = Number(scene.latitude);
+    const absLatitude = Math.abs(Number.isFinite(latitude) ? latitude : 50.2649);
+    const latitudeScore = clampNumber((absLatitude - 44) / 18, 0, 1, 0) * clampNumber((74 - absLatitude) / 12, 0, 1, 0);
+    const seasonScore = getNoctilucentSeasonFactor(date, Number.isFinite(latitude) ? latitude : 50.2649);
+    const twilightScore = getNoctilucentTwilightFactor(scene, date);
+    const precipitation = Math.max(0, Number(scene.precipitation) || 0, Number(scene.rain) || 0, Number(scene.snowfall) || 0);
+    const cloudCover = clampNumber(Number(scene.cloudCover), 0, 100, 18);
+    const lowCloud = clampNumber(Number(scene.cloudCoverLow), 0, 100, cloudCover);
+    const midCloud = clampNumber(Number(scene.cloudCoverMid), 0, 100, cloudCover);
+    const horizonScore = clampNumber(1 - (lowCloud * 0.62 + midCloud * 0.28 + cloudCover * 0.10) / 78, 0, 1, 1);
+    const weatherScore = (scene.condition === 'storm' || scene.condition === 'rain' || scene.condition === 'snow' || precipitation > 0.08)
+      ? 0
+      : horizonScore;
+    const seed = getSkyDaySeed(date) * 929 + Math.floor(now / 600000) * 43;
+    const rarePulse = 0.72 + skySeededUnit(seed + 17) * 0.28;
+    const intensity = forced
+      ? 0.78
+      : clampNumber(latitudeScore * seasonScore * twilightScore * weatherScore * rarePulse, 0, 1, 0);
+
+    return {
+      visible: forced || intensity > 0.16,
+      potential: roundSkyValue(latitudeScore * seasonScore * twilightScore * weatherScore),
+      intensity: roundSkyValue(intensity),
+      bandCount: 3 + Math.round(intensity * 3),
+      seed: seed
+    };
+  }
+
+  function getNoctilucentSeasonFactor(date, latitude) {
+    const month = date.getMonth();
+    const northern = latitude >= 0;
+    const peakMonths = northern ? [5, 6] : [11, 0];
+    const shoulderMonths = northern ? [4, 7] : [10, 1];
+    if (peakMonths.indexOf(month) !== -1) {
+      return 1;
+    }
+    if (shoulderMonths.indexOf(month) !== -1) {
+      return 0.42;
+    }
+    return 0;
+  }
+
+  function getNoctilucentTwilightFactor(scene, date) {
+    if (scene.dayTone === 'duskBlue' || scene.dayTone === 'dawnBlue') {
+      return 1;
+    }
+    if (scene.dayPhase === 'sunset' || scene.dayPhase === 'sunrise') {
+      return 0.74;
+    }
+    if (scene.dayPhase === 'evening') {
+      return 0.48;
+    }
+
+    const hour = date.getHours() + date.getMinutes() / 60;
+    return Math.max(
+      smoothSkyStep(3.45, 4.45, hour) * (1 - smoothSkyStep(5.55, 6.35, hour)),
+      smoothSkyStep(20.0, 21.0, hour) * (1 - smoothSkyStep(22.8, 23.7, hour))
+    );
   }
 
   function getSpaceWeatherValues(scene, spaceWeather) {

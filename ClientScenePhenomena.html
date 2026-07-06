@@ -11,6 +11,45 @@
     syncEnvironmentDiscoveries(profile, now);
   }
 
+  function drawAmbientPhenomenaCloudOptics(ctx, scene, palette, now) {
+    const profile = getAmbientPhenomenaProfile(scene, now);
+    if (!profile) {
+      recordCloudOpticsPhenomenonDiagnostics(null);
+      return;
+    }
+
+    recordCloudOpticsPhenomenonDiagnostics(profile);
+    drawCloudIridescencePhenomenon(ctx, scene, profile.cloudIridescence, now);
+    drawSunDogPhenomenon(ctx, scene, profile.sunDog, now);
+    drawLightPillarPhenomenon(ctx, scene, profile.lightPillar, now);
+  }
+
+  function recordCloudOpticsPhenomenonDiagnostics(profile) {
+    if (!runtime || !runtime.motionDiagnostics) {
+      return;
+    }
+    if (!profile) {
+      runtime.motionDiagnostics.cloudOptics = null;
+      return;
+    }
+    runtime.motionDiagnostics.cloudOptics = {
+      cloudIridescence: summarizePhenomenonDiagnostics(profile.cloudIridescence),
+      sunDog: summarizePhenomenonDiagnostics(profile.sunDog),
+      lightPillar: summarizePhenomenonDiagnostics(profile.lightPillar)
+    };
+  }
+
+  function summarizePhenomenonDiagnostics(phenomenon) {
+    if (!phenomenon) {
+      return null;
+    }
+    return {
+      visible: Boolean(phenomenon.visible),
+      discoverable: Boolean(phenomenon.discoverable),
+      intensity: Number(clamp(Number(phenomenon.intensity), 0, 1, 0).toFixed(3))
+    };
+  }
+
   function drawAmbientPhenomenaGround(ctx, scene, palette, now) {
     const profile = getAmbientPhenomenaProfile(scene, now);
     if (!profile) {
@@ -29,7 +68,54 @@
       return null;
     }
 
-    return core.calculateAmbientPhenomena(scene, getRuntimeDate(), getRuntimeNow());
+    return applyAmbientPhenomenaDebugOverride(core.calculateAmbientPhenomena(scene, getRuntimeDate(), getRuntimeNow()));
+  }
+
+  function applyAmbientPhenomenaDebugOverride(profile) {
+    if (!profile || !runtime || !runtime.debug || !runtime.debug.enabled) {
+      return profile;
+    }
+
+    const override = runtime.debug.phenomenonOverride || 'auto';
+    if (override === 'auto') {
+      return profile;
+    }
+
+    const targets = ['cloudIridescence', 'sunDog', 'lightPillar'];
+    const result = Object.assign({}, profile, {
+      discoveries: Array.isArray(profile.discoveries) ? profile.discoveries.slice() : []
+    });
+
+    if (override === 'off') {
+      targets.forEach(function(id) {
+        if (result[id]) {
+          result[id] = Object.assign({}, result[id], {
+            intensity: 0,
+            visible: false,
+            discoverable: false
+          });
+        }
+      });
+      result.discoveries = result.discoveries.filter(function(id) {
+        return !targets.includes(id);
+      });
+      return result;
+    }
+
+    if (!targets.includes(override) || !result[override]) {
+      return result;
+    }
+
+    result[override] = Object.assign({}, result[override], {
+      intensity: Math.max(0.86, Number(result[override].intensity) || 0),
+      visible: true,
+      discoverable: true,
+      seed: Number(result[override].seed) || Math.floor(getRuntimeNow() / 300000)
+    });
+    if (!result.discoveries.includes(override)) {
+      result.discoveries.push(override);
+    }
+    return result;
   }
 
   function drawSunbeamPhenomenon(ctx, scene, phenomenon, now) {
@@ -116,6 +202,156 @@
       return;
     }
     runtime.motionDiagnostics.sunbeams = sample;
+  }
+
+  function drawCloudIridescencePhenomenon(ctx, scene, phenomenon, now) {
+    if (!phenomenon || !phenomenon.visible) {
+      return;
+    }
+
+    const intensity = clamp(Number(phenomenon.intensity), 0, 1, 0);
+    const sun = typeof getSunPosition === 'function' ? getSunPosition(scene, getRuntimeDate()) : null;
+    const centerX = sun ? sun.x + sun.size / 2 : 300 + (seededUnit(phenomenon.seed + 9) - 0.5) * 130;
+    const centerY = sun ? sun.y + sun.size / 2 : 92;
+    const display = clamp(0.42 + intensity * 0.86, 0, 1, 0.5);
+    const colors = ['#ff9dad', '#ffd86d', '#9eea9c', '#76c9ec', '#c797ff'];
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    for (let patch = 0; patch < 4; patch += 1) {
+      const seed = phenomenon.seed + patch * 67;
+      const side = patch % 2 === 0 ? -1 : 1;
+      const baseX = clamp(
+        centerX + side * (34 + seededUnit(seed + 1) * 86) + Math.sin(now / (7400 + patch * 500) + seed) * 5,
+        20,
+        470,
+        centerX
+      );
+      const baseY = clamp(
+        centerY + 12 + seededUnit(seed + 2) * 84 + Math.sin(now / 6200 + seed) * 3,
+        44,
+        190,
+        96
+      );
+      const length = 28 + seededUnit(seed + 3) * 46;
+      for (let stripe = 0; stripe < 4; stripe += 1) {
+        ctx.fillStyle = colors[(patch + stripe) % colors.length];
+        ctx.globalAlpha = display * (0.14 + stripe * 0.018);
+        const y = baseY + stripe * 4 + Math.sin(now / 5200 + seed + stripe) * 2;
+        for (let step = 0; step < length; step += 8) {
+          const taper = 1 - Math.abs(step / length - 0.5) * 1.2;
+          const x = baseX + step * side + Math.sin(step * 0.16 + now / 4600 + seed) * 3;
+          ctx.fillRect(Math.round(x), Math.round(y), Math.max(4, Math.round(8 * taper)), 3);
+        }
+      }
+      if (patch % 2 === 0) {
+        ctx.fillStyle = colors[(patch + 2) % colors.length];
+        ctx.globalAlpha = display * 0.1;
+        ctx.fillRect(Math.round(baseX - side * length * 0.26), Math.round(baseY - 5), Math.round(length * 0.28), 3);
+      }
+    }
+    if (sun) {
+      for (let ring = 0; ring < colors.length; ring += 1) {
+        ctx.fillStyle = colors[ring];
+        ctx.globalAlpha = display * (0.17 - ring * 0.012);
+        const radius = 28 + ring * 7;
+        for (let angle = -0.35; angle <= Math.PI + 0.35; angle += 0.18) {
+          const wobble = Math.sin(now / 4200 + angle * 3 + ring) * 1.8;
+          const x = centerX + Math.cos(angle) * (radius + wobble);
+          const y = centerY + 8 + Math.sin(angle) * (radius * 0.42 + wobble);
+          if (x < 8 || x > 504 || y < 20 || y > 214) {
+            continue;
+          }
+          ctx.fillRect(Math.round(x), Math.round(y), 5, 3);
+        }
+      }
+    }
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = '#fff8d0';
+    ctx.globalAlpha = display * 0.09;
+    ctx.fillRect(Math.round(centerX - 42), Math.round(centerY + 24), 84, 4);
+    ctx.restore();
+  }
+
+  function drawSunDogPhenomenon(ctx, scene, phenomenon, now) {
+    if (!phenomenon || !phenomenon.visible) {
+      return;
+    }
+
+    const sun = typeof getSunPosition === 'function' ? getSunPosition(scene, getRuntimeDate()) : null;
+    if (!sun) {
+      return;
+    }
+
+    const intensity = clamp(Number(phenomenon.intensity), 0, 1, 0);
+    const sunX = sun.x + sun.size / 2;
+    const sunY = sun.y + sun.size / 2;
+    const display = clamp(0.48 + intensity * 0.78, 0, 1, 0.58);
+    const colors = ['#fff0a8', '#ffad5e', '#d95b60', '#8ecfff'];
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    [-1, 1].forEach(function(side) {
+      const baseX = sunX + side * (74 + seededUnit(phenomenon.seed + 4 + side * 11) * 36);
+      if (baseX < 20 || baseX > 492) {
+        return;
+      }
+      const baseY = clamp(sunY + Math.sin(now / 6800 + phenomenon.seed + side) * 5, 28, 236, 96);
+      ctx.fillStyle = '#fff8c9';
+      ctx.globalAlpha = display * 0.28;
+      ctx.fillRect(Math.round(baseX - 12), Math.round(baseY - 14), 24, 30);
+      ctx.globalAlpha = display * 0.17;
+      ctx.fillRect(Math.round(baseX - 26), Math.round(baseY - 6), 52, 12);
+      for (let band = 0; band < colors.length; band += 1) {
+        ctx.fillStyle = colors[band];
+        ctx.globalAlpha = display * (0.36 - band * 0.034);
+        for (let step = -5; step <= 5; step += 1) {
+          const x = baseX + step * 5;
+          const y = baseY + band * 4 + Math.sin(step * 0.82 + now / 3200 + band + side) * (2 + band * 0.3);
+          const width = band === 0 ? 6 : 5;
+          ctx.fillRect(Math.round(x), Math.round(y), width, band === 0 ? 4 : 3);
+        }
+      }
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = display * 0.18;
+      ctx.fillStyle = '#fff4b4';
+      ctx.fillRect(Math.round(baseX - 3), Math.round(baseY - 22), 6, 46);
+      ctx.globalAlpha = display * 0.08;
+      ctx.fillRect(Math.round(Math.min(baseX, sunX)), Math.round(baseY - 1), Math.round(Math.abs(baseX - sunX)), 3);
+      ctx.globalCompositeOperation = 'source-over';
+    });
+    ctx.restore();
+  }
+
+  function drawLightPillarPhenomenon(ctx, scene, phenomenon, now) {
+    if (!phenomenon || !phenomenon.visible) {
+      return;
+    }
+
+    const sun = typeof getSunPosition === 'function' ? getSunPosition(scene, getRuntimeDate()) : null;
+    const intensity = clamp(Number(phenomenon.intensity), 0, 1, 0);
+    const fallbackX = scene && scene.dayPhase === 'sunrise' ? 132 : (scene && scene.dayPhase === 'sunset' ? 392 : 256);
+    const anchorX = sun ? sun.x + sun.size / 2 : fallbackX;
+    const horizonY = sun ? clamp(sun.y + sun.size + 42, 286, 354, 324) : 318;
+    const display = clamp(0.5 + intensity * 0.82, 0, 1, 0.58);
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = '#ffe3a8';
+    ctx.globalAlpha = display * 0.14;
+    ctx.fillRect(Math.round(anchorX - 34), Math.round(horizonY - 176), 68, 176);
+    for (let column = 0; column < 5; column += 1) {
+      const offset = (column - 2) * 6 + Math.sin(now / 5400 + phenomenon.seed + column) * 2;
+      const width = column === 2 ? 17 : 10;
+      const height = 138 + seededUnit(phenomenon.seed + column * 13) * 54;
+      ctx.fillStyle = column % 2 === 0 ? '#fff0b8' : '#cfe5ff';
+      ctx.globalAlpha = display * (0.25 - Math.abs(column - 2) * 0.036);
+      ctx.fillRect(Math.round(anchorX + offset - width / 2), Math.round(horizonY - height), width, Math.round(height));
+    }
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = display * 0.3;
+    ctx.fillStyle = '#fff4c4';
+    ctx.fillRect(Math.round(anchorX - 42), horizonY, 84, 5);
+    ctx.globalAlpha = display * 0.16;
+    ctx.fillRect(Math.round(anchorX - 20), Math.round(horizonY - 190), 40, 7);
+    ctx.restore();
   }
 
   function drawFogbowPhenomenon(ctx, scene, phenomenon, now) {
