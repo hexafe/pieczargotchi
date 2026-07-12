@@ -21,10 +21,7 @@
       const drawAlpha = weatherAlpha * twilightAlpha * sun.alpha * sunVisibility;
       ctx.globalAlpha = drawAlpha;
       if (drawAlpha > 0.015) {
-        ctx.fillStyle = palette.sun || '#ffe596';
-        ctx.fillRect(sun.x, sun.y, sun.size, sun.size);
-        ctx.fillStyle = palette.sunCore || '#fff3b8';
-        ctx.fillRect(sun.x + sun.coreInset, sun.y + sun.coreInset, sun.coreSize, sun.coreSize);
+        drawPixelSun(ctx, sun, palette, now);
         drawCelestialMoodFace(ctx, sun, 'sun', drawAlpha, now, palette);
       }
       sunDiagnostics = {
@@ -75,17 +72,35 @@
       };
     }
 
-    drawAurora(ctx, skyEffects.aurora, now);
-    drawNoctilucentClouds(ctx, skyEffects.noctilucentClouds, now);
+    if (runtime) {
+      runtime.celestialEmissiveFrame = {
+        frameNow: Number(now) || 0,
+        scene: scene,
+        skyScene: skyScene,
+        date: date,
+        skyEffects: skyEffects,
+        visualNightFactor: visualNightFactor
+      };
+    }
+    recordCelestialDiagnostics(skyScene, date, sunDiagnostics, moonDiagnostics, skyEffects);
+    syncSkyDiscoveries(skyEffects, getRuntimeNow());
+    ctx.restore();
+  }
 
-    const cloudStarVisibility = getCelestialCloudVisibility(scene, now, 'stars');
-    const eventStarVisibility = Math.min(cloudStarVisibility, skyEffects.starVisibility);
+  function drawCelestialEmissiveLayer(ctx, scene, palette, now) {
+    const frame = getCelestialEmissiveFrame(scene, palette, now);
+    const cloudStarVisibility = getCelestialCloudVisibility(frame.scene, now, 'stars');
+    const eventStarVisibility = Math.min(cloudStarVisibility, frame.skyEffects.starVisibility);
     const starVisibility = Math.min(
       cloudStarVisibility,
-      Math.max(skyEffects.starVisibility, visualNightFactor * 0.84)
+      Math.max(frame.skyEffects.starVisibility, frame.visualNightFactor * 0.84)
     );
+
+    ctx.save();
+    drawAurora(ctx, frame.skyEffects.aurora, now);
+    drawNoctilucentClouds(ctx, frame.skyEffects.noctilucentClouds, now);
     if (starVisibility > 0.02) {
-      drawVisibleConstellation(ctx, scene, date, now, starVisibility);
+      drawVisibleConstellation(ctx, frame.scene, frame.date, now, starVisibility);
       ctx.globalAlpha = 0.72 * starVisibility;
       for (let index = 0; index < 11; index += 1) {
         const x = 42 + index * 38 + ((index * 17) % 19);
@@ -96,10 +111,116 @@
         ctx.fillRect(x, y, 3, 3);
       }
     }
-    drawMeteorEvent(ctx, skyEffects.meteorEvent, eventStarVisibility, now);
-    recordCelestialDiagnostics(skyScene, date, sunDiagnostics, moonDiagnostics, skyEffects);
-    syncSkyDiscoveries(skyEffects, now);
+    drawMeteorEvent(ctx, frame.skyEffects.meteorEvent, eventStarVisibility, now);
     ctx.restore();
+  }
+
+  function getCelestialEmissiveFrame(scene, palette, now) {
+    const frameNow = Number(now) || 0;
+    const cached = runtime && runtime.celestialEmissiveFrame;
+    if (cached && cached.frameNow === frameNow) {
+      return cached;
+    }
+
+    const date = getRuntimeDate();
+    const lighting = palette && palette.lighting
+      ? palette.lighting
+      : (typeof getSceneLightingProfile === 'function' ? getSceneLightingProfile(scene || {}, date) : null);
+    const observer = getSceneObserver(scene || {});
+    const skyScene = Object.assign({}, scene || {}, {
+      latitude: observer.latitude,
+      longitude: observer.longitude,
+      skyEffectOverride: getDebugSkyEffectOverride()
+    });
+    return {
+      frameNow: frameNow,
+      scene: scene || {},
+      skyScene: skyScene,
+      date: date,
+      skyEffects: getAmbientSkyEffects(skyScene, date, getRuntimeNow()),
+      visualNightFactor: lighting ? clamp(Number(lighting.nightFactor), 0, 1, 0) : 0
+    };
+  }
+
+  function drawPixelSun(ctx, sun, palette, now) {
+    const size = Math.max(12, Math.round(Number(sun && sun.size) || 40));
+    const x = Math.round(Number(sun && sun.x) || 0);
+    const y = Math.round(Number(sun && sun.y) || 0);
+    const centerX = x + Math.floor(size / 2);
+    const centerY = y + Math.floor(size / 2);
+    const pixel = Math.max(2, Math.round(size / 14));
+    const pulse = Math.sin((Number(now) || 0) / 920) > 0 ? pixel : 0;
+    const corona = palette && palette.sun || '#ffe596';
+    const core = palette && palette.sunCore || '#fff3b8';
+
+    ctx.save();
+    const inheritedAlpha = Number.isFinite(Number(ctx.globalAlpha)) ? Number(ctx.globalAlpha) : 1;
+    ctx.fillStyle = corona;
+    ctx.globalAlpha = inheritedAlpha * 0.16;
+    drawPixelSunRing(ctx, centerX, centerY, Math.round(size * 0.76) + pulse, pixel * 2);
+    ctx.globalAlpha = inheritedAlpha * 0.28;
+    drawPixelSunRing(ctx, centerX, centerY, Math.round(size * 0.61), pixel);
+
+    ctx.globalAlpha = inheritedAlpha * 0.56;
+    drawPixelSunRay(ctx, centerX, centerY, 0, -1, size, pixel, pulse);
+    drawPixelSunRay(ctx, centerX, centerY, 1, 0, size, pixel, 0);
+    drawPixelSunRay(ctx, centerX, centerY, 0, 1, size, pixel, pulse);
+    drawPixelSunRay(ctx, centerX, centerY, -1, 0, size, pixel, 0);
+    drawPixelSunRay(ctx, centerX, centerY, 1, -1, size, pixel, 0);
+    drawPixelSunRay(ctx, centerX, centerY, 1, 1, size, pixel, pulse);
+    drawPixelSunRay(ctx, centerX, centerY, -1, 1, size, pixel, 0);
+    drawPixelSunRay(ctx, centerX, centerY, -1, -1, size, pixel, pulse);
+
+    ctx.globalAlpha = inheritedAlpha;
+    ctx.fillStyle = corona;
+    const edge = Math.max(pixel * 2, Math.round(size * 0.16));
+    ctx.fillRect(x + edge, y, size - edge * 2, size);
+    ctx.fillRect(x, y + edge, size, size - edge * 2);
+    ctx.fillRect(x + pixel, y + pixel, size - pixel * 2, size - pixel * 2);
+    ctx.fillStyle = core;
+    const coreInset = Math.max(edge, Number(sun && sun.coreInset) || edge);
+    const coreSize = Math.max(pixel * 2, size - coreInset * 2);
+    ctx.fillRect(x + coreInset, y + coreInset, coreSize, coreSize);
+    ctx.restore();
+  }
+
+  function drawPixelSunRing(ctx, centerX, centerY, radius, thickness) {
+    const step = Math.max(2, Math.round(thickness));
+    const half = Math.max(step, Math.round(radius * 0.64));
+    ctx.fillRect(centerX - half, centerY - radius, half * 2, step);
+    ctx.fillRect(centerX - half, centerY + radius - step, half * 2, step);
+    ctx.fillRect(centerX - radius, centerY - half, step, half * 2);
+    ctx.fillRect(centerX + radius - step, centerY - half, step, half * 2);
+    ctx.fillRect(centerX - radius + step, centerY - radius + step, step * 2, step);
+    ctx.fillRect(centerX + radius - step * 3, centerY - radius + step, step * 2, step);
+    ctx.fillRect(centerX - radius + step, centerY + radius - step * 2, step * 2, step);
+    ctx.fillRect(centerX + radius - step * 3, centerY + radius - step * 2, step * 2, step);
+  }
+
+  function drawPixelSunRay(ctx, centerX, centerY, directionX, directionY, size, pixel, pulse) {
+    const diagonal = directionX !== 0 && directionY !== 0;
+    const distance = Math.round(size * (diagonal ? 0.76 : 0.82)) + pulse;
+    const length = Math.max(pixel * 2, Math.round(size * (diagonal ? 0.14 : 0.2)));
+    const startX = centerX + directionX * distance;
+    const startY = centerY + directionY * distance;
+    if (diagonal) {
+      const steps = Math.max(2, Math.round(length / pixel));
+      for (let index = 0; index < steps; index += 1) {
+        ctx.fillRect(
+          Math.round(startX + directionX * index * pixel),
+          Math.round(startY + directionY * index * pixel),
+          pixel,
+          pixel
+        );
+      }
+      return;
+    }
+    ctx.fillRect(
+      directionX < 0 ? startX - length : startX,
+      directionY < 0 ? startY - length : startY,
+      directionX === 0 ? pixel : length,
+      directionY === 0 ? pixel : length
+    );
   }
 
   function getAmbientSkyEffects(scene, date, now) {
@@ -237,6 +358,9 @@
   }
 
   function syncSkyDiscoveries(skyEffects, now) {
+    if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
+      return;
+    }
     if (!runtime || !runtime.state || !skyEffects || !Array.isArray(skyEffects.discoveries) || !skyEffects.discoveries.length) {
       return;
     }
@@ -264,7 +388,7 @@
     });
 
     if (changed) {
-      saveState(runtime.state);
+      persistRuntimeState(runtime.state);
       renderUi();
     }
   }
@@ -275,7 +399,7 @@
     }
 
     const mood = typeof getCelestialMoodDiagnostics === 'function'
-      ? getCelestialMoodDiagnostics(getRuntimeNow())
+      ? getCelestialMoodDiagnostics(getInteractionNow())
       : {};
     if (sun) {
       sun.mood = mood.sun || null;
@@ -344,7 +468,7 @@
     if (value >= 6) {
       return 'annoyed';
     }
-    if (value >= 3) {
+    if (value >= 1) {
       return 'blink';
     }
     return 'neutral';
@@ -355,7 +479,7 @@
       return;
     }
     const mood = runtime.celestialMood[kind] || {};
-    const wallNow = typeof getRuntimeNow === 'function' ? getRuntimeNow() : now;
+    const wallNow = typeof getInteractionNow === 'function' ? getInteractionNow() : now;
     if (!mood || Number(mood.until) <= wallNow) {
       return;
     }

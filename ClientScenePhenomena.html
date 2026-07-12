@@ -8,7 +8,7 @@
     drawFogbowPhenomenon(ctx, scene, profile.fogbow, now);
     drawMoonHaloPhenomenon(ctx, scene, profile.moonHalo, now);
     drawHeatHazePhenomenon(ctx, profile.heatHaze, now);
-    syncEnvironmentDiscoveries(profile, now);
+    syncEnvironmentDiscoveries(profile, getRuntimeNow());
   }
 
   function drawAmbientPhenomenaCloudOptics(ctx, scene, palette, now) {
@@ -517,6 +517,9 @@
   }
 
   function syncEnvironmentDiscoveries(profile, now) {
+    if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
+      return;
+    }
     if (!runtime || !runtime.state || !profile || !Array.isArray(profile.discoveries) || !profile.discoveries.length) {
       return;
     }
@@ -546,7 +549,7 @@
     });
 
     if (changed) {
-      saveState(runtime.state);
+      persistRuntimeState(runtime.state);
       renderUi();
     }
   }

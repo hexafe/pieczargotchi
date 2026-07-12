@@ -4,7 +4,9 @@ function getClientConfig() {
   config.state = getStateModelConfig();
   config.rules = getGameRulesConfig();
   config.actions = getActionDefinitions();
-  config.assetData = getInitialAssetDataUrls_(config.assets, config.runtime);
+  config.assetData = config.assetBaseUrl
+    ? {}
+    : getInitialAssetDataUrls_(config.assets, config.runtime);
 
   return config;
 }
@@ -15,21 +17,24 @@ function getAssetDataUrl(assetKey) {
     return createMissingAssetDataRecord_('', '', false, 'Brak klucza grafiki.');
   }
 
-  const asset = getRuntimeAssetManifest().filter(function(item) {
+  const asset = getRuntimeAssetManifest_().filter(function(item) {
     return item.key === key;
   })[0];
   if (!asset) {
     return createMissingAssetDataRecord_(key, '', false, 'Nieznana grafika runtime.');
   }
 
-  const assetData = getAssetDataUrls([key]);
+  const assetData = getAssetDataUrls_([key]);
   return assetData[key] || createMissingAssetDataRecord_(asset.key, asset.fileName, asset.required, 'Nie znaleziono grafiki runtime.');
 }
 
-function getAssetDataUrls(assetKeys) {
+function getAssetDataUrls_(assetKeys) {
   const requestedKeys = normalizeAssetKeyFilter_(assetKeys);
-  const assets = getRuntimeAssetManifest().filter(function(asset) {
-    return !requestedKeys || requestedKeys[asset.key];
+  if (!requestedKeys) {
+    throw new Error('Lista kluczy grafik jest wymagana.');
+  }
+  const assets = getRuntimeAssetManifest_().filter(function(asset) {
+    return requestedKeys[asset.key];
   });
   const folderLookup = getAssetDriveFileIdsFromFolder_(assets);
 
@@ -45,12 +50,13 @@ function getAssetDataUrls(assetKeys) {
     }
 
     try {
-      result[asset.key].dataUrl = fileToDataUrl(fileId);
+      result[asset.key].dataUrl = fileToDataUrl_(fileId);
       result[asset.key].status = 'loaded';
       result[asset.key].error = null;
     } catch (error) {
+      logAssetServiceError_('assetRead', error);
       result[asset.key].status = 'error';
-      result[asset.key].error = error && error.message ? error.message : String(error);
+      result[asset.key].error = 'Nie udało się odczytać grafiki z Drive.';
     }
 
     return result;
@@ -58,13 +64,13 @@ function getAssetDataUrls(assetKeys) {
 }
 
 function getInitialAssetDataUrls_(assets, runtimeOptions) {
-  return getAssetDataUrls(getInitialAssetManifest_(assets, runtimeOptions).map(function(asset) {
+  return getAssetDataUrls_(getInitialAssetManifest_(assets, runtimeOptions).map(function(asset) {
     return asset.key;
   }));
 }
 
 function getInitialAssetManifest_(assets, runtimeOptions) {
-  const manifest = Array.isArray(assets) ? assets : getRuntimeAssetManifest();
+  const manifest = Array.isArray(assets) ? assets : getRuntimeAssetManifest_();
   const assetMode = runtimeOptions && runtimeOptions.assetMode;
 
   if (assetMode !== 'critical') {
@@ -115,7 +121,7 @@ function createMissingAssetDataRecord_(key, fileName, required, error) {
 
 function getAssetDriveFileIdsFromFolder_(assets) {
   const fileIds = {};
-  const assetDriveFolderId = getConfiguredAssetDriveFolderId();
+  const assetDriveFolderId = getConfiguredAssetDriveFolderId_();
 
   if (!assetDriveFolderId) {
     return { fileIds: fileIds, error: null };
@@ -129,7 +135,7 @@ function getAssetDriveFileIdsFromFolder_(assets) {
   }
 
   try {
-    const index = buildDriveFolderAssetIndex_(DriveApp.getFolderById(assetDriveFolderId));
+    const index = getCachedDriveFolderAssetIndex_(assetDriveFolderId);
 
     assets.forEach(function(asset) {
       if (asset.fileId) {
@@ -147,11 +153,43 @@ function getAssetDriveFileIdsFromFolder_(assets) {
 
     return { fileIds: fileIds, error: null };
   } catch (error) {
+    logAssetServiceError_('folderLookup', error);
     return {
       fileIds: fileIds,
-      error: error && error.message ? error.message : String(error)
+      error: 'folderLookupFailed'
     };
   }
+}
+
+function getCachedDriveFolderAssetIndex_(assetDriveFolderId) {
+  const cache = typeof CacheService !== 'undefined' && typeof CacheService.getScriptCache === 'function'
+    ? CacheService.getScriptCache()
+    : null;
+  const cacheKey = 'asset-index-' + PIECZARGOTCHI_APP_VERSION + '-' + assetDriveFolderId;
+
+  if (cache && typeof cache.get === 'function') {
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.byPath && parsed.byName && parsed.duplicateNames) {
+          return parsed;
+        }
+      } catch (_error) {
+        // Uszkodzony cache jest tylko optymalizacją; odbuduj indeks z Drive.
+      }
+    }
+  }
+
+  const index = buildDriveFolderAssetIndex_(DriveApp.getFolderById(assetDriveFolderId));
+  if (cache && typeof cache.put === 'function') {
+    try {
+      cache.put(cacheKey, JSON.stringify(index), 21600);
+    } catch (_error) {
+      // Limit CacheService nie może blokować bezpośredniego odczytu assetu.
+    }
+  }
+  return index;
 }
 
 function buildDriveFolderAssetIndex_(rootFolder) {
@@ -213,15 +251,21 @@ function getAssetBaseName_(fileName) {
 
 function getMissingAssetFileIdMessage_(folderLookup) {
   if (folderLookup.error) {
-    return 'Nie udało się odczytać folderu Drive z grafikami: ' + folderLookup.error;
+    return 'Nie udało się odczytać skonfigurowanego folderu Drive z grafikami.';
   }
-  if (getConfiguredAssetDriveFolderId()) {
+  if (getConfiguredAssetDriveFolderId_()) {
     return 'Nie znaleziono pliku w folderze Drive po ścieżce z manifestu.';
   }
   return 'ID pliku Drive nie jest ustawione.';
 }
 
-function fileToDataUrl(fileId) {
+function logAssetServiceError_(operation, error) {
+  if (typeof console !== 'undefined' && console && typeof console.error === 'function') {
+    console.error('Pieczargotchi AssetService [' + String(operation || 'unknown') + ']', error);
+  }
+}
+
+function fileToDataUrl_(fileId) {
   if (!fileId) {
     return null;
   }
@@ -232,7 +276,14 @@ function fileToDataUrl(fileId) {
   const file = DriveApp.getFileById(fileId);
   const blob = file.getBlob();
   const contentType = blob.getContentType() || 'image/png';
-  const encoded = Utilities.base64Encode(blob.getBytes());
+  if (!/^image\/(png|webp|jpeg|gif)$/i.test(contentType)) {
+    throw new Error('Plik Drive nie jest obsługiwaną grafiką runtime.');
+  }
+  const bytes = blob.getBytes();
+  if (bytes.length > 4 * 1024 * 1024) {
+    throw new Error('Grafika Drive przekracza limit 4 MiB.');
+  }
+  const encoded = Utilities.base64Encode(bytes);
 
   return 'data:' + contentType + ';base64,' + encoded;
 }

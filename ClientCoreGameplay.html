@@ -544,6 +544,15 @@
       };
     }
 
+    if (state.dailyRhythm.selectedId === selectedId) {
+      return {
+        ok: true,
+        unchanged: true,
+        state: state,
+        rhythm: definition
+      };
+    }
+
     state.dailyRhythm.selectedId = selectedId;
     state.dailyPlan = { dateKey: null, activeIds: [], completed: {} };
     state = ensureDailyPlanCore(state, rules, timestamp, scene);

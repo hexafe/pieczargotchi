@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MIN_NODE_MAJOR=18
+MIN_NODE_MAJOR=22
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 PORT="${PORT:-8080}"
@@ -184,11 +184,17 @@ check_required_files() {
     "ClientCore.html"
     "ClientCoreWeather.html"
     "ClientCoreLife.html"
+    "ClientCoreSky.html"
+    "ClientCorePhenomena.html"
+    "ClientCoreCalendar.html"
     "ClientCoreCare.html"
     "ClientCoreBattle.html"
     "ClientCoreShared.html"
     "ClientCoreImmersion.html"
     "ClientCoreProgression.html"
+    "ClientCoreGameplay.html"
+    "ClientCoreLongLoop.html"
+    "ClientCoreLegendaryGames.html"
     "ClientCoreMinigames.html"
     "ClientCoreExports.html"
     "ClientBoot.html"
@@ -199,7 +205,11 @@ check_required_files() {
     "ClientActions.html"
     "ClientMinigameDewCatch.html"
     "ClientMinigameSporePop.html"
+    "ClientMinigameCompostSort.html"
+    "ClientMinigameRhythmHum.html"
+    "ClientLegendaryGames.html"
     "ClientBackup.html"
+    "ClientJournalPopover.html"
     "ClientUi.html"
     "ClientBattleScene.html"
     "ClientInteraction.html"
@@ -208,6 +218,8 @@ check_required_files() {
     "ClientScenePalette.html"
     "ClientSceneCelestial.html"
     "ClientSceneRainbow.html"
+    "ClientScenePhenomena.html"
+    "ClientSceneCalendar.html"
     "ClientSceneWeather.html"
     "ClientSceneWeatherClouds.html"
     "ClientSceneWeatherPrecip.html"

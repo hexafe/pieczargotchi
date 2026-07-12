@@ -19,6 +19,8 @@ function getStateModelConfig() {
 function createDefaultStateTemplate() {
   return {
     version: PIECZARGOTCHI_STATE_VERSION,
+    saveRevision: 0,
+    saveWriterId: null,
     playerId: null,
     mushroomName: '',
     createdAt: null,
@@ -56,7 +58,14 @@ function createDefaultStateTemplate() {
         energy: 0,
         happiness: 0,
         cleanliness: 0,
-        health: 0
+        health: 0,
+        weightedMs: 0,
+        weightedHydration: 0,
+        weightedNutrients: 0,
+        weightedEnergy: 0,
+        weightedHappiness: 0,
+        weightedCleanliness: 0,
+        weightedHealth: 0
       },
       attention: {
         handled: 0,
@@ -88,6 +97,11 @@ function createDefaultStateTemplate() {
       startedAt: null,
       until: null,
       lastCareAt: null,
+      careActions: {
+        hydrate: null,
+        feed: null,
+        clean: null
+      },
       missedCare: 0,
       reason: null,
       endedAt: null
@@ -131,7 +145,8 @@ function createDefaultStateTemplate() {
     },
     minigames: {
       active: null,
-      lastResult: null
+      lastResult: null,
+      quarantined: null
     },
     legendaryGames: {
       version: 1,
@@ -235,6 +250,10 @@ function createDefaultStateTemplate() {
       sleepWake: 0,
       mossRest: 0,
       spores: 0
+    },
+    weatherCare: {
+      sceneKey: null,
+      appliedMs: 0
     },
     flags: {
       tutorialDone: false,

@@ -1,15 +1,446 @@
   function setTransientMessage(title, body) {
     const now = getRuntimeNow();
+    const heading = String(title || '');
+    const message = String(body || '');
+    const assertive = /błąd|nie udało|niedostępn|wygas|koniec|oczekuje|jeszcze nie/i.test(heading + ' ' + message);
     runtime.state.currentActivity = {
       type: 'notice',
-      label: formatMushroomText(title),
-      body: formatMushroomText(body),
+      label: formatMushroomText(heading),
+      body: formatMushroomText(message),
       startedAt: now,
-      until: now + 1500
+      until: now + (assertive ? 6000 : 3200)
+    };
+    if (typeof announceUiStatus === 'function') {
+      announceUiStatus(heading + '. ' + message, assertive);
+    }
+  }
+
+  function ensureSceneFirstUiRuntime() {
+    runtime.ui = Object.assign({
+      workspaceTab: 'care',
+      legendsTab: 'arena',
+      actionTrayExpanded: false,
+      activeModal: null,
+      bound: false,
+      actionDisableReasons: {},
+      lastAnnouncement: ''
+    }, runtime.ui || {});
+    return runtime.ui;
+  }
+
+  function captureStableUiFocus() {
+    const active = document.activeElement;
+    if (!active || active === document.body || active === document.documentElement) {
+      return null;
+    }
+
+    const keyed = active.closest && active.closest('[data-focus-key]');
+    if (!keyed || !keyed.dataset.focusKey) {
+      return null;
+    }
+
+    return {
+      key: keyed.dataset.focusKey,
+      selectionStart: typeof active.selectionStart === 'number' ? active.selectionStart : null,
+      selectionEnd: typeof active.selectionEnd === 'number' ? active.selectionEnd : null
     };
   }
 
+  function restoreStableUiFocus(snapshot) {
+    if (!snapshot || !snapshot.key) {
+      return;
+    }
+
+    const target = Array.from(document.querySelectorAll('[data-focus-key]')).find(function(node) {
+      return node.dataset.focusKey === snapshot.key;
+    });
+    if (!target || target.disabled || target.hidden || target.closest('[hidden]')) {
+      return;
+    }
+
+    try {
+      target.focus({ preventScroll: true });
+      if (
+        snapshot.selectionStart !== null
+        && typeof target.setSelectionRange === 'function'
+      ) {
+        target.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
+      }
+    } catch (error) {
+      target.focus();
+    }
+  }
+
+  function assignStableUiFocusKeys() {
+    document.querySelectorAll('[data-minigame-start]').forEach(function(button) {
+      button.dataset.focusKey = button.dataset.focusKey || 'minigame-' + button.dataset.minigameStart;
+    });
+    document.querySelectorAll('[data-discovery-id]').forEach(function(button) {
+      button.dataset.focusKey = button.dataset.focusKey || 'discovery-' + button.dataset.discoveryId;
+    });
+    document.querySelectorAll('[data-decoration-id]').forEach(function(button) {
+      button.dataset.focusKey = button.dataset.focusKey || 'decoration-' + button.dataset.decorationId;
+    });
+  }
+
+  function announceUiStatus(message, assertive) {
+    const ui = ensureSceneFirstUiRuntime();
+    const text = formatMushroomText(String(message || '').trim());
+    const node = document.querySelector(assertive ? '[data-ui-alert]' : '[data-ui-status]');
+    if (!node || !text) {
+      return;
+    }
+
+    if (ui.lastAnnouncement === text && node.textContent === text) {
+      node.textContent = '';
+      window.setTimeout(function() {
+        node.textContent = text;
+      }, 20);
+    } else {
+      node.textContent = text;
+    }
+    ui.lastAnnouncement = text;
+  }
+
+  function initSceneFirstUi() {
+    const ui = ensureSceneFirstUiRuntime();
+    if (ui.bound) {
+      return;
+    }
+    ui.bound = true;
+
+    const settingsContent = document.querySelector('[data-settings-content]');
+    if (settingsContent) {
+      document.querySelectorAll('[data-settings-section]').forEach(function(section) {
+        settingsContent.appendChild(section);
+      });
+    }
+
+    document.addEventListener('click', handleSceneFirstUiClick, true);
+    document.addEventListener('keydown', handleSceneFirstUiKeydown, true);
+
+    document.querySelectorAll('dialog').forEach(function(dialog) {
+      dialog.addEventListener('cancel', function(event) {
+        event.preventDefault();
+        if (dialog.matches('[data-journal-polaroid]') && typeof closeWorldJournalPolaroid === 'function') {
+          closeWorldJournalPolaroid();
+          return;
+        }
+        closeSceneFirstDialog(dialog);
+      });
+      dialog.addEventListener('click', function(event) {
+        if (event.target !== dialog) {
+          return;
+        }
+        const rect = dialog.getBoundingClientRect();
+        const inside = event.clientX >= rect.left
+          && event.clientX <= rect.right
+          && event.clientY >= rect.top
+          && event.clientY <= rect.bottom;
+        if (!inside && dialog.matches('[data-journal-polaroid]') && typeof closeWorldJournalPolaroid === 'function') {
+          closeWorldJournalPolaroid();
+        } else if (!inside) {
+          closeSceneFirstDialog(dialog);
+        }
+      });
+      dialog.addEventListener('close', function() {
+        if (runtime.ui) {
+          runtime.ui.activeModal = null;
+        }
+        scheduleAdaptiveActionDockUpdate();
+      });
+    });
+
+    const journal = document.querySelector('[data-journal-polaroid]');
+    if (journal && 'MutationObserver' in window) {
+      ui.journalObserver = new MutationObserver(function() {
+        if (!journal.hidden && !journal.open) {
+          openSceneFirstDialog(journal, 'journal');
+          window.setTimeout(function() {
+            const close = journal.querySelector('[data-journal-polaroid-close]');
+            if (close) {
+              close.focus({ preventScroll: true });
+            }
+          }, 0);
+        } else if (journal.hidden && journal.open) {
+          journal.close();
+        }
+      });
+      ui.journalObserver.observe(journal, { attributes: true, attributeFilter: ['hidden'] });
+    }
+
+    const nameError = document.querySelector('[data-name-error]');
+    const nameInput = document.querySelector('[data-name-input]');
+    if (nameError && nameInput && 'MutationObserver' in window) {
+      const syncNameValidity = function() {
+        nameInput.setAttribute('aria-invalid', nameError.textContent.trim() ? 'true' : 'false');
+      };
+      ui.nameErrorObserver = new MutationObserver(syncNameValidity);
+      ui.nameErrorObserver.observe(nameError, { childList: true, characterData: true, subtree: true });
+      nameInput.addEventListener('input', function() {
+        if (nameInput.value.trim()) {
+          nameInput.setAttribute('aria-invalid', 'false');
+        }
+      });
+      syncNameValidity();
+    }
+  }
+
+  function handleSceneFirstUiClick(event) {
+    const target = event.target && event.target.closest
+      ? event.target.closest('button, [data-workspace-tab], [data-legends-tab]')
+      : null;
+    if (!target) {
+      return;
+    }
+
+    const workspaceTab = target.closest('[data-workspace-tab]');
+    if (workspaceTab) {
+      event.preventDefault();
+      setWorkspaceTab(workspaceTab.dataset.workspaceTab, true);
+      return;
+    }
+
+    const legendsTab = target.closest('[data-legends-tab]');
+    if (legendsTab) {
+      event.preventDefault();
+      setLegendsTab(legendsTab.dataset.legendsTab, true);
+      return;
+    }
+
+    if (target.matches('[data-action-more]')) {
+      event.preventDefault();
+      const ui = ensureSceneFirstUiRuntime();
+      ui.actionTrayExpanded = !ui.actionTrayExpanded;
+      updateMobileActionTrayState(getRuntimeNow());
+      if (ui.actionTrayExpanded) {
+        const first = document.querySelector('[data-actions-overflow] .action-button:not([hidden])');
+        if (first) {
+          first.focus({ preventScroll: true });
+        }
+      }
+      return;
+    }
+
+    if (target.matches('[data-settings-open]')) {
+      event.preventDefault();
+      const input = document.querySelector('[data-rename-input]');
+      if (input && runtime.state) {
+        input.value = getMushroomName(runtime.state);
+      }
+      openSceneFirstDialog(document.querySelector('[data-settings-dialog]'), 'settings', target);
+      return;
+    }
+
+    if (target.matches('[data-settings-close]')) {
+      event.preventDefault();
+      closeSceneFirstDialog(target.closest('dialog'));
+      return;
+    }
+
+    if (target.matches('[data-reset-open]')) {
+      event.preventDefault();
+      const settingsDialog = document.querySelector('[data-settings-dialog]');
+      const returnTarget = settingsDialog && settingsDialog.__pieczargotchiReturnFocus
+        ? settingsDialog.__pieczargotchiReturnFocus
+        : target;
+      closeSceneFirstDialog(settingsDialog, { restoreFocus: false });
+      openSceneFirstDialog(document.querySelector('[data-reset-dialog]'), 'reset', returnTarget);
+      return;
+    }
+
+    if (target.matches('[data-reset-cancel], [data-import-cancel]')) {
+      event.preventDefault();
+      closeSceneFirstDialog(target.closest('dialog'));
+      return;
+    }
+
+    if (target.matches('[data-minigame-return]')) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof returnToActiveMinigame === 'function') {
+        returnToActiveMinigame();
+      }
+      return;
+    }
+
+    const actionButton = target.closest('.action-button[aria-disabled="true"]');
+    if (actionButton && !actionButton.disabled) {
+      event.preventDefault();
+      event.stopPropagation();
+      const reason = actionButton.dataset.disabledReason || 'Ta akcja nie jest teraz dostępna.';
+      announceUiStatus(reason, false);
+    }
+  }
+
+  function handleSceneFirstUiKeydown(event) {
+    const tab = event.target && event.target.closest
+      ? event.target.closest('[data-workspace-tab], [data-legends-tab]')
+      : null;
+    if (!tab || ['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(event.key) === -1) {
+      return;
+    }
+
+    const selector = tab.matches('[data-workspace-tab]') ? '[data-workspace-tab]' : '[data-legends-tab]';
+    const tabs = Array.from(tab.parentNode.querySelectorAll(selector)).filter(function(item) {
+      return !item.hidden && !item.disabled;
+    });
+    if (!tabs.length) {
+      return;
+    }
+
+    event.preventDefault();
+    const current = Math.max(0, tabs.indexOf(tab));
+    const nextIndex = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? tabs.length - 1
+        : event.key === 'ArrowRight'
+          ? (current + 1) % tabs.length
+          : (current - 1 + tabs.length) % tabs.length;
+    const next = tabs[nextIndex];
+    if (next.matches('[data-workspace-tab]')) {
+      setWorkspaceTab(next.dataset.workspaceTab, true);
+    } else {
+      setLegendsTab(next.dataset.legendsTab, true);
+    }
+    next.focus({ preventScroll: true });
+  }
+
+  function openSceneFirstDialog(dialog, kind, trigger) {
+    if (!dialog) {
+      return;
+    }
+    const ui = ensureSceneFirstUiRuntime();
+    dialog.__pieczargotchiReturnFocus = trigger || document.activeElement;
+    dialog.hidden = false;
+    dialog.removeAttribute('aria-hidden');
+    if (!dialog.open) {
+      if (typeof dialog.showModal === 'function') {
+        try {
+          dialog.showModal();
+        } catch (error) {
+          dialog.setAttribute('open', '');
+        }
+      } else {
+        dialog.setAttribute('open', '');
+      }
+    }
+    ui.activeModal = kind || dialog.getAttribute('data-dialog') || 'dialog';
+    updateMobileActionTrayState(getRuntimeNow());
+    const focusTarget = dialog.querySelector('[autofocus], input:not([type="hidden"]), button:not([disabled])');
+    if (focusTarget) {
+      window.setTimeout(function() {
+        focusTarget.focus({ preventScroll: true });
+      }, 0);
+    }
+  }
+
+  function closeSceneFirstDialog(dialog, options) {
+    if (!dialog) {
+      return;
+    }
+    const wasOpen = Boolean(dialog.open || dialog.hasAttribute('open'));
+    if (!wasOpen) {
+      return;
+    }
+    const settings = options || {};
+    const ui = ensureSceneFirstUiRuntime();
+    if (dialog.open && typeof dialog.close === 'function') {
+      dialog.close();
+    } else {
+      dialog.removeAttribute('open');
+    }
+    if (dialog.matches('[data-journal-polaroid]')) {
+      dialog.hidden = true;
+    }
+    ui.activeModal = document.querySelector('dialog[open]') ? 'dialog' : null;
+    const returnFocus = dialog.__pieczargotchiReturnFocus;
+    dialog.__pieczargotchiReturnFocus = null;
+    if (settings.restoreFocus !== false && returnFocus && returnFocus.isConnected && typeof returnFocus.focus === 'function') {
+      returnFocus.focus({ preventScroll: true });
+    }
+    scheduleAdaptiveActionDockUpdate();
+  }
+
+  function setWorkspaceTab(tabId, announce) {
+    const ui = ensureSceneFirstUiRuntime();
+    ui.workspaceTab = ['care', 'games', 'mycelium'].indexOf(tabId) !== -1 ? tabId : 'care';
+    ui.actionTrayExpanded = false;
+    renderWorkspaceNavigation();
+    updateMobileActionTrayState(getRuntimeNow());
+    if (announce) {
+      const labels = { care: 'Opieka', games: 'Gry', mycelium: 'Grzybnia' };
+      announceUiStatus('Otwarta zakładka: ' + labels[ui.workspaceTab] + '.', false);
+    }
+  }
+
+  function setLegendsTab(tabId, announce) {
+    const ui = ensureSceneFirstUiRuntime();
+    ui.legendsTab = tabId === 'challenges' ? 'challenges' : 'arena';
+    renderWorkspaceNavigation();
+    if (announce) {
+      announceUiStatus('Otwarta zakładka: ' + (ui.legendsTab === 'arena' ? 'Arena' : 'Wyzwania') + '.', false);
+    }
+  }
+
+  function renderWorkspaceNavigation() {
+    const ui = ensureSceneFirstUiRuntime();
+    const activeMinigame = runtime.state && runtime.state.minigames && runtime.state.minigames.active;
+    const activeBattle = runtime.state && runtime.state.battle && runtime.state.battle.activeBattle;
+    const legendaryMinigame = activeMinigame
+      && typeof isLegendaryMinigameRuntimeId === 'function'
+      && isLegendaryMinigameRuntimeId(activeMinigame.id);
+
+    if (runtime.viewMode === 'care' && activeMinigame && !legendaryMinigame) {
+      ui.workspaceTab = 'games';
+    } else if (runtime.state && runtime.state.recovery && runtime.state.recovery.active) {
+      ui.workspaceTab = 'care';
+    }
+    if (runtime.viewMode === 'arena' && activeBattle && ['victory', 'defeat'].indexOf(activeBattle.mode) === -1) {
+      ui.legendsTab = 'arena';
+    } else if (runtime.viewMode === 'arena' && legendaryMinigame) {
+      ui.legendsTab = 'challenges';
+    }
+
+    const careMode = runtime.viewMode !== 'arena';
+    const careNavigation = document.querySelector('[data-care-navigation]');
+    if (careNavigation) {
+      careNavigation.hidden = !careMode;
+    }
+    document.querySelectorAll('[data-workspace-tab]').forEach(function(tab) {
+      const selected = careMode && tab.dataset.workspaceTab === ui.workspaceTab;
+      tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+      tab.tabIndex = selected ? 0 : -1;
+    });
+    document.querySelectorAll('[data-workspace-panel]').forEach(function(panel) {
+      panel.hidden = !careMode || panel.dataset.workspacePanel !== ui.workspaceTab;
+    });
+
+    document.querySelectorAll('[data-legends-tab]').forEach(function(tab) {
+      const selected = !careMode && tab.dataset.legendsTab === ui.legendsTab;
+      const blockedByBattle = Boolean(!careMode
+        && activeBattle
+        && ['victory', 'defeat'].indexOf(activeBattle.mode) === -1
+        && tab.dataset.legendsTab === 'challenges');
+      tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+      tab.setAttribute('aria-disabled', blockedByBattle ? 'true' : 'false');
+      tab.disabled = blockedByBattle;
+      tab.title = blockedByBattle ? 'Wyzwania będą dostępne po zakończeniu walki.' : '';
+      tab.tabIndex = selected ? 0 : -1;
+    });
+    document.querySelectorAll('[data-legends-panel]').forEach(function(panel) {
+      panel.hidden = careMode || panel.dataset.legendsPanel !== ui.legendsTab;
+    });
+
+    if (dom.sidePanel) {
+      dom.sidePanel.dataset.workspaceTab = careMode ? ui.workspaceTab : 'legends-' + ui.legendsTab;
+    }
+  }
+
   function renderUi() {
+    initSceneFirstUi();
+    const focusSnapshot = captureStableUiFocus();
     normalizeViewMode();
     renderNameGate();
     renderViewSwitch();
@@ -34,9 +465,17 @@
     renderCalendarChecklist();
     renderLog();
     renderBattleUi();
+    renderRecoveryChecklist();
     renderMessage();
     renderAssetStatus();
+    if (typeof renderRuntimeAlert === 'function') {
+      renderRuntimeAlert();
+    }
     renderDebugControls();
+    renderWorkspaceNavigation();
+    updateMobileActionTrayState(getRuntimeNow());
+    assignStableUiFocusKeys();
+    restoreStableUiFocus(focusSnapshot);
     scheduleAdaptiveActionDockUpdate();
   }
 
@@ -48,10 +487,11 @@
     }
 
     const named = hasNamedMushroom(runtime.state);
-    dom.nameGate.hidden = named;
-    document.documentElement.classList.toggle('is-name-gated', !named);
-    document.body.classList.toggle('is-name-gated', !named);
-    if (!named && dom.nameInput && !dom.nameInput.value) {
+    const mutationBlocked = typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked();
+    dom.nameGate.hidden = named || mutationBlocked;
+    document.documentElement.classList.toggle('is-name-gated', !named && !mutationBlocked);
+    document.body.classList.toggle('is-name-gated', !named && !mutationBlocked);
+    if (!named && !mutationBlocked && dom.nameInput && !dom.nameInput.value) {
       dom.nameInput.value = normalizeMushroomNameValue(runtime.state && runtime.state.mushroomName);
     }
   }
@@ -85,6 +525,11 @@
 
     if (dom.stageEyebrow) {
       dom.stageEyebrow.textContent = runtime.viewMode === 'arena' ? 'Legendy' : 'Grzybnia';
+    }
+    if (runtime.canvas) {
+      runtime.canvas.setAttribute('aria-label', runtime.viewMode === 'arena'
+        ? 'Animowana scena walki dwóch pieczarek'
+        : 'Animowana scena pieczarki w grzybni');
     }
   }
 
@@ -148,6 +593,11 @@
       name.textContent = statLabels[stat] || stat;
       fill.style.width = value + '%';
       fill.dataset.level = value < 30 ? 'low' : value < 60 ? 'medium' : 'high';
+      track.setAttribute('role', 'progressbar');
+      track.setAttribute('aria-label', (statLabels[stat] || stat) + ': ' + value + ' procent');
+      track.setAttribute('aria-valuemin', '0');
+      track.setAttribute('aria-valuemax', '100');
+      track.setAttribute('aria-valuenow', String(value));
       row.dataset.stat = stat;
       row.dataset.value = value;
       row.dataset.level = fill.dataset.level;
@@ -161,9 +611,91 @@
     });
   }
 
+  function renderRecoveryChecklist() {
+    const container = document.querySelector('[data-recovery-checklist]');
+    const recovery = runtime.state && runtime.state.recovery;
+    if (!container || !recovery || !recovery.active || isGameOverUiState()) {
+      if (container) {
+        container.hidden = true;
+        container.innerHTML = '';
+      }
+      return;
+    }
+
+    const now = getRuntimeNow();
+    const recoveryRules = rules && rules.recovery ? rules.recovery : {};
+    const required = Array.isArray(recoveryRules.requiredCareActionIds)
+      ? recoveryRules.requiredCareActionIds
+      : ['hydrate', 'feed', 'clean'];
+    const labels = {
+      hydrate: 'Nawilżenie',
+      feed: 'Karmienie',
+      clean: 'Czyszczenie'
+    };
+    const startedAt = Date.parse(recovery.startedAt || '') || 0;
+    const careActions = recovery.careActions || {};
+    const until = Date.parse(recovery.until || '');
+    const remaining = Number.isFinite(until) ? Math.max(0, until - now) : 0;
+    const missed = Math.max(0, Number(recovery.missedCare) || 0);
+    const maxMissed = Math.max(1, Number(recoveryRules.maxMissedCare) || 3);
+    const completeCount = required.filter(function(actionId) {
+      const actionAt = Date.parse(careActions[actionId] || '');
+      return Number.isFinite(actionAt) && actionAt >= startedAt;
+    }).length;
+
+    container.innerHTML = '';
+    container.hidden = false;
+
+    const heading = document.createElement('div');
+    heading.className = 'recovery-checklist__heading';
+    const title = document.createElement('strong');
+    const time = document.createElement('span');
+    title.textContent = 'Kuracja w mchu · ' + completeCount + '/' + required.length;
+    time.textContent = remaining ? 'Pozostało ' + formatRemainingLabel(remaining) : 'Kończy się teraz';
+    heading.appendChild(title);
+    heading.appendChild(time);
+    container.appendChild(heading);
+
+    const list = document.createElement('ul');
+    list.className = 'recovery-checklist__list';
+    required.forEach(function(actionId) {
+      const actionAt = Date.parse(careActions[actionId] || '');
+      const completed = Number.isFinite(actionAt) && actionAt >= startedAt;
+      const item = document.createElement('li');
+      item.dataset.complete = completed ? 'true' : 'false';
+      item.textContent = (completed ? '✓ ' : '○ ') + (labels[actionId] || actionId);
+      list.appendChild(item);
+    });
+    container.appendChild(list);
+
+    const meta = document.createElement('p');
+    meta.className = 'recovery-checklist__meta';
+    meta.textContent = missed
+      ? 'Nieudane okna opieki: ' + missed + '/' + maxMissed + '. Uzupełnij trzy potrzeby przed końcem czasu.'
+      : 'Uzupełnij trzy potrzeby przed końcem czasu. Zabawa i gry pozostają zablokowane.';
+    container.appendChild(meta);
+  }
+
   function renderActions() {
     dom.actionsGrid.innerHTML = '';
     runtime.actionButtons.clear();
+
+    const primary = document.createElement('div');
+    const overflow = document.createElement('div');
+    const moreButton = document.createElement('button');
+    primary.className = 'actions-primary';
+    primary.dataset.actionsPrimary = '';
+    overflow.className = 'actions-overflow';
+    overflow.dataset.actionsOverflow = '';
+    overflow.hidden = true;
+    moreButton.className = 'action-more-button';
+    moreButton.type = 'button';
+    moreButton.dataset.actionMore = '';
+    moreButton.dataset.focusKey = 'action-more';
+    moreButton.setAttribute('aria-expanded', 'false');
+    moreButton.setAttribute('aria-controls', 'actionOverflowMenu');
+    moreButton.innerHTML = '<span aria-hidden="true">•••</span><span>Więcej</span>';
+    overflow.id = 'actionOverflowMenu';
 
     actions.forEach(function(action) {
       const button = document.createElement('button');
@@ -175,6 +707,7 @@
       button.type = 'button';
       button.dataset.actionId = action.id;
       button.dataset.iconKey = action.iconKey || action.id;
+      button.dataset.focusKey = 'action-' + action.id;
       icon.className = 'action-icon';
       icon.dataset.iconKey = action.iconKey || action.id;
       icon.setAttribute('aria-hidden', 'true');
@@ -189,18 +722,37 @@
       button.appendChild(label);
       button.appendChild(badge);
       button.addEventListener('click', function() {
+        if (button.getAttribute('aria-disabled') === 'true') {
+          announceUiStatus(button.dataset.disabledReason || 'Ta akcja nie jest teraz dostępna.', false);
+          return;
+        }
         handleAction(action.id, 'button');
       });
 
       runtime.actionButtons.set(action.id, button);
-      dom.actionsGrid.appendChild(button);
+      if (['hydrate', 'feed', 'clean', 'play', 'sleepWake'].indexOf(action.id) !== -1) {
+        primary.appendChild(button);
+      } else {
+        overflow.appendChild(button);
+      }
     });
+
+    dom.actionsGrid.appendChild(primary);
+    dom.actionsGrid.appendChild(moreButton);
+    dom.actionsGrid.appendChild(overflow);
+    runtime.actionTray = {
+      primary: primary,
+      overflow: overflow,
+      moreButton: moreButton
+    };
   }
 
   function renderActionStates() {
     const now = getRuntimeNow();
     let soonestRemaining = 0;
     const gameOver = isGameOverUiState();
+    const readOnly = typeof isRuntimeReadOnly === 'function' && isRuntimeReadOnly();
+    const mutationBlocked = typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked();
 
     actions.forEach(function(action) {
       const button = runtime.actionButtons.get(action.id);
@@ -209,7 +761,11 @@
       }
 
       const unnamed = !hasNamedMushroom(runtime.state);
-      const check = unnamed
+      const check = mutationBlocked
+        ? { ok: false, reason: isRuntimeReadOnly()
+          ? 'Zapis z nowszej wersji działa tylko w podglądzie.'
+          : 'Aktywna rozgrywka trwa w innej karcie.' }
+        : unnamed
         ? { ok: false, reason: 'Najpierw nadaj imię.' }
         : gameOver
         ? { ok: false, reason: 'Gra zakończona. Zacznij od nowa.' }
@@ -217,10 +773,14 @@
       const cooldownUntil = Number(runtime.state.cooldowns[action.id]) || 0;
       const remainingMs = Math.max(0, cooldownUntil - now);
       const displayLabel = getVisibleActionLabel(action);
+      const hardDisabled = mutationBlocked || unnamed || gameOver;
+      const reason = check.ok ? '' : formatMushroomText(check.reason || 'Ta akcja nie jest teraz dostępna.');
 
-      button.disabled = !check.ok;
-      button.title = check.ok ? displayLabel + ' (' + action.shortcut + ')' : formatMushroomText(check.reason);
-      button.setAttribute('aria-label', displayLabel);
+      button.disabled = hardDisabled;
+      button.setAttribute('aria-disabled', check.ok ? 'false' : 'true');
+      button.dataset.disabledReason = reason;
+      button.title = check.ok ? displayLabel + ' (' + action.shortcut + ')' : reason;
+      button.setAttribute('aria-label', check.ok ? displayLabel : displayLabel + '. Niedostępne: ' + reason);
       const label = button.querySelector('.action-label');
       if (label) {
         label.textContent = displayLabel;
@@ -241,9 +801,14 @@
       }
     });
 
-    dom.cooldownLabel.textContent = !hasNamedMushroom(runtime.state)
+    dom.cooldownLabel.textContent = readOnly
+      ? 'Tylko podgląd'
+      : mutationBlocked
+      ? 'Aktywne w innej karcie'
+      : !hasNamedMushroom(runtime.state)
       ? 'Najpierw imię'
       : soonestRemaining ? 'Za ' + formatRemainingLabel(soonestRemaining) : 'Gotowe';
+    updateMobileActionTrayState(now);
   }
 
   function getVisibleActionLabel(action) {
@@ -270,6 +835,10 @@
       return Boolean(action.recoveryBlocked) || isActionBlockedDuringRecovery(action.id);
     }
 
+    if (runtime.state.mode === 'sleeping') {
+      return action.id !== 'sleepWake';
+    }
+
     if (action.recoveryOnly) {
       const threshold = getManualRecoveryHealthThreshold();
       const health = Number(runtime.state.stats && runtime.state.stats.health) || 0;
@@ -293,12 +862,154 @@
     return Number.isFinite(threshold) ? threshold : 45;
   }
 
+  function getMobilePrimaryActionIds(now) {
+    if (!runtime.state) {
+      return [];
+    }
+    if (isRecoveryActiveForRuntime(now)) {
+      return ['hydrate', 'feed', 'clean', 'mossRest'];
+    }
+    if (runtime.state.mode === 'sleeping') {
+      return ['sleepWake'];
+    }
+    return ['hydrate', 'feed', 'clean', 'play', 'sleepWake'];
+  }
+
+  function shouldHideMobileActionTray() {
+    return Boolean(getMobileActionTrayHiddenReason());
+  }
+
+  function getMobileActionTrayHiddenReason() {
+    const ui = ensureSceneFirstUiRuntime();
+    if (!runtime.state) {
+      return 'no-state';
+    }
+    if (runtime.viewMode !== 'care') {
+      return 'legends';
+    }
+    if (ui.workspaceTab !== 'care' || (dom.actionsPanel && dom.actionsPanel.hidden)) {
+      return 'workspace';
+    }
+    if (!hasNamedMushroom(runtime.state)) {
+      return 'unnamed';
+    }
+    if (isGameOverUiState()) {
+      return 'game-over';
+    }
+    if (isMinigameActive()) {
+      return 'minigame';
+    }
+    if (isBattleSessionActive()) {
+      return 'battle';
+    }
+    if (ui.activeModal || document.querySelector('dialog[open]')) {
+      return 'modal';
+    }
+    return '';
+  }
+
+  function updateMobileActionTrayState(now) {
+    const panel = dom.actionsPanel;
+    const tray = runtime.actionTray;
+    const ui = ensureSceneFirstUiRuntime();
+    if (!panel || !tray || !tray.primary || !tray.overflow || !tray.moreButton) {
+      return;
+    }
+
+    const isMobile = (window.innerWidth || document.documentElement.clientWidth || 0) <= 640;
+    const primaryIds = getMobilePrimaryActionIds(Number(now) || getRuntimeNow());
+    const primarySet = new Set(primaryIds);
+
+    primaryIds.forEach(function(actionId) {
+      const button = runtime.actionButtons.get(actionId);
+      if (button) {
+        tray.primary.appendChild(button);
+      }
+    });
+    actions.forEach(function(action) {
+      const button = runtime.actionButtons.get(action.id);
+      if (button && !primarySet.has(action.id)) {
+        tray.overflow.appendChild(button);
+      }
+    });
+
+    tray.primary.style.setProperty('--action-primary-count', String(Math.max(1, primaryIds.length)));
+    const overflowButtons = Array.from(tray.overflow.querySelectorAll('.action-button')).filter(function(button) {
+      return !button.classList.contains('is-mobile-context-hidden');
+    });
+    const hasOverflow = overflowButtons.length > 0;
+    if (!hasOverflow) {
+      ui.actionTrayExpanded = false;
+    }
+    tray.moreButton.hidden = isMobile ? !hasOverflow : true;
+    tray.moreButton.setAttribute('aria-expanded', ui.actionTrayExpanded ? 'true' : 'false');
+    tray.moreButton.classList.toggle('is-expanded', ui.actionTrayExpanded);
+    tray.overflow.hidden = isMobile ? !ui.actionTrayExpanded || !hasOverflow : false;
+
+    const hiddenReason = getMobileActionTrayHiddenReason();
+    const trayHidden = isMobile && Boolean(hiddenReason);
+    tray.hiddenReason = hiddenReason;
+    panel.classList.toggle('is-mobile-tray-hidden', trayHidden);
+    if (!isMobile || trayHidden) {
+      if (!isMobile) {
+        panel.classList.remove('is-mobile-tray-hidden');
+      }
+      resetAdaptiveActionDock();
+      if (dom.app) {
+        dom.app.dataset.actionTrayVisible = 'false';
+      }
+      document.documentElement.style.setProperty('--action-tray-height', '0px');
+      return;
+    }
+
+    panel.classList.add('is-adaptive-docked', 'actions-dock--bottom');
+    panel.classList.remove('actions-dock--top', 'actions-dock--side', 'actions-dock--left', 'actions-dock--right');
+    panel.style.removeProperty('--actions-dock-left');
+    panel.style.removeProperty('--actions-dock-width');
+    panel.style.removeProperty('--actions-dock-top');
+    panel.dataset.adaptiveDock = 'bottom';
+    if (runtime.adaptiveDock) {
+      runtime.adaptiveDock.placement = 'bottom';
+    }
+    if (dom.app) {
+      dom.app.dataset.actionTrayVisible = 'true';
+    }
+    const height = Math.ceil(panel.getBoundingClientRect().height || panel.offsetHeight || 64);
+    const panelRect = panel.getBoundingClientRect();
+    const overlapsProtectedSurface = [
+      document.querySelector('.topbar'),
+      dom.stagePanel,
+      document.querySelector('.message-panel')
+    ].some(function(surface) {
+      if (!surface || surface.hidden) {
+        return false;
+      }
+      const rect = surface.getBoundingClientRect();
+      const overlapWidth = Math.max(0, Math.min(rect.right, panelRect.right) - Math.max(rect.left, panelRect.left));
+      const overlapHeight = Math.max(0, Math.min(rect.bottom, panelRect.bottom) - Math.max(rect.top, panelRect.top));
+      return overlapWidth * overlapHeight > 1;
+    });
+    if (overlapsProtectedSurface) {
+      panel.classList.remove('is-mobile-tray-hidden');
+      resetAdaptiveActionDock();
+      tray.fallbackReason = 'protected-overlap';
+      if (dom.app) {
+        dom.app.dataset.actionTrayVisible = 'false';
+      }
+      document.documentElement.style.setProperty('--action-tray-height', '0px');
+      return;
+    }
+    tray.fallbackReason = '';
+    document.documentElement.style.setProperty('--action-tray-height', height + 'px');
+  }
+
   function initAdaptiveActionDock() {
     const dock = runtime.adaptiveDock;
     if (!dock || dock.observer || !dom.actionsPanel || !dom.canvasWrap) {
       return;
     }
 
+    initSceneFirstUi();
     dom.actionsPanel.dataset.adaptiveDock = 'flow';
     ensureAdaptiveActionDockAnchor();
     if ('IntersectionObserver' in window) {
@@ -367,54 +1078,11 @@
   function updateAdaptiveActionDock() {
     const dock = runtime.adaptiveDock;
     dock.scheduled = false;
-
-    const panel = dom.actionsPanel;
-    const canvas = dom.canvasWrap;
-    if (!panel || !canvas || shouldDisableAdaptiveActionDock()) {
-      resetAdaptiveActionDock();
-      return;
-    }
-
-    if (shouldReleaseAdaptiveDockForSidePanelScroll()) {
-      resetAdaptiveActionDock();
-      return;
-    }
-
-    const viewport = getAdaptiveDockViewport();
-    if (shouldReleaseAdaptiveDockPastStandardPlace(viewport)) {
-      resetAdaptiveActionDock();
-      return;
-    }
-
-    if (!shouldUseAdaptiveActionDockForViewport(viewport)) {
-      resetAdaptiveActionDock();
-      return;
-    }
-
-    const canvasRect = canvas.getBoundingClientRect();
-    const visibleRatio = Math.max(dock.sceneRatio || 0, getRectVisibleRatio(canvasRect, viewport));
-    const visibilityThreshold = viewport.height <= 500 ? 0.2 : 0.35;
-    if (visibleRatio < visibilityThreshold) {
-      resetAdaptiveActionDock();
-      return;
-    }
-
-    const layout = getAdaptiveActionDockLayout(canvasRect, viewport);
-    const candidate = selectAdaptiveActionDockCandidate(layout);
-    if (!candidate) {
-      resetAdaptiveActionDock();
-      return;
-    }
-
-    applyAdaptiveActionDockPlacement(panel, candidate);
+    updateMobileActionTrayState(getRuntimeNow());
   }
 
   function shouldDisableAdaptiveActionDock() {
-    if (!runtime.state || runtime.viewMode !== 'care' || !hasNamedMushroom(runtime.state)) {
-      return true;
-    }
-
-    return isMinigameActive();
+    return shouldHideMobileActionTray();
   }
 
   function shouldUseAdaptiveActionDockForViewport(viewport) {
@@ -538,7 +1206,7 @@
       }
     }
 
-    return getAdaptiveActionDockCandidate(viewport.width <= 640 ? 'bottom' : 'top', layout);
+    return null;
   }
 
   function getAdaptiveSidePlacementOrder(layout) {
@@ -638,7 +1306,7 @@
       return false;
     }
 
-    if ((candidate.placement === 'left' || candidate.placement === 'right') && hasAdaptiveActionDockPanelCollision(candidate, layout)) {
+    if (hasAdaptiveActionDockPanelCollision(candidate, layout)) {
       return false;
     }
 
@@ -755,7 +1423,7 @@
     }
 
     const core = window.PieczargotchiCore;
-    if (!core || !core.getDailyCarePlan || isGameOverUiState()) {
+    if (!core || !core.getDailyCarePlan || isGameOverUiState() || runtime.viewMode === 'arena') {
       dom.dayPlan.innerHTML = '';
       dom.dayPlan.hidden = true;
       return;
@@ -789,7 +1457,7 @@
     }
 
     const core = window.PieczargotchiCore;
-    if (!core || typeof core.getDailyRhythmOptions !== 'function') {
+    if (!core || typeof core.getDailyRhythmOptions !== 'function' || runtime.viewMode === 'arena') {
       dom.dailyRhythm.innerHTML = '';
       dom.dailyRhythm.hidden = true;
       return;
@@ -799,6 +1467,15 @@
     dom.dailyRhythm.innerHTML = '';
     dom.dailyRhythm.hidden = !rhythm.options.length;
 
+    if (rhythm.options.length) {
+      const note = document.createElement('p');
+      note.className = 'daily-rhythm-note';
+      note.textContent = rhythm.selectedId
+        ? 'Dzisiejszy rytm jest wybrany do kolejnego dnia.'
+        : 'Wybierz świadomie — rytm obowiązuje do kolejnego dnia.';
+      dom.dailyRhythm.appendChild(note);
+    }
+
     rhythm.options.forEach(function(option) {
       const button = document.createElement('button');
       const label = document.createElement('strong');
@@ -807,7 +1484,12 @@
 
       button.className = 'daily-rhythm-button' + (option.selected ? ' daily-rhythm-button--selected' : '');
       button.type = 'button';
-      button.disabled = !hasNamedMushroom(runtime.state) || isGameOverUiState() || Boolean(lockedByChoice);
+      button.dataset.focusKey = 'daily-rhythm-' + option.id;
+      button.disabled = !hasNamedMushroom(runtime.state)
+        || isGameOverUiState()
+        || Boolean(lockedByChoice)
+        || option.selected
+        || (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked());
       button.setAttribute('aria-pressed', option.selected ? 'true' : 'false');
       label.textContent = option.label;
       body.textContent = formatMushroomText(option.selected ? 'Dzisiejszy rytm' : option.body);
@@ -828,42 +1510,34 @@
 
     const core = window.PieczargotchiCore;
     const now = getRuntimeNow();
-    const active = runtime.state.minigames && runtime.state.minigames.active;
+    document.querySelectorAll('[data-minigame-card]').forEach(function(card) {
+      card.classList.remove('is-opportunity');
+      const oldReason = card.querySelector('[data-minigame-opportunity-reason]');
+      if (oldReason) {
+        oldReason.remove();
+      }
+    });
+    dom.minigameOpportunities.innerHTML = '';
+    dom.minigameOpportunities.hidden = true;
     if (!core || !core.getMinigameOpportunities || isGameOverUiState()) {
-      dom.minigameOpportunities.innerHTML = '';
-      dom.minigameOpportunities.hidden = true;
       return;
     }
 
     const opportunities = core.getMinigameOpportunities(runtime.state, rules, getCurrentWeatherScene(), now);
-    dom.minigameOpportunities.innerHTML = '';
-    dom.minigameOpportunities.hidden = !opportunities.length;
-
     opportunities.forEach(function(opportunity) {
-      const item = document.createElement('div');
-      const text = document.createElement('div');
-      const title = document.createElement('strong');
+      const card = document.querySelector('[data-minigame-card="' + opportunity.minigameId + '"]');
+      if (!card) {
+        return;
+      }
+      card.classList.add('is-opportunity');
       const reason = document.createElement('span');
-      const button = document.createElement('button');
-      const remaining = opportunity.cooldownUntil ? Math.max(0, opportunity.cooldownUntil - now) : 0;
-
-      item.className = 'opportunity-card';
-      text.className = 'opportunity-card__text';
-      title.textContent = opportunity.label;
+      reason.className = 'minigame-opportunity-reason';
+      reason.dataset.minigameOpportunityReason = '';
       reason.textContent = formatMushroomText(opportunity.reason);
-      button.className = 'ghost-button';
-      button.type = 'button';
-      button.textContent = remaining ? formatCooldownLabel(remaining) : 'Start';
-      button.disabled = !hasNamedMushroom(runtime.state) || Boolean(active) || runtime.state.mode !== 'awake' || remaining > 0;
-      button.addEventListener('click', function() {
-        handleMinigameStart(opportunity.minigameId);
-      });
-
-      text.appendChild(title);
-      text.appendChild(reason);
-      item.appendChild(text);
-      item.appendChild(button);
-      dom.minigameOpportunities.appendChild(item);
+      const text = card.querySelector('div');
+      if (text) {
+        text.insertBefore(reason, text.querySelector('.minigame-mastery'));
+      }
     });
   }
 
@@ -873,6 +1547,8 @@
     }
 
     const active = runtime.state.minigames && runtime.state.minigames.active;
+    const foreignMinigame = typeof isForeignExclusiveSessionActive === 'function'
+      && isForeignExclusiveSessionActive('minigame');
     const gameOver = isGameOverUiState();
     const now = getRuntimeNow();
     const minigameRules = rules.minigames || {};
@@ -893,6 +1569,10 @@
       dom.minigameStatus.textContent = 'Najpierw imię';
     } else if (gameOver) {
       dom.minigameStatus.textContent = 'Koniec gry';
+    } else if (runtime.pendingExclusiveStart && runtime.pendingExclusiveStart.kind === 'minigame') {
+      dom.minigameStatus.textContent = 'Zapisywanie…';
+    } else if (active && foreignMinigame) {
+      dom.minigameStatus.textContent = 'Trwa w innej karcie';
     } else if (active) {
       dom.minigameStatus.textContent = active.label || (minigameRules[active.id] && minigameRules[active.id].label) || 'Trwa';
     } else if (remaining && !readyVisible) {
@@ -903,17 +1583,26 @@
 
     renderMinigameLastScores();
     renderMinigameMasteryLabels();
+    document.querySelectorAll('[data-minigame-card]').forEach(function(card) {
+      card.hidden = Boolean(active && !isLegendaryMinigameRuntimeId(active.id));
+    });
     if (dom.minigamePlayfield) {
-      dom.minigamePlayfield.hidden = !active || isLegendaryMinigameRuntimeId(active.id);
+      dom.minigamePlayfield.hidden = !active || foreignMinigame || isLegendaryMinigameRuntimeId(active.id);
     }
     if (typeof setActiveMinigameCanvas === 'function') {
-      setActiveMinigameCanvas(active && active.id);
+      setActiveMinigameCanvas(!foreignMinigame && active && active.id);
+    }
+    if (dom.minigameEnd) {
+      dom.minigameEnd.disabled = Boolean(foreignMinigame);
+    }
+    if (dom.legendaryMinigameEnd) {
+      dom.legendaryMinigameEnd.disabled = Boolean(foreignMinigame);
     }
     dom.minigameStartButtons.forEach(function(button) {
       const minigameId = button.dataset.minigameStart;
       const cooldownUntil = Number(runtime.state.cooldowns[getMinigameCooldownKey(minigameId)]) || 0;
       const ownRemaining = Math.max(0, cooldownUntil - now);
-      button.disabled = unnamed || gameOver || Boolean(active) || ownRemaining > 0 || runtime.state.mode !== 'awake';
+      button.disabled = unnamed || gameOver || isMinigameActive() || isBattleSessionActive() || ownRemaining > 0 || runtime.state.mode !== 'awake';
       button.textContent = unnamed ? 'Imię' : gameOver ? 'Koniec' : ownRemaining ? formatCooldownLabel(ownRemaining) : 'Start';
     });
     updateMinigameHud(now);
@@ -1087,7 +1776,10 @@
     button.className = 'ghost-button';
     button.type = 'button';
     button.textContent = label;
-    button.disabled = Boolean(disabled) || !hasNamedMushroom(runtime.state) || isGameOverUiState();
+    button.disabled = Boolean(disabled)
+      || !hasNamedMushroom(runtime.state)
+      || isGameOverUiState()
+      || (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked());
     button.addEventListener('click', onClick);
     return button;
   }
@@ -1103,6 +1795,8 @@
       : null;
     const active = runtime.state.minigames && runtime.state.minigames.active;
     const activeLegendary = active && isLegendaryMinigameRuntimeId(active.id);
+    const foreignMinigame = typeof isForeignExclusiveSessionActive === 'function'
+      && isForeignExclusiveSessionActive('minigame');
     dom.legendaryGameList.innerHTML = '';
     if (!dashboard) {
       dom.legendaryGames.hidden = true;
@@ -1114,7 +1808,7 @@
       dom.legendaryGamesStatus.textContent = dashboard.status || 'Czeka';
     }
     if (dom.legendaryGamePlayfield) {
-      dom.legendaryGamePlayfield.hidden = !activeLegendary;
+      dom.legendaryGamePlayfield.hidden = !activeLegendary || foreignMinigame;
     }
 
     (dashboard.games || []).forEach(function(game) {
@@ -1128,7 +1822,10 @@
         || isRecoveryActiveForRuntime(getRuntimeNow())
         || !hasNamedMushroom(runtime.state)
         || runtime.state.mode !== 'awake'
-        || Boolean(active && active.id !== game.id)
+        || isMinigameActive()
+        || Boolean(active)
+        || isBattleSessionActive()
+        || (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked())
         || Number(game.cooldownMs) > 0;
 
       card.className = 'legendary-game-card' + (game.featured ? ' is-featured' : '') + (game.active ? ' is-active' : '');
@@ -1632,7 +2329,7 @@
           row.classList.add('discovery-item--polaroid');
           row.style.setProperty('--journal-tilt', getWorldJournalItemTilt(group.id, item));
         }
-        row.disabled = !item.discovered;
+        row.setAttribute('aria-disabled', item.discovered ? 'false' : 'true');
         label.textContent = item.discovered ? formatMushroomText(item.label) : '???';
         meta.textContent = item.discovered
           ? [item.sourceLabel || '', item.count > 1 ? item.count + ' razy' : 'Odkryte'].filter(Boolean).join(' · ')
@@ -1661,7 +2358,11 @@
 
   function syncCalendarDiscoveries() {
     const core = window.PieczargotchiCore;
-    if (!runtime.state || !core || typeof core.getCalendarEventsForDate !== 'function' || typeof core.recordCalendarDiscovery !== 'function') {
+    if ((typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked())
+      || !runtime.state
+      || !core
+      || typeof core.getCalendarEventsForDate !== 'function'
+      || typeof core.recordCalendarDiscovery !== 'function') {
       return;
     }
     if (!hasNamedMushroom(runtime.state)) {
@@ -1689,7 +2390,7 @@
 
     if (changed) {
       runtime.state.lastUpdatedAt = new Date(now).toISOString();
-      saveState(runtime.state);
+      persistRuntimeState(runtime.state);
     }
   }
 
@@ -1834,6 +2535,9 @@
     const rewards = battle.rewards || {};
     const activeTerminal = active && ['victory', 'defeat'].includes(active.mode);
     const activeRunning = active && !activeTerminal;
+    const pendingBattle = Boolean(runtime.pendingExclusiveStart && runtime.pendingExclusiveStart.kind === 'battle');
+    const foreignBattle = typeof isForeignExclusiveSessionActive === 'function'
+      && isForeignExclusiveSessionActive('battle');
 
     dom.battleRecord.textContent = (Number(rewards.wins) || 0) + '-' + (Number(rewards.losses) || 0)
       + ' / ' + (Number(rewards.trophies) || 0);
@@ -1844,24 +2548,38 @@
       dom.battlePlayerName.textContent = getMushroomName(runtime.state);
     }
 
-    dom.battleStart.disabled = gameOver || Boolean(activeRunning);
+    dom.battleStart.disabled = gameOver
+      || Boolean(activeRunning)
+      || pendingBattle
+      || isBattleSessionActive()
+      || isMinigameActive()
+      || (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked());
     dom.battleStart.textContent = gameOver ? 'Koniec gry' : activeRunning ? 'Walka trwa' : 'Start walki';
-    dom.battleResult.textContent = gameOver ? 'Koniec gry' : getBattleResultLabel(active);
+    dom.battleResult.textContent = gameOver
+      ? 'Koniec gry'
+      : foreignBattle
+        ? getBattleResultLabel(active) + ' · inna karta'
+        : getBattleResultLabel(active);
 
-    renderBattleMoves(active, gameOver ? false : activeRunning);
-    renderBattleTraining(gameOver || activeRunning);
+    renderBattleMoves(active, gameOver || pendingBattle || foreignBattle ? false : activeRunning);
+    renderBattleTraining(gameOver
+      || activeRunning
+      || pendingBattle
+      || foreignBattle
+      || isMinigameActive()
+      || (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()));
     renderBattleLog();
   }
 
   function renderBattleCombatant(hpNode, staminaNode, combatant) {
     if (!combatant) {
-      hpNode.textContent = 'HP --';
-      staminaNode.textContent = 'ST --';
+      hpNode.textContent = 'Zdrowie --';
+      staminaNode.textContent = 'Wytrzymałość --';
       return;
     }
 
-    hpNode.textContent = 'HP ' + Math.max(0, Math.round(combatant.hp)) + '/' + Math.round(combatant.maxHp || combatant.hp || 0);
-    staminaNode.textContent = 'ST ' + Math.max(0, Math.round(combatant.stamina)) + '/' + Math.round(combatant.maxStamina || combatant.stamina || 0);
+    hpNode.textContent = 'Zdrowie ' + Math.max(0, Math.round(combatant.hp)) + '/' + Math.round(combatant.maxHp || combatant.hp || 0);
+    staminaNode.textContent = 'Wytrzymałość ' + Math.max(0, Math.round(combatant.stamina)) + '/' + Math.round(combatant.maxStamina || combatant.stamina || 0);
     if (combatant.statusEffects && combatant.statusEffects.slow) {
       staminaNode.textContent += ' / spow.';
     }
@@ -1894,6 +2612,7 @@
 
       button.className = 'battle-move-button';
       button.type = 'button';
+      button.dataset.focusKey = 'battle-move-' + move.id;
       button.disabled = !activeRunning;
       button.title = lowStamina ? 'Odpoczynek przy braku staminy' : move.label;
       label.className = 'battle-move-name';
@@ -1935,6 +2654,7 @@
 
       button.className = 'battle-train-button';
       button.type = 'button';
+      button.dataset.focusKey = 'battle-train-' + statId;
       button.disabled = activeRunning || value >= cap || availableSpores < cost;
       button.title = labels[statId] + ' ' + value + '/' + cap;
       label.textContent = labels[statId];
@@ -1981,6 +2701,10 @@
     const message = getMushroomMessage(runtime.state);
     dom.messageTitle.textContent = formatMushroomText(message.title);
     dom.messageBody.textContent = formatMushroomText(message.body);
+    const resetButton = document.querySelector('[data-game-over-reset]');
+    if (resetButton) {
+      resetButton.hidden = !isGameOverUiState();
+    }
   }
 
   function renderAssetStatus() {
@@ -2127,7 +2851,7 @@
     const dayText = days ? ' Przetrwała ' + days + ' dni.' : '';
     return {
       title: 'Koniec gry',
-      body: 'Kuracja była zbyt długo zaniedbana i Pieczarka obumarła w mchu.' + dayText + ' Użyj „Od nowa”, żeby zacząć kolejną hodowlę.'
+      body: 'Kuracja była zbyt długo zaniedbana i Pieczarka obumarła w mchu.' + dayText + ' Możesz zacząć kolejną hodowlę.'
     };
   }
 
@@ -2266,13 +2990,6 @@
     ) || Boolean(state.attention && state.attention.activeNeed);
   }
 
-  function getLocalDateKey() {
-    const date = getRuntimeDate();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return date.getFullYear() + '-' + month + '-' + day;
-  }
-
   function hashStringToUnit(value) {
     let hash = 2166136261;
     for (let index = 0; index < value.length; index += 1) {
@@ -2287,7 +3004,7 @@
     runtime.effects.push({
       type: type,
       createdAt: performance.now(),
-      duration: type === 'sleep' ? 1200 : 1800,
+      duration: runtime.reducedMotion ? 420 : type === 'sleep' ? 1200 : 1800,
       particles: createParticles(type)
     });
   }
@@ -2303,7 +3020,9 @@
       wake: 6,
       sleep: 5
     };
-    const count = countByType[type] || 8;
+    const count = runtime.reducedMotion
+      ? Math.max(2, Math.ceil((countByType[type] || 8) / 3))
+      : countByType[type] || 8;
     const particles = [];
 
     for (let index = 0; index < count; index += 1) {

@@ -24,6 +24,19 @@ const runtimeFiles = [
     .sort(),
 ];
 
+// These files are technical contracts written wholly or partly in English and
+// intentionally use terms such as runtime, sprite sheet and asset. Product UI
+// copy remains covered through runtimeFiles below.
+const technicalLanguageFiles = new Set([
+  'README.md',
+  'docs/APPS_SCRIPT_DEPLOYMENT_DRY_RUN.md',
+  'docs/IMAGEGEN_ASSET_PIPELINE.md',
+  'docs/NEXT_STEPS.md',
+  'docs/SPRITE_BIBLE.md',
+  'docs/UI_SCENE_FIRST_IMPLEMENTATION_2026-07-12.md',
+  'docs/VISUAL_ASSET_IMPLEMENTATION_2026-07-11.md',
+]);
+
 const visibleTermRules = [
   { pattern: /\bcare mistakes\b/i, suggestion: 'błędy opieki' },
   { pattern: /\bmycelium\b/i, suggestion: 'grzybnia' },
@@ -126,6 +139,9 @@ function sectionAllows(file, line, activeAllowSection) {
 }
 
 function auditFile(file) {
+  if (technicalLanguageFiles.has(file)) {
+    return [];
+  }
   const absolute = path.join(ROOT, file);
   const text = fs.readFileSync(absolute, 'utf8');
   const lines = text.split(/\r?\n/);

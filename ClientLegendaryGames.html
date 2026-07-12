@@ -1,4 +1,12 @@
   const LEGENDARY_GAME_RUNTIME_IDS = ['sporeTrail', 'myceliumLeague', 'memoryGarden'];
+  const LEGENDARY_PIXEL_SYMBOLS = {
+    trail: ['00100', '01110', '11111', '01110', '00100'],
+    rare: ['10101', '01110', '11111', '01110', '10101'],
+    strike: ['00110', '01100', '11111', '01100', '00110'],
+    guard: ['01110', '11011', '11011', '11111', '01110'],
+    focus: ['10101', '01110', '11011', '01110', '10101'],
+    memory: ['11111', '10001', '10101', '10001', '11111']
+  };
 
   function isLegendaryMinigameRuntimeId(minigameId) {
     return LEGENDARY_GAME_RUNTIME_IDS.indexOf(String(minigameId || '')) !== -1;
@@ -26,11 +34,15 @@
       pulses: [],
       floaters: [],
       lastFrameAt: getRuntimeNow(),
+      keyboardLaneIndex: 0,
+      keyHandler: handleLegendaryGameKeydown,
       animationFrame: 0
     };
     canvas.tabIndex = 0;
     canvas.setAttribute('role', 'application');
     canvas.setAttribute('aria-label', getLegendaryGameAriaLabel(session.id));
+    focusMinigameCanvas(canvas);
+    window.addEventListener('keydown', runtime.minigame.keyHandler, { passive: false });
     ctx.imageSmoothingEnabled = false;
     renderLegendaryGameFrame();
   }
@@ -57,7 +69,7 @@
     drawLegendaryGamePulses(ctx, now);
     drawMinigameFloaters(ctx, now);
     updateMinigameHud(now);
-    runtime.minigame.animationFrame = window.requestAnimationFrame(renderLegendaryGameFrame);
+    runtime.minigame.animationFrame = scheduleMinigameAnimationFrame(renderLegendaryGameFrame);
   }
 
   function handleLegendaryGamePointer(event) {
@@ -67,6 +79,7 @@
 
     event.preventDefault();
     const canvas = dom.legendaryGameCanvas;
+    focusMinigameCanvas(canvas);
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / Math.max(1, rect.width);
     const scaleY = canvas.height / Math.max(1, rect.height);
@@ -88,6 +101,70 @@
     }
 
     scoreLegendaryGameTarget(target, now);
+  }
+
+  function handleLegendaryGameKeydown(event) {
+    if (!runtime.minigame || !isLegendaryMinigameRuntimeId(runtime.minigame.session.id)) {
+      return;
+    }
+    if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.repeat) {
+      return;
+    }
+    const session = runtime.minigame.session;
+    const key = String(event.key || '').toLowerCase();
+    const now = getRuntimeNow();
+    let target = null;
+    if (session.id === 'myceliumLeague') {
+      const laneIds = ['strike', 'guard', 'focus'];
+      const directLane = key === '1' || key === 'c'
+        ? 'strike'
+        : key === '2' || key === 'o'
+          ? 'guard'
+          : key === '3' || key === 's'
+            ? 'focus'
+            : null;
+      if (key === 'arrowleft' || key === 'left') {
+        runtime.minigame.keyboardLaneIndex = positiveModulo((Number(runtime.minigame.keyboardLaneIndex) || 0) - 1, laneIds.length);
+      } else if (key === 'arrowright' || key === 'right') {
+        runtime.minigame.keyboardLaneIndex = positiveModulo((Number(runtime.minigame.keyboardLaneIndex) || 0) + 1, laneIds.length);
+      } else if (!directLane && key !== 'enter' && key !== ' ') {
+        return;
+      }
+      const lane = directLane || laneIds[Number(runtime.minigame.keyboardLaneIndex) || 0];
+      const active = getActiveLegendaryTarget(now);
+      if (active) {
+        const lanePoint = getLegendaryLeagueLanePoint(lane);
+        target = Object.assign({
+          inputLane: lane,
+          inputX: lanePoint.x,
+          inputY: lanePoint.y,
+          wrongCounter: lane !== active.lane
+        }, active);
+      }
+    } else {
+      if (key !== 'enter' && key !== ' ') {
+        return;
+      }
+      target = getNextLegendaryTarget(now);
+    }
+    event.preventDefault();
+    if (!target) {
+      return;
+    }
+    if (target.wrongCounter) {
+      registerLegendaryGameMiss(target.inputX, target.inputY, now, 'zły znak');
+      return;
+    }
+    scoreLegendaryGameTarget(target, now);
+  }
+
+  function getLegendaryLeagueLanePoint(laneId) {
+    const lanes = {
+      strike: { x: 78, y: 126 },
+      guard: { x: 150, y: 126 },
+      focus: { x: 222, y: 126 }
+    };
+    return lanes[laneId] || lanes.strike;
   }
 
   function buildLegendaryGameTargets(session) {
@@ -171,7 +248,9 @@
         return;
       }
       const distance = Math.sqrt(Math.pow(x - target.x, 2) + Math.pow(y - target.y, 2));
-      if (distance <= target.radius + 7 && (!best || distance < best.distance)) {
+      const config = rules.minigames && rules.minigames[session.id] ? rules.minigames[session.id] : {};
+      const forgivenessPx = getMinigamePointerForgivenessPx(config);
+      if (distance <= target.radius + 7 + forgivenessPx && (!best || distance < best.distance)) {
         best = Object.assign({ distance: distance }, target);
       }
     });
@@ -187,21 +266,38 @@
       return;
     }
     session.caught.push(target.id);
-    session.score += Number(target.points) || 1;
     session.combo = (Number(session.combo) || 0) + 1;
     session.bestCombo = Math.max(Number(session.bestCombo) || 0, Number(session.combo) || 0);
+    const basePoints = Number(target.points) || 1;
+    const comboBonus = getLegendaryComboBonus(session.id, session.combo);
+    const awardedPoints = basePoints + comboBonus;
+    session.score += awardedPoints;
     runtime.minigame.pulses.push({
       x: target.inputX || target.x,
       y: target.inputY || target.y,
       kind: target.kind,
       startedAt: now
     });
-    pushMinigameFloater('+' + (Number(target.points) || 1), target.inputX || target.x, (target.inputY || target.y) - 12, target.kind === 'rare' ? 'rare' : 'good', now);
+    pushMinigameFloater('+' + awardedPoints, target.inputX || target.x, (target.inputY || target.y) - 12, comboBonus ? 'combo' : target.kind === 'rare' ? 'rare' : 'good', now);
     if (session.combo >= 5 && session.combo % 5 === 0) {
       pushMinigameFloater('seria x' + session.combo, target.inputX || target.x, (target.inputY || target.y) - 28, 'combo', now);
     }
     syncLegendaryGameActiveSession(true);
     updateMinigameHud(now);
+  }
+
+  function getLegendaryComboBonus(gameId, combo) {
+    const streak = Math.max(0, Math.floor(Number(combo) || 0));
+    if (streak <= 0 || streak % 4 !== 0) {
+      return 0;
+    }
+    if (gameId === 'myceliumLeague') {
+      return 2;
+    }
+    if (gameId === 'memoryGarden') {
+      return 1;
+    }
+    return 0;
   }
 
   function registerLegendaryGameMiss(x, y, now, label) {
@@ -229,7 +325,7 @@
       bestCombo: Number(session.bestCombo) || 0
     });
     if (shouldSave) {
-      saveState(runtime.state);
+      persistRuntimeState(runtime.state);
     }
   }
 
@@ -247,6 +343,11 @@
       ctx.fillStyle = i % 3 === 0 ? theme.spark : 'rgba(255, 253, 247, 0.38)';
       ctx.fillRect(x, y, 2, 2);
     }
+    ctx.fillStyle = theme.ink;
+    ctx.fillRect(0, 0, width, 3);
+    ctx.fillRect(0, height - 3, width, 3);
+    ctx.fillRect(0, 0, 3, height);
+    ctx.fillRect(width - 3, 0, 3, height);
     if (gameId === 'myceliumLeague') {
       drawLeagueRunes(ctx, width, height, theme, now);
     } else if (gameId === 'memoryGarden') {
@@ -262,7 +363,7 @@
     ctx.fillStyle = 'rgba(45, 39, 32, 0.78)';
     ctx.fillRect(8, 8, width - 16, 20);
     ctx.fillStyle = theme.spark;
-    ctx.font = '12px monospace';
+    ctx.font = 'bold 11px sans-serif';
     ctx.fillText(label, 14, 22);
     if (gameId === 'myceliumLeague') {
       ctx.fillText('traf znak aury', width - 116, 22);
@@ -294,9 +395,9 @@
     if (target.appearsAt - now > 900) {
       return;
     }
-    ctx.globalAlpha = 0.28;
+    ctx.globalAlpha = 0.40;
     ctx.fillStyle = getLegendaryGameTheme(gameId).spark;
-    ctx.fillRect(Math.round(target.x) - 2, Math.round(target.y) - 2, 4, 4);
+    drawLegendaryPixelSymbol(ctx, 'trail', Math.round(target.x), Math.round(target.y), 1, getLegendaryGameTheme(gameId).spark);
     ctx.globalAlpha = 1;
   }
 
@@ -306,25 +407,51 @@
     const current = !expected || expected.id === target.id;
     const pulse = Math.sin(now / 120 + target.x * 0.03) * 2;
     const radius = Math.max(5, target.radius * warmup + pulse);
-    ctx.globalAlpha = current ? Math.max(0.35, Math.min(1, life + 0.2)) : 0.24;
-    ctx.fillStyle = target.kind === 'rare' ? '#fff0a8' : theme.spark;
-    ctx.fillRect(Math.round(target.x - radius), Math.round(target.y - 2), Math.round(radius * 2), 4);
-    ctx.fillRect(Math.round(target.x - 2), Math.round(target.y - radius), 4, Math.round(radius * 2));
+    ctx.globalAlpha = current ? Math.max(0.72, Math.min(1, life + 0.28)) : 0.48;
+    const symbol = target.kind === 'rare'
+      ? 'rare'
+      : gameId === 'myceliumLeague'
+        ? target.lane
+        : gameId === 'memoryGarden'
+          ? 'memory'
+          : 'trail';
+    const symbolScale = radius >= 13 ? 3 : 2;
     ctx.fillStyle = theme.ink;
-    ctx.fillRect(Math.round(target.x - 6), Math.round(target.y - 6), 12, 12);
-    ctx.fillStyle = target.kind === 'rare' ? '#fff8d8' : theme.spark;
-    ctx.fillRect(Math.round(target.x - 3), Math.round(target.y - 3), 6, 6);
-    if (gameId === 'myceliumLeague') {
-      ctx.fillStyle = '#fffdf7';
-      ctx.font = '10px monospace';
-      ctx.fillText(getLegendaryLaneGlyph(target.lane), Math.round(target.x - 4), Math.round(target.y + 4));
-    } else if (current) {
+    ctx.fillRect(Math.round(target.x - radius), Math.round(target.y - radius), Math.round(radius * 2), Math.round(radius * 2));
+    ctx.fillStyle = current ? theme.spark : theme.shadow;
+    ctx.fillRect(Math.round(target.x - radius + 3), Math.round(target.y - radius + 3), Math.round(radius * 2 - 6), Math.round(radius * 2 - 6));
+    drawLegendaryPixelSymbol(
+      ctx,
+      symbol,
+      Math.round(target.x),
+      Math.round(target.y),
+      symbolScale,
+      target.kind === 'rare' ? '#fff8d8' : theme.ink
+    );
+    if (gameId !== 'myceliumLeague' && current) {
       ctx.globalAlpha = Math.max(0.28, life * 0.55);
       ctx.fillStyle = '#fffdf7';
       ctx.fillRect(Math.round(target.x - radius - 4), Math.round(target.y - radius - 4), Math.round(radius * 2 + 8), 2);
       ctx.fillRect(Math.round(target.x - radius - 4), Math.round(target.y + radius + 2), Math.round(radius * 2 + 8), 2);
     }
     ctx.globalAlpha = 1;
+  }
+
+  function drawLegendaryPixelSymbol(ctx, symbolId, centerX, centerY, scale, color) {
+    const pattern = LEGENDARY_PIXEL_SYMBOLS[symbolId] || LEGENDARY_PIXEL_SYMBOLS.trail;
+    const pixel = Math.max(1, Math.round(scale) || 1);
+    const width = pattern[0].length * pixel;
+    const height = pattern.length * pixel;
+    const left = Math.round(centerX - width / 2);
+    const top = Math.round(centerY - height / 2);
+    ctx.fillStyle = color;
+    pattern.forEach(function(row, rowIndex) {
+      for (let column = 0; column < row.length; column += 1) {
+        if (row[column] === '1') {
+          ctx.fillRect(left + column * pixel, top + rowIndex * pixel, pixel, pixel);
+        }
+      }
+    });
   }
 
   function drawLegendaryGamePulses(ctx, now) {
@@ -356,18 +483,16 @@
   function drawLeagueRunes(ctx, width, height, theme, now) {
     const active = getActiveLegendaryTarget(now);
     const lanes = [
-      { x: 78, label: 'C' },
-      { x: 150, label: 'O' },
-      { x: 222, label: 'S' }
+      { x: 78, symbol: 'strike' },
+      { x: 150, symbol: 'guard' },
+      { x: 222, symbol: 'focus' }
     ];
     lanes.forEach(function(lane, index) {
       const laneId = index === 0 ? 'strike' : index === 1 ? 'guard' : 'focus';
       const activeLane = active && active.lane === laneId;
       ctx.fillStyle = activeLane ? theme.spark : 'rgba(255, 253, 247, 0.62)';
-      ctx.fillRect(lane.x - 23, height - 42, 46, 12);
-      ctx.fillStyle = theme.ink;
-      ctx.font = '12px monospace';
-      ctx.fillText(lane.label, lane.x - 4, height - 32);
+      ctx.fillRect(lane.x - 23, height - 49, 46, 26);
+      drawLegendaryPixelSymbol(ctx, lane.symbol, lane.x, height - 36, 2, theme.ink);
       if (activeLane) {
         ctx.globalAlpha = 0.34 + Math.sin(now / 130) * 0.16;
         ctx.fillStyle = '#fffdf7';
@@ -411,7 +536,7 @@
       for (let col = 0; col < 3; col += 1) {
         const x = 62 + col * 68;
         const y = 39 + row * 38;
-        ctx.fillStyle = 'rgba(255, 253, 247, 0.42)';
+        ctx.fillStyle = 'rgba(255, 253, 247, 0.64)';
         ctx.fillRect(x, y, 40, 24);
         ctx.fillStyle = theme.shadow;
         ctx.fillRect(x + 4, y + 20, 32, 3);
@@ -424,7 +549,7 @@
       return { sky: '#6f7993', ground: '#d8cfa7', shadow: 'rgba(42, 45, 56, 0.3)', spark: '#ffe08a', ink: '#5b3f62' };
     }
     if (gameId === 'memoryGarden') {
-      return { sky: '#9fc0b4', ground: '#dfd2a0', shadow: 'rgba(54, 70, 45, 0.25)', spark: '#f5b46b', ink: '#536d4a' };
+      return { sky: '#91b6aa', ground: '#ddd09a', shadow: 'rgba(47, 66, 39, 0.40)', spark: '#ffad58', ink: '#3b5734' };
     }
     return { sky: '#8db9c7', ground: '#d5d69f', shadow: 'rgba(44, 66, 44, 0.24)', spark: '#d8f4ff', ink: '#4f8f39' };
   }
@@ -440,7 +565,10 @@
 
   function getLegendaryGameAriaLabel(gameId) {
     const config = rules.minigames && rules.minigames[gameId] ? rules.minigames[gameId] : {};
-    return (config.label || 'Legendarna minigra') + '. Klikaj rozświetlone symbole.';
+    if (gameId === 'myceliumLeague') {
+      return (config.label || 'Liga Grzybni') + '. C, O i S albo klawisze 1, 2 i 3 wybierają właściwy znak.';
+    }
+    return (config.label || 'Legendarna minigra') + '. Enter lub spacja wybiera kolejny rozświetlony symbol.';
   }
 
   function seededLegendaryUnit(seed, index, salt) {

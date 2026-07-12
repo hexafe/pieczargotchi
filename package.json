@@ -1,20 +1,42 @@
 {
   "name": "pieczargotchi",
-  "version": "0.1.43",
+  "version": "0.1.50",
   "private": true,
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "build": "node scripts/build-cloudflare-static.mjs",
     "build:cloudflare": "node scripts/build-cloudflare-static.mjs",
-    "deploy": "npm run build && npx wrangler deploy",
-    "deploy:preview": "npm run build && npx wrangler versions upload",
+    "build:verified": "node scripts/run-qa.mjs --verified-build",
+    "build:debug": "node scripts/build-cloudflare-debug.mjs",
+    "qa": "node scripts/run-qa.mjs",
+    "qa:browser": "node scripts/test-browser-smoke.mjs",
+    "qa:viewports": "node scripts/test-ui-viewport-contracts.mjs",
+    "qa:apps-script-release": "node scripts/check-apps-script-release.mjs",
+    "docs:assets": "node scripts/generate-asset-inventory.mjs --write",
+    "deploy": "node scripts/deploy-cloudflare.mjs",
+    "deploy:preview": "node scripts/deploy-cloudflare.mjs --preview",
+    "apps-script:status": "clasp show-file-status",
     "check:client": "node scripts/check-client-syntax.mjs",
     "test:core": "node scripts/test-client-core.mjs",
+    "test:runtime": "node scripts/test-runtime-gameplay-regressions.mjs",
+    "test:persistence": "node scripts/test-state-persistence.mjs",
     "test:celestial": "node scripts/test-celestial-position.mjs",
     "test:palette": "node scripts/test-scene-palette.mjs",
     "test:weather": "node scripts/test-weather-precip-motion.mjs",
+    "test:weather-client": "node scripts/test-weather-client-resilience.mjs",
+    "test:dev-server": "node scripts/test-dev-server-security.mjs",
     "test:grass-wind": "node scripts/test-grass-wind-motion.mjs",
     "balance:minigames": "node scripts/simulate-minigame-balance.mjs",
     "audit:polish-copy": "node scripts/audit-polish-copy.mjs",
     "test:cloudflare-static": "node scripts/test-cloudflare-static-build.mjs"
+  },
+  "devDependencies": {
+    "@google/clasp": "3.3.0",
+    "wrangler": "4.106.0"
+  },
+  "overrides": {
+    "uuid": "11.1.1"
   }
 }

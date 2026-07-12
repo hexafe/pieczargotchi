@@ -213,7 +213,16 @@
     const stage = animation.stage || (animation.key ? String(animation.key).split('.')[0] : runtime.state.stage) || 'adult';
     const now = getRuntimeNow();
     const resolvedGrassTop = Number.isFinite(grassTop) ? grassTop : getConditionOverlayGrassTop(stage);
-    if (motion) {
+    if (motion && animation.bakedGrass === false) {
+      const pivotX = Number.isFinite(Number(motion.pivotX)) ? Number(motion.pivotX) : canvasSize / 2;
+      const pivotY = Number.isFinite(Number(motion.pivotY)) ? Number(motion.pivotY) : canvasSize / 2;
+      ctx.save();
+      ctx.translate(pivotX + motion.x, pivotY + motion.y);
+      ctx.scale(motion.scaleX || 1, motion.scaleY || 1);
+      ctx.translate(-pivotX, -pivotY);
+      drawMushroomDirtMarks(ctx, stage, intensity, now, frameIndex, 0, canvasSize);
+      ctx.restore();
+    } else if (motion) {
       ctx.save();
       ctx.beginPath();
       ctx.rect(0, 0, canvasSize, resolvedGrassTop);
@@ -596,7 +605,14 @@
       return false;
     }
 
-    const frameCount = 4;
+    const asset = assetsByKey.get(assetKey) || {};
+    const frameCount = Math.max(1, Number(asset.frames) || 4);
+    const frameWidth = Math.max(1, Number(asset.frameWidth) || Number(asset.width) / frameCount || canvasSize);
+    const frameHeight = Math.max(1, Number(asset.frameHeight) || Number(asset.height) || canvasSize);
+    const drawX = Number.isFinite(Number(asset.drawX)) ? Number(asset.drawX) : 0;
+    const drawY = Number.isFinite(Number(asset.drawY)) ? Number(asset.drawY) : 0;
+    const frameSequence = Array.isArray(asset.frameSequence) ? asset.frameSequence : [];
+    const storedFrameCount = Math.max(1, Number(asset.storedFrameCount) || frameCount);
     const framePosition = clamp(progress * (frameCount - 1), 0, frameCount - 1, 0);
     const frame = Math.floor(framePosition);
     const nextFrame = Math.min(frameCount - 1, frame + 1);
@@ -606,13 +622,22 @@
       * clamp(Number(alphaScale), 0, 1, 1);
     ctx.save();
     ctx.globalAlpha = fadeAlpha * (1 - blend);
-    ctx.drawImage(image, frame * canvasSize, 0, canvasSize, canvasSize, 0, 0, canvasSize, canvasSize);
+    const storedFrame = getStoredEffectFrameIndex(frameSequence, storedFrameCount, frame);
+    ctx.drawImage(image, storedFrame * frameWidth, 0, frameWidth, frameHeight, drawX, drawY, frameWidth, frameHeight);
     if (nextFrame !== frame && blend > 0.01) {
       ctx.globalAlpha = fadeAlpha * blend;
-      ctx.drawImage(image, nextFrame * canvasSize, 0, canvasSize, canvasSize, 0, 0, canvasSize, canvasSize);
+      const storedNextFrame = getStoredEffectFrameIndex(frameSequence, storedFrameCount, nextFrame);
+      ctx.drawImage(image, storedNextFrame * frameWidth, 0, frameWidth, frameHeight, drawX, drawY, frameWidth, frameHeight);
     }
     ctx.restore();
     return true;
+  }
+
+  function getStoredEffectFrameIndex(sequence, storedFrameCount, logicalFrame) {
+    const stored = Array.isArray(sequence) ? Number(sequence[logicalFrame]) : Number(logicalFrame);
+    return Number.isInteger(stored) && stored >= 0 && stored < storedFrameCount
+      ? stored
+      : Math.min(Math.max(0, Number(logicalFrame) || 0), storedFrameCount - 1);
   }
 
   function getEffectAssetKey(type) {

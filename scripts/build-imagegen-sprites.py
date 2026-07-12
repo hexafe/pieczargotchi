@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import argparse
 import math
+from collections import deque
 from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
@@ -280,10 +282,18 @@ EFFECT_OFFSETS = {
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--stage", choices=STAGES, help="rebuild only one growth stage")
+    parser.add_argument("--state", choices=STATES, help="rebuild only one base state")
+    args = parser.parse_args()
     sprawdz_zrodla()
     grass = przygotuj_warstwe_trawy()
     body_bottom_targets = policz_docelowe_doly_korpusu(grass)
-    zbuduj_stany(grass, body_bottom_targets)
+    zbuduj_stany(grass, body_bottom_targets, args.stage, args.state)
+    if args.stage or args.state:
+        scope = "/".join(value for value in (args.stage, args.state) if value)
+        print(f"Zbudowano wybrany zakres sprite sheetow: {scope}.")
+        return
     zbuduj_aktywnosci(grass, body_bottom_targets)
     zbuduj_easter_eggi(grass, body_bottom_targets)
     zbuduj_efekty()
@@ -412,33 +422,67 @@ def podnies_do_minimum_posadzenia(value: int, planted_min_bottom: int | None) ->
     return max(value, planted_min_bottom)
 
 
-def zbuduj_stany(grass: Image.Image, body_bottom_targets: dict[str, int]) -> None:
+def zbuduj_stany(
+    grass: Image.Image,
+    body_bottom_targets: dict[str, int],
+    selected_stage: str | None = None,
+    selected_state: str | None = None,
+) -> None:
     for state in STATES:
+        if selected_state and state != selected_state:
+            continue
         atlas = wczytaj_atlas(state)
         cutouts = przygotuj_cutouty_etapow(atlas, state)
+        framed_cutouts = wczytaj_klatkowe_cutouty_stanu(state, len(STATE_OFFSETS[state]))
         for stage, cutout in zip(STAGES, cutouts):
+            if selected_stage and stage != selected_stage:
+                continue
             if stage == "spore" and state in SPORE_DETACHED_STRIP_STATES:
                 cutout = usun_odklejone_paski_zarodnika(cutout)
             if state == "excellent":
                 cutout = usun_odklejone_blyski(cutout)
             zapisz_cutout("states", state, stage, cutout)
-            offsets = STATE_OFFSETS[state]
-            if stage == "spore" and state == "wake":
-                offsets = [(x, y - 7) for x, y in offsets]
+            stage_frame_cutouts = framed_cutouts.get(stage)
+            offsets = [(0, 0)] * len(stage_frame_cutouts) if stage_frame_cutouts else STATE_OFFSETS[state]
             frames = [
                 zloz_klatke_z_trawa(
-                    cutout,
+                    stage_frame_cutouts[frame_index] if stage_frame_cutouts else cutout,
                     grass,
                     stage,
                     offset,
                     None,
                     body_bottom_targets,
-                    state,
+                    None if stage_frame_cutouts else state,
                     frame_index,
                 )
                 for frame_index, offset in enumerate(offsets)
             ]
             zapisz_sheet(ASSETS / "stages" / stage / f"{state}_sheet.png", frames)
+
+
+def wczytaj_klatkowe_cutouty_stanu(state: str, frame_count: int) -> dict[str, list[Image.Image]]:
+    paths = znajdz_sciezki_klatkowych_atlasow("states", state, frame_count)
+    if paths is None:
+        return {}
+
+    cutouts_by_stage = {stage: [] for stage in STAGES}
+    for frame_index, path in enumerate(paths):
+        atlas = usun_chroma_key(Image.open(path).convert("RGBA"))
+        cutouts = przygotuj_cutouty_klatkowego_stanu(atlas, state, frame_index)
+        for stage, cutout in zip(STAGES, cutouts):
+            cutouts_by_stage[stage].append(cutout)
+
+    return cutouts_by_stage
+
+
+def przygotuj_cutouty_klatkowego_stanu(atlas: Image.Image, state: str, frame_index: int) -> list[Image.Image]:
+    cutouts = wytnij_etapy(atlas)
+    return [
+        przygotuj_zarodnik_grzybni(cutout, f"{state}_frame_{frame_index + 1:02d}")
+        if stage == "spore"
+        else cutout
+        for stage, cutout in zip(STAGES, cutouts)
+    ]
 
 
 def zbuduj_aktywnosci(grass: Image.Image, body_bottom_targets: dict[str, int]) -> None:
@@ -463,14 +507,10 @@ def zbuduj_aktywnosci(grass: Image.Image, body_bottom_targets: dict[str, int]) -
             sciezka = ASSETS / "activities" / stage / f"{activity}_sheet.png"
             zapisz_sheet(sciezka, frames)
 
-            if stage == "adult":
-                zapisz_sheet(ASSETS / "activities" / f"{activity}_sheet.png", frames)
-
 
 def wczytaj_klatkowe_cutouty_aktywnosci(activity: str) -> dict[str, list[Image.Image]]:
-    frame_dir = RAW_DIR / "activities" / activity
-    paths = [frame_dir / f"frame_{index + 1:02d}_atlas.png" for index in range(ACTIVITY_FRAME_COUNT)]
-    if not all(path.exists() for path in paths):
+    paths = znajdz_sciezki_klatkowych_atlasow("activities", activity, ACTIVITY_FRAME_COUNT)
+    if paths is None:
         return {}
 
     cutouts_by_stage = {stage: [] for stage in STAGES}
@@ -481,6 +521,22 @@ def wczytaj_klatkowe_cutouty_aktywnosci(activity: str) -> dict[str, list[Image.I
             cutouts_by_stage[stage].append(cutout)
 
     return cutouts_by_stage
+
+
+def znajdz_sciezki_klatkowych_atlasow(kind: str, name: str, frame_count: int) -> list[Path] | None:
+    """Returns a complete authored sequence or falls back only when none exists."""
+    frame_dir = RAW_DIR / kind / name
+    paths = [frame_dir / f"frame_{index + 1:02d}_atlas.png" for index in range(frame_count)]
+    present = [path for path in paths if path.exists()]
+    if not present:
+        return None
+    if len(present) != len(paths):
+        missing = ", ".join(path.name for path in paths if not path.exists())
+        raise FileNotFoundError(
+            f"Niepelna sekwencja {kind}/{name}: brakuje {missing}. "
+            "Usun niepelny katalog, aby uzyc bezpiecznego fallbacku z pojedynczego atlasu."
+        )
+    return paths
 
 
 def przygotuj_cutouty_klatkowej_aktywnosci(atlas: Image.Image, activity: str, frame_index: int) -> list[Image.Image]:
@@ -538,31 +594,150 @@ def przygotuj_cutouty_etapow(atlas: Image.Image, variant_id: str) -> list[Image.
 
 
 def usun_chroma_key(image: Image.Image) -> Image.Image:
+    image = image.copy()
     pixels = image.load()
+    matte = znajdz_polaczone_tlo_chroma(image)
+    matte_mask = Image.new("L", image.size, 0)
+    matte_pixels = matte_mask.load()
+
+    for x, y in matte:
+        matte_pixels[x, y] = 255
+        pixels[x, y] = (0, 0, 0, 0)
+
+    edge_band = matte_mask.filter(ImageFilter.MaxFilter(7))
+    edge_pixels = edge_band.load()
 
     for y in range(image.height):
         for x in range(image.width):
             r, g, b, a = pixels[x, y]
             if a <= 0:
+                pixels[x, y] = (0, 0, 0, 0)
                 continue
-
-            magenta_distance = ((r - 255) ** 2 + g**2 + (b - 255) ** 2) ** 0.5
-            magenta_background = r > 170 and b > 170 and g < 150 and abs(r - b) < 95
-            if magenta_background and magenta_distance < 120:
-                pixels[x, y] = (r, g, b, 0)
-                continue
-
-            if magenta_background:
-                alpha = min(a, round(a * min(1.0, (magenta_distance - 120) / 95)))
-                r, g, b = zdejmij_magentowy_zafarb(r, g, b)
-                pixels[x, y] = (r, g, b, alpha)
-            elif a < 255:
-                pixels[x, y] = (*zdejmij_magentowy_zafarb(r, g, b), a)
+            if edge_pixels[x, y] and czy_magentowy_zafarb(r, g, b):
+                magenta_distance = ((r - 255) ** 2 + g**2 + (b - 255) ** 2) ** 0.5
+                alpha_factor = max(0.0, min(1.0, (magenta_distance - 72) / 112))
+                pixels[x, y] = (*zdejmij_magentowy_zafarb(r, g, b), min(a, round(a * alpha_factor)))
 
     alpha = image.getchannel("A")
-    alpha = alpha.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3))
-    image.putalpha(alpha)
-    return image
+    filtered_alpha = alpha.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3))
+    image.putalpha(ImageChops.darker(filtered_alpha, alpha))
+    return oczysc_przezroczyste_krawedzie(image)
+
+
+def znajdz_polaczone_tlo_chroma(image: Image.Image) -> set[tuple[int, int]]:
+    """Finds only the magenta matte connected to the atlas border."""
+    pixels = image.load()
+    width, height = image.size
+    queue: deque[tuple[int, int]] = deque()
+    visited: set[tuple[int, int]] = set()
+
+    border = (
+        [(x, 0) for x in range(width)]
+        + [(x, height - 1) for x in range(width)]
+        + [(0, y) for y in range(1, height - 1)]
+        + [(width - 1, y) for y in range(1, height - 1)]
+    )
+    for point in border:
+        if czy_rdzen_chroma(*pixels[point]):
+            queue.append(point)
+            visited.add(point)
+
+    while queue:
+        x, y = queue.popleft()
+        for next_x in range(max(0, x - 1), min(width, x + 2)):
+            for next_y in range(max(0, y - 1), min(height, y + 2)):
+                point = (next_x, next_y)
+                if point in visited or not czy_tlo_chroma(*pixels[point]):
+                    continue
+                visited.add(point)
+                queue.append(point)
+
+    return visited
+
+
+def czy_rdzen_chroma(r: int, g: int, b: int, a: int) -> bool:
+    return a > 0 and r >= 230 and b >= 230 and g <= 90 and abs(r - b) <= 60
+
+
+def czy_tlo_chroma(r: int, g: int, b: int, a: int) -> bool:
+    return a > 0 and r >= 205 and b >= 195 and g <= 125 and abs(r - b) <= 85
+
+
+def czy_magentowy_zafarb(r: int, g: int, b: int) -> bool:
+    return r > 110 and b > 105 and min(r, b) > g + 24
+
+
+def oczysc_przezroczyste_krawedzie(image: Image.Image) -> Image.Image:
+    """Despills only the exterior alpha edge and normalizes fully transparent RGB."""
+    result = image.copy().convert("RGBA")
+    pixels = result.load()
+    alpha = result.getchannel("A")
+    alpha_pixels = alpha.load()
+    width, height = result.size
+    exterior = Image.new("L", result.size, 0)
+    exterior_pixels = exterior.load()
+    queue: deque[tuple[int, int]] = deque()
+
+    def enqueue(x: int, y: int) -> None:
+        if exterior_pixels[x, y] or alpha_pixels[x, y] > 8:
+            return
+        exterior_pixels[x, y] = 255
+        queue.append((x, y))
+
+    for x in range(width):
+        enqueue(x, 0)
+        enqueue(x, height - 1)
+    for y in range(1, height - 1):
+        enqueue(0, y)
+        enqueue(width - 1, y)
+
+    while queue:
+        x, y = queue.popleft()
+        for next_x in range(max(0, x - 1), min(width, x + 2)):
+            for next_y in range(max(0, y - 1), min(height, y + 2)):
+                enqueue(next_x, next_y)
+
+    edge_band = exterior.filter(ImageFilter.MaxFilter(7))
+    edge_pixels = edge_band.load()
+    for y in range(height):
+        for x in range(width):
+            r, g, b, a = pixels[x, y]
+            if a == 0:
+                pixels[x, y] = (0, 0, 0, 0)
+            elif edge_pixels[x, y] and czy_magentowy_zafarb(r, g, b):
+                pixels[x, y] = (*zdejmij_magentowy_zafarb(r, g, b), a)
+
+    return result
+
+
+def oczysc_jasny_rdzen_chroma_na_krawedzi(image: Image.Image) -> Image.Image:
+    """Despills bright chroma-key core without touching intentional plum outlines."""
+    result = image.copy().convert("RGBA")
+    red, green, blue, alpha = result.split()
+    alpha_edge = alpha.point(lambda value: 255 if value <= 8 else 0).filter(ImageFilter.MaxFilter(7))
+    mask = ImageChops.darker(alpha_edge, red.point(lambda value: 255 if value >= 230 else 0))
+    for constraint in (
+        blue.point(lambda value: 255 if value >= 230 else 0),
+        green.point(lambda value: 255 if value <= 90 else 0),
+        ImageChops.difference(red, blue).point(lambda value: 255 if value <= 60 else 0),
+        alpha.point(lambda value: 255 if value > 8 else 0),
+    ):
+        mask = ImageChops.darker(mask, constraint)
+
+    bbox = mask.getbbox()
+    if bbox:
+        pixels = result.load()
+        mask_pixels = mask.load()
+        for y in range(bbox[1], bbox[3]):
+            for x in range(bbox[0], bbox[2]):
+                if mask_pixels[x, y]:
+                    r, g, b, a = pixels[x, y]
+                    pixels[x, y] = (*zdejmij_magentowy_zafarb(r, g, b), a)
+
+    transparent = alpha.point(lambda value: 255 if value == 0 else 0)
+    if transparent.getbbox():
+        result.paste((0, 0, 0, 0), mask=transparent)
+    return result
 
 
 def zdejmij_magentowy_zafarb(r: int, g: int, b: int) -> tuple[int, int, int]:
@@ -675,8 +850,10 @@ def zloz_klatke_z_trawa(
 ) -> Image.Image:
     frame = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
     character = dopasuj_do_etapu(cutout, stage, get_activity_layout_override(stage, activity))
-    x, y = policz_pozycje_postaci(character, stage, offset, get_body_bottom_target(stage, body_bottom_targets))
-    frame, x, y = zloz_postac_i_trawe(character, grass, stage, x, y, get_body_bottom_target(stage, body_bottom_targets))
+    base_target = get_body_bottom_target(stage, body_bottom_targets)
+    target_bottom = None if base_target is None else base_target + offset[1]
+    x, y = policz_pozycje_postaci(character, stage, (offset[0], 0), target_bottom)
+    frame, x, y = zloz_postac_i_trawe(character, grass, stage, x, y, target_bottom)
     if state == "excellent":
         narysuj_animowane_blyski_excellent(frame, stage, character, x, y, frame_index)
     return frame
@@ -899,11 +1076,13 @@ def zloz_klatke_podlania(
 
     character_source = character_layer.crop(character_bbox)
     character, scale = dopasuj_do_etapu_ze_skala(character_source, stage, get_activity_layout_override(stage, "hydrate"))
+    base_target = get_body_bottom_target(stage, body_bottom_targets)
+    target_bottom = None if base_target is None else base_target + offset[1]
     character_x, character_y = policz_pozycje_postaci(
         character,
         stage,
-        offset,
-        get_body_bottom_target(stage, body_bottom_targets),
+        (offset[0], 0),
+        target_bottom,
     )
 
     frame, character_x, character_y = zloz_postac_i_trawe(
@@ -912,7 +1091,7 @@ def zloz_klatke_podlania(
         stage,
         character_x,
         character_y,
-        get_body_bottom_target(stage, body_bottom_targets),
+        target_bottom,
     )
     visible_top_y = character_y + znajdz_gorna_krawedz_postaci(character)
 
@@ -930,15 +1109,20 @@ def zloz_postac_i_trawe(
 ) -> tuple[Image.Image, int, int]:
     grass_layer = dopasuj_trawe_do_etapu(grass, stage)
 
-    def compose(y: int) -> Image.Image:
+    def compose_alignment(y: int) -> Image.Image:
         result = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
         result.alpha_composite(grass_layer, (0, 0))
         result.alpha_composite(character, (character_x, y))
         return result
 
-    frame = compose(character_y)
+    def compose_body_only(y: int) -> Image.Image:
+        result = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
+        result.alpha_composite(character, (character_x, y))
+        return result
+
+    alignment_frame = compose_alignment(character_y)
     if body_bottom_target is None:
-        return frame, character_x, character_y
+        return compose_body_only(character_y), character_x, character_y
 
     for _attempt in range(3):
         search_box = (
@@ -947,20 +1131,20 @@ def zloz_postac_i_trawe(
             min(474, character_x + character.width),
             min(455, character_y + character.height),
         )
-        final_body = znajdz_bbox_widocznego_korpusu_w_kadrze(frame, search_box)
+        final_body = znajdz_bbox_widocznego_korpusu_w_kadrze(alignment_frame, search_box)
         if final_body is None:
             final_body = znajdz_widoczny_bbox_korpusu(character, grass_layer, character_x, character_y, stage)
         if final_body is None:
-            return frame, character_x, character_y
+            return compose_body_only(character_y), character_x, character_y
 
         delta_y = body_bottom_target - final_body[3]
         if abs(delta_y) <= 1:
-            return frame, character_x, character_y
+            return compose_body_only(character_y), character_x, character_y
 
         character_y += delta_y
-        frame = compose(character_y)
+        alignment_frame = compose_alignment(character_y)
 
-    return frame, character_x, character_y
+    return compose_body_only(character_y), character_x, character_y
 
 
 def znajdz_bbox_widocznego_korpusu_w_kadrze(
@@ -1180,7 +1364,6 @@ def zloz_klatke_z_parasolka(
     x = min(FRAME - character.width, max(0, x))
     y = min(FRAME - character.height, max(0, y))
 
-    frame.alpha_composite(dopasuj_trawe_do_etapu(grass, stage), (0, 0))
     frame.alpha_composite(character, (x, y))
     return frame
 
@@ -1316,7 +1499,7 @@ def policz_pozycje_postaci(
             x = round((FRAME - character.width) / 2 + offset[0])
 
         if body_bottom_target is not None:
-            return x, round(body_bottom_target - body_bbox[3])
+            return x, round(body_bottom_target - body_bbox[3] + offset[1])
 
         if stage == "spore":
             return x, round(STAGE_LAYOUT[stage]["bottom"] - body_bbox[3] + offset[1])
@@ -2100,18 +2283,18 @@ def zapisz_sheet(path: Path, frames: list[Image.Image]) -> None:
     sheet = Image.new("RGBA", (FRAME * len(frames), FRAME), (0, 0, 0, 0))
     for index, frame in enumerate(frames):
         sheet.alpha_composite(frame, (index * FRAME, 0))
-    sheet.save(path)
+    sheet.save(path, optimize=True)
 
 
 def zapisz_cutout(kind: str, name: str, stage: str, cutout: Image.Image) -> None:
     path = CUTOUT_DIR / kind / name / f"{stage}.png"
     path.parent.mkdir(parents=True, exist_ok=True)
-    cutout.save(path)
+    cutout.save(path, optimize=True)
 
 
 def zapisz_obraz(path: Path, image: Image.Image) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    image.save(path)
+    oczysc_jasny_rdzen_chroma_na_krawedzi(image).save(path, optimize=True)
 
 
 if __name__ == "__main__":

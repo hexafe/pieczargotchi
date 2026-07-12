@@ -6,6 +6,7 @@
 # Dependency and build output
 node_modules/
 dist/
+dist-debug/
 build/
 __pycache__/
 *.pyc

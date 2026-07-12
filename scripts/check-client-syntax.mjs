@@ -23,6 +23,8 @@ for (const entrypoint of entrypoints) {
       throw new Error(`${entrypoint} script ${index + 1}: ${error.message}`);
     }
   });
+
+  assertUniqueTopLevelFunctionNames(entrypoint, scripts.join('\n'));
 }
 
 console.log('Client partial syntax ok');
@@ -43,4 +45,23 @@ function extractScriptBlocks(html) {
     match = pattern.exec(html);
   }
   return blocks;
+}
+
+function assertUniqueTopLevelFunctionNames(entrypoint, source) {
+  const occurrences = new Map();
+  const pattern = /^  (?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/gm;
+  let match = pattern.exec(source);
+  while (match) {
+    const name = match[1];
+    const line = source.slice(0, match.index).split('\n').length;
+    const lines = occurrences.get(name) || [];
+    lines.push(line);
+    occurrences.set(name, lines);
+    match = pattern.exec(source);
+  }
+
+  const duplicates = [...occurrences.entries()].filter(([, lines]) => lines.length > 1);
+  if (duplicates.length) {
+    throw new Error(`${entrypoint}: duplicate top-level client helpers: ${duplicates.map(([name, lines]) => `${name} (lines ${lines.join(', ')})`).join('; ')}`);
+  }
 }

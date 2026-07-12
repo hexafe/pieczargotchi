@@ -8,6 +8,8 @@ from pathlib import Path
 
 from PIL import Image
 
+from sprite_layout import load_canvas_sheet
+
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILDER_PATH = ROOT / "scripts" / "build-imagegen-sprites.py"
@@ -80,7 +82,7 @@ def load_builder():
 
 
 def measure_sheet(path: Path, builder) -> dict[str, float | int]:
-    image = Image.open(path).convert("RGBA")
+    image = load_canvas_sheet(path)
     frame_count = image.width // FRAME
     boxes: list[tuple[int, int, int, int]] = []
     magenta_edge = 0

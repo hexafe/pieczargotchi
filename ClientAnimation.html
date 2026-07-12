@@ -1,7 +1,11 @@
-  function drawFrame(now) {
+  function drawFrame(frameNow) {
     const ctx = runtime.ctx;
-    const wallNow = getRuntimeNow();
-    updateSleepVisualStart(wallNow);
+    const worldNow = getRuntimeNow();
+    const wallNow = getInteractionNow();
+    runtime.frameNow = frameNow;
+    runtime.wallNow = wallNow;
+    runtime.worldNow = worldNow;
+    updateSleepVisualStart(worldNow);
 
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, canvasSize, canvasSize);
@@ -12,47 +16,50 @@
       && !(runtime.state && runtime.state.gameOver && runtime.state.gameOver.active)
       && typeof drawBattleFrame === 'function'
     ) {
-      drawBattleFrame(ctx, now, wallNow);
+      drawBattleFrame(ctx, frameNow, worldNow);
       return;
     }
 
-    drawStageBackground(ctx, now);
+    drawStageBackground(ctx, frameNow);
     updateImmersionReaction(wallNow);
-    drawImmersionBackground(ctx, now, wallNow);
-    drawCalendarEventBackground(ctx, now, wallNow);
+    drawImmersionBackground(ctx, frameNow, wallNow);
+    drawCalendarEventBackground(ctx, frameNow, worldNow);
 
-    const selectedAnimation = selectAnimation(runtime.state, wallNow);
-    const drewAnimation = drawSelectedAnimation(ctx, selectedAnimation, wallNow);
-    const drewHeldAnimation = !drewAnimation && drawLastReadyAnimation(ctx, selectedAnimation, wallNow);
+    const selectedAnimation = selectAnimation(runtime.state, worldNow, wallNow);
+    const drewAnimation = drawSelectedAnimation(ctx, selectedAnimation, worldNow);
+    const drewHeldAnimation = !drewAnimation && drawLastReadyAnimation(ctx, selectedAnimation, worldNow);
     const drewMushroom = drewAnimation || drewHeldAnimation;
 
     if (!drewMushroom) {
       const pendingKey = selectedAnimation && selectedAnimation.animation ? selectedAnimation.animation.key : '';
-      drawMushroomLoadPlaceholder(ctx, now, '', pendingKey);
+      drawMushroomLoadPlaceholder(ctx, frameNow, '', pendingKey);
     }
 
-    drawGroundForeground(ctx, now);
-    drawPatchDecorationsForeground(ctx, now);
-    drawAmbientLifeForeground(ctx, now);
-    drawCalendarEventForeground(ctx, now, wallNow);
+    drawGroundForeground(ctx, frameNow);
+    drawPatchDecorationsForeground(ctx, frameNow);
+    drawAmbientLifeForeground(ctx, frameNow);
+    drawCalendarEventForeground(ctx, frameNow, worldNow);
     if (typeof updateGrassLocalReactionSnapshot === 'function') {
-      updateGrassLocalReactionSnapshot(now);
+      updateGrassLocalReactionSnapshot(wallNow);
     }
-    drawWeatherPrecipitationForeground(ctx, now);
-    drawImmersionForeground(ctx, now, wallNow);
+    drawWeatherPrecipitationForeground(ctx, frameNow);
+    drawWeatherForeground(ctx, frameNow);
+    if (typeof drawSceneAmbientComposite === 'function') {
+      drawSceneAmbientComposite(ctx, frameNow);
+    }
+    drawImmersionForeground(ctx, frameNow, wallNow);
 
     if (runtime.state && runtime.state.mode === 'sleeping' && drewMushroom) {
-      drawSleepAmbient(ctx, wallNow);
+      drawSleepAmbient(ctx, worldNow);
     } else if (drewMushroom) {
-      drawTemporaryOverlays(ctx, now, wallNow, selectedAnimation, drewAnimation || drewHeldAnimation);
+      drawTemporaryOverlays(ctx, frameNow, worldNow, selectedAnimation, drewAnimation || drewHeldAnimation);
     }
 
-    drawEffects(ctx, now);
-    drawNeutralEasterEggCue(ctx, now);
-    drawWeatherForeground(ctx, now);
+    drawEffects(ctx, frameNow);
+    drawNeutralEasterEggCue(ctx, frameNow);
   }
 
-  function selectAnimation(state, now) {
+  function selectAnimation(state, now, interactionNow) {
     if (!state) {
       return null;
     }
@@ -113,7 +120,7 @@
       );
     }
 
-    const immersion = getActiveImmersionReaction(now);
+    const immersion = getActiveImmersionReaction(Number.isFinite(Number(interactionNow)) ? Number(interactionNow) : now);
     if (immersion && immersion.state) {
       const immersionAnimation = findExactStageAnimation(stage, immersion.state);
       if (immersionAnimation) {
@@ -269,6 +276,7 @@
       }
       return false;
     }
+    touchRuntimeAsset(animation.key);
 
     const requestedStart = getSelectedAnimationStart(animation, selection, now);
     if (
@@ -342,13 +350,22 @@
       return;
     }
 
-    ctx.drawImage(image, frame * frameWidth, 0, frameWidth, frameHeight, 0, 0, canvasSize, canvasSize);
-    drawMushroomConditionOverlay(ctx, animation, frame, null);
+    if (shouldAnchorAnimationGrass(animation)) {
+      const storedFrame = getStoredAnimationFrameIndex(animation, frame);
+      ctx.drawImage(image, storedFrame * frameWidth, 0, frameWidth, frameHeight, 0, 0, canvasSize, canvasSize);
+      drawMushroomConditionOverlay(ctx, animation, frame, null);
+    } else {
+      drawBodyOnlyStaticFrame(ctx, image, frame, frameWidth, frameHeight, animation);
+    }
   }
 
   function drawGrassAnchoredMotionFrame(ctx, image, frame, frameWidth, frameHeight, animation, motion) {
+    if (!shouldAnchorAnimationGrass(animation)) {
+      drawBodyOnlyMotionFrame(ctx, image, frame, frameWidth, frameHeight, animation, motion);
+      return;
+    }
     const grassTop = getAnimationGrassAnchorTop(animation);
-    const sourceX = frame * frameWidth;
+    const sourceX = getStoredAnimationFrameIndex(animation, frame) * frameWidth;
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, 0, canvasSize, grassTop);
@@ -370,6 +387,78 @@
       canvasSize - grassTop
     );
     drawMushroomConditionOverlay(ctx, animation, frame, motion, grassTop);
+  }
+
+  function shouldAnchorAnimationGrass(animation) {
+    return !animation || animation.bakedGrass !== false;
+  }
+
+  function drawBodyOnlyMotionFrame(ctx, image, frame, frameWidth, frameHeight, animation, motion) {
+    const sourceX = getStoredAnimationFrameIndex(animation, frame) * frameWidth;
+    const placement = getBodyOnlyFramePlacement(animation, frameWidth, frameHeight);
+    ctx.save();
+    ctx.translate(placement.pivotX + motion.x, placement.pivotY + motion.y);
+    ctx.scale(motion.scaleX, motion.scaleY);
+    ctx.drawImage(
+      image,
+      sourceX,
+      0,
+      frameWidth,
+      frameHeight,
+      placement.x - placement.pivotX,
+      placement.y - placement.pivotY,
+      placement.width,
+      placement.height
+    );
+    ctx.restore();
+    drawMushroomConditionOverlay(ctx, animation, frame, Object.assign({}, motion, {
+      pivotX: placement.pivotX,
+      pivotY: placement.pivotY,
+      bodyOnly: true
+    }));
+  }
+
+  function drawBodyOnlyStaticFrame(ctx, image, frame, frameWidth, frameHeight, animation) {
+    const placement = getBodyOnlyFramePlacement(animation, frameWidth, frameHeight);
+    ctx.drawImage(
+      image,
+      getStoredAnimationFrameIndex(animation, frame) * frameWidth,
+      0,
+      frameWidth,
+      frameHeight,
+      placement.x,
+      placement.y,
+      placement.width,
+      placement.height
+    );
+    drawMushroomConditionOverlay(ctx, animation, frame, null);
+  }
+
+  function getBodyOnlyFramePlacement(animation, frameWidth, frameHeight) {
+    const x = animation && Number.isFinite(Number(animation.drawX)) ? Number(animation.drawX) : 0;
+    const y = animation && Number.isFinite(Number(animation.drawY)) ? Number(animation.drawY) : 0;
+    return {
+      x: x,
+      y: y,
+      width: frameWidth,
+      height: frameHeight,
+      pivotX: animation && Number.isFinite(Number(animation.pivotX)) ? Number(animation.pivotX) : x + frameWidth / 2,
+      pivotY: animation && Number.isFinite(Number(animation.pivotY)) ? Number(animation.pivotY) : y + frameHeight / 2
+    };
+  }
+
+  function getStoredAnimationFrameIndex(animation, logicalFrame) {
+    const sequence = animation && Array.isArray(animation.frameSequence) ? animation.frameSequence : null;
+    const stored = sequence ? Number(sequence[logicalFrame]) : Number(logicalFrame);
+    const storedCount = Math.max(
+      1,
+      Number(animation && animation.storedFrameCount)
+        || Number(animation && animation.frameCount)
+        || (Math.max(0, Number(logicalFrame) || 0) + 1)
+    );
+    return Number.isInteger(stored) && stored >= 0 && stored < storedCount
+      ? stored
+      : Math.min(Math.max(0, Number(logicalFrame) || 0), storedCount - 1);
   }
 
   function getAnimationGrassAnchorTop(animation) {

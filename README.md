@@ -1,15 +1,16 @@
 # Pieczargotchi
 
-Pieczargotchi is a small Google Apps Script web app for a pixel-art mushroom care game.
+Pieczargotchi is a small Google Apps Script and Cloudflare static web app for a pixel-art mushroom care game.
 
-The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake loop, care actions, visible cooldowns, keyboard shortcuts, weather-driven scene life, minigames, long-term progression, JSON backup, podłoże decorations, and a local Legendary Arena. See `docs/IMPLEMENTATION_PLAN.md` for the original implementation roadmap and `docs/PROJECT_STATE_2026-05-17.md` for the current checkpoint.
+The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake loop, care actions, visible cooldowns, keyboard shortcuts, weather-driven scene life, minigames, long-term progression, JSON backup, podłoże decorations, and a local Legendary Arena. See `docs/IMPLEMENTATION_PLAN.md` for the original roadmap, `docs/NEXT_STEPS.md` for the current planning hub, `docs/VISUAL_ASSET_IMPLEMENTATION_2026-07-11.md` for the `0.1.49` visual-pipeline checkpoint, and `docs/UI_SCENE_FIRST_IMPLEMENTATION_2026-07-12.md` for the current `0.1.50` scene-first UI release.
 
 ## Current Layout
 
 - `Code.gs` - Apps Script `doGet()` entrypoint and HTML partial include helper.
-- `Config.gs` - app constants, state version, canvas size, deployment flags, Drive asset folder ID, and optional per-asset Drive ID overrides.
-- `AnimationConfig.gs` - animation manifest for stage and activity sprite sheets.
-- `AssetService.gs` - Drive PNG to data URL loading for the client.
+- `Config.gs` - app constants, state version, canvas size, deployment flags, public asset-base configuration, and optional private Drive backup settings.
+- `AnimationConfig.gs` - runtime manifest for stage, activity, easter-egg, effect, environment, and battle assets.
+- `SpriteLayout.gs` - generated tight-atlas metadata that maps logical 512x512 frames to cropped, deduplicated PNG frames; rebuild it with `scripts/optimize-runtime-sprite-atlases.py` instead of editing it by hand.
+- `AssetService.gs` - whitelisted asset-key loading for the optional Drive backup path; arbitrary Drive IDs are never a public RPC.
 - `StateModel.gs` - default state shape and state metadata exposed to the client.
 - `GameRules.gs` - decay, growth, stage, animation, and instrument configuration.
 - `MinigamesConfig.gs`, `EvolutionRules.gs`, `DecorationStore.gs`, and `SyncService.gs` - focused configs/services for minigames, evolution variants, podłoże decorations, and JSON backup.
@@ -24,16 +25,21 @@ The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake l
 - `assets/awake.png` - prepared awake mushroom sprite.
 - `assets/sleeping_sheet.png` - prepared four-frame sleeping sprite sheet.
 - `assets/stages/` - growth-stage sprite sheets.
-- `assets/activities/` - one-shot activity animation sheets separated by growth stage plus adult compatibility sheets.
+- `assets/activities/` - one-shot activity animation sheets separated by growth stage; runtime instrument variants intentionally alias the real per-stage `instrument_sheet.png` until distinct art exists.
+- `assets/battle/` - a 512x512 arena background and body-only 256x256 four-pose sheets for the legendary player and three opponents.
 - `assets/effects/` - optional small effect sheets.
 - `assets/reference/` - source style references, not loaded by the app.
 - `assets/source/imagegen/` - raw generated-image atlases and extracted cutouts used by the asset builder.
+- `assets/source/imagegen/PROVENANCE.json` - source and deterministic-derivative provenance for the runtime-v2 and battle collections.
 - `docs/IMPLEMENTATION_PLAN.md` - phase plan and architecture notes.
 - `docs/REAL_APP_NEXT_STEPS.md` - researched roadmap for turning the MVP into a deeper virtual-pet app.
 - `docs/ASSET_ANIMATION_IMPLEMENTATION_PLAN.md` - next implementation plan for growth-stage sprites and activity animations.
 - `docs/SPRITE_BIBLE.md` - practical sprite style and validation contract.
 - `docs/STAGE_SPRITE_REQUIREMENTS.md` - required growth-stage sprite list and validation contract.
 - `docs/IMAGEGEN_ASSET_PIPELINE.md` - source atlas descriptions, source paths, build steps, and validation commands.
+- `docs/ASSET_INVENTORY.md` - generated manifest entry, unique application file, and compressed-size inventory.
+- `docs/VISUAL_ASSET_IMPLEMENTATION_2026-07-11.md` - implementation and verification checkpoint for tight atlases, shared grass, battle art, provenance, and the `0.1.49` / state-v18 target.
+- `docs/UI_SCENE_FIRST_IMPLEMENTATION_2026-07-12.md` - scene-first UI architecture, responsive matrix, accessible minigame flow, modal backup safety, and the `0.1.50` release contract.
 - `docs/UI_RENDER_AUDIT_2026-05-10.md` - screenshot-driven UI/rendering fixes and viewport validation.
 - `docs/SPRITE_AUDIT_2026-05-10.md` - focused audit for sprite size and wake-face alignment.
 - `docs/APPS_SCRIPT_DEPLOYMENT_DRY_RUN.md` - test deployment checklist that keeps `.clasp.json`, script IDs, and private Drive IDs local.
@@ -43,16 +49,19 @@ The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake l
 - `docs/WEATHER_SYSTEM.md` - current weather simulation rules, gameplay/environment interactions, and realism notes.
 - `.github/workflows/ci.yml` - GitHub Actions checks for client syntax, core rules, assets, sprite consistency, and local preview scripts.
 - `scripts/build-imagegen-sprites.py` - builds animation sheets from generated-image atlases.
+- `scripts/optimize-runtime-sprite-atlases.py` - crops transparent margins, deduplicates physical frames, and regenerates `SpriteLayout.gs` while preserving logical canvas coordinates.
+- `scripts/generate-battle-assets.py` - deterministically builds the body-only arena combatants and shared arena background.
 - `scripts/generate-pixel-assets.py` - compatibility entrypoint; delegates to the generated-image builder when generated-image sources exist.
 - `scripts/validate-assets.mjs` - local PNG dimension, frame, and centering validation.
 - `scripts/audit-sprite-consistency.py` - local size/center consistency audit for stage animations.
 - `scripts/audit-spore-sprites.py` - local spore-stage sprite audit.
 - `scripts/check-deployment-readiness.mjs` - credential-free Apps Script deployment preflight.
+- `scripts/run-qa.mjs` - verified-build and full release QA orchestrator.
 - `scripts/test-weather-precip-motion.mjs` - regression tests for monotonic rain/snow motion and precipitation layer split.
 - `scripts/capture-life-motion.mjs` - local browser capture gate for butterflies, crawling bugs, fireflies, and mobile scene-life layout.
 - `scripts/capture-weather-matrix.mjs` - local weather and sky capture matrix for debug QA scenarios.
 
-The interface is Polish-first. The current build includes manifest-driven growth-stage animations, sprite-backed wake reactions, generated-image `spore`, `baby`, `young`, `adult`, and `legendary` silhouettes with a shared grass base, denser wind/weather-reactive procedural grass that grows in front of the mushroom, moving seasonal butterflies, small insects, crawling bugs, fireflies, activity reactions for each growth stage, need-driven sprite states, attention calls, błędy opieki, jakość podłoża, grzybnia progress, spore harvest rewards, `Łapanie rosy`, `Pękanie zarodników`, `Sortowanie kompostu`, `Rytmiczne nucenie`, evolution variants with trait behavior and visual accents, visible podłoże decorations with siedlisko bonuses, care-history summary, JSON backup, foreground/background rain and snow layers, and a local Legendary Arena with deterministic battle state under `state.battle`.
+The interface is Polish-first. The current worktree includes manifest-driven growth-stage animations, sprite-backed wake reactions, body-only generated-image `spore`, `baby`, `young`, `adult`, and `legendary` silhouettes, one shared wind/weather-reactive grass system with a stage-aware foreground clearing, moving seasonal butterflies, small insects, crawling bugs, fireflies, activity reactions for each growth stage, need-driven sprite states, attention calls, błędy opieki, jakość podłoża, grzybnia progress, spore harvest rewards, `Łapanie rosy`, `Pękanie zarodników`, `Sortowanie kompostu`, `Rytmiczne nucenie`, evolution variants with trait behavior and visual accents, visible podłoże decorations with siedlisko bonuses, care-history summary, JSON backup, foreground/background rain and snow layers, and a local Legendary Arena whose persisted combatants use stable `visualId` values.
 
 ## Development
 
@@ -60,27 +69,36 @@ The interface is Polish-first. The current build includes manifest-driven growth
 
 ```sh
 node scripts/check-deployment-readiness.mjs
-npx @google/clasp push
+npm run apps-script:status
+npx --no-install clasp push
 ```
 
-Do not commit `.clasp.json`, private Apps Script script IDs, private Drive URLs, or deployment credentials. The repo `.gitignore` keeps `.clasp.json` local.
+Do not commit `.clasp.json`, private Apps Script script IDs, private Drive URLs, or deployment credentials. The repo `.gitignore` keeps `.clasp.json` local, while `.claspignore` allows only root `.gs`, `.html`, and `appsscript.json` files into an Apps Script push.
 Use `docs/APPS_SCRIPT_DEPLOYMENT_DRY_RUN.md` for the full test-project dry-run checklist.
 
-For Apps Script deployment, the preferred asset setup is a single Drive folder configured in `Config.gs`:
+For Apps Script deployment, the preferred asset setup is the versioned public Cloudflare asset directory. For the current release, first verify that `Config.gs` and `package.json` both identify `0.1.50` and the state contract is v18, then set this Apps Script Script Property without editing tracked source:
 
-- set `PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID` to the folder ID, not a full Drive URL
-- keep the Drive folder structure aligned with manifest paths such as `stages/adult/idle_sheet.png` and `activities/baby/feed_sheet.png`
-- flat folders only work for files whose basenames are unique
+```text
+PIECZARGOTCHI_ASSET_BASE_URL_0_1_50=https://YOUR-PUBLIC-HOST.example/releases/0.1.50/assets/
+```
 
-Manual `PIECZARGOTCHI_ASSET_FILE_IDS` entries can still override individual asset keys, for example `spore.idle`, `baby.sleep`, or `baby.activity.hydrate`.
+The property key and URL are release-specific: this prevents a later Script Property update from retargeting an older Apps Script deployment. The URL must use HTTPS and contain the exact visible release as its own path segment. The host must retain every published release directory; overwriting or removing an older directory can break an older deployment. Application requests append the manifest path and visible version query without embedding tens of MiB as data URLs.
 
-If the folder ID and manual IDs are blank or unavailable, the local preview loads PNG files from `assets/`. In a deployed Apps Script environment, missing Drive IDs fall back to canvas placeholders instead of showing a blank app. Reference files under `assets/reference/` are not loaded by the app.
+After deploying the web app, set `DEPLOYED_APPS_SCRIPT_URL` to its public `/exec` URL and run the fail-closed external gate:
 
-Production flags live in `Config.gs`. By default the deployed config keeps the debug panel and `window.__pieczargotchiRuntime` private, and boots in critical asset mode so Apps Script does not inline the full PNG manifest into the first HTML response. `dev-server.mjs` enables debug tooling and full local asset loading for local preview and capture tooling.
+```sh
+PIECZARGOTCHI_APPS_SCRIPT_WEB_APP_URL="$DEPLOYED_APPS_SCRIPT_URL" npm run qa:apps-script-release
+```
+
+It verifies the deployed version and production flags, the immutable asset root, and four real critical PNG responses.
+
+Drive remains an opt-in backup path for controlled deployments. Enabling it requires deliberate OAuth scopes plus `PIECZARGOTCHI_DRIVE_ASSETS_ENABLED`; the only browser RPC accepts a manifest asset key. Folder IDs and per-file IDs never appear in the public config. If neither public hosting nor Drive is configured, Apps Script renders canvas placeholders instead of a blank app.
+
+Production flags live in `Config.gs`. By default the deployed config keeps the debug panel and `window.__pieczargotchiRuntime` private, and boots in critical asset mode. `dev-server.mjs` exposes local diagnostics but also defaults to critical/lazy asset loading; use `PIECZARGOTCHI_ASSET_MODE=full` only for an intentional asset sweep.
 
 ## Local Preview
 
-Pieczargotchi's local preview only needs Node.js 18 or newer. It does not need `clasp`, Google Apps Script deployment, Drive asset IDs, or npm dependencies.
+Pieczargotchi uses Node.js 22 or newer. The preview itself does not need Google credentials or Drive IDs. Run `npm ci` once to install the pinned Wrangler toolchain used by QA and deployment.
 
 Use the OS bootstrap scripts if you want the script to check/install Node.js, check the required app files, open the browser, and start the preview server.
 
@@ -128,23 +146,20 @@ Use another port if needed:
 node dev-server.mjs 8090
 ```
 
-The preview server renders the Apps Script partials locally, injects a client config from the `.gs` files, and serves `assets/` directly. It does not require Drive file IDs.
+The preview server renders the Apps Script partials locally, injects a client config from the `.gs` files (including generated `SpriteLayout.gs`), and serves `assets/` directly. It does not require Drive file IDs. Browser capture rejects a screenshot when the active tight-atlas metadata does not match the PNG's physical dimensions.
 
-Quick local syntax checks:
+The local release/deploy gate is one command after installing the pinned Node
+and Python QA dependencies:
 
 ```sh
-node scripts/check-client-syntax.mjs
-node scripts/check-deployment-readiness.mjs
-node scripts/test-client-core.mjs
-node scripts/test-asset-service.mjs
-env TZ=UTC node scripts/test-client-core.mjs
-node scripts/test-weather-precip-motion.mjs
-node -e "const fs=require('fs'); for (const f of ['Code.gs','Config.gs','AnimationConfig.gs','AssetService.gs','StateModel.gs','GameRules.gs','MinigamesConfig.gs','EvolutionRules.gs','DecorationStore.gs','SyncService.gs','Actions.gs']) { new Function(fs.readFileSync(f,'utf8')); console.log(f + ' syntax ok'); }"
-node scripts/validate-assets.mjs
-python3 scripts/audit-sprite-consistency.py
-python3 scripts/audit-spore-sprites.py
-bash scripts/run-local-linux.sh --check-only
+npm ci
+python3 -m pip install -r requirements-qa.txt
+npm run qa
 ```
+
+It includes syntax checks for every repository QA script, deterministic UTC
+and Europe/Warsaw rules tests, manifest-driven sprite audits, the static build,
+balance thresholds, and a real headless Chrome smoke.
 
 For repeatable scene-life screenshots, `scripts/capture-app-render.mjs` accepts the existing debug weather/date variables plus capture-only `PIECZARGOTCHI_DEBUG_TEMPERATURE`, `PIECZARGOTCHI_DEBUG_HUMIDITY`, `PIECZARGOTCHI_CAPTURE_DELAY_MS`, and `PIECZARGOTCHI_CAPTURE_LIFE_PROFILE=1`. Calendar event QA can force a single event with `PIECZARGOTCHI_DEBUG_CALENDAR_EVENT=<id>`, run the event matrix with `PIECZARGOTCHI_CAPTURE_CALENDAR_MATRIX=1`, and include the checklist in viewport checks with `PIECZARGOTCHI_CAPTURE_CALENDAR_CHECKLIST=1`.
 

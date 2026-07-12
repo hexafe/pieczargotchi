@@ -11,6 +11,8 @@ from PIL import Image
 from PIL import ImageChops
 from PIL import ImageDraw
 
+from sprite_layout import load_canvas_frames
+
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILDER_PATH = ROOT / "scripts" / "build-imagegen-sprites.py"
@@ -129,15 +131,15 @@ def apply_alpha_tint(frame: Image.Image, color: tuple[int, int, int, int]) -> Im
 
 
 def load_sheet(path: Path, failures: list[str]) -> list[Image.Image]:
-    image = Image.open(path).convert("RGBA")
-    if image.size != EXPECTED_SHEET_SIZE:
-        failures.append(f"{path}: expected {EXPECTED_SHEET_SIZE}, got {image.size}")
+    try:
+        frames = load_canvas_frames(path)
+    except ValueError as error:
+        failures.append(str(error))
         return []
-
-    return [
-        image.crop((index * FRAME, 0, (index + 1) * FRAME, FRAME))
-        for index in range(4)
-    ]
+    if len(frames) != 4:
+        failures.append(f"{path}: expected 4 frames, got {len(frames)}")
+        return []
+    return frames
 
 
 def count_alpha_components(image: Image.Image) -> int:

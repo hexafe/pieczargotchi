@@ -243,12 +243,45 @@ test('cloud slot lifecycle fades in and dissolves without abrupt popping', () =>
   assert(finished.done === true, 'cloud should report done after dissolve completes');
 });
 
+test('cloud respawn keeps the same monotonic frame clock at 0, 70, and 140 seconds', () => {
+  const layer = {
+    form: 'cumulus',
+    scale: 1,
+    laneStep: 19,
+    yJitter: 10,
+    widthScale: 1,
+    edgeFadeMargin: 24
+  };
+  const slot = context.createCloudSlot(layer, 0, 0, 0);
+  slot.active = true;
+  slot.presence = 1;
+  slot.x = 240;
+  slot.birthAt = 0;
+  slot.growthDuration = 5000;
+  slot.lifeDuration = 60000;
+  slot.dissolveDuration = 6000;
+  const state = { slots: [slot] };
+
+  context.updateCloudSlots(state, layer, 0, 100, 1, 1, 0, 0, 0, { gustPulse: 0 });
+  assert(slot.active && context.getCloudSlotLife(slot, 0).age === 0, 'cloud should be active on the initial frame clock');
+
+  context.updateCloudSlots(state, layer, 0, 100, 1, 1, 0, 0, 70000, { gustPulse: 0 });
+  assert(!slot.active, 'expired cloud should leave the active set at 70 seconds');
+  slot.nextSpawnAt = 140000;
+
+  context.updateCloudSlots(state, layer, 0, 100, 1, 1, 0, 0, 140000, { gustPulse: 0 });
+  const respawnedLife = context.getCloudSlotLife(slot, 140000);
+  assert(slot.active, 'cloud should respawn when its monotonic schedule reaches 140 seconds');
+  assert(slot.birthAt === 140000, `respawn must use frameNow, got birthAt=${slot.birthAt}`);
+  assert(respawnedLife.age === 0 && !respawnedLife.done, 'respawned cloud must begin a fresh visible lifecycle instead of being born expired');
+});
+
 test('rain and snow land at varied grass heights instead of the canvas bottom', () => {
   const cases = [
     ['rain foreground', 'foreground', 'rain', 430, 472],
-    ['rain background', 'background', 'rain', 416, 456],
+    ['rain background', 'background', 'rain', 342, 388],
     ['snow foreground', 'foreground', 'snow', 432, 498],
-    ['snow background', 'background', 'snow', 418, 476]
+    ['snow background', 'background', 'snow', 346, 388]
   ];
 
   for (const [label, depth, kind, minY, maxY] of cases) {
@@ -262,7 +295,8 @@ test('rain and snow land at varied grass heights instead of the canvas bottom', 
     assert(lowest >= minY, `${label} landing should stay in grass band: min ${lowest} < ${minY}`);
     assert(highest <= maxY, `${label} landing should stay in grass band: max ${highest} > ${maxY}`);
     assert(spread >= 22, `${label} should use varied landing heights, spread=${spread}`);
-    assert(context.getPrecipitationCullBottom(highest, kind) <= 508, `${label} should not cull below the full canvas bottom`);
+    const cullBottom = context.getPrecipitationCullBottom(highest, kind, depth);
+    assert(cullBottom <= (depth === 'background' ? 390 : 508), `${label} should stop before its occluding layer, cull=${cullBottom}`);
   }
 });
 
@@ -303,6 +337,54 @@ test('rain and snow have separate background and foreground passes', () => {
   assert(snowFront.fillRects > 0, 'foreground snow should draw');
   assert(rainBack.fillRects !== rainFront.fillRects, 'rain passes should not duplicate the same layer set');
   assert(snowBack.fillRects !== snowFront.fillRects, 'snow passes should not duplicate the same layer set');
+});
+
+test('background precipitation never renders inside the ground that covers it', () => {
+  const samples = [
+    [
+      'background heavy rain',
+      context.drawRainLayer,
+      {
+        condition: 'rain',
+        rainIntensity: 0.88,
+        rainClass: 'heavy',
+        rain: 10,
+        windLevel: 0.42,
+        gustLevel: 0.2,
+        windVector: { x: 0.65, y: 0 },
+        isDay: true
+      }
+    ],
+    [
+      'background powder snow',
+      context.drawSnowLayer,
+      {
+        condition: 'snow',
+        snowIntensity: 0.72,
+        snowStyle: 'powder',
+        windLevel: 0.35,
+        gustLevel: 0.12,
+        windVector: { x: -0.45, y: 0 },
+        isDay: true
+      }
+    ]
+  ];
+
+  for (const [label, drawLayer, scene] of samples) {
+    let deepest = -Infinity;
+    for (let motionNow = 0; motionNow <= 7200; motionNow += 120) {
+      context.runtime.precipitationMotion = {
+        lastFrameNow: motionNow,
+        frameNow: motionNow,
+        elapsedMs: motionNow,
+        value: motionNow
+      };
+      const ctx = createRecordingContext();
+      drawLayer(ctx, scene, motionNow, 'background');
+      deepest = Math.max(deepest, getDeepestVisiblePixel(ctx));
+    }
+    assert(deepest <= 390, `${label} should be culled at the ground occlusion line, deepest=${deepest}`);
+  }
 });
 
 test('foreground rain covers left, center, and right side for every rain strength', () => {

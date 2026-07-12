@@ -5,109 +5,82 @@ on:
   push:
     branches:
       - main
-      - codex-*
+      - 'codex-*'
+      - 'codex/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pieczargotchi-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  local-checks:
-    name: Local checks
-    runs-on: ubuntu-latest
+  qa:
+    name: Deterministic QA
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 2
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '20'
+          node-version: '22'
+          cache: npm
+
+      - name: Install pinned Node tooling
+        run: npm ci
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          python-version: '3.11'
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements-qa.txt
 
-      - name: Install sprite audit dependencies
-        run: python -m pip install Pillow
+      - name: Install pinned sprite audit dependencies
+        run: python -m pip install -r requirements-qa.txt
 
-      - name: Check client partial syntax
-        run: node scripts/check-client-syntax.mjs
+      - name: Verify runner browser
+        run: test -x /usr/bin/google-chrome
 
-      - name: Check Apps Script deployment readiness
-        run: node scripts/check-deployment-readiness.mjs
+      - name: Run full QA, including browser smoke
+        env:
+          TZ: Europe/Warsaw
+          CHROMIUM_BIN: /usr/bin/google-chrome
+          PIECZARGOTCHI_BROWSER_SMOKE_OUTPUT_DIR: ${{ github.workspace }}/qa-artifacts/browser-smoke
+        run: npm run qa
 
-      - name: Run client core tests
-        run: node scripts/test-client-core.mjs
-
-      - name: Run client core tests in UTC
-        run: env TZ=UTC node scripts/test-client-core.mjs
-
-      - name: Run asset service tests
-        run: node scripts/test-asset-service.mjs
-
-      - name: Run weather precipitation motion tests
-        run: node scripts/test-weather-precip-motion.mjs
-
-      - name: Run scene palette transition tests
-        run: node scripts/test-scene-palette.mjs
-
-      - name: Run grass wind motion tests
-        run: node scripts/test-grass-wind-motion.mjs
-
-      - name: Run celestial position tests
-        run: node scripts/test-celestial-position.mjs
-
-      - name: Build Cloudflare static bundle
-        run: npm run build
-
-      - name: Test Cloudflare static bundle
-        run: node scripts/test-cloudflare-static-build.mjs
-
-      - name: Check capture scripts
-        run: |
-          node --check scripts/capture-app-render.mjs
-          node --check scripts/capture-life-motion.mjs
-          node --check scripts/capture-weather-matrix.mjs
-          node --check scripts/test-celestial-position.mjs
-          node --check scripts/test-cloudflare-static-build.mjs
-          node --check scripts/test-grass-wind-motion.mjs
-          node --check scripts/check-deployment-readiness.mjs
-
-      - name: Check Apps Script syntax
-        run: |
-          node -e "const fs=require('fs'); for (const f of ['Code.gs','Config.gs','AnimationConfig.gs','AssetService.gs','StateModel.gs','GameRules.gs','MinigamesConfig.gs','EvolutionRules.gs','DecorationStore.gs','SyncService.gs','Actions.gs']) { new Function(fs.readFileSync(f,'utf8')); console.log(f + ' syntax ok'); }"
-
-      - name: Check Python helper syntax
-        run: python -m py_compile scripts/build-imagegen-sprites.py scripts/generate-pixel-assets.py scripts/audit-spore-sprites.py scripts/audit-sprite-consistency.py scripts/audit-glint-sprites.py scripts/audit-activity-sprite-motion.py
-
-      - name: Validate assets
-        run: node scripts/validate-assets.mjs
-
-      - name: Audit sprite consistency
-        run: python scripts/audit-sprite-consistency.py
-
-      - name: Audit glint sprites
-        run: python scripts/audit-glint-sprites.py
-
-      - name: Audit activity sprite motion
-        run: python scripts/audit-activity-sprite-motion.py
-
-      - name: Audit spore sprites
-        run: python scripts/audit-spore-sprites.py
-
-      - name: Check local preview bootstrap
-        run: bash scripts/run-local-linux.sh --check-only
+      - name: Upload failed browser-smoke evidence
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: browser-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: qa-artifacts/browser-smoke
+          if-no-files-found: ignore
+          retention-days: 14
 
   windows-preview-smoke:
     name: Windows preview smoke
     runs-on: windows-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '20'
+          node-version: '22'
+          cache: npm
+
+      - name: Validate lockfile on Windows
+        run: npm ci
 
       - name: Check Windows preview bootstrap
         shell: powershell
-        run: powershell -ExecutionPolicy Bypass -File scripts\run-local-windows.ps1 -CheckOnly
+        run: powershell -ExecutionPolicy Bypass -File scripts\run-local-windows.ps1 -CheckOnly -ValidateAssets

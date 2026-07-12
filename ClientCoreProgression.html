@@ -1,24 +1,31 @@
-  function normalizeProgressionState(rawState, rules, actions) {
+  function normalizeProgressionState(rawState, rules, actions, now) {
     const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    const timestamp = Number(now) || Date.now();
     state.mushroomName = normalizeMushroomNameCore(state.mushroomName);
     state.flags = normalizeFlagsCore(state.flags, state.mushroomName);
+    state.inventory = normalizeInventoryCore(state.inventory, state.coins);
+    state.coins = state.inventory.spores;
+    state.cooldowns = normalizeCooldownsCore(state.cooldowns, timestamp);
+    state.weatherCare = normalizeWeatherCareCore(state.weatherCare);
+    state.log = normalizeStateLogCore(state.log, rules && rules.maxLogEntries || 8);
     state.history = normalizeHistoryCore(state.history, actions);
     state.evolution = normalizeEvolutionCore(state.evolution);
-    state.minigames = normalizeMinigamesCore(state.minigames);
+    state.minigames = normalizeMinigamesCore(state.minigames, rules, timestamp);
+    state.battle = normalizeBattleState(state.battle, timestamp);
     state.legendaryGames = typeof normalizeLegendaryGamesStateCore === 'function'
-      ? normalizeLegendaryGamesStateCore(state.legendaryGames, Date.now(), rules)
+      ? normalizeLegendaryGamesStateCore(state.legendaryGames, timestamp, rules)
       : state.legendaryGames || {};
-    state.dailyPlan = normalizeDailyPlanCore(state.dailyPlan);
-    state.dailyRhythm = normalizeDailyRhythmCore(state.dailyRhythm);
+    state.dailyPlan = normalizeDailyPlanCore(state.dailyPlan, timestamp);
+    state.dailyRhythm = normalizeDailyRhythmCore(state.dailyRhythm, timestamp);
     state.relationship = normalizeRelationshipCore(state.relationship);
     state.journal = normalizeWorldJournalCore(state.journal);
     state.decorations = normalizeDecorationsCore(state.decorations);
     state.discoveries = normalizeDiscoveriesState(state.discoveries);
     state.returnRecap = normalizeReturnRecapCore(state.returnRecap);
     state.longLoop = typeof normalizeLongLoopStateCore === 'function'
-      ? normalizeLongLoopStateCore(state.longLoop)
+      ? normalizeLongLoopStateCore(state.longLoop, timestamp)
       : state.longLoop || {};
-    state.recovery = normalizeRecoveryCore(state.recovery);
+    state.recovery = normalizeRecoveryCore(state.recovery, timestamp);
     state.gameOver = normalizeGameOverCore(state.gameOver);
     return state;
   }
@@ -78,7 +85,14 @@
         energy: clampNumber(Number(samples.energy), 0, 10000000, 0),
         happiness: clampNumber(Number(samples.happiness), 0, 10000000, 0),
         cleanliness: clampNumber(Number(samples.cleanliness), 0, 10000000, 0),
-        health: clampNumber(Number(samples.health), 0, 10000000, 0)
+        health: clampNumber(Number(samples.health), 0, 10000000, 0),
+        weightedMs: clampNumber(Number(samples.weightedMs), 0, 999999999999999, 0),
+        weightedHydration: clampNumber(Number(samples.weightedHydration), 0, 99999999999999999, 0),
+        weightedNutrients: clampNumber(Number(samples.weightedNutrients), 0, 99999999999999999, 0),
+        weightedEnergy: clampNumber(Number(samples.weightedEnergy), 0, 99999999999999999, 0),
+        weightedHappiness: clampNumber(Number(samples.weightedHappiness), 0, 99999999999999999, 0),
+        weightedCleanliness: clampNumber(Number(samples.weightedCleanliness), 0, 99999999999999999, 0),
+        weightedHealth: clampNumber(Number(samples.weightedHealth), 0, 99999999999999999, 0)
       },
       attention: {
         handled: clampInteger(attention.handled, 0, 999999, 0),
@@ -114,12 +128,141 @@
     };
   }
 
-  function normalizeMinigamesCore(minigames) {
+  function normalizeMinigamesCore(minigames, rules, now) {
     const source = isPlainObject(minigames) ? minigames : {};
+    const active = isPlainObject(source.active) ? deepClone(source.active) : null;
+    const catalog = rules && isPlainObject(rules.minigames) ? rules.minigames : null;
+    const activeConfig = active && catalog ? catalog[active.id] : null;
+    const unknownActive = active && catalog && !activeConfig;
+    const normalizedActive = active && activeConfig
+      ? normalizeActiveMinigameSessionCore(active, activeConfig, now)
+      : active;
+    const malformedActive = Boolean(active && activeConfig && !normalizedActive);
+    const previousQuarantine = isPlainObject(source.quarantined) ? deepClone(source.quarantined) : null;
     return {
-      active: isPlainObject(source.active) ? deepClone(source.active) : null,
-      lastResult: isPlainObject(source.lastResult) ? deepClone(source.lastResult) : null
+      active: unknownActive || malformedActive ? null : normalizedActive,
+      lastResult: isPlainObject(source.lastResult) ? deepClone(source.lastResult) : null,
+      quarantined: unknownActive || malformedActive
+        ? {
+          id: String(active.id || '').slice(0, 80) || null,
+          reason: unknownActive ? 'unknownMinigame' : 'invalidMinigameSession',
+          at: new Date(Number(now) || Date.now()).toISOString()
+        }
+        : previousQuarantine
     };
+  }
+
+  function normalizeActiveMinigameSessionCore(active, config, now) {
+    const timestamp = Number(now) || Date.now();
+    const startedAt = Number(active.startedAt);
+    const until = Number(active.until);
+    const configuredDuration = Math.max(1000, Number(config && config.durationMs) || 20000);
+    const maximumDuration = Math.max(120000, configuredDuration * 4);
+    if (!Number.isFinite(startedAt)
+      || !Number.isFinite(until)
+      || startedAt > timestamp + 5 * 60000
+      || until <= startedAt
+      || until - startedAt > maximumDuration) {
+      return null;
+    }
+
+    return {
+      id: String(active.id || '').slice(0, 80),
+      label: String(config.label || active.label || 'Minigra').slice(0, 80),
+      seed: clampInteger(active.seed, 1, 2147483646, 1),
+      startedAt: startedAt,
+      until: until,
+      score: clampInteger(active.score, 0, 999999, 0),
+      caught: normalizeMinigameListCore(active.caught, 512),
+      mistakes: clampInteger(active.mistakes, 0, 999999, 0),
+      missed: clampInteger(active.missed, 0, 999999, 0),
+      combo: clampInteger(active.combo, 0, 999999, 0),
+      bestCombo: clampInteger(active.bestCombo, 0, 999999, 0),
+      nextBeat: clampInteger(active.nextBeat, 0, 999999, 0),
+      rhythmJudgments: normalizeMinigameListCore(active.rhythmJudgments, 128),
+      habitatTags: normalizeScalarMapCore(active.habitatTags, 32),
+      sceneTone: typeof active.sceneTone === 'string' ? active.sceneTone.slice(0, 40) : null,
+      runtimeToken: typeof active.runtimeToken === 'string' ? active.runtimeToken.slice(0, 160) : null,
+      ownerWriterId: typeof active.ownerWriterId === 'string' ? active.ownerWriterId.slice(0, 80) : null,
+      ownerLeaseUntil: normalizeExclusiveOwnerLeaseCore(active.ownerLeaseUntil, timestamp)
+    };
+  }
+
+  function normalizeMinigameListCore(value, maximumLength) {
+    return (Array.isArray(value) ? value : []).slice(0, maximumLength).map(function(item) {
+      if (!isPlainObject(item)) {
+        return ['string', 'number', 'boolean'].indexOf(typeof item) !== -1 ? item : null;
+      }
+      return normalizeScalarMapCore(item, 16);
+    }).filter(function(item) {
+      return item !== null;
+    });
+  }
+
+  function normalizeScalarMapCore(value, maximumKeys) {
+    const source = isPlainObject(value) ? value : {};
+    return Object.keys(source).slice(0, maximumKeys).reduce(function(result, key) {
+      const safeKey = String(key || '').slice(0, 80);
+      const item = source[key];
+      const safeNumber = typeof item !== 'number' || Number.isFinite(item);
+      if (safeKey
+        && ['__proto__', 'constructor', 'prototype'].indexOf(safeKey) === -1
+        && safeNumber
+        && ['string', 'number', 'boolean'].indexOf(typeof item) !== -1) {
+        result[safeKey] = typeof item === 'string' ? item.slice(0, 160) : item;
+      }
+      return result;
+    }, {});
+  }
+
+  function normalizeInventoryCore(inventory, legacyCoins) {
+    const source = isPlainObject(inventory) ? inventory : {};
+    const result = {};
+    Object.keys(source).slice(0, 128).forEach(function(itemId) {
+      const key = String(itemId || '').slice(0, 80);
+      if (key && ['__proto__', 'constructor', 'prototype'].indexOf(key) === -1) {
+        result[key] = clampNumber(Number(source[itemId]), 0, 999999, 0);
+      }
+    });
+    result.spores = Math.max(result.spores || 0, clampNumber(Number(legacyCoins), 0, 999999, 0));
+    return result;
+  }
+
+  function normalizeCooldownsCore(cooldowns, now) {
+    const source = isPlainObject(cooldowns) ? cooldowns : {};
+    const timestamp = Number(now) || Date.now();
+    const maximum = timestamp + 7 * 86400000;
+    return Object.keys(source).slice(0, 128).reduce(function(result, cooldownId) {
+      const key = String(cooldownId || '').slice(0, 80);
+      const until = Number(source[cooldownId]);
+      if (key
+        && ['__proto__', 'constructor', 'prototype'].indexOf(key) === -1
+        && Number.isFinite(until)
+        && until > 0) {
+        result[key] = Math.min(maximum, Math.max(0, Math.floor(until)));
+      }
+      return result;
+    }, {});
+  }
+
+  function normalizeWeatherCareCore(weatherCare) {
+    const source = isPlainObject(weatherCare) ? weatherCare : {};
+    return {
+      sceneKey: typeof source.sceneKey === 'string' ? source.sceneKey.slice(0, 1000) : null,
+      appliedMs: clampNumber(Number(source.appliedMs), 0, 24 * 3600000, 0)
+    };
+  }
+
+  function normalizeStateLogCore(entries, maximumEntries) {
+    return (Array.isArray(entries) ? entries : []).slice(0, maximumEntries).filter(isPlainObject).map(function(entry) {
+      const at = Date.parse(entry.at || '');
+      return {
+        at: Number.isFinite(at) ? new Date(at).toISOString() : null,
+        text: String(entry.text || '').slice(0, 500)
+      };
+    }).filter(function(entry) {
+      return Boolean(entry.text);
+    });
   }
 
   function normalizeDecorationsCore(decorations) {
@@ -130,17 +273,15 @@
     };
   }
 
-  function normalizeRecoveryCore(recovery) {
+  function normalizeRecoveryCore(recovery, now) {
     const source = isPlainObject(recovery) ? recovery : {};
-    return {
-      active: Boolean(source.active),
-      startedAt: source.startedAt || null,
-      until: source.until || null,
-      lastCareAt: source.lastCareAt || null,
-      missedCare: clampInteger(source.missedCare, 0, 999999, 0),
-      reason: source.reason || null,
-      endedAt: source.endedAt || null
-    };
+    const timestamp = Number(now) || Date.now();
+    const normalized = normalizeRecoveryStateCore(source, timestamp);
+    if (source.active && !normalized.until) {
+      normalized.active = false;
+      normalized.reason = 'invalidTimestamp';
+    }
+    return normalized;
   }
 
   function normalizeGameOverCore(gameOver) {
@@ -182,17 +323,24 @@
     const delta = Math.max(0, Math.floor(Number(elapsedMs) || 0));
     state.history = normalizeHistoryCore(state.history);
     state.history.modeMs[mode] += delta;
-    return recordStatSampleCore(state);
+    return recordStatSampleCore(state, delta);
   }
 
-  function recordStatSampleCore(rawState) {
+  function recordStatSampleCore(rawState, elapsedMs) {
     const state = isPlainObject(rawState) ? rawState : {};
     const stats = isPlainObject(state.stats) ? state.stats : {};
+    const duration = Math.max(0, Math.floor(Number(elapsedMs) || 0));
     state.history = normalizeHistoryCore(state.history);
     state.history.statSamples.count += 1;
     ['hydration', 'nutrients', 'energy', 'happiness', 'cleanliness', 'health'].forEach(function(stat) {
-      state.history.statSamples[stat] += clampNumber(Number(stats[stat]), 0, 100, 0);
+      const value = clampNumber(Number(stats[stat]), 0, 100, 0);
+      state.history.statSamples[stat] += value;
+      if (duration > 0) {
+        const weightedKey = 'weighted' + stat.charAt(0).toUpperCase() + stat.slice(1);
+        state.history.statSamples[weightedKey] += value * duration;
+      }
     });
+    state.history.statSamples.weightedMs += duration;
     return state;
   }
 
@@ -208,7 +356,8 @@
   }
 
   function maybeApplyEvolutionCore(rawState, rules, now) {
-    const state = normalizeProgressionState(rawState, rules);
+    const timestamp = Number(now) || Date.now();
+    const state = normalizeProgressionState(rawState, rules, null, timestamp);
     const growth = state.stats && Number(state.stats.growth) || 0;
     const evolutionRules = rules && rules.evolution ? rules.evolution : {};
     const legendaryGrowth = Number(evolutionRules.legendaryGrowth) || 100;
@@ -219,7 +368,7 @@
     const result = getEvolutionVariantCore(state.history, state, rules);
     state.evolution = {
       variant: result.variant,
-      decidedAt: new Date(Number(now) || Date.now()).toISOString(),
+      decidedAt: new Date(timestamp).toISOString(),
       reason: result.reason
     };
     state.stage = 'legendary';
@@ -231,8 +380,13 @@
     const mistakes = isPlainObject(state && state.careMistakes) ? state.careMistakes : {};
     const actions = normalized.actionsPerformed;
     const sampleCount = Math.max(1, normalized.statSamples.count);
-    const avgHealth = normalized.statSamples.health / sampleCount;
-    const avgHappiness = normalized.statSamples.happiness / sampleCount;
+    const weightedMs = Math.max(0, Number(normalized.statSamples.weightedMs) || 0);
+    const avgHealth = weightedMs > 0
+      ? normalized.statSamples.weightedHealth / weightedMs
+      : normalized.statSamples.health / sampleCount;
+    const avgHappiness = weightedMs > 0
+      ? normalized.statSamples.weightedHappiness / weightedMs
+      : normalized.statSamples.happiness / sampleCount;
     const patchQuality = state && state.patch ? Number(state.patch.quality) || 0 : 0;
     const physicalMistakes = (Number(mistakes.physical) || 0) + (Number(mistakes.rest) || 0);
     const totalMistakes = Object.keys(mistakes).reduce(function(total, key) {
@@ -287,7 +441,8 @@
   }
 
   function buyDecorationCore(rawState, decorationId, rules, now) {
-    const state = normalizeProgressionState(rawState, rules);
+    const timestamp = Number(now) || Date.now();
+    const state = normalizeProgressionState(rawState, rules, null, timestamp);
     const catalog = Array.isArray(rules && rules.decorations) ? rules.decorations : [];
     const item = catalog.find(function(candidate) {
       return candidate.id === decorationId;
@@ -313,7 +468,7 @@
     state.minigames.lastResult = {
       type: 'decoration',
       id: item.id,
-      at: new Date(Number(now) || Date.now()).toISOString()
+      at: new Date(timestamp).toISOString()
     };
     return { ok: true, state: state, decoration: item };
   }
@@ -334,14 +489,39 @@
     };
   }
 
-  function importStateEnvelopeCore(rawValue, targetVersion) {
+  function importStateEnvelopeCore(rawValue, targetVersion, rules, now) {
+    if (typeof rawValue === 'string' && rawValue.length > 2 * 1024 * 1024) {
+      return { ok: false, reason: 'Plik zapisu jest zbyt duży.' };
+    }
     const value = typeof rawValue === 'string' ? JSON.parse(rawValue) : rawValue;
-    const state = value && value.kind === 'pieczargotchi-state' ? value.state : value;
+    const wrapped = Boolean(value && value.kind === 'pieczargotchi-state');
+    const state = wrapped ? value.state : value;
     if (!isPlainObject(state) || !isPlainObject(state.stats)) {
       return { ok: false, reason: 'Plik nie wygląda jak zapis Pieczargotchi.' };
     }
 
-    const nextState = normalizeProgressionState(state);
+    const versionInfo = getStateVersionInfoCore(state, targetVersion);
+    if (versionInfo.futureVersion) {
+      return { ok: false, reason: 'Ten zapis pochodzi z nowszej wersji Pieczargotchi.' };
+    }
+
+    const nextState = typeof migrateStateVersion === 'function'
+      ? migrateStateVersion(state, targetVersion, rules, now)
+      : normalizeProgressionState(state, rules, null, now);
     nextState.version = Number(targetVersion) || Number(nextState.version) || 4;
-    return { ok: true, state: nextState };
+    const exportedAt = wrapped
+      && typeof value.exportedAt === 'string'
+      && Number.isFinite(Date.parse(value.exportedAt))
+      ? new Date(value.exportedAt).toISOString()
+      : null;
+    return {
+      ok: true,
+      state: nextState,
+      metadata: {
+        exportedAt: exportedAt,
+        sourceVersion: Math.max(0, Math.floor(Number(state.version) || 0)),
+        name: String(state.mushroomName || '').replace(/\s+/g, ' ').trim().slice(0, 24),
+        stage: String(state.stage || '').trim().toLowerCase().slice(0, 32)
+      }
+    };
   }

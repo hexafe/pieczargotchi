@@ -3,11 +3,15 @@
 
 from __future__ import annotations
 
+import argparse
+import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image, ImageChops
+
+from sprite_layout import load_canvas_sheet
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,8 +31,9 @@ SPORE_SLEEP_EDGE_GUARD_PX = 12
 MAX_SPORE_SLEEP_EDGE_PIXELS = 96
 MAX_SPORE_BRIGHT_RUN_PX = 120
 MAX_SPORE_CORE_BBOX_DRIFT_PX = 10.0
-MIN_SPORE_ACTIVITY_DURATION_MS = 1800
-MAX_SPORE_ACTIVITY_DURATION_MS = 2600
+NON_SPORE_ACTIVITY_CYCLE_MS = 1200
+SPORE_ACTIVITY_DURATION_MS = 2400
+MIN_UNIQUE_FRAMES = {4: 3, 8: 5, 10: 7, 12: 8, 16: 12}
 SPORE_CORE_ACTIVITIES = {"hydrate", "feed", "clean", "play", "instrument", "sing"}
 
 
@@ -47,6 +52,8 @@ class AnimationConfig:
     frame_size: int
     stages: list[str]
     activity_frame_counts: dict[str, int]
+    activity_file_names: dict[str, str]
+    activity_timings: dict[str, ActivityTiming]
     spore_activity_timings: dict[str, ActivityTiming]
     stage_frame_counts: dict[str, int]
     warnings: list[str]
@@ -58,6 +65,9 @@ class MotionReport:
     channel_deltas: list[int]
     alpha_mass_drift: float
     bbox_center_drift: float
+    unique_frames: int
+    adjacent_duplicate_pairs: list[tuple[int, int]]
+    wrap_duplicate: bool
 
     @property
     def max_changed_pixels(self) -> int:
@@ -88,6 +98,15 @@ class BrightRun:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--strict-frames",
+        action="store_true",
+        help="fail on legacy duplicate/low-uniqueness frames; default mode is advisory",
+    )
+    parser.add_argument("--stage", action="append", choices=EXPECTED_STAGES, help="audit only this stage (repeatable)")
+    parser.add_argument("--activity", action="append", choices=EXPECTED_ACTIVITIES, help="audit only this activity (repeatable)")
+    args = parser.parse_args()
     config = read_animation_config()
     failures: list[str] = []
 
@@ -97,15 +116,39 @@ def main() -> None:
         print(f"warning: {warning}")
 
     validate_config(config, failures)
+    failures.extend(f"manifest parse: {warning}" for warning in config.warnings)
 
-    for stage in EXPECTED_STAGES:
+    selected_stages = set(args.stage or config.stages)
+    selected_activities = set(args.activity or config.activity_frame_counts)
+    for stage in config.stages:
+        if stage not in selected_stages:
+            continue
         print(f"\n[{stage}]")
-        for activity in EXPECTED_ACTIVITIES:
+        audited_files: set[str] = set()
+        for activity in config.activity_frame_counts:
+            if activity not in selected_activities:
+                continue
             frame_count = config.activity_frame_counts.get(activity, 4)
-            path = ACTIVITIES_DIR / stage / f"{activity}_sheet.png"
-            audit_activity_sheet(path, stage, activity, frame_count, config.frame_size, failures)
+            file_name = config.activity_file_names.get(activity, f"{activity}_sheet.png")
+            if file_name in audited_files:
+                print(f"{activity:18s} alias -> {file_name}")
+                continue
+            audited_files.add(file_name)
+            path = ACTIVITIES_DIR / stage / file_name
+            timing = config.spore_activity_timings.get(activity) if stage == "spore" else config.activity_timings.get(activity)
+            audit_activity_sheet(
+                path,
+                stage,
+                activity,
+                frame_count,
+                config.frame_size,
+                failures,
+                strict_frames=args.strict_frames,
+                loop=timing.loop if timing is not None else False,
+            )
 
-    audit_spore_sleep_split(config, failures)
+    if "spore" in selected_stages and not args.activity:
+        audit_spore_sleep_split(config, failures)
 
     if failures:
         print("\nActivity sprite motion audit found problems:")
@@ -125,6 +168,8 @@ def read_animation_config() -> AnimationConfig:
             frame_size=DEFAULT_FRAME_SIZE,
             stages=EXPECTED_STAGES[:],
             activity_frame_counts={activity: 4 for activity in EXPECTED_ACTIVITIES},
+            activity_file_names={activity: f"{activity}_sheet.png" for activity in EXPECTED_ACTIVITIES},
+            activity_timings={},
             spore_activity_timings={},
             stage_frame_counts={"sleep": 4},
             warnings=[f"could not read AnimationConfig.gs ({exc}); using fallback frame contract"],
@@ -144,6 +189,13 @@ def read_animation_config() -> AnimationConfig:
     if not activity_frame_counts:
         activity_frame_counts = {activity: 4 for activity in EXPECTED_ACTIVITIES}
         warnings.append("could not parse PIECZARGOTCHI_ACTIVITY_ANIMATIONS; using 4 frames per activity")
+    activity_file_names = parse_activity_file_names(text)
+    if set(activity_file_names) != set(activity_frame_counts):
+        warnings.append("could not map every activity key to its runtime fileName")
+
+    activity_timings = parse_default_activity_timings(text)
+    if not activity_timings:
+        warnings.append("could not parse default activity timing data")
 
     spore_activity_timings = parse_spore_activity_timings(text)
     if not spore_activity_timings:
@@ -158,6 +210,8 @@ def read_animation_config() -> AnimationConfig:
         frame_size=frame_size,
         stages=stages,
         activity_frame_counts=activity_frame_counts,
+        activity_file_names=activity_file_names,
+        activity_timings=activity_timings,
         spore_activity_timings=spore_activity_timings,
         stage_frame_counts=stage_frame_counts,
         warnings=warnings,
@@ -192,6 +246,17 @@ def parse_animation_frame_counts(text: str, array_name: str, key_name: str) -> d
     return frame_counts
 
 
+def parse_activity_file_names(text: str) -> dict[str, str]:
+    section = extract_js_array(text, "PIECZARGOTCHI_ACTIVITY_ANIMATIONS")
+    result: dict[str, str] = {}
+    for block in iter_js_object_blocks(section):
+        key_match = re.search(r"activity\s*:\s*'([^']+)'", block)
+        file_match = re.search(r"fileName\s*:\s*'([^']+)'", block)
+        if key_match and file_match:
+            result[key_match.group(1)] = Path(file_match.group(1)).name
+    return result
+
+
 def parse_spore_activity_timings(text: str) -> dict[str, ActivityTiming]:
     section = extract_js_array(text, "PIECZARGOTCHI_ACTIVITY_ANIMATIONS")
     if not section:
@@ -217,6 +282,21 @@ def parse_spore_activity_timings(text: str) -> dict[str, ActivityTiming]:
         if durations and loop is not None:
             timings[activity] = ActivityTiming(frame_durations_ms=durations, loop=loop)
 
+    return timings
+
+
+def parse_default_activity_timings(text: str) -> dict[str, ActivityTiming]:
+    section = extract_js_array(text, "PIECZARGOTCHI_ACTIVITY_ANIMATIONS")
+    if not section:
+        return {}
+
+    timings: dict[str, ActivityTiming] = {}
+    for block in iter_js_object_blocks(section):
+        key_match = re.search(r"activity\s*:\s*'([^']+)'", block)
+        durations = parse_number_list_property(block, "frameDurationsMs")
+        loop = parse_bool_property(block, "loop")
+        if key_match and durations and loop is not None:
+            timings[key_match.group(1)] = ActivityTiming(frame_durations_ms=durations, loop=loop)
     return timings
 
 
@@ -319,18 +399,34 @@ def validate_config(config: AnimationConfig, failures: list[str]) -> None:
     if missing_activities:
         failures.append(f"AnimationConfig.gs is missing expected activity animations: {', '.join(missing_activities)}")
 
-    for activity in EXPECTED_ACTIVITIES:
+    for activity in config.activity_frame_counts:
+        default_timing = config.activity_timings.get(activity)
+        if default_timing is None:
+            failures.append(f"AnimationConfig.gs is missing default timing data for activity.{activity}")
+        else:
+            if not default_timing.loop:
+                failures.append(f"non-spore activity.{activity}: should loop twice during the action")
+            if default_timing.total_ms != NON_SPORE_ACTIVITY_CYCLE_MS:
+                failures.append(
+                    f"non-spore activity.{activity}: timing total is {default_timing.total_ms}ms, "
+                    f"expected exactly {NON_SPORE_ACTIVITY_CYCLE_MS}ms"
+                )
+            if len(default_timing.frame_durations_ms) != config.activity_frame_counts[activity]:
+                failures.append(f"activity.{activity}: timing/frame-count mismatch")
+
         timing = config.spore_activity_timings.get(activity)
         if timing is None:
             failures.append(f"AnimationConfig.gs is missing spore timing data for activity.{activity}")
             continue
         if timing.loop:
             failures.append(f"spore.activity.{activity}: should be one-shot/hold, not looped")
-        if not (MIN_SPORE_ACTIVITY_DURATION_MS <= timing.total_ms <= MAX_SPORE_ACTIVITY_DURATION_MS):
+        if timing.total_ms != SPORE_ACTIVITY_DURATION_MS:
             failures.append(
-                f"spore.activity.{activity}: timing total is {timing.total_ms}ms, expected "
-                f"{MIN_SPORE_ACTIVITY_DURATION_MS}-{MAX_SPORE_ACTIVITY_DURATION_MS}ms"
+                f"spore.activity.{activity}: timing total is {timing.total_ms}ms, expected exactly "
+                f"{SPORE_ACTIVITY_DURATION_MS}ms"
             )
+        if len(timing.frame_durations_ms) != config.activity_frame_counts[activity]:
+            failures.append(f"spore.activity.{activity}: timing/frame-count mismatch")
 
 
 def audit_activity_sheet(
@@ -340,6 +436,8 @@ def audit_activity_sheet(
     frame_count: int,
     frame_size: int,
     failures: list[str],
+    strict_frames: bool = False,
+    loop: bool = False,
 ) -> None:
     label = f"{stage}.activity.{activity}"
     if not path.exists():
@@ -347,7 +445,7 @@ def audit_activity_sheet(
         print(f"{activity:10s} missing")
         return
 
-    image = Image.open(path)
+    image = load_canvas_sheet(path)
     expected_size = (frame_count * frame_size, frame_size)
     size_ok = image.size == expected_size
     mode_ok = image.mode == "RGBA"
@@ -373,8 +471,24 @@ def audit_activity_sheet(
             f"changed={changed:>14s} delta={deltas:>18s} "
             f"massDrift={report.alpha_mass_drift:4.2f}px "
             f"bboxDrift={report.bbox_center_drift:4.2f}px "
+            f"unique={report.unique_frames}/{actual_frame_count} "
             f"{status}"
         )
+        quality_issues: list[str] = []
+        min_unique = MIN_UNIQUE_FRAMES.get(actual_frame_count)
+        if min_unique is not None and report.unique_frames < min_unique:
+            quality_issues.append(
+                f"{label}: only {report.unique_frames}/{actual_frame_count} unique frames; expected >= {min_unique}"
+            )
+        if report.adjacent_duplicate_pairs:
+            pairs = ", ".join(f"{left + 1}-{right + 1}" for left, right in report.adjacent_duplicate_pairs)
+            quality_issues.append(f"{label}: exact adjacent duplicates at {pairs}")
+        if report.wrap_duplicate:
+            quality_issues.append(f"{label}: exact wrap duplicate at {actual_frame_count}-1")
+        for issue in quality_issues:
+            print(f"  quality-warning: {issue}")
+        if strict_frames:
+            failures.extend(quality_issues if loop else [issue for issue in quality_issues if "wrap duplicate" not in issue])
         if report.effectively_static:
             failures.append(
                 f"{label}: effectively static "
@@ -401,6 +515,7 @@ def audit_activity_sheet(
 
 def measure_adjacent_motion(image: Image.Image, frame_count: int, frame_size: int) -> MotionReport:
     frames = [crop_frame(image, index, frame_size) for index in range(frame_count)]
+    signatures = [visual_frame_signature(frame) for frame in frames]
     changed_pixels: list[int] = []
     channel_deltas: list[int] = []
 
@@ -418,7 +533,18 @@ def measure_adjacent_motion(image: Image.Image, frame_count: int, frame_size: in
         channel_deltas=channel_deltas,
         alpha_mass_drift=max_distance_from_first(alpha_centers),
         bbox_center_drift=max_distance_from_first(bbox_centers),
+        unique_frames=len(set(signatures)),
+        adjacent_duplicate_pairs=[
+            (index, index + 1) for index in range(frame_count - 1) if signatures[index] == signatures[index + 1]
+        ],
+        wrap_duplicate=frame_count > 1 and signatures[-1] == signatures[0],
     )
+
+
+def visual_frame_signature(frame: Image.Image) -> bytes:
+    canonical = Image.new("RGBA", frame.size, (0, 0, 0, 0))
+    canonical.alpha_composite(frame.convert("RGBA"))
+    return hashlib.sha256(canonical.tobytes()).digest()
 
 
 def crop_frame(image: Image.Image, index: int, frame_size: int) -> Image.Image:
@@ -527,7 +653,7 @@ def audit_spore_sleep_split(config: AnimationConfig, failures: list[str]) -> Non
         print("missing")
         return
 
-    image = Image.open(path).convert("RGBA")
+    image = load_canvas_sheet(path)
     expected_size = (frame_count * frame_size, frame_size)
     if image.size != expected_size:
         failures.append(f"{label}: size is {image.size[0]}x{image.size[1]}, expected {expected_size[0]}x{expected_size[1]}")

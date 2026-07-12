@@ -109,6 +109,14 @@
 
   const weatherRefreshMs = 30 * 60 * 1000;
   const resetConfirmWindowMs = 4200;
+  const exclusiveOwnershipConfig = {
+    battleLeaseMs: 240000,
+    battleRefreshBeforeMs: 150000,
+    minigameGraceMs: 30000,
+    maxAcceptedLeaseMs: 10 * 60000,
+    retryDelayMs: 750,
+    maxClaimAttempts: 4
+  };
   const constellationCatalog = [
     {
       id: 'bigDipper',
@@ -197,6 +205,10 @@
     ctx: null,
     canvas: null,
     assets: {},
+    assetFiles: {},
+    assetFilePromises: {},
+    assetFileFailures: {},
+    assetFileLoadedAt: {},
     assetLoadedAt: {},
     assetPromises: {},
     assetFailures: {},
@@ -219,6 +231,11 @@
     precipitationMotion: null,
     actionButtons: new Map(),
     minigame: null,
+    minigameLaunch: null,
+    minigameReturnFocus: null,
+    minigameVisibilityBound: false,
+    minigameReturnObserver: null,
+    pendingImport: null,
     debug: createDefaultDebugSettings(),
     viewMode: 'care',
     currentAnimationKey: null,
@@ -227,6 +244,18 @@
     renderError: null,
     renderStarted: false,
     booted: false,
+    persistenceStatus: null,
+    persistenceUnsubscribe: null,
+    persistenceRetryTimer: null,
+    persistenceConflictTimer: null,
+    exclusiveSession: null,
+    foreignExclusiveSession: null,
+    exclusiveOwnershipClaimTimer: null,
+    exclusiveOwnershipClaimAttempts: 0,
+    interactionClockOrigin: null,
+    renderAnimationFrame: 0,
+    renderVisibilityBound: false,
+    reducedMotion: false,
     resetConfirmUntil: 0,
     resetConfirmTimer: null,
     adaptiveDock: {
@@ -263,16 +292,15 @@
 
   function formatMushroomText(value, state) {
     const text = String(value || '');
-    if (!text || !hasNamedMushroom(state || runtime.state)) {
+    if (!text || text.indexOf('{name}') === -1) {
       return text;
     }
 
-    const name = getMushroomName(state || runtime.state);
-    const letters = 'A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż';
-    const pattern = new RegExp('(^|[^' + letters + '])(Pieczarka|Pieczarkę|Pieczarki|Pieczarce|Pieczarką)(?=$|[^' + letters + '])', 'g');
-    return text.replace(pattern, function(match, prefix) {
-      return prefix + name;
-    });
+    const currentState = state || runtime.state;
+    const name = hasNamedMushroom(currentState)
+      ? getMushroomName(currentState)
+      : defaultMushroomName;
+    return text.replace(/\{name\}/g, name);
   }
 
   document.addEventListener('DOMContentLoaded', function() {
@@ -327,6 +355,7 @@
         dom.assetStatus = document.querySelector('[data-asset-status]');
       }
       renderAssetStatus();
+      renderRuntimeAlert();
     } catch (statusError) {
       if (window.console && typeof window.console.error === 'function') {
         window.console.error('Nie udało się pokazać statusu awaryjnego:', statusError);
@@ -342,8 +371,18 @@
     runtime.booted = true;
     markClientBootSeen();
     runtime.state = loadState();
-    runtime.state = applyElapsedTime(runtime.state, getRuntimeNow());
-    saveState(runtime.state);
+    initializeRuntimePersistenceSync();
+    let ownsLoadedExclusiveSession = true;
+    if (isRuntimeReadOnly()) {
+      runtime.futureStateRaw = deepClone(runtime.state);
+      runtime.state = createReadOnlyStateView(runtime.futureStateRaw);
+    } else {
+      ownsLoadedExclusiveSession = initializeLoadedExclusiveSessionOwnership(getExclusiveOwnershipNow());
+      if (ownsLoadedExclusiveSession) {
+        runtime.state = applyElapsedTime(runtime.state, getRuntimeNow());
+        persistRuntimeState(runtime.state);
+      }
+    }
     warmUpCurrentStageAssets();
 
     renderBuildBadge();
@@ -351,13 +390,764 @@
     initAdaptiveActionDock();
     renderDebugControls();
     bindControls();
-    bindImmersionInput();
-    bindKeyboardShortcuts();
+    if (!isRuntimeReadOnly()) {
+      bindImmersionInput();
+      bindKeyboardShortcuts();
+    }
     renderUi();
     focusNameInputIfNeeded();
-    resumeMinigameIfActive();
-    startTimers();
+    if (!isRuntimeReadOnly() && ownsLoadedExclusiveSession) {
+      resumeMinigameIfActive();
+    }
+    if (!isRuntimeReadOnly()) {
+      startTimers();
+    }
     startRenderLoop();
+  }
+
+  function isRuntimeReadOnly() {
+    const status = runtime.persistenceStatus || {};
+    return Boolean(status.readOnly || status.futureVersion || status.mode === 'readOnly');
+  }
+
+  function getActiveExclusiveSessionDescriptor(state, now) {
+    const timestamp = Number(now) || Date.now();
+    const normalizeLeaseUntil = function(value) {
+      const leaseUntil = Number(value);
+      return Number.isFinite(leaseUntil)
+        && leaseUntil >= 0
+        && leaseUntil <= timestamp + 10 * 60000
+        ? leaseUntil
+        : 0;
+    };
+    const activeMinigame = state && state.minigames && state.minigames.active;
+    const activeBattle = state && state.battle && state.battle.activeBattle;
+    const runningBattle = activeBattle && ['victory', 'defeat'].indexOf(activeBattle.mode) === -1;
+    if (!activeMinigame && !runningBattle) {
+      return null;
+    }
+    const ownershipRecords = [];
+    if (activeMinigame) {
+      ownershipRecords.push({
+        ownerWriterId: String(activeMinigame.ownerWriterId || ''),
+        ownerLeaseUntil: normalizeLeaseUntil(activeMinigame.ownerLeaseUntil)
+      });
+    }
+    if (runningBattle) {
+      ownershipRecords.push({
+        ownerWriterId: String(activeBattle.ownerWriterId || ''),
+        ownerLeaseUntil: normalizeLeaseUntil(activeBattle.ownerLeaseUntil)
+      });
+    }
+    const firstOwner = ownershipRecords[0] && ownershipRecords[0].ownerWriterId || '';
+    const ownersAgree = ownershipRecords.every(function(record) {
+      return record.ownerWriterId === firstOwner;
+    });
+    return {
+      kind: activeMinigame && runningBattle ? 'conflict' : activeMinigame ? 'minigame' : 'battle',
+      minigameId: activeMinigame ? String(activeMinigame.id || '') : '',
+      battleId: runningBattle ? String(activeBattle.id || '') : '',
+      minigameStartedAt: activeMinigame ? Math.max(0, Number(activeMinigame.startedAt) || 0) : 0,
+      minigameUntil: activeMinigame ? Math.max(0, Number(activeMinigame.until) || 0) : 0,
+      ownerWriterId: ownersAgree ? firstOwner : '__multiple_owners__',
+      ownerLeaseUntil: ownershipRecords.reduce(function(maximum, record) {
+        return Math.max(maximum, record.ownerLeaseUntil);
+      }, 0)
+    };
+  }
+
+  function getCurrentPersistenceWriterId() {
+    const status = typeof getPersistenceStatus === 'function'
+      ? getPersistenceStatus()
+      : runtime.persistenceStatus || {};
+    return String(status.tabId || '').slice(0, 80);
+  }
+
+  function getExclusiveOwnershipNow() {
+    return Date.now();
+  }
+
+  function inspectExclusiveSessionOwnership(state, now) {
+    const descriptor = getActiveExclusiveSessionDescriptor(state, now);
+    if (!descriptor) {
+      return { mode: 'none', descriptor: null };
+    }
+    const writerId = getCurrentPersistenceWriterId();
+    const leaseIsLive = Boolean(descriptor.ownerWriterId)
+      && Number(descriptor.ownerLeaseUntil) > Number(now);
+    if (leaseIsLive && writerId && descriptor.ownerWriterId === writerId) {
+      return { mode: 'owned', descriptor: descriptor, writerId: writerId };
+    }
+    if (leaseIsLive) {
+      return { mode: 'foreign', descriptor: descriptor, writerId: writerId };
+    }
+    return { mode: 'claimable', descriptor: descriptor, writerId: writerId };
+  }
+
+  function assignExclusiveSessionOwnership(state, now, writerId) {
+    const descriptor = getActiveExclusiveSessionDescriptor(state, now);
+    const ownerWriterId = String(writerId || getCurrentPersistenceWriterId()).slice(0, 80);
+    if (!descriptor || !ownerWriterId) {
+      return null;
+    }
+    let leaseUntil = Number(now) + exclusiveOwnershipConfig.battleLeaseMs;
+    if (descriptor.minigameId) {
+      const minigameDuration = Math.max(0, Number(descriptor.minigameUntil) - Number(descriptor.minigameStartedAt));
+      leaseUntil = Math.max(
+        Number(now) + exclusiveOwnershipConfig.minigameGraceMs,
+        Number(now) + minigameDuration + exclusiveOwnershipConfig.minigameGraceMs,
+        descriptor.battleId ? leaseUntil : 0
+      );
+    }
+    if (descriptor.minigameId && state.minigames && state.minigames.active) {
+      state.minigames.active.ownerWriterId = ownerWriterId;
+      state.minigames.active.ownerLeaseUntil = leaseUntil;
+    }
+    if (descriptor.battleId && state.battle && state.battle.activeBattle) {
+      state.battle.activeBattle.ownerWriterId = ownerWriterId;
+      state.battle.activeBattle.ownerLeaseUntil = leaseUntil;
+    }
+    return Object.assign({}, descriptor, {
+      ownerWriterId: ownerWriterId,
+      ownerLeaseUntil: leaseUntil
+    });
+  }
+
+  function claimExclusiveSessionOwnership(state, now) {
+    const ownership = inspectExclusiveSessionOwnership(state, now);
+    if (ownership.mode === 'none' || ownership.mode === 'owned') {
+      return { ok: true, state: state, ownership: ownership, claimed: false };
+    }
+    if (ownership.mode === 'foreign') {
+      return { ok: false, reason: 'leaseActive', state: state, ownership: ownership };
+    }
+    if (!ownership.writerId || typeof saveReplacementState !== 'function') {
+      return { ok: false, reason: 'ownershipUnavailable', state: state, ownership: ownership };
+    }
+    const previous = deepClone(state);
+    const candidate = deepClone(state);
+    const descriptor = assignExclusiveSessionOwnership(candidate, now, ownership.writerId);
+    if (!descriptor) {
+      return { ok: false, reason: 'ownershipUnavailable', state: state, ownership: ownership };
+    }
+    let result;
+    try {
+      result = saveReplacementState(candidate, previous);
+    } catch (error) {
+      result = { ok: false, reason: 'storageUnavailable' };
+    }
+    if (!result || !result.ok) {
+      return Object.assign({ ok: false, state: state, ownership: ownership }, result || { reason: 'ownershipUnavailable' });
+    }
+    return {
+      ok: true,
+      state: candidate,
+      ownership: { mode: 'owned', descriptor: descriptor, writerId: ownership.writerId },
+      claimed: true,
+      revision: result.revision,
+      mode: result.mode
+    };
+  }
+
+  function clearExclusiveOwnershipClaimSchedule() {
+    if (runtime.exclusiveOwnershipClaimTimer) {
+      window.clearTimeout(runtime.exclusiveOwnershipClaimTimer);
+      runtime.exclusiveOwnershipClaimTimer = null;
+    }
+    runtime.exclusiveOwnershipClaimAttempts = 0;
+  }
+
+  function scheduleExclusiveOwnershipClaim(attemptAt, attempt) {
+    const claimAttempt = Math.max(0, Math.floor(Number(attempt) || 0));
+    if (claimAttempt >= exclusiveOwnershipConfig.maxClaimAttempts || isRuntimeReadOnly()) {
+      return;
+    }
+    if (runtime.exclusiveOwnershipClaimTimer) {
+      window.clearTimeout(runtime.exclusiveOwnershipClaimTimer);
+    }
+    runtime.exclusiveOwnershipClaimAttempts = claimAttempt;
+    const currentTime = getExclusiveOwnershipNow();
+    const boundedAttemptAt = Math.min(
+      Number(attemptAt) || currentTime + exclusiveOwnershipConfig.retryDelayMs,
+      currentTime + exclusiveOwnershipConfig.maxAcceptedLeaseMs
+    );
+    const delay = Math.max(50, boundedAttemptAt - currentTime + 25);
+    runtime.exclusiveOwnershipClaimTimer = window.setTimeout(function() {
+      runtime.exclusiveOwnershipClaimTimer = null;
+      attemptScheduledExclusiveOwnershipClaim(claimAttempt);
+    }, Number.isFinite(delay) ? delay : exclusiveOwnershipConfig.retryDelayMs);
+  }
+
+  function markForeignExclusiveOwnership(ownership, claimPending) {
+    const descriptor = ownership && ownership.descriptor;
+    runtime.foreignExclusiveSession = descriptor
+      ? Object.assign({}, descriptor, {
+        claimPending: Boolean(claimPending),
+        revision: Math.max(0, Number(runtime.state && runtime.state.saveRevision) || 0)
+      })
+      : null;
+  }
+
+  function initializeLoadedExclusiveSessionOwnership(now) {
+    const ownership = inspectExclusiveSessionOwnership(runtime.state, now);
+    if (ownership.mode === 'none' || ownership.mode === 'owned') {
+      clearExclusiveOwnershipClaimSchedule();
+      runtime.foreignExclusiveSession = null;
+      return true;
+    }
+    if (ownership.mode === 'foreign') {
+      markForeignExclusiveOwnership(ownership, false);
+      scheduleExclusiveOwnershipClaim(ownership.descriptor.ownerLeaseUntil, 0);
+      renderPersistenceStatus({ reason: 'foreignExclusive' });
+      return false;
+    }
+
+    const claimed = claimExclusiveSessionOwnership(runtime.state, now);
+    if (claimed.ok) {
+      runtime.state = claimed.state;
+      runtime.foreignExclusiveSession = null;
+      clearExclusiveOwnershipClaimSchedule();
+      if (Number.isFinite(Number(claimed.revision)) && typeof acknowledgePersistenceRevision === 'function') {
+        acknowledgePersistenceRevision(Number(claimed.revision));
+      }
+      runtime.persistenceStatus = typeof getPersistenceStatus === 'function'
+        ? getPersistenceStatus()
+        : runtime.persistenceStatus;
+      return true;
+    }
+
+    if (claimed.reason === 'conflict') {
+      runtime.state = loadState();
+    }
+    const latestOwnership = inspectExclusiveSessionOwnership(runtime.state, now);
+    if (latestOwnership.mode === 'none' || latestOwnership.mode === 'owned') {
+      clearExclusiveOwnershipClaimSchedule();
+      runtime.foreignExclusiveSession = null;
+      return true;
+    }
+    markForeignExclusiveOwnership(latestOwnership, latestOwnership.mode !== 'foreign');
+    const retryAt = latestOwnership.mode === 'foreign'
+      ? latestOwnership.descriptor.ownerLeaseUntil
+      : Number(now) + exclusiveOwnershipConfig.retryDelayMs;
+    scheduleExclusiveOwnershipClaim(retryAt, 0);
+    renderPersistenceStatus({ reason: latestOwnership.mode === 'foreign' ? 'foreignExclusive' : 'ownershipPending' });
+    return false;
+  }
+
+  function attemptScheduledExclusiveOwnershipClaim(attempt) {
+    if (isRuntimeReadOnly()) {
+      return;
+    }
+    const now = getExclusiveOwnershipNow();
+    const ownership = inspectExclusiveSessionOwnership(runtime.state, now);
+    if (ownership.mode === 'none') {
+      clearExclusiveOwnershipClaimSchedule();
+      runtime.foreignExclusiveSession = null;
+      renderUi();
+      renderPersistenceStatus({ reason: 'externalUpdate' });
+      return;
+    }
+    if (ownership.mode === 'owned') {
+      clearExclusiveOwnershipClaimSchedule();
+      runtime.foreignExclusiveSession = null;
+      activateClaimedExclusiveSession(now);
+      return;
+    }
+    if (ownership.mode === 'foreign') {
+      markForeignExclusiveOwnership(ownership, false);
+      scheduleExclusiveOwnershipClaim(ownership.descriptor.ownerLeaseUntil, 0);
+      renderUi();
+      renderPersistenceStatus({ reason: 'foreignExclusive' });
+      return;
+    }
+
+    const claimed = claimExclusiveSessionOwnership(runtime.state, now);
+    if (claimed.ok) {
+      runtime.state = claimed.state;
+      runtime.foreignExclusiveSession = null;
+      clearExclusiveOwnershipClaimSchedule();
+      if (Number.isFinite(Number(claimed.revision)) && typeof acknowledgePersistenceRevision === 'function') {
+        acknowledgePersistenceRevision(Number(claimed.revision));
+      }
+      runtime.persistenceStatus = typeof getPersistenceStatus === 'function'
+        ? getPersistenceStatus()
+        : runtime.persistenceStatus;
+      activateClaimedExclusiveSession(now);
+      return;
+    }
+
+    if (claimed.reason === 'conflict') {
+      runtime.state = loadState();
+    }
+    const latestOwnership = inspectExclusiveSessionOwnership(runtime.state, now);
+    if (latestOwnership.mode === 'none') {
+      clearExclusiveOwnershipClaimSchedule();
+      runtime.foreignExclusiveSession = null;
+      reconcileExclusiveRuntimeSession(getRuntimeNow());
+      renderUi();
+      renderPersistenceStatus({ reason: 'externalUpdate' });
+      return;
+    }
+    if (latestOwnership.mode === 'owned') {
+      clearExclusiveOwnershipClaimSchedule();
+      runtime.foreignExclusiveSession = null;
+      activateClaimedExclusiveSession(now);
+      return;
+    }
+    if (latestOwnership.mode === 'foreign') {
+      markForeignExclusiveOwnership(latestOwnership, false);
+      scheduleExclusiveOwnershipClaim(latestOwnership.descriptor.ownerLeaseUntil, 0);
+    } else {
+      const nextAttempt = Math.max(0, Number(attempt) || 0) + 1;
+      markForeignExclusiveOwnership(latestOwnership, true);
+      scheduleExclusiveOwnershipClaim(now + exclusiveOwnershipConfig.retryDelayMs, nextAttempt);
+    }
+    renderUi();
+    renderPersistenceStatus({ reason: latestOwnership.mode === 'foreign' ? 'foreignExclusive' : 'ownershipPending' });
+  }
+
+  function activateClaimedExclusiveSession() {
+    const runtimeNow = getRuntimeNow();
+    runtime.state = applyElapsedTime(runtime.state, runtimeNow);
+    reconcileExclusiveRuntimeSession(runtimeNow);
+    const persisted = persistRuntimeState(runtime.state);
+    renderUi();
+    if (!persisted || persisted.reason !== 'conflict') {
+      resumeMinigameIfActive();
+    }
+  }
+
+  function refreshOwnedBattleSessionLease(now) {
+    if (isRuntimeReadOnly() || runtime.pendingExclusiveStart) {
+      return;
+    }
+    let ownership = inspectExclusiveSessionOwnership(runtime.state, now);
+    if (!ownership.descriptor || !ownership.descriptor.battleId) {
+      return;
+    }
+    if (ownership.mode !== 'owned') {
+      markForeignExclusiveOwnership(ownership, ownership.mode === 'claimable');
+      runtime.exclusiveSession = null;
+      scheduleExclusiveOwnershipClaim(
+        ownership.mode === 'foreign'
+          ? ownership.descriptor.ownerLeaseUntil
+          : Number(now) + exclusiveOwnershipConfig.retryDelayMs,
+        0
+      );
+      renderPersistenceStatus({ reason: ownership.mode === 'foreign' ? 'foreignExclusive' : 'ownershipPending' });
+      return;
+    }
+    if (Number(ownership.descriptor.ownerLeaseUntil) - Number(now) > exclusiveOwnershipConfig.battleRefreshBeforeMs) {
+      return;
+    }
+
+    const previous = deepClone(runtime.state);
+    const candidate = deepClone(runtime.state);
+    assignExclusiveSessionOwnership(candidate, now, ownership.writerId);
+    let result;
+    try {
+      result = saveReplacementState(candidate, previous);
+    } catch (error) {
+      result = { ok: false, reason: 'storageUnavailable' };
+    }
+    if (result && result.ok) {
+      runtime.state = candidate;
+      if (Number.isFinite(Number(result.revision)) && typeof acknowledgePersistenceRevision === 'function') {
+        acknowledgePersistenceRevision(Number(result.revision));
+      }
+      runtime.persistenceStatus = typeof getPersistenceStatus === 'function'
+        ? getPersistenceStatus()
+        : runtime.persistenceStatus;
+      return;
+    }
+
+    if (result && result.reason === 'conflict') {
+      runtime.state = loadState();
+      ownership = inspectExclusiveSessionOwnership(runtime.state, now);
+      if (ownership.mode === 'none') {
+        clearExclusiveOwnershipClaimSchedule();
+        runtime.foreignExclusiveSession = null;
+        runtime.exclusiveSession = null;
+        reconcileExclusiveRuntimeSession(getRuntimeNow());
+        renderUi();
+        renderPersistenceStatus({ reason: 'externalUpdate' });
+        return;
+      }
+      if (ownership.mode === 'owned') {
+        return;
+      }
+      markForeignExclusiveOwnership(ownership, ownership.mode === 'claimable');
+      runtime.exclusiveSession = null;
+      scheduleExclusiveOwnershipClaim(
+        ownership.mode === 'foreign'
+          ? ownership.descriptor.ownerLeaseUntil
+          : Number(now) + exclusiveOwnershipConfig.retryDelayMs,
+        0
+      );
+      renderUi();
+      renderPersistenceStatus({ reason: ownership.mode === 'foreign' ? 'foreignExclusive' : 'ownershipPending' });
+    }
+  }
+
+  function isForeignExclusiveSessionActive(kind) {
+    const session = runtime.foreignExclusiveSession;
+    if (!session) {
+      return false;
+    }
+    if (!kind) {
+      return true;
+    }
+    return session.kind === kind
+      || session.kind === 'conflict' && Boolean(kind === 'minigame' ? session.minigameId : session.battleId);
+  }
+
+  function isRuntimeMutationBlocked() {
+    return isRuntimeReadOnly() || isForeignExclusiveSessionActive();
+  }
+
+  function createReadOnlyStateView(rawState) {
+    const snapshot = rawState && typeof rawState === 'object' ? deepClone(rawState) : {};
+    const base = createDefaultState();
+    const merged = typeof mergeState === 'function' ? mergeState(base, snapshot) : Object.assign(base, snapshot);
+    const view = typeof normalizeState === 'function' ? normalizeState(merged) : merged;
+    view.version = Number(snapshot.version) || view.version;
+    view.saveRevision = Math.max(0, Math.floor(Number(snapshot.saveRevision) || 0));
+    view.saveWriterId = snapshot.saveWriterId || null;
+    return view;
+  }
+
+  function initializeRuntimePersistenceSync() {
+    runtime.persistenceStatus = typeof getPersistenceStatus === 'function'
+      ? getPersistenceStatus()
+      : { mode: 'local', ok: true };
+    if (typeof initializePersistenceSync === 'function' && !runtime.persistenceUnsubscribe) {
+      try {
+        runtime.persistenceUnsubscribe = initializePersistenceSync(handleExternalPersistenceUpdate) || function() {};
+      } catch (error) {
+        runtime.persistenceStatus = { mode: 'memory', ok: false, reason: 'storageUnavailable' };
+      }
+    }
+    renderPersistenceStatus();
+  }
+
+  function handleExternalPersistenceUpdate(update) {
+    const payload = update || {};
+    cancelPendingExclusiveStart();
+    runtime.persistenceStatus = typeof getPersistenceStatus === 'function'
+      ? getPersistenceStatus()
+      : Object.assign({}, runtime.persistenceStatus || {}, payload);
+    if (payload.futureVersion) {
+      if (typeof stopMinigameRuntime === 'function') {
+        stopMinigameRuntime();
+      }
+      runtime.exclusiveSession = null;
+      runtime.foreignExclusiveSession = null;
+      clearExclusiveOwnershipClaimSchedule();
+      runtime.persistenceStatus = Object.assign({}, runtime.persistenceStatus || {}, {
+        mode: 'readOnly',
+        readOnly: true,
+        futureVersion: Number(payload.state && payload.state.version) || true,
+        reason: 'futureVersion'
+      });
+      runtime.futureStateRaw = deepClone(payload.state || {});
+      runtime.state = createReadOnlyStateView(runtime.futureStateRaw);
+      renderUi();
+      renderPersistenceStatus(runtime.persistenceStatus);
+      return;
+    }
+    if (!payload.state) {
+      renderPersistenceStatus(payload);
+      return;
+    }
+
+    if (typeof stopMinigameRuntime === 'function') {
+      stopMinigameRuntime();
+    }
+    runtime.exclusiveSession = null;
+    runtime.state = typeof migrateState === 'function' ? migrateState(payload.state) : payload.state;
+    if (typeof acknowledgePersistenceRevision === 'function' && Number.isFinite(Number(payload.revision))) {
+      acknowledgePersistenceRevision(Number(payload.revision));
+    }
+    runtime.persistenceStatus = typeof getPersistenceStatus === 'function'
+      ? getPersistenceStatus()
+      : runtime.persistenceStatus;
+    const ownershipNow = getExclusiveOwnershipNow();
+    const ownership = inspectExclusiveSessionOwnership(runtime.state, ownershipNow);
+    if (ownership.mode === 'foreign' || ownership.mode === 'claimable') {
+      markForeignExclusiveOwnership(ownership, ownership.mode === 'claimable');
+      scheduleExclusiveOwnershipClaim(
+        ownership.mode === 'foreign'
+          ? ownership.descriptor.ownerLeaseUntil
+          : ownershipNow + 50,
+        0
+      );
+      renderUi();
+      renderPersistenceStatus({ reason: ownership.mode === 'foreign' ? 'foreignExclusive' : 'ownershipPending' });
+      return;
+    }
+    clearExclusiveOwnershipClaimSchedule();
+    runtime.foreignExclusiveSession = null;
+    reconcileExclusiveRuntimeSession(getRuntimeNow());
+    renderUi();
+    resumeMinigameIfActive();
+    renderPersistenceStatus(Object.assign({}, payload, { reason: 'externalUpdate' }));
+  }
+
+  function persistRuntimeState(state, retryAttempt) {
+    if (isForeignExclusiveSessionActive()) {
+      const passiveResult = {
+        ok: false,
+        reason: 'foreignExclusive',
+        mode: runtime.persistenceStatus && runtime.persistenceStatus.mode,
+        passive: true
+      };
+      renderPersistenceStatus(passiveResult);
+      return passiveResult;
+    }
+    if (typeof saveState !== 'function') {
+      return { ok: false, reason: 'unavailable', mode: 'memory' };
+    }
+    let result;
+    try {
+      result = saveState(state);
+    } catch (error) {
+      result = { ok: false, reason: 'storageUnavailable', mode: 'memory' };
+    }
+    if (!result || typeof result !== 'object') {
+      return { ok: true, mode: 'local' };
+    }
+
+    runtime.persistenceStatus = typeof getPersistenceStatus === 'function'
+      ? getPersistenceStatus()
+      : result;
+    if (result.ok && runtime.persistenceRetryTimer) {
+      window.clearTimeout(runtime.persistenceRetryTimer);
+      runtime.persistenceRetryTimer = null;
+    }
+    if (result.ok && Number.isFinite(Number(result.revision)) && typeof acknowledgePersistenceRevision === 'function') {
+      acknowledgePersistenceRevision(Number(result.revision));
+    }
+    if (!result.ok && result.reason === 'conflict') {
+      schedulePersistenceConflictResolution();
+    }
+    if (!result.ok && result.reason === 'storageBusy' && !isRuntimeReadOnly()) {
+      const attempt = Math.max(0, Number(retryAttempt) || 0);
+      if (!runtime.persistenceRetryTimer && attempt < 4) {
+        runtime.persistenceRetryTimer = window.setTimeout(function() {
+          runtime.persistenceRetryTimer = null;
+          persistRuntimeState(runtime.state, attempt + 1);
+        }, 750);
+      } else if (attempt >= 4) {
+        runtime.state = loadState();
+        const ownershipNow = getExclusiveOwnershipNow();
+        const reloadedOwnership = inspectExclusiveSessionOwnership(runtime.state, ownershipNow);
+        if (reloadedOwnership.mode === 'foreign' || reloadedOwnership.mode === 'claimable') {
+          markForeignExclusiveOwnership(reloadedOwnership, reloadedOwnership.mode === 'claimable');
+          scheduleExclusiveOwnershipClaim(
+            reloadedOwnership.mode === 'foreign'
+              ? reloadedOwnership.descriptor.ownerLeaseUntil
+              : ownershipNow + exclusiveOwnershipConfig.retryDelayMs,
+            0
+          );
+        } else {
+          clearExclusiveOwnershipClaimSchedule();
+          runtime.foreignExclusiveSession = null;
+          reconcileExclusiveRuntimeSession(getRuntimeNow());
+        }
+        renderUi();
+        renderPersistenceStatus({ reason: 'conflict' });
+      }
+    }
+    renderPersistenceStatus(result);
+    return result;
+  }
+
+  function schedulePersistenceConflictResolution() {
+    if (runtime.persistenceConflictTimer) {
+      return;
+    }
+    runtime.persistenceConflictTimer = window.setTimeout(function() {
+      runtime.persistenceConflictTimer = null;
+      resolvePersistenceConflict();
+    }, 0);
+  }
+
+  function resolvePersistenceConflict() {
+    const latest = loadState();
+    if (!latest) {
+      return;
+    }
+    if (typeof stopMinigameRuntime === 'function') {
+      stopMinigameRuntime();
+    }
+    runtime.exclusiveSession = null;
+    runtime.state = latest;
+    const ownershipNow = getExclusiveOwnershipNow();
+    const latestOwnership = inspectExclusiveSessionOwnership(runtime.state, ownershipNow);
+    if (latestOwnership.mode === 'foreign' || latestOwnership.mode === 'claimable') {
+      markForeignExclusiveOwnership(latestOwnership, latestOwnership.mode === 'claimable');
+      scheduleExclusiveOwnershipClaim(
+        latestOwnership.mode === 'foreign'
+          ? latestOwnership.descriptor.ownerLeaseUntil
+          : ownershipNow + exclusiveOwnershipConfig.retryDelayMs,
+        0
+      );
+    } else {
+      clearExclusiveOwnershipClaimSchedule();
+      runtime.foreignExclusiveSession = null;
+    }
+    renderUi();
+    if (!isForeignExclusiveSessionActive()) {
+      resumeMinigameIfActive();
+    }
+  }
+
+  function persistExclusiveStartCandidate(candidate, baseState, pending, onComplete) {
+    if (isForeignExclusiveSessionActive()) {
+      const passiveResult = { ok: false, reason: 'foreignExclusive', passive: true };
+      renderPersistenceStatus(passiveResult);
+      onComplete(passiveResult, baseState);
+      return;
+    }
+    const baseFingerprint = JSON.stringify(baseState || {});
+    let attempt = 0;
+
+    function finish(result) {
+      if (!runtime.pendingExclusiveStart || runtime.pendingExclusiveStart.token !== pending.token) {
+        return;
+      }
+      runtime.pendingExclusiveStart = null;
+      if (result && result.ok && Number.isFinite(Number(result.revision)) && typeof acknowledgePersistenceRevision === 'function') {
+        acknowledgePersistenceRevision(Number(result.revision));
+      }
+      runtime.persistenceStatus = typeof getPersistenceStatus === 'function' ? getPersistenceStatus() : result;
+      renderPersistenceStatus(result);
+      onComplete(result || { ok: false, reason: 'unavailable' }, candidate);
+    }
+
+    function tryWrite() {
+      if (!runtime.pendingExclusiveStart || runtime.pendingExclusiveStart.token !== pending.token) {
+        return;
+      }
+      if (JSON.stringify(runtime.state || {}) !== baseFingerprint) {
+        finish({ ok: false, reason: 'stateChanged', mode: runtime.persistenceStatus && runtime.persistenceStatus.mode });
+        return;
+      }
+
+      if (pending.phase === 'start' && attempt > 0 && candidate.minigames && candidate.minigames.active) {
+        const active = candidate.minigames.active;
+        const duration = Math.max(1000, Number(active.until) - Number(active.startedAt));
+        const restartedAt = getRuntimeNow();
+        const launchDelayMs = Math.max(0, Number(pending.launchDelayMs) || 0);
+        active.startedAt = restartedAt + launchDelayMs;
+        active.until = active.startedAt + duration;
+        candidate.lastUpdatedAt = new Date(restartedAt).toISOString();
+        assignExclusiveSessionOwnership(candidate, getExclusiveOwnershipNow());
+      }
+
+      let result;
+      try {
+        result = saveState(candidate);
+      } catch (error) {
+        result = { ok: false, reason: 'storageUnavailable', mode: 'memory' };
+      }
+      if (result && result.reason === 'storageBusy' && attempt < 3) {
+        attempt += 1;
+        renderPersistenceStatus(result);
+        pending.timer = window.setTimeout(tryWrite, 750);
+        return;
+      }
+      if (result && result.reason === 'conflict') {
+        runtime.state = loadState();
+      } else if (result && result.reason === 'storageBusy') {
+        runtime.state = loadState();
+        renderPersistenceStatus({ reason: 'conflict' });
+      }
+      if (result && (result.reason === 'conflict' || result.reason === 'storageBusy')) {
+        const ownershipNow = getExclusiveOwnershipNow();
+        const reloadedOwnership = inspectExclusiveSessionOwnership(runtime.state, ownershipNow);
+        if (reloadedOwnership.mode === 'foreign' || reloadedOwnership.mode === 'claimable') {
+          markForeignExclusiveOwnership(reloadedOwnership, reloadedOwnership.mode === 'claimable');
+          scheduleExclusiveOwnershipClaim(
+            reloadedOwnership.mode === 'foreign'
+              ? reloadedOwnership.descriptor.ownerLeaseUntil
+              : ownershipNow + exclusiveOwnershipConfig.retryDelayMs,
+            0
+          );
+        } else {
+          clearExclusiveOwnershipClaimSchedule();
+          runtime.foreignExclusiveSession = null;
+        }
+      }
+      finish(result);
+    }
+
+    runtime.pendingExclusiveStart = pending;
+    if (typeof renderActionStates === 'function') {
+      renderActionStates();
+    }
+    if (typeof renderMinigameOpportunities === 'function') {
+      renderMinigameOpportunities();
+    }
+    if (typeof renderMinigames === 'function') {
+      renderMinigames();
+    }
+    if (typeof renderLegendaryGames === 'function') {
+      renderLegendaryGames();
+    }
+    if (typeof renderBattleUi === 'function') {
+      renderBattleUi();
+    }
+    tryWrite();
+  }
+
+  function cancelPendingExclusiveStart() {
+    const pending = runtime.pendingExclusiveStart;
+    if (pending && pending.timer) {
+      window.clearTimeout(pending.timer);
+    }
+    runtime.pendingExclusiveStart = null;
+  }
+
+  function renderPersistenceStatus(override) {
+    if (!dom.persistenceStatus) {
+      return;
+    }
+    const status = Object.assign({}, runtime.persistenceStatus || {}, override || {});
+    const mode = String(status.mode || 'local');
+    const reason = String(status.reason || '');
+    let text = '';
+    let tone = 'warning';
+    if (status.futureVersion || mode === 'readOnly' || reason === 'futureVersion') {
+      text = 'Ten zapis pochodzi z nowszej wersji gry. Działa tylko podgląd — niczego nie nadpiszemy.';
+      tone = 'danger';
+    } else if (reason === 'corruptRecovered') {
+      text = 'Wykryto uszkodzony zapis. Gra uruchomiła bezpieczny nowy stan, a kopia starego zapisu została zachowana do odzyskania.';
+      tone = 'danger';
+    } else if (reason === 'ownershipPending'
+      || runtime.foreignExclusiveSession && runtime.foreignExclusiveSession.claimPending) {
+      text = 'Poprzednia karta nie odnawia już sesji. Trwa bezpieczna próba przejęcia zapisu.';
+    } else if (isForeignExclusiveSessionActive() || reason === 'foreignExclusive') {
+      text = 'Minigra lub walka trwa w innej karcie. Tutaj działa bezpieczny podgląd bez zapisywania.';
+    } else if (reason === 'conflict') {
+      text = 'Inna karta zapisała nowszy stan. Wczytano najświeższą wersję, aby nie utracić postępu.';
+      tone = 'danger';
+    } else if (reason === 'externalUpdate') {
+      text = 'Wczytano nowszy stan zapisany w innej karcie.';
+    } else if (reason === 'storageBusy') {
+      text = 'Inna karta właśnie zapisuje grę. Ponowimy zapis za chwilę.';
+    } else if (mode === 'memory') {
+      text = 'Pamięć przeglądarki jest niedostępna. Ta sesja działa tymczasowo i zniknie po zamknięciu karty.';
+    }
+    dom.persistenceStatus.textContent = text;
+    dom.persistenceStatus.hidden = !text;
+    dom.persistenceStatus.dataset.tone = tone;
+    if (dom.exportCorruptButton) {
+      dom.exportCorruptButton.hidden = reason !== 'corruptRecovered';
+    }
+    if (dom.resetButton) {
+      dom.resetButton.disabled = isRuntimeMutationBlocked();
+    }
   }
 
   function applyRuntimeVisibility() {
@@ -373,6 +1163,10 @@
     dom.sidePanel = document.querySelector('.side-panel');
     dom.actionsPanel = document.querySelector('.panel-block--actions');
     dom.buildBadge = document.querySelector('[data-build-badge]');
+    dom.persistenceStatus = document.querySelector('[data-persistence-status]');
+    dom.runtimeAlert = document.querySelector('[data-runtime-alert]');
+    dom.runtimeAlertText = document.querySelector('[data-runtime-alert-text]');
+    dom.runtimeRetry = document.querySelector('[data-runtime-retry]');
     dom.modePill = document.querySelector('[data-mode-pill]');
     dom.resetButton = document.querySelector('[data-reset-button]');
     dom.nameGate = document.querySelector('[data-name-gate]');
@@ -476,6 +1270,8 @@
     dom.minigameTime = document.querySelector('[data-minigame-time]');
     dom.minigameCombo = document.querySelector('[data-minigame-combo]');
     dom.minigameProgress = document.querySelector('[data-minigame-progress]');
+    dom.minigameLaunchStatus = document.querySelector('[data-minigame-launch-status]');
+    dom.minigameReturn = document.querySelector('[data-minigame-return]');
     dom.minigameMasteryItems = Array.from(document.querySelectorAll('[data-minigame-mastery]'));
     dom.longLoopStatus = document.querySelector('[data-long-loop-status]');
     dom.longLoopDashboard = document.querySelector('[data-long-loop-dashboard]');
@@ -494,9 +1290,23 @@
     dom.characterCompass = document.querySelector('[data-character-compass]');
     dom.relationshipList = document.querySelector('[data-relationship-list]');
     dom.exportButton = document.querySelector('[data-export-button]');
+    dom.exportCorruptButton = document.querySelector('[data-export-corrupt-button]');
     dom.importButton = document.querySelector('[data-import-button]');
     dom.importInput = document.querySelector('[data-import-input]');
+    dom.importPreview = document.querySelector('[data-import-preview]');
+    dom.importPreviewSummary = document.querySelector('[data-import-preview-summary]');
+    dom.importConfirm = document.querySelector('[data-import-confirm]');
+    dom.importCancel = document.querySelector('[data-import-cancel]');
     dom.backupStatus = document.querySelector('[data-backup-status]');
+    dom.resetDialog = document.querySelector('[data-reset-dialog]');
+    dom.resetConfirm = document.querySelector('[data-reset-confirm]');
+    dom.resetCancel = document.querySelector('[data-reset-cancel]');
+    dom.renameOpen = document.querySelector('[data-rename-open]');
+    dom.renameDialog = document.querySelector('[data-rename-dialog]');
+    dom.renameForm = document.querySelector('[data-rename-form]');
+    dom.renameInput = document.querySelector('[data-rename-input]');
+    dom.renameError = document.querySelector('[data-rename-error]');
+    dom.renameCancel = document.querySelector('[data-rename-cancel]');
   }
 
   function renderBuildBadge() {
@@ -545,7 +1355,14 @@
   }
 
   function bindControls() {
-    dom.resetButton.addEventListener('click', handleResetButtonClick);
+    document.addEventListener('click', blockReadOnlyMutation, true);
+    document.addEventListener('submit', blockReadOnlyMutation, true);
+    if (dom.runtimeRetry) {
+      dom.runtimeRetry.addEventListener('click', handleRuntimeRetry);
+    }
+    if (dom.resetButton && !dom.resetButton.matches('[data-reset-confirm]')) {
+      dom.resetButton.addEventListener('click', handleResetButtonClick);
+    }
     if (dom.nameForm) {
       dom.nameForm.addEventListener('submit', handleNameFormSubmit);
     }
@@ -596,19 +1413,142 @@
     if (dom.exportButton) {
       dom.exportButton.addEventListener('click', handleExportState);
     }
+    if (dom.exportCorruptButton) {
+      dom.exportCorruptButton.addEventListener('click', handleExportCorruptState);
+    }
     if (dom.importButton) {
       dom.importButton.addEventListener('click', handleImportClick);
     }
     if (dom.importInput) {
       dom.importInput.addEventListener('change', handleImportFile);
     }
+    if (dom.importConfirm) {
+      dom.importConfirm.addEventListener('click', confirmPendingImport);
+    }
+    if (dom.importCancel) {
+      dom.importCancel.addEventListener('click', cancelPendingImport);
+    }
+    if (dom.importPreview) {
+      dom.importPreview.addEventListener('cancel', function(event) {
+        event.preventDefault();
+        cancelPendingImport();
+      });
+      dom.importPreview.addEventListener('close', function() {
+        if (runtime.pendingImport) {
+          cancelPendingImport();
+        }
+      });
+    }
+    if (dom.resetConfirm) {
+      dom.resetConfirm.addEventListener('click', performGameReset);
+    }
+    if (dom.resetCancel) {
+      dom.resetCancel.addEventListener('click', closeResetDialog);
+    }
+    if (dom.resetDialog) {
+      dom.resetDialog.addEventListener('cancel', function(event) {
+        event.preventDefault();
+        closeResetDialog();
+      });
+    }
+    if (dom.renameOpen) {
+      dom.renameOpen.addEventListener('click', openRenameDialog);
+    }
+    if (dom.renameForm) {
+      dom.renameForm.addEventListener('submit', handleRenameFormSubmit);
+    }
+    if (dom.renameCancel) {
+      dom.renameCancel.addEventListener('click', closeRenameDialog);
+    }
+    if (dom.renameDialog) {
+      dom.renameDialog.addEventListener('cancel', function(event) {
+        event.preventDefault();
+        closeRenameDialog();
+      });
+    }
+    if (typeof bindMinigameLaunchControls === 'function') {
+      bindMinigameLaunchControls();
+    }
     if (typeof bindWorldJournalInteractions === 'function') {
       bindWorldJournalInteractions();
     }
+    document.addEventListener('keydown', trapNameGateFocus);
+    document.addEventListener('keydown', handleBackupDialogKeydown);
     bindDebugControls();
   }
 
+  function renderRuntimeAlert() {
+    if (!dom.runtimeAlert) {
+      return;
+    }
+    const message = runtime.bootError || runtime.renderError || '';
+    dom.runtimeAlert.hidden = !message;
+    if (dom.runtimeAlertText) {
+      dom.runtimeAlertText.textContent = message
+        ? 'Scena wymaga ponowienia: ' + message
+        : '';
+    }
+  }
+
+  function handleRuntimeRetry() {
+    if (runtime.state && typeof persistRuntimeState === 'function' && !isRuntimeMutationBlocked()) {
+      persistRuntimeState(runtime.state);
+    }
+    window.location.reload();
+  }
+
+  function blockReadOnlyMutation(event) {
+    if (!isRuntimeMutationBlocked()) {
+      return;
+    }
+    const target = event.target && event.target.closest
+      ? event.target.closest('button, input, select, textarea, [data-discovery-id]')
+      : null;
+    if (!target) {
+      return;
+    }
+    const allowed = target.matches(
+      '[data-view-care], [data-view-arena], [data-discovery-id], [data-journal-polaroid-close], [data-export-button], '
+      + '[data-settings-open], [data-settings-close], [data-import-cancel], [data-reset-cancel], '
+      + '[data-rename-cancel], [data-minigame-return], [data-runtime-retry]'
+    );
+    if (!allowed) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      renderPersistenceStatus();
+    }
+  }
+
+  function trapNameGateFocus(event) {
+    if (event.key !== 'Tab' || !dom.nameGate || dom.nameGate.hidden) {
+      return;
+    }
+    const focusable = Array.from(dom.nameGate.querySelectorAll('input, button, [tabindex]:not([tabindex="-1"])')).filter(function(node) {
+      return !node.disabled && !node.hidden;
+    });
+    if (!focusable.length) {
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   function handleResetButtonClick() {
+    if (isRuntimeMutationBlocked()) {
+      renderPersistenceStatus();
+      return;
+    }
+    if (dom.resetDialog) {
+      openResetDialog();
+      return;
+    }
     const now = getRuntimeNow();
     if (Number(runtime.resetConfirmUntil) > now) {
       performGameReset();
@@ -652,10 +1592,39 @@
   }
 
   function performGameReset() {
+    if (isRuntimeMutationBlocked()) {
+      renderPersistenceStatus();
+      return;
+    }
     clearResetConfirmation();
+    closeResetDialog();
+    const previous = deepClone(runtime.state || {});
+    abortExclusiveRuntimeSession('reset');
     runtime.state = createDefaultState();
+    runtime.state.saveRevision = Number(previous.saveRevision) || 0;
+    runtime.state.saveWriterId = previous.saveWriterId || null;
     addLog(runtime.state, 'Nowa grzybnia jest gotowa.', getRuntimeNow());
-    saveState(runtime.state);
+    if (typeof saveReplacementState === 'function') {
+      const result = saveReplacementState(runtime.state, previous);
+      runtime.persistenceStatus = typeof getPersistenceStatus === 'function' ? getPersistenceStatus() : result;
+      renderPersistenceStatus(result);
+      if (!result || result.ok === false) {
+        runtime.state = loadState() || previous;
+        reconcileExclusiveRuntimeSession(getRuntimeNow());
+        renderUi();
+        resumeMinigameIfActive();
+        return;
+      }
+    } else {
+      const result = persistRuntimeState(runtime.state);
+      if (result && result.ok === false) {
+        runtime.state = previous;
+        reconcileExclusiveRuntimeSession(getRuntimeNow());
+        renderUi();
+        resumeMinigameIfActive();
+        return;
+      }
+    }
     renderUi();
     focusNameInputIfNeeded();
     triggerEffect('clean');
@@ -663,6 +1632,10 @@
 
   function handleNameFormSubmit(event) {
     event.preventDefault();
+    if (isRuntimeMutationBlocked()) {
+      renderPersistenceStatus();
+      return;
+    }
     const name = normalizeMushroomNameValue(dom.nameInput && dom.nameInput.value);
     if (!name) {
       if (dom.nameError) {
@@ -679,15 +1652,164 @@
     runtime.state.flags = Object.assign({}, runtime.state.flags || {}, { nameConfirmed: true });
     runtime.state.lastUpdatedAt = new Date(now).toISOString();
     addLog(runtime.state, name + ' trafia do miękkiej grzybni.', now);
-    saveState(runtime.state);
+    persistRuntimeState(runtime.state);
     if (dom.nameError) {
       dom.nameError.textContent = '';
     }
     renderUi();
   }
 
+  function openRuntimeDialog(dialog, focusTarget, modalId, returnFocus) {
+    if (!dialog) {
+      return false;
+    }
+    if (typeof openSceneFirstDialog === 'function') {
+      openSceneFirstDialog(dialog, modalId, returnFocus || document.activeElement);
+      window.setTimeout(function() {
+        const target = focusTarget || dialog.querySelector('button, input, [tabindex]:not([tabindex="-1"])');
+        if (target && typeof target.focus === 'function') {
+          target.focus({ preventScroll: true });
+        }
+      }, 0);
+      return true;
+    }
+    if (runtime.ui) {
+      runtime.ui.activeModal = modalId || dialog.dataset.dialog || null;
+    }
+    dialog.hidden = false;
+    dialog.removeAttribute('aria-hidden');
+    if (typeof dialog.showModal === 'function' && !dialog.open) {
+      dialog.showModal();
+    } else if (!dialog.hasAttribute('open')) {
+      dialog.setAttribute('open', '');
+    }
+    window.setTimeout(function() {
+      const target = focusTarget || dialog.querySelector('button, input, [tabindex]:not([tabindex="-1"])');
+      if (target && typeof target.focus === 'function') {
+        target.focus();
+      }
+    }, 0);
+    return true;
+  }
+
+  function closeRuntimeDialog(dialog, returnFocus, restoreFocus) {
+    if (!dialog) {
+      return;
+    }
+    if (typeof closeSceneFirstDialog === 'function') {
+      const wasOpen = Boolean(dialog.open || dialog.hasAttribute('open'));
+      if (wasOpen && returnFocus && !dialog.__pieczargotchiReturnFocus) {
+        dialog.__pieczargotchiReturnFocus = returnFocus;
+      }
+      closeSceneFirstDialog(dialog, { restoreFocus: restoreFocus !== false });
+      dialog.hidden = true;
+      dialog.setAttribute('aria-hidden', 'true');
+      return;
+    }
+    if (typeof dialog.close === 'function' && dialog.open) {
+      dialog.close();
+    } else {
+      dialog.removeAttribute('open');
+    }
+    dialog.hidden = true;
+    dialog.setAttribute('aria-hidden', 'true');
+    if (runtime.ui) {
+      runtime.ui.activeModal = null;
+    }
+    if (restoreFocus !== false && returnFocus && returnFocus.isConnected && typeof returnFocus.focus === 'function') {
+      window.setTimeout(function() {
+        returnFocus.focus();
+      }, 0);
+    }
+  }
+
+  function openResetDialog() {
+    if (isRuntimeMutationBlocked()) {
+      renderPersistenceStatus();
+      return;
+    }
+    runtime.resetDialogReturnFocus = document.activeElement;
+    openRuntimeDialog(dom.resetDialog, dom.resetCancel || dom.resetConfirm, 'reset', runtime.resetDialogReturnFocus);
+  }
+
+  function closeResetDialog() {
+    const returnFocus = runtime.resetDialogReturnFocus;
+    runtime.resetDialogReturnFocus = null;
+    closeRuntimeDialog(dom.resetDialog, returnFocus);
+  }
+
+  function openRenameDialog() {
+    if (isRuntimeMutationBlocked()) {
+      renderPersistenceStatus();
+      return;
+    }
+    if (isMinigameActive() || isBattleSessionActive()) {
+      setTransientMessage('Imię', 'Zmień imię po zakończeniu aktywnej rozgrywki.');
+      return;
+    }
+    runtime.renameDialogReturnFocus = document.activeElement;
+    if (dom.renameInput) {
+      dom.renameInput.value = getMushroomName(runtime.state);
+    }
+    if (dom.renameError) {
+      dom.renameError.textContent = '';
+    }
+    openRuntimeDialog(dom.renameDialog, dom.renameInput, 'rename', runtime.renameDialogReturnFocus);
+  }
+
+  function closeRenameDialog() {
+    const returnFocus = runtime.renameDialogReturnFocus;
+    runtime.renameDialogReturnFocus = null;
+    closeRuntimeDialog(dom.renameDialog, returnFocus);
+  }
+
+  function handleRenameFormSubmit(event) {
+    if (event) {
+      event.preventDefault();
+    }
+    if (isRuntimeMutationBlocked()) {
+      renderPersistenceStatus();
+      return;
+    }
+    if (isMinigameActive() || isBattleSessionActive()) {
+      if (dom.renameError) {
+        dom.renameError.textContent = 'Zakończ aktywną rozgrywkę przed zmianą imienia.';
+      }
+      return;
+    }
+    const name = normalizeMushroomNameValue(dom.renameInput && dom.renameInput.value);
+    if (!name) {
+      if (dom.renameError) {
+        dom.renameError.textContent = 'Wpisz imię.';
+      }
+      if (dom.renameInput) {
+        dom.renameInput.focus();
+      }
+      return;
+    }
+    const previousName = getMushroomName(runtime.state);
+    if (name === previousName) {
+      closeRenameDialog();
+      return;
+    }
+    const now = getRuntimeNow();
+    runtime.state.mushroomName = name;
+    runtime.state.flags = Object.assign({}, runtime.state.flags || {}, { nameConfirmed: true });
+    runtime.state.lastUpdatedAt = new Date(now).toISOString();
+    addLog(runtime.state, previousName + ' od teraz ma na imię ' + name + '.', now);
+    const result = persistRuntimeState(runtime.state);
+    if (result && result.ok === false) {
+      if (dom.renameError) {
+        dom.renameError.textContent = 'Nie udało się zapisać nowego imienia. Spróbuj ponownie.';
+      }
+      return;
+    }
+    closeRenameDialog();
+    renderUi();
+  }
+
   function focusNameInputIfNeeded() {
-    if (!hasNamedMushroom(runtime.state) && dom.nameInput) {
+    if (!isRuntimeMutationBlocked() && !hasNamedMushroom(runtime.state) && dom.nameInput) {
       window.setTimeout(function() {
         dom.nameInput.focus();
       }, 0);
@@ -696,7 +1818,13 @@
 
   function bindKeyboardShortcuts() {
     document.addEventListener('keydown', function(event) {
-      if (event.defaultPrevented || shouldIgnoreShortcut(event.target)) {
+      if (event.defaultPrevented
+        || event.ctrlKey
+        || event.metaKey
+        || event.altKey
+        || event.isComposing
+        || event.repeat
+        || shouldIgnoreShortcut(event.target)) {
         return;
       }
       if (isMinigameActive()) {

@@ -173,6 +173,7 @@ function getGameRulesConfig() {
         cleanliness: 28
       },
       careActionIds: ['hydrate', 'feed', 'clean', 'mossRest'],
+      requiredCareActionIds: ['hydrate', 'feed', 'clean'],
       blockedActionIds: ['sleepWake', 'play', 'instrument', 'sing', 'spores']
     },
     growthPerHour: {
@@ -272,6 +273,7 @@ function getGameRulesConfig() {
       opponentCatalog: [
         {
           id: 'sproutling',
+          visualId: 'sproutling',
           name: 'Kiełek areny',
           rank: 1,
           strategy: 'balanced',
@@ -284,6 +286,7 @@ function getGameRulesConfig() {
         },
         {
           id: 'windcap',
+          visualId: 'windcap',
           name: 'Wiatrokapelusz',
           rank: 2,
           strategy: 'speed',
@@ -296,6 +299,7 @@ function getGameRulesConfig() {
         },
         {
           id: 'eldercap',
+          visualId: 'eldercap',
           name: 'Starszy Kapelusz',
           rank: 3,
           strategy: 'defensive',

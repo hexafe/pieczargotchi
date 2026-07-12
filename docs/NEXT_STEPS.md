@@ -1,8 +1,9 @@
 # Pieczargotchi Next Steps
 
-Last updated: 2026-06-01
-Local app version for this checkpoint: `0.1.41`
-State version: `16`
+Last updated: 2026-07-12
+Last stable checkpoint: `0.1.48` / state v17
+Visual-pipeline checkpoint: `0.1.49` / state v18
+Current scene-first UI release candidate: `0.1.50` / state v18
 Primary preview target: Cloudflare static build
 
 This is the current start-here document for the next Pieczargotchi work. Older
@@ -18,10 +19,14 @@ Latest post-legendary game slice: `docs/POST_LEGENDARY_GAMES_PLAN_2026-05-31.md`
 Latest minigame gameplay upgrade: `docs/MINIGAME_GAMEPLAY_UPGRADE_2026-05-31.md`.
 Latest minigame launch UX plan: `docs/MINIGAME_LAUNCH_UX_PLAN_2026-05-31.md`.
 Latest world interactivity research: `docs/INTERACTIVITY_RESEARCH_IMPLEMENTATION_PLAN_2026-06-01.md`.
-Recommended next implementation slice: interaction instrumentation plus
-brushable grass, gentle mushroom pokes, and browser-capture validation.
-Current implementation slice: naturalized session world interactions, hidden
-grass finds, ambient guest reactions, and slower celestial easter eggs.
+Latest visual asset implementation: `docs/VISUAL_ASSET_IMPLEMENTATION_2026-07-11.md`.
+Latest scene-first UI implementation: `docs/UI_SCENE_FIRST_IMPLEMENTATION_2026-07-12.md`.
+Current implementation slice: body-only tight/dedup atlases, generated
+`SpriteLayout.gs`, one shared grass system, stable arena `visualId` art, asset
+provenance, focused visual/runtime contracts, scene-first workspace tabs,
+accessible modal flows, mobile action tray, and deterministic browser/UI gates.
+Recommended next release step: complete the canonical full QA, publish the
+immutable `0.1.50` asset directory, and run the external Apps Script dry run.
 
 ## 1. Current Baseline
 
@@ -42,16 +47,49 @@ Current major systems:
 - five growth stages: `spore`, `baby`, `young`, `adult`, `legendary`;
 - 34 state animation sheets per growth stage, documented in
   `docs/SPRITE_BIBLE.md`;
-- eight activity sheets per growth stage, plus top-level compatibility backup
-  sheets under `assets/activities/`;
+- eight activity sheets per growth stage; fake root-level compatibility copies
+  and duplicate instrument PNG variants are no longer part of runtime;
 - canvas-rendered scene systems for palette, celestial bodies, phenomena,
   weather, clouds, precipitation, ambient life, grass/ground, sprites, calendar
   accents, minigames, legendary games, and journal polaroids.
 
+The `0.1.49` / state-v18 visual target adds:
+
+- body-only stage, activity, easter-egg and effect PNGs stored as tight alpha
+  unions rather than full transparent 512x512 frames;
+- physical-frame deduplication through `storedFrameCount` and `frameSequence`,
+  while `drawX`/`drawY` preserve the original logical 512x512 composition;
+- generated `SpriteLayout.gs` included in Apps Script and Cloudflare builds;
+- one shared raster/procedural grass field with a stage-aware clearing instead
+  of grass baked into every character frame;
+- a shared arena background and four body-only battle sheets, with stable
+  `playerLegendary`, `sproutling`, `windcap`, and `eldercap` visual identities;
+- collection provenance in `assets/source/imagegen/PROVENANCE.json` and
+  deterministic `--check` paths for sprite optimization and battle generation.
+
+State v18 is the migration boundary for the persisted battle `visualId`
+contract. Legacy active opponents without an ID are inferred from their saved
+name and normalized to a supported arena identity; unrelated save data remains
+preserved.
+
+The `0.1.48` / state-v17 checkpoint additionally guarantees:
+
+- chronological and batch-invariant elapsed-care reduction, including a
+  per-weather-snapshot fractional budget instead of tick-dependent rounding;
+- future-version read-only saves, corrupt-save sidecars, bounded import
+  normalization, revision/writer compare-and-swap, and cross-tab session
+  ownership leases;
+- recovery completion only after hydration, feeding, and cleaning during the
+  current moss-bed recovery, with quiet-hours protection and terminal cleanup;
+- a manifest-only Cloudflare asset build, private/whitelisted Apps Script Drive
+  backup path, production debug isolation, pinned Node tooling, and one full QA
+  command with browser smoke coverage.
+
 Important product direction:
 
 - Cloudflare is the release and friend-testing target.
-- Apps Script remains a compatibility scaffold, not a release deploy target.
+- Apps Script remains the original supported delivery path; a release requires
+  the external deployed-config and critical-PNG gate described in the dry run.
 - The game should feel like a small living world, not a stat dashboard.
 - Core care balance should fit a normal human day and must not create night
   babysitting pressure.
@@ -69,6 +107,8 @@ Use these as current subsystem references:
 - `docs/CALENDAR_EVENTS_POLISH_PLAN.md` - calendar event baseline and source
   anchors.
 - `docs/IMAGEGEN_ASSET_PIPELINE.md` - asset generation workflow.
+- `docs/VISUAL_ASSET_IMPLEMENTATION_2026-07-11.md` - current visual slice,
+  focused verification, blockers, and release handoff.
 - `AGENTS.md` - repository workflow, build-number rule, and QA gates.
 
 Treat these as historical unless they are explicitly refreshed:
@@ -87,8 +127,8 @@ Known doc conflicts to resolve later:
 - `docs/STAGE_SPRITE_REQUIREMENTS.md` still describes an older 5 x 11 surface.
 - `docs/CALENDAR_EVENTS_POLISH_PLAN.md` still labels the original calendar
   build slice as `0.1.5`; the feature has since moved forward with the app.
-- Some `PROJECT_STATE_*` notes reference older state versions, while current
-  live state version is `16`.
+- Some `PROJECT_STATE_*` notes reference older state versions; the last stable
+  checkpoint is v17 and the current unreleased target is v18.
 
 ## 3. Subagent Workstreams For The Next Audit
 
@@ -150,7 +190,9 @@ Audit:
 
 - stage sheets: `assets/stages/<stage>/*_sheet.png`;
 - activity sheets: `assets/activities/<stage>/*_sheet.png`;
-- top-level activity compatibility sheets;
+- generated layout coverage in `SpriteLayout.gs` and absence of stale
+  root-level activity copies;
+- body-only battle sheets and the shared arena background under `assets/battle/`;
 - effects sheets under `assets/effects/`;
 - generated environment assets under `assets/environment/`;
 - animation selection/fallback paths in `ClientAnimation.html`,
@@ -200,11 +242,17 @@ Output:
 Run before browser visual work:
 
 ```sh
+python3 scripts/optimize-runtime-sprite-atlases.py --check
+python3 scripts/generate-battle-assets.py --check
+node scripts/test-animation-render-contracts.mjs
+node scripts/test-battle-visual-contracts.mjs
 node scripts/validate-assets.mjs
 python3 scripts/audit-spore-sprites.py
 python3 scripts/audit-sprite-consistency.py
 python3 scripts/audit-activity-sprite-motion.py
 python3 scripts/audit-glint-sprites.py
+python3 scripts/audit-sprite-frame-quality.py
+python3 scripts/audit-sprite-chroma.py --strict
 ```
 
 Acceptance:
@@ -213,8 +261,11 @@ Acceptance:
 - activity sheets have visible frame-to-frame motion;
 - spore sheets keep body/cap motion natural;
 - glints animate without plus-shaped static artifacts;
-- top-level `assets/activities/*.png` compatibility files are understood as
-  backup-only, not accidentally missing entries loaded during play.
+- tight PNGs reconstruct their logical placement and contain no baked grass;
+- no root-level activity copy or fake instrument-variant PNG is accidentally
+  reintroduced into the runtime package;
+- battle assets reproduce deterministically and every opponent `visualId` maps
+  to the expected body-only sheet.
 
 ### Animation Selection And Backup Audit
 
@@ -497,19 +548,39 @@ Acceptance:
 
 Goal: all growth stages feel alive.
 
+Status: the `0.1.49` / state-v18 visual-pipeline checkpoint is integrated into
+the `0.1.50` scene-first release candidate. Tight-atlas, deterministic battle
+generation, animation-render, battle-visual, grass-motion, strict chroma, full
+asset validation, state/runtime, static-build, browser-smoke, and responsive UI
+contracts have green focused results. The final asset set stores 1,358 of 1,560
+logical frames, reports 539.3 MiB decoded sprite cost, and has 69 advisory frame
+quality findings with zero strict chroma findings. Corrected desktop, mobile,
+night, journal, minigame, and Arena captures replaced the invalid preview
+evidence. The external Apps Script deployment gate still requires a real
+published `/exec` URL and immutable `0.1.50` asset host. See
+`docs/VISUAL_ASSET_IMPLEMENTATION_2026-07-11.md` and
+`docs/UI_SCENE_FIRST_IMPLEMENTATION_2026-07-12.md`.
+
 Tasks:
 
-- capture every stage idle/sleep/activity;
-- fix unnatural drift or too-fast motion;
+- review advisory low-uniqueness sequences and improve art where a repeated
+  logical frame looks static rather than intentionally held;
+- capture every stage idle/sleep/activity plus immersion and arena on desktop
+  and mobile;
+- fix unnatural drift, weak gaze, or too-fast motion shown by the captures;
 - keep feed/instrument/sing sprite-owned;
-- review rare instrument variants and log copy;
-- plan missing event/activity sprite generation.
+- keep instrument visual keys aliased until genuinely distinct source art is
+  generated and reviewed;
+- regenerate provenance whenever a new source collection is introduced.
 
 Acceptance:
 
 - every stage breathes, reacts, and idles naturally;
 - no extra canvas mouth, note, or instrument appears over sprite-owned sheets;
-- activity motion reads clearly at normal canvas size.
+- activity motion reads clearly at normal canvas size;
+- body-only PNGs contain no baked grass or chroma spill;
+- all tight-atlas and battle outputs reproduce with their `--check` commands;
+- full `npm run qa` and the visual capture matrix are green before deployment.
 
 ### Slice 4: Minigame Polish
 
@@ -575,23 +646,18 @@ Before pushing a non-trivial app change:
 
 ```sh
 git status --short --branch
-npm run build
-npm run test:cloudflare-static
-node scripts/check-client-syntax.mjs
-node scripts/check-deployment-readiness.mjs
-node scripts/test-client-core.mjs
-env TZ=UTC node scripts/test-client-core.mjs
-node scripts/test-celestial-position.mjs
-node scripts/test-scene-palette.mjs
-node scripts/test-weather-precip-motion.mjs
-node scripts/test-grass-wind-motion.mjs
-node scripts/test-asset-service.mjs
-node scripts/validate-assets.mjs
-python3 scripts/audit-sprite-consistency.py
-python3 scripts/audit-spore-sprites.py
-python3 scripts/audit-activity-sprite-motion.py
-python3 scripts/audit-glint-sprites.py
+npm ci
+python3 -m pip install -r requirements-qa.txt
+npm run qa
 ```
 
-For visual polish work, add browser capture evidence. Do not rely on Node tests
-alone for layout, sprite layering, polaroids, weather balance, or minigame feel.
+`npm run qa` is the canonical full local gate; `npm run build:verified` is its
+Node-only deterministic subset for hosted Cloudflare builds. For visual polish
+work, retain the browser-smoke artifacts and add focused capture evidence. Do
+not rely on Node tests alone for layout, sprite layering, polaroids, weather
+balance, or minigame feel.
+
+For the current target, do not start deployment until `Config.gs` and
+`package.json` both report `0.1.50`, `PIECZARGOTCHI_STATE_VERSION` reports `18`,
+the versioned public asset root is `/releases/0.1.50/assets/`, and every blocker
+listed in `docs/UI_SCENE_FIRST_IMPLEMENTATION_2026-07-12.md` is closed.

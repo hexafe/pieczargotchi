@@ -7,6 +7,8 @@
   }
 
   function updateWeatherScene() {
+    const requestId = (Number(runtime.weatherRequestId) || 0) + 1;
+    runtime.weatherRequestId = requestId;
     const locationPromise = runtime.weatherLocation
       ? Promise.resolve(runtime.weatherLocation)
       : resolveWeatherLocation().then(function(location) {
@@ -17,22 +19,46 @@
     return locationPromise
       .then(fetchWeatherScene)
       .then(function(scene) {
+        if (requestId !== runtime.weatherRequestId) {
+          return runtime.weatherScene;
+        }
         runtime.weatherScene = scene;
+        runtime.weatherFetchErrorAt = null;
+        return scene;
       })
       .catch(function() {
-        runtime.weatherScene = createLocalWeatherScene(defaultWeatherLocation, getRuntimeDate(), runtime.weatherScene);
+        if (requestId !== runtime.weatherRequestId) {
+          return runtime.weatherScene;
+        }
+        runtime.weatherFetchErrorAt = getRuntimeNow();
+        if (!runtime.weatherScene) {
+          runtime.weatherScene = createLocalWeatherScene(
+            runtime.weatherLocation || defaultWeatherLocation,
+            getRuntimeDate()
+          );
+        }
         return runtime.weatherScene;
       });
   }
 
   function updateSpaceWeather() {
+    const requestId = (Number(runtime.spaceWeatherRequestId) || 0) + 1;
+    runtime.spaceWeatherRequestId = requestId;
     return fetchSpaceWeatherSnapshot()
       .then(function(snapshot) {
+        if (requestId !== runtime.spaceWeatherRequestId) {
+          return runtime.spaceWeather;
+        }
         runtime.spaceWeather = snapshot;
         return snapshot;
       })
       .catch(function() {
-        runtime.spaceWeather = { kp: null, source: 'none', updatedAt: getRuntimeNow() };
+        if (requestId !== runtime.spaceWeatherRequestId) {
+          return runtime.spaceWeather;
+        }
+        runtime.spaceWeather = runtime.spaceWeather && runtime.spaceWeather.source === 'live'
+          ? Object.assign({}, runtime.spaceWeather, { stale: true, fetchErrorAt: getRuntimeNow() })
+          : { kp: null, source: 'none', updatedAt: getRuntimeNow(), fetchErrorAt: getRuntimeNow() };
         return runtime.spaceWeather;
       });
   }
@@ -42,9 +68,9 @@
       return Promise.resolve({ kp: null, source: 'none', updatedAt: getRuntimeNow() });
     }
 
-    return window.fetch('https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json', {
+    return fetchWithTimeout('https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json', {
       cache: 'no-store'
-    }).then(function(response) {
+    }, 8000).then(function(response) {
       if (!response.ok) {
         throw new Error('Nie udało się pobrać Kp.');
       }
@@ -177,9 +203,9 @@
       forecast_hours: '4'
     });
 
-    return window.fetch('https://api.open-meteo.com/v1/forecast?' + params.toString(), {
+    return fetchWithTimeout('https://api.open-meteo.com/v1/forecast?' + params.toString(), {
       cache: 'no-store'
-    }).then(function(response) {
+    }, 8000).then(function(response) {
       if (!response.ok) {
         throw new Error('Nie udało się pobrać pogody.');
       }
@@ -192,9 +218,10 @@
 
   function createWeatherScene(data, location, previousScene) {
     const current = data && data.current ? data.current : {};
-    const weatherDate = parseWeatherLocalTime(current.time) || getRuntimeDate();
+    const utcOffsetSeconds = Number(data && data.utc_offset_seconds) || 0;
+    const weatherDate = parseWeatherLocalTime(current.time, utcOffsetSeconds) || getRuntimeDate();
     const sunTimes = getSunTimesForWeather(data, location, weatherDate);
-    const weatherHours = extractWeatherHours(data);
+    const weatherHours = extractWeatherHours(data, utcOffsetSeconds);
     const code = Number(current.weather_code);
     const cloudCover = clamp(Number(current.cloud_cover), 0, 100, 35);
     const rain = Math.max(0, Number(current.rain) || 0);
@@ -218,6 +245,7 @@
       locationLabel: location.label,
       latitude: location.latitude,
       longitude: location.longitude,
+      utcOffsetSeconds: utcOffsetSeconds,
       isFallbackLocation: Boolean(location.fallback),
       code: Number.isFinite(code) ? code : 0,
       temperature: readOptionalNumber(current.temperature_2m),
@@ -474,12 +502,12 @@
     });
   }
 
-  function extractWeatherHours(data) {
+  function extractWeatherHours(data, utcOffsetSeconds) {
     const hourly = data && data.hourly ? data.hourly : null;
     const times = hourly && Array.isArray(hourly.time) ? hourly.time : [];
     return times.map(function(time, index) {
       return {
-        time: time,
+        time: parseWeatherLocalTime(time, utcOffsetSeconds),
         code: readHourlyNumber(hourly, 'weather_code', index),
         temperature: readHourlyNumber(hourly, 'temperature_2m', index),
         apparentTemperature: readHourlyNumber(hourly, 'apparent_temperature', index),
@@ -672,8 +700,9 @@
   }
 
   function getSunTimesForWeather(data, location, date) {
-    const sunrise = parseWeatherLocalTime(getWeatherDailyTime(data, 'sunrise'));
-    const sunset = parseWeatherLocalTime(getWeatherDailyTime(data, 'sunset'));
+    const utcOffsetSeconds = Number(data && data.utc_offset_seconds) || 0;
+    const sunrise = parseWeatherLocalTime(getWeatherDailyTime(data, 'sunrise'), utcOffsetSeconds);
+    const sunset = parseWeatherLocalTime(getWeatherDailyTime(data, 'sunset'), utcOffsetSeconds);
     if (sunrise && sunset) {
       return { sunrise: sunrise, sunset: sunset };
     }
@@ -716,13 +745,68 @@
     return values && values.length ? values[0] : null;
   }
 
-  function parseWeatherLocalTime(value) {
+  function parseWeatherLocalTime(value, utcOffsetSeconds) {
     if (!value) {
       return null;
     }
 
-    const date = new Date(value);
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
+    }
+
+    const normalized = String(value).trim();
+    const hasExplicitOffset = /(?:z|[+-]\d{2}:?\d{2})$/i.test(normalized);
+    if (hasExplicitOffset) {
+      const explicitDate = new Date(normalized);
+      return Number.isNaN(explicitDate.getTime()) ? null : explicitDate;
+    }
+
+    const parts = normalized.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/);
+    if (parts) {
+      const milliseconds = Number(String(parts[7] || '0').padEnd(3, '0'));
+      const utcTimestamp = Date.UTC(
+        Number(parts[1]),
+        Number(parts[2]) - 1,
+        Number(parts[3]),
+        Number(parts[4]),
+        Number(parts[5]),
+        Number(parts[6] || 0),
+        milliseconds
+      ) - (Number(utcOffsetSeconds) || 0) * 1000;
+      const offsetDate = new Date(utcTimestamp);
+      return Number.isNaN(offsetDate.getTime()) ? null : offsetDate;
+    }
+
+    const date = new Date(normalized);
     return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function fetchWithTimeout(url, options, timeoutMs) {
+    const requestOptions = Object.assign({}, options || {});
+    const timeout = Math.max(250, Number(timeoutMs) || 8000);
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    if (controller) {
+      requestOptions.signal = controller.signal;
+    }
+
+    let timeoutId = null;
+    const timeoutPromise = new Promise(function(resolve, reject) {
+      timeoutId = window.setTimeout(function() {
+        if (controller) {
+          controller.abort();
+        }
+        reject(new Error('Przekroczono czas pobierania danych pogodowych.'));
+      }, timeout);
+    });
+
+    return Promise.race([
+      window.fetch(url, requestOptions),
+      timeoutPromise
+    ]).finally(function() {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    });
   }
 
   function getLocalDayPhase(date) {

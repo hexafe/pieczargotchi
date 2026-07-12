@@ -1,48 +1,41 @@
 #!/usr/bin/env python3
-"""Build stage-specific instrument activity variants from the restored base sheets."""
+"""Validate legacy instrument variant aliases without generating fake artwork."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from PIL import Image
+
+from sprite_layout import load_canvas_frames
 
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTIVITY_DIR = ROOT / "assets" / "activities"
 STAGES = ["spore", "baby", "young", "adult", "legendary"]
 VARIANTS = ["instrument_bell", "instrument_flute", "instrument_drum", "instrument_rare"]
-FRAME_SIZE = 512
 FRAME_COUNT = 8
 
 
 def main() -> None:
     for stage in STAGES:
         source = ACTIVITY_DIR / stage / "instrument_sheet.png"
-        image = Image.open(source).convert("RGBA")
-        if image.size != (FRAME_SIZE * FRAME_COUNT, FRAME_SIZE):
-            raise SystemExit(f"{source} has unexpected size {image.size}")
+        source_frames = load_canvas_frames(source)
+        if len(source_frames) != FRAME_COUNT:
+            raise SystemExit(f"{source} has {len(source_frames)} logical frames instead of {FRAME_COUNT}")
+        source_signatures = [frame.tobytes() for frame in source_frames]
 
         for variant in VARIANTS:
-            frames = []
-            for frame_index in range(FRAME_COUNT):
-                frame = image.crop((frame_index * FRAME_SIZE, 0, (frame_index + 1) * FRAME_SIZE, FRAME_SIZE))
-                draw_variant(frame, stage, variant, frame_index)
-                frames.append(frame)
-            save_sheet(ACTIVITY_DIR / stage / f"{variant}_sheet.png", frames)
+            compatibility_path = ACTIVITY_DIR / stage / f"{variant}_sheet.png"
+            if compatibility_path.exists() and [
+                frame.tobytes() for frame in load_canvas_frames(compatibility_path)
+            ] != source_signatures:
+                raise SystemExit(
+                    f"{compatibility_path} contains distinct art but runtime aliases it to {source}; "
+                    "wire intentional variant art through AnimationConfig.gs before publishing it"
+                )
 
-
-def save_sheet(path: Path, frames: list[Image.Image]) -> None:
-    sheet = Image.new("RGBA", (FRAME_SIZE * len(frames), FRAME_SIZE), (0, 0, 0, 0))
-    for index, frame in enumerate(frames):
-        sheet.alpha_composite(frame, (index * FRAME_SIZE, 0))
-    sheet.save(path)
-
-
-def draw_variant(frame: Image.Image, stage: str, variant: str, frame_index: int) -> None:
-    # The source instrument sheet already owns the instrument, notes, and facial
-    # expression. These variant files keep runtime selection/log contracts
-    # without stacking an extra generated prop over the face.
-    return
+    # The source instrument sheet already owns the prop and expression. Runtime
+    # aliases variant keys to it without stacking an extra generated prop over the face.
+    print("Instrument variant aliases OK: runtime uses one honest shared visual until distinct art exists.")
 
 
 if __name__ == "__main__":

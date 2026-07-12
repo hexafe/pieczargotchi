@@ -11,6 +11,14 @@
   };
 
   function calculateWeatherStatDeltas(scene, elapsedHours, config) {
+    const rawDeltas = calculateWeatherStatDeltasRaw(scene, elapsedHours, config);
+    return removeZeroDeltas(Object.keys(rawDeltas).reduce(function(result, stat) {
+      result[stat] = roundStatDelta(rawDeltas[stat]);
+      return result;
+    }, {}));
+  }
+
+  function calculateWeatherStatDeltasRaw(scene, elapsedHours, config) {
     const balance = Object.assign({}, defaultWeatherBalance, config || {});
     const hours = clampNumber(Number(elapsedHours), 0, balance.maxElapsedHours, 0);
     if (!hours || !scene) {
@@ -38,7 +46,7 @@
       ? Math.min(1.5, precipitation * 0.12)
       : 0;
 
-    deltas.hydration = roundStatDelta((
+    deltas.hydration = (
       rainHydration
       + stormHydration
       + snowHydration
@@ -46,14 +54,35 @@
       + windDrying
       + heatDrying
       + precipitationBoost
-    ) * hours);
+    ) * hours;
 
     if (stormIntensity > 0) {
-      deltas.happiness = roundStatDelta(stormIntensity * balance.stormHappinessPerHour * hours);
-      deltas.cleanliness = roundStatDelta(stormIntensity * balance.stormCleanlinessPerHour * hours);
+      deltas.happiness = stormIntensity * balance.stormHappinessPerHour * hours;
+      deltas.cleanliness = stormIntensity * balance.stormCleanlinessPerHour * hours;
     }
 
-    return removeZeroDeltas(deltas);
+    return deltas;
+  }
+
+  function getWeatherCareSceneKeyCore(scene) {
+    if (!scene) {
+      return null;
+    }
+    return JSON.stringify([
+      scene.updatedAt || scene.observedAt || scene.currentWeatherAt || null,
+      scene.condition || null,
+      Number(scene.rain) || 0,
+      Number(scene.showers) || 0,
+      Number(scene.snowfall) || 0,
+      Number(scene.precipitation) || 0,
+      Number(scene.rainIntensity) || 0,
+      Number(scene.snowIntensity) || 0,
+      Number(scene.stormIntensity) || 0,
+      Number(scene.humidity) || 0,
+      Number(scene.windLevel) || 0,
+      Number(scene.windSpeed) || 0,
+      Number(scene.apparentTemperature ?? scene.temperature) || 0
+    ]);
   }
 
   function deriveWeatherImmersionFields(scene, hourlyInput, previousScene, nowInput) {

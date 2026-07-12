@@ -38,6 +38,88 @@
     return JSON.parse(JSON.stringify(value));
   }
 
+  function normalizeExclusiveOwnerLeaseCore(value, now) {
+    const leaseUntil = Number(value);
+    const timestamp = Number(now) || Date.now();
+    const maximumAcceptedLeaseMs = 10 * 60000;
+    if (!Number.isFinite(leaseUntil) || leaseUntil < 0 || leaseUntil > timestamp + maximumAcceptedLeaseMs) {
+      return 0;
+    }
+    return Math.floor(leaseUntil);
+  }
+
+  function getStateVersionInfoCore(rawState, targetVersion) {
+    const source = isPlainObject(rawState) ? rawState : {};
+    const version = Math.max(1, Math.floor(Number(source.version) || 1));
+    const target = Math.max(1, Math.floor(Number(targetVersion) || version));
+    return {
+      version: version,
+      targetVersion: target,
+      futureVersion: version > target
+    };
+  }
+
+  function prepareStatePersistenceWriteCore(rawState, storedState, targetVersion, writerId) {
+    const source = isPlainObject(rawState) ? rawState : {};
+    const stored = isPlainObject(storedState) ? storedState : null;
+    const sourceVersion = getStateVersionInfoCore(source, targetVersion);
+    const storedVersion = getStateVersionInfoCore(stored || {}, targetVersion);
+    if (sourceVersion.futureVersion || stored && storedVersion.futureVersion) {
+      return {
+        ok: false,
+        reason: 'futureVersion',
+        version: Math.max(sourceVersion.version, storedVersion.version)
+      };
+    }
+
+    const revision = Math.max(0, Math.floor(Number(source.saveRevision) || 0));
+    const storedRevision = stored
+      ? Math.max(0, Math.floor(Number(stored.saveRevision) || 0))
+      : 0;
+    const sourceWriter = String(source.saveWriterId || '');
+    const storedWriter = String(stored && stored.saveWriterId || '');
+    const equalRevisionDifferentWriter = stored
+      && revision > 0
+      && storedRevision === revision
+      && sourceWriter
+      && storedWriter
+      && sourceWriter !== storedWriter;
+    if (stored && (storedRevision > revision || equalRevisionDifferentWriter)) {
+      return {
+        ok: false,
+        reason: 'conflict',
+        revision: revision,
+        storedRevision: storedRevision
+      };
+    }
+
+    const state = deepClone(source);
+    state.version = sourceVersion.targetVersion;
+    state.saveRevision = Math.max(revision, storedRevision) + 1;
+    state.saveWriterId = String(writerId || '').slice(0, 80) || null;
+    return {
+      ok: true,
+      state: state,
+      revision: state.saveRevision
+    };
+  }
+
+  function normalizeIsoTimestampCore(value, options) {
+    const settings = isPlainObject(options) ? options : {};
+    const timestamp = Date.parse(typeof value === 'string' || value instanceof Date ? value : '');
+    if (!Number.isFinite(timestamp)) {
+      return null;
+    }
+    const minimum = Number.isFinite(Number(settings.minimum))
+      ? Number(settings.minimum)
+      : Date.parse('2020-01-01T00:00:00.000Z');
+    const maximum = Number.isFinite(Number(settings.maximum)) ? Number(settings.maximum) : Infinity;
+    if (timestamp < minimum || timestamp > maximum) {
+      return null;
+    }
+    return new Date(timestamp).toISOString();
+  }
+
   function positiveModulo(value, size) {
     return ((value % size) + size) % size;
   }

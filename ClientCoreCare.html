@@ -1,17 +1,91 @@
-  function migrateStateVersion(rawState, targetVersion) {
+  function migrateStateVersion(rawState, targetVersion, rules, now) {
     const state = isPlainObject(rawState) ? deepClone(rawState) : {};
-    const version = Math.max(1, Math.floor(Number(state.version) || 1));
-    const nextVersion = Math.max(version, Number(targetVersion) || version);
+    const versionInfo = getStateVersionInfoCore(state, targetVersion);
+    const version = versionInfo.version;
+    if (versionInfo.futureVersion) {
+      return state;
+    }
 
     if (version < 3 || !isPlainObject(state.battle)) {
       state.battle = normalizeBattleState(state.battle);
     }
 
-    state.version = nextVersion;
+    if (version < 17 && versionInfo.targetVersion >= 17) {
+      state.inventory = isPlainObject(state.inventory) ? state.inventory : {};
+      const legacyCoins = Math.max(0, Number(state.coins) || 0);
+      const currentSpores = Math.max(0, Number(state.inventory.spores) || 0);
+      state.inventory.spores = Math.max(legacyCoins, currentSpores);
+      state.coins = state.inventory.spores;
+      state.saveRevision = Math.max(0, Math.floor(Number(state.saveRevision) || 0));
+      state.saveWriterId = state.saveWriterId || null;
+      seedLegacyWeightedHistoryCore(state);
+      repairLegacyEpochTimestampsCore(state, now);
+    }
+
+    state.version = versionInfo.targetVersion;
     if (typeof normalizeProgressionState === 'function') {
-      return normalizeProgressionState(state);
+      return normalizeProgressionState(state, rules, null, now);
     }
     return state;
+  }
+
+  function seedLegacyWeightedHistoryCore(state) {
+    const samples = state && state.history && isPlainObject(state.history.statSamples)
+      ? state.history.statSamples
+      : null;
+    const count = samples ? Math.max(0, Math.floor(Number(samples.count) || 0)) : 0;
+    if (!samples || !count || Number(samples.weightedMs) > 0) {
+      return;
+    }
+
+    // Legacy clients collected one sample per regular tick. Treat each sample
+    // as one minute so the first v17 elapsed tick cannot erase years of care
+    // history merely by switching the averaging representation.
+    samples.weightedMs = count * 60000;
+    ['hydration', 'nutrients', 'energy', 'happiness', 'cleanliness', 'health'].forEach(function(stat) {
+      const weightedKey = 'weighted' + stat.charAt(0).toUpperCase() + stat.slice(1);
+      samples[weightedKey] = Math.max(0, Number(samples[stat]) || 0) * 60000;
+    });
+  }
+
+  function repairLegacyEpochTimestampsCore(state, now) {
+    const timestamp = Number(now) || Date.now();
+    const fallback = normalizeIsoTimestampCore(state.lastUpdatedAt, {
+      maximum: timestamp + 5 * 60000
+    }) || new Date(timestamp).toISOString();
+    const timestampKeys = {
+      firstSeenAt: true,
+      lastSeenAt: true,
+      capturedAt: true,
+      at: true,
+      decidedAt: true,
+      lastPlayedAt: true,
+      updatedAt: true,
+      exportedAt: true
+    };
+    let visited = 0;
+
+    function visit(value, depth) {
+      if (!value || typeof value !== 'object' || depth > 12 || visited > 20000) {
+        return;
+      }
+      visited += 1;
+      Object.keys(value).forEach(function(key) {
+        const item = value[key];
+        if (timestampKeys[key] && typeof item === 'string') {
+          const parsed = Date.parse(item);
+          value[key] = Number.isFinite(parsed)
+            && parsed >= Date.parse('2020-01-01T00:00:00.000Z')
+            && parsed <= timestamp + 5 * 60000
+            ? new Date(parsed).toISOString()
+            : fallback;
+          return;
+        }
+        visit(item, depth + 1);
+      });
+    }
+
+    visit(state, 0);
   }
 
   function getActionAvailability(state, action, now, rules) {
@@ -104,6 +178,10 @@
 
   function evaluateAttentionState(rawState, rules, now) {
     const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    return evaluateAttentionStateInPlaceCore(state, rules, now);
+  }
+
+  function evaluateAttentionStateInPlaceCore(state, rules, now) {
     const timestamp = Number(now) || 0;
     state.attention = normalizeAttentionCore(state.attention);
     state.careMistakes = normalizeCareMistakesCore(state.careMistakes);
@@ -369,16 +447,21 @@
 
   function updateRecoveryStateCore(rawState, rules, now) {
     const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    return updateRecoveryStateInPlaceCore(state, rules, now);
+  }
+
+  function updateRecoveryStateInPlaceCore(state, rules, now) {
     const timestamp = Number(now) || 0;
     const recoveryRules = getRecoveryRulesCore(rules);
     const events = [];
 
     state.stats = isPlainObject(state.stats) ? Object.assign({}, state.stats) : {};
     state.patch = normalizePatchCore(state.patch);
-    state.recovery = normalizeRecoveryStateCore(state.recovery);
+    state.recovery = normalizeRecoveryStateCore(state.recovery, timestamp);
     state.gameOver = normalizeGameOverStateCore(state.gameOver);
 
     if (state.gameOver.active) {
+      enforceTerminalCareStateCore(state);
       return { state: state, events: events };
     }
 
@@ -391,9 +474,29 @@
       return { state: state, events: events };
     }
 
+    clearRecoveryBlockedSessionsCore(state);
     state.mode = 'sleeping';
     const until = Date.parse(state.recovery.until || '');
-    if (!Number.isFinite(until) || timestamp < until) {
+    if (!Number.isFinite(until)) {
+      state.recovery.active = false;
+      state.recovery.reason = 'invalidTimestamp';
+      state.recovery.endedAt = new Date(timestamp).toISOString();
+      events.push({ type: 'recoveryInvalidated', reason: 'invalidTimestamp' });
+      return { state: state, events: events };
+    }
+
+    const deadlineProtection = getAttentionProtectedUntilCore(until, rules);
+    const currentProtection = getAttentionProtectedUntilCore(timestamp, rules);
+    const protectedUntil = Math.max(Number(deadlineProtection) || 0, Number(currentProtection) || 0) || null;
+    if (protectedUntil && until < protectedUntil) {
+      state.recovery.until = new Date(protectedUntil).toISOString();
+      events.push({ type: 'recoveryProtected', until: state.recovery.until });
+      if (timestamp < protectedUntil) {
+        return { state: state, events: events };
+      }
+    }
+
+    if (timestamp < Date.parse(state.recovery.until || '')) {
       return { state: state, events: events };
     }
 
@@ -413,7 +516,7 @@
     }
 
     state.recovery.missedCare = missedCare;
-    state.recovery.until = new Date(timestamp + recoveryRules.extensionMs).toISOString();
+    state.recovery.until = new Date(getRecoveryDeadlineCore(timestamp + recoveryRules.extensionMs, rules)).toISOString();
     state.patch.careStreak = 0;
     state.patch.quality = clampNumber(
       Number(state.patch.quality) + recoveryRules.extensionPenalty.patchQuality,
@@ -434,15 +537,17 @@
     const events = [];
 
     state.stats = isPlainObject(state.stats) ? Object.assign({}, state.stats) : {};
-    state.recovery = normalizeRecoveryStateCore(state.recovery);
+    state.recovery = normalizeRecoveryStateCore(state.recovery, timestamp);
 
     if (actionId === 'mossRest' && !state.recovery.active && (Number(state.stats.health) || 0) <= recoveryRules.manualHealthThreshold) {
       startRecoveryCore(state, recoveryRules, timestamp, 'manual');
       events.push({ type: 'recoveryStart', reason: 'manual', until: state.recovery.until });
     }
 
-    if (state.recovery.active && recoveryRules.careActionIds.indexOf(actionId) !== -1) {
-      state.recovery.lastCareAt = new Date(timestamp).toISOString();
+    if (state.recovery.active && recoveryRules.requiredCareActionIds.indexOf(actionId) !== -1) {
+      const careAt = new Date(timestamp).toISOString();
+      state.recovery.lastCareAt = careAt;
+      state.recovery.careActions[actionId] = careAt;
       events.push({ type: 'recoveryCare', actionId: actionId });
     }
 
@@ -455,12 +560,18 @@
     state.recovery = {
       active: true,
       startedAt: startIso,
-      until: new Date(timestamp + recoveryRules.durationMs).toISOString(),
+      until: new Date(getRecoveryDeadlineCore(timestamp + recoveryRules.durationMs, recoveryRules.rules)).toISOString(),
       lastCareAt: null,
+      careActions: {
+        hydrate: null,
+        feed: null,
+        clean: null
+      },
       missedCare: 0,
       reason: reason || 'healthZero',
       endedAt: null
     };
+    clearRecoveryBlockedSessionsCore(state);
     state.mode = 'sleeping';
     state.stats.health = Math.max(Number(state.stats.health) || 0, recoveryRules.startHealth);
     state.currentActivity = {
@@ -475,23 +586,42 @@
     const stats = isPlainObject(state.stats) ? state.stats : {};
     const minimums = recoveryRules.careMinimums;
     const lastCare = Date.parse(state.recovery.lastCareAt || '');
-    const hasRecentCare = Number.isFinite(lastCare) && now - lastCare <= recoveryRules.recentCareMs;
+    const hasRecentCare = Number.isFinite(lastCare)
+      && lastCare <= now
+      && now - lastCare <= recoveryRules.recentCareMs;
+    const startedAt = Date.parse(state.recovery.startedAt || '');
+    const careActions = isPlainObject(state.recovery.careActions) ? state.recovery.careActions : {};
+    const completedRequiredCare = Number.isFinite(startedAt)
+      && recoveryRules.requiredCareActionIds.every(function(actionId) {
+        const careAt = Date.parse(careActions[actionId] || '');
+        return Number.isFinite(careAt) && careAt >= startedAt && careAt <= now;
+      });
     const basicCareOk = Object.keys(minimums).every(function(stat) {
       return (Number(stats[stat]) || 0) >= minimums[stat];
     });
 
-    return hasRecentCare && basicCareOk;
+    return hasRecentCare && completedRequiredCare && basicCareOk;
   }
 
-  function normalizeRecoveryStateCore(recovery) {
+  function normalizeRecoveryStateCore(recovery, now) {
     const source = isPlainObject(recovery) ? recovery : {};
+    const careActions = isPlainObject(source.careActions) ? source.careActions : {};
+    const timestamp = Number(now) || Date.now();
+    const startedAt = normalizeIsoTimestampCore(source.startedAt, { maximum: timestamp + 5 * 60000 });
+    const until = normalizeIsoTimestampCore(source.until, { maximum: timestamp + 24 * 3600000 });
+    const active = Boolean(source.active) && Boolean(startedAt) && Boolean(until);
     return {
-      active: Boolean(source.active),
-      startedAt: source.startedAt || null,
-      until: source.until || null,
-      lastCareAt: source.lastCareAt || null,
+      active: active,
+      startedAt: startedAt,
+      until: until,
+      lastCareAt: normalizeIsoTimestampCore(source.lastCareAt, { maximum: timestamp }),
+      careActions: {
+        hydrate: normalizeIsoTimestampCore(careActions.hydrate, { maximum: timestamp }),
+        feed: normalizeIsoTimestampCore(careActions.feed, { maximum: timestamp }),
+        clean: normalizeIsoTimestampCore(careActions.clean, { maximum: timestamp })
+      },
       missedCare: Math.max(0, Math.floor(Number(source.missedCare) || 0)),
-      reason: source.reason || null,
+      reason: active ? source.reason || null : source.active ? 'invalidTimestamp' : source.reason || null,
       endedAt: source.endedAt || null
     };
   }
@@ -519,15 +649,7 @@
       : 0;
     state.recovery.active = false;
     state.recovery.endedAt = new Date(now).toISOString();
-    state.attention = normalizeAttentionCore({});
-    state.minigames = isPlainObject(state.minigames) ? state.minigames : {};
-    state.minigames.active = null;
-    state.battle = isPlainObject(state.battle) ? state.battle : {};
-    state.battle.activeBattle = null;
-    state.battle.mode = 'idle';
-    state.mode = 'sleeping';
-    state.currentActivity = null;
-    state.stats.health = 0;
+    enforceTerminalCareStateCore(state);
     state.gameOver = {
       active: true,
       reason: reason || 'recoveryNeglected',
@@ -538,8 +660,27 @@
     };
   }
 
+  function clearRecoveryBlockedSessionsCore(state) {
+    state.attention = normalizeAttentionCore({});
+    state.minigames = isPlainObject(state.minigames) ? state.minigames : {};
+    state.minigames.active = null;
+    state.battle = isPlainObject(state.battle) ? state.battle : {};
+    state.battle.activeBattle = null;
+    state.battle.mode = 'idle';
+    state.currentActivity = null;
+  }
+
+  function enforceTerminalCareStateCore(state) {
+    clearRecoveryBlockedSessionsCore(state);
+    state.recovery = isPlainObject(state.recovery) ? state.recovery : {};
+    state.recovery.active = false;
+    state.mode = 'sleeping';
+    state.stats = isPlainObject(state.stats) ? state.stats : {};
+    state.stats.health = 0;
+  }
+
   function isRecoveryActiveStateCore(state, rules, now) {
-    const recovery = normalizeRecoveryStateCore(state && state.recovery);
+    const recovery = normalizeRecoveryStateCore(state && state.recovery, now);
     return Boolean(recovery.active) && !isGameOverStateCore(state);
   }
 
@@ -553,6 +694,7 @@
     const extensionPenalty = isPlainObject(source.extensionPenalty) ? source.extensionPenalty : {};
     const minimums = isPlainObject(source.careMinimums) ? source.careMinimums : {};
     return {
+      rules: rules,
       triggerHealth: clampNumber(Number(source.triggerHealth), 0, 100, 0),
       manualHealthThreshold: clampNumber(Number(source.manualHealthThreshold), 1, 100, 45),
       durationMs: clampInteger(source.durationMs, 60000, 24 * 3600000, 6 * 3600000),
@@ -571,8 +713,270 @@
         cleanliness: clampNumber(Number(minimums.cleanliness), 0, 100, 28)
       },
       careActionIds: Array.isArray(source.careActionIds) ? source.careActionIds.slice() : ['hydrate', 'feed', 'clean', 'mossRest'],
+      requiredCareActionIds: Array.isArray(source.requiredCareActionIds)
+        ? source.requiredCareActionIds.filter(function(actionId) {
+          return ['hydrate', 'feed', 'clean'].indexOf(actionId) !== -1;
+        })
+        : ['hydrate', 'feed', 'clean'],
       blockedActionIds: Array.isArray(source.blockedActionIds) ? source.blockedActionIds.slice() : ['sleepWake', 'play', 'instrument', 'sing', 'spores']
     };
+  }
+
+  function getRecoveryDeadlineCore(proposedDeadline, rules) {
+    const protectedUntil = getAttentionProtectedUntilCore(proposedDeadline, rules);
+    return protectedUntil && protectedUntil > proposedDeadline ? protectedUntil : proposedDeadline;
+  }
+
+  function reduceElapsedCareStateCore(rawState, rules, startMs, endMs, options) {
+    const settings = isPlainObject(options) ? options : {};
+    const start = Math.max(0, Number(startMs) || 0);
+    const end = Math.max(start, Number(endMs) || start);
+    let state = normalizeProgressionState(rawState, rules, null, start);
+    const events = [];
+    const previousEvolution = state.evolution && state.evolution.variant;
+    state.stats = normalizeReducerStatsCore(state.stats, rules);
+    state.patch = normalizePatchCore(state.patch);
+    state.inventory = isPlainObject(state.inventory) ? Object.assign({}, state.inventory) : {};
+    state.inventory.spores = Math.max(0, Number(state.inventory.spores) || 0);
+    state.careMistakes = normalizeCareMistakesCore(state.careMistakes);
+    state.attention = normalizeAttentionCore(state.attention);
+    state.recovery = normalizeRecoveryStateCore(state.recovery, start);
+    state.gameOver = normalizeGameOverStateCore(state.gameOver);
+
+    if (state.gameOver.active) {
+      enforceTerminalCareStateCore(state);
+    }
+    if (state.gameOver.active || end <= start) {
+      state.lastUpdatedAt = new Date(end).toISOString();
+      return {
+        state: state,
+        events: events,
+        timePlan: { appliedMs: 0, skippedMs: 0, segments: [] }
+      };
+    }
+
+    const timePlan = calculateCareTimeSegmentsCore(start, end, state.mode, rules);
+    const segments = timePlan.segments || [];
+    const weatherBalance = rules && rules.weatherBalance ? rules.weatherBalance : {};
+    const maximumWeatherHours = clampNumber(
+      Number(weatherBalance.maxElapsedHours),
+      0,
+      24,
+      Number(defaultWeatherBalance && defaultWeatherBalance.maxElapsedHours) || 2
+    );
+    const weatherSceneKey = settings.weatherScene && typeof getWeatherCareSceneKeyCore === 'function'
+      ? getWeatherCareSceneKeyCore(settings.weatherScene)
+      : null;
+    const previousWeatherCare = isPlainObject(state.weatherCare) ? state.weatherCare : {};
+    const maximumWeatherMs = maximumWeatherHours * 3600000;
+    const alreadyAppliedWeatherMs = previousWeatherCare.sceneKey === weatherSceneKey
+      ? clampNumber(Number(previousWeatherCare.appliedMs), 0, maximumWeatherMs, 0)
+      : 0;
+    const availableWeatherMs = Math.max(0, maximumWeatherMs - alreadyAppliedWeatherMs);
+    const eligibleWeatherMs = Math.min(availableWeatherMs, Math.max(0, end - start));
+    const weatherStartAt = end - eligibleWeatherMs;
+    let appliedWeatherMs = 0;
+    for (let index = 0; index < segments.length; index += 1) {
+      if (state.gameOver && state.gameOver.active) {
+        break;
+      }
+      const segment = segments[index];
+      const elapsedHours = segment.elapsedHours;
+      const elapsedMode = state.mode === 'awake' ? 'awake' : 'sleeping';
+      const decayKey = getCareDecayKeyCore(segment.fromMs, elapsedMode, rules);
+      const decay = rules && rules.decayPerHour && (
+        rules.decayPerHour[decayKey] || rules.decayPerHour[elapsedMode]
+      ) || {};
+      Object.keys(decay).forEach(function(stat) {
+        state.stats[stat] = (Number(state.stats[stat]) || 0) + (Number(decay[stat]) || 0) * elapsedHours;
+      });
+
+      if (settings.weatherScene && typeof calculateWeatherStatDeltasRaw === 'function') {
+        const weatherElapsedMs = Math.max(0, segment.toMs - Math.max(segment.fromMs, weatherStartAt));
+        const weatherDeltas = calculateWeatherStatDeltasRaw(
+          settings.weatherScene,
+          weatherElapsedMs / 3600000,
+          weatherBalance
+        );
+        Object.keys(weatherDeltas || {}).forEach(function(stat) {
+          state.stats[stat] = (Number(state.stats[stat]) || 0) + (Number(weatherDeltas[stat]) || 0);
+        });
+        appliedWeatherMs += weatherElapsedMs;
+      }
+
+      state.stats = normalizeReducerStatsCore(state.stats, rules);
+      applyReducerHealthGrowthCore(state, rules, elapsedHours, decayKey, segment.toMs);
+      state.stats = normalizeReducerStatsCore(state.stats, rules);
+      applyReducerPatchCore(state, rules, elapsedHours, segment.toMs, events);
+      recordWeightedElapsedInPlaceCore(state, segment.elapsedMs, elapsedMode);
+
+      const attentionResult = evaluateAttentionStateInPlaceCore(state, rules, segment.toMs);
+      state = attentionResult.state || state;
+      (attentionResult.events || []).forEach(function(event) {
+        if (event.type !== 'protected') {
+          events.push(Object.assign({ at: segment.toMs }, event));
+        }
+      });
+
+      const recoveryResult = updateRecoveryStateInPlaceCore(state, rules, segment.toMs);
+      state = recoveryResult.state || state;
+      (recoveryResult.events || []).forEach(function(event) {
+        events.push(Object.assign({ at: segment.toMs }, event));
+      });
+      state.stats = normalizeReducerStatsCore(state.stats, rules);
+      state.patch = normalizePatchCore(state.patch);
+      state.stage = getReducerStageCore(state.stats.growth, rules);
+
+      const legendaryGrowth = Number(rules && rules.evolution && rules.evolution.legendaryGrowth) || 100;
+      if (!(state.evolution && state.evolution.variant) && Number(state.stats.growth) >= legendaryGrowth) {
+        state = maybeApplyEvolutionCore(state, rules, segment.toMs);
+      }
+    }
+
+    if (weatherSceneKey) {
+      state.weatherCare = {
+        sceneKey: weatherSceneKey,
+        appliedMs: Math.min(maximumWeatherMs, alreadyAppliedWeatherMs + appliedWeatherMs)
+      };
+    }
+
+    if (!previousEvolution && state.evolution && state.evolution.variant) {
+      events.push({
+        type: 'evolution',
+        variant: state.evolution.variant,
+        reason: state.evolution.reason,
+        at: Date.parse(state.evolution.decidedAt || '') || end
+      });
+    }
+    state.lastUpdatedAt = new Date(end).toISOString();
+    return { state: state, events: events, timePlan: timePlan };
+  }
+
+  function normalizeReducerStatsCore(stats, rules) {
+    const source = isPlainObject(stats) ? stats : {};
+    const bounds = rules && rules.statBounds ? rules.statBounds : {};
+    const minimum = Number.isFinite(Number(bounds.min)) ? Number(bounds.min) : 0;
+    const maximum = Number.isFinite(Number(bounds.max)) ? Number(bounds.max) : 100;
+    const output = Object.assign({}, source);
+    ['hydration', 'nutrients', 'energy', 'happiness', 'cleanliness', 'health', 'growth'].forEach(function(stat) {
+      const fallback = stat === 'health' ? 100 : 0;
+      output[stat] = clampNumber(Number(source[stat]), minimum, maximum, fallback);
+    });
+    return output;
+  }
+
+  function applyReducerHealthGrowthCore(state, rules, elapsedHours, decayKey, now) {
+    const stats = state.stats;
+    const poorConditions = stats.hydration < 20
+      || stats.nutrients < 20
+      || stats.cleanliness < 20
+      || stats.energy < 12;
+    const goodConditions = stats.hydration >= 55
+      && stats.nutrients >= 55
+      && stats.cleanliness >= 55
+      && stats.health >= 55;
+    const healthRules = rules && rules.healthPerHour ? rules.healthPerHour : {};
+    const growthRules = rules && rules.growthPerHour ? rules.growthPerHour : {};
+    if (poorConditions) {
+      stats.health += (Number(healthRules.poorConditions) || -4) * elapsedHours;
+    } else if (goodConditions) {
+      stats.health += (Number(healthRules.goodConditions) || 2) * elapsedHours;
+    }
+    if (!goodConditions) {
+      return;
+    }
+
+    const growthPerHour = decayKey === 'awake'
+      ? Number(growthRules.awakeHealthy) || 0.6
+      : decayKey === 'quietAwake'
+        ? Number(growthRules.quietDrowsyHealthy) || 0.08
+        : Number(growthRules.sleepingHealthy) || 0.18;
+    applyReducerGrowthCore(state, growthPerHour * elapsedHours, now, rules);
+  }
+
+  function applyReducerGrowthCore(state, amount, now, rules) {
+    const delta = Number(amount) || 0;
+    if (!delta) {
+      return;
+    }
+    state.history = normalizeHistoryCore(state.history);
+    const dateKey = getReducerLocalDateKeyCore(now);
+    if (state.history.dailyGrowth.dateKey !== dateKey) {
+      state.history.dailyGrowth = { dateKey: dateKey, earned: 0 };
+    }
+    if (delta < 0) {
+      state.stats.growth += delta;
+      return;
+    }
+    const cap = Number(rules && rules.careRhythm && rules.careRhythm.dailyGrowthCap) || 8.5;
+    const remaining = Math.max(0, cap - (Number(state.history.dailyGrowth.earned) || 0));
+    const applied = Math.min(delta, remaining);
+    state.stats.growth += applied;
+    state.history.dailyGrowth.earned += applied;
+  }
+
+  function applyReducerPatchCore(state, rules, elapsedHours, now, events) {
+    const patchRules = rules && rules.patchPerHour ? rules.patchPerHour : {};
+    const stats = state.stats;
+    const cleanHealthy = stats.hydration >= 45
+      && stats.nutrients >= 45
+      && stats.cleanliness >= 55
+      && stats.health >= 45;
+    const neglected = stats.hydration < 25
+      || stats.nutrients < 25
+      || stats.cleanliness < 25
+      || stats.health < 35;
+    if (cleanHealthy) {
+      state.patch.quality += (Number(patchRules.cleanHealthy) || 0.9) * elapsedHours;
+      state.patch.mycelium += 1.8 * elapsedHours;
+    }
+    if (neglected) {
+      state.patch.quality += (Number(patchRules.neglected) || -3) * elapsedHours;
+      state.patch.careStreak = 0;
+    }
+    state.patch = normalizePatchCore(state.patch);
+    if (state.patch.mycelium < 100) {
+      return;
+    }
+    const bonus = state.patch.quality >= 80 ? 2 : state.patch.quality >= 60 ? 1 : 0;
+    const spores = 3 + bonus;
+    state.patch.harvests += 1;
+    state.patch.mycelium = 18 + bonus * 4;
+    state.inventory.spores = (Number(state.inventory.spores) || 0) + spores;
+    state.coins = state.inventory.spores;
+    events.push({ type: 'harvest', spores: spores, at: now });
+  }
+
+  function recordWeightedElapsedInPlaceCore(state, elapsedMs, mode) {
+    const duration = Math.max(0, Math.floor(Number(elapsedMs) || 0));
+    state.history = normalizeHistoryCore(state.history);
+    state.history.modeMs[mode === 'awake' ? 'awake' : 'sleeping'] += duration;
+    state.history.statSamples.count += 1;
+    ['hydration', 'nutrients', 'energy', 'happiness', 'cleanliness', 'health'].forEach(function(stat) {
+      const value = clampNumber(Number(state.stats[stat]), 0, 100, 0);
+      const weightedKey = 'weighted' + stat.charAt(0).toUpperCase() + stat.slice(1);
+      state.history.statSamples[stat] += value;
+      state.history.statSamples[weightedKey] += value * duration;
+    });
+    state.history.statSamples.weightedMs += duration;
+  }
+
+  function getReducerStageCore(growth, rules) {
+    const thresholds = Array.isArray(rules && rules.stageThresholds) ? rules.stageThresholds : [];
+    let stage = thresholds[0] && thresholds[0].id || 'spore';
+    thresholds.forEach(function(item) {
+      if (Number(growth) >= Number(item.growth)) {
+        stage = item.id;
+      }
+    });
+    return stage;
+  }
+
+  function getReducerLocalDateKeyCore(now) {
+    const date = new Date(Number(now) || 0);
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return date.getFullYear() + '-' + month + '-' + day;
   }
 
   function calculateCareTimeSegmentsCore(startMs, endMs, mode, rules) {
@@ -586,9 +990,12 @@
     while (cursor < end) {
       const phase = getCareDecayKeyCore(cursor, mode, rules);
       const nextBoundary = Math.min(end, getNextCarePhaseBoundaryCore(cursor, rules));
-      const next = nextBoundary > cursor ? nextBoundary : Math.min(end, cursor + 3600000);
+      const nextMinuteBoundary = Math.floor(cursor / 60000) * 60000 + 60000;
+      const next = Math.min(end, nextBoundary, nextMinuteBoundary);
       segments.push({
         decayKey: phase,
+        fromMs: cursor,
+        toMs: next,
         elapsedMs: next - cursor,
         elapsedHours: (next - cursor) / 3600000
       });

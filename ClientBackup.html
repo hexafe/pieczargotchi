@@ -6,7 +6,12 @@
     }
 
     const now = getRuntimeNow();
-    const envelope = core.buildStateExportEnvelope(runtime.state, now);
+    const exportState = typeof isRuntimeReadOnly === 'function'
+      && isRuntimeReadOnly()
+      && runtime.futureStateRaw
+      ? runtime.futureStateRaw
+      : runtime.state;
+    const envelope = core.buildStateExportEnvelope(exportState, now);
     const blob = new Blob([JSON.stringify(envelope, null, 2)], { type: 'application/json' });
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -18,19 +23,61 @@
     link.remove();
     window.setTimeout(function() {
       window.URL.revokeObjectURL(url);
-    }, 0);
+    }, 30000);
     setBackupMessage('Eksport gotowy.');
   }
 
   function handleImportClick() {
+    if (runtime.pendingImport) {
+      confirmPendingImport();
+      return;
+    }
+    if (isImportReplacementBlocked()) {
+      setBackupMessage('Zakończ aktywną minigrę lub walkę przed importem zapisu.');
+      return;
+    }
     if (dom.importInput) {
       dom.importInput.click();
     }
   }
 
+  function handleExportCorruptState() {
+    const backup = typeof getCorruptStateBackup === 'function' ? getCorruptStateBackup() : null;
+    if (!backup || typeof backup.raw !== 'string') {
+      setBackupMessage('Kopia uszkodzonego zapisu nie jest już dostępna.');
+      return;
+    }
+
+    const blob = new Blob([backup.raw], { type: 'text/plain;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const stamp = new Date(getRuntimeNow()).toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    link.href = url;
+    link.download = 'pieczargotchi-uszkodzony-zapis-' + stamp + '.json';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(function() {
+      window.URL.revokeObjectURL(url);
+    }, 30000);
+    setBackupMessage('Kopia uszkodzonego zapisu została pobrana.');
+  }
+
   function handleImportFile(event) {
+    if (isImportReplacementBlocked()) {
+      setBackupMessage('Zakończ aktywną minigrę lub walkę przed importem zapisu.');
+      if (event.target) {
+        event.target.value = '';
+      }
+      return;
+    }
     const file = event.target && event.target.files ? event.target.files[0] : null;
     if (!file) {
+      return;
+    }
+    if (Number(file.size) > 2 * 1024 * 1024) {
+      setBackupMessage('Plik zapisu jest zbyt duży. Maksymalny rozmiar to 2 MB.');
+      event.target.value = '';
       return;
     }
 
@@ -53,23 +100,163 @@
       return;
     }
 
+    if (isImportReplacementBlocked()) {
+      setBackupMessage('Zakończ aktywną minigrę lub walkę przed importem zapisu.');
+      return;
+    }
+
     try {
-      const result = core.importStateEnvelope(text, config.stateVersion || 4);
+      const now = getRuntimeNow();
+      const envelope = JSON.parse(String(text || ''));
+      const result = core.importStateEnvelope(envelope, config.stateVersion || 4, rules, now);
       if (!result.ok) {
         setBackupMessage(result.reason);
         return;
       }
 
-      runtime.state = normalizeState(mergeState(createDefaultState(), result.state));
-      runtime.state.lastUpdatedAt = new Date(getRuntimeNow()).toISOString();
-      addLog(runtime.state, 'Zapis został zaimportowany.', getRuntimeNow());
-      saveState(runtime.state);
-      stopMinigameRuntime();
-      resumeMinigameIfActive();
-      setBackupMessage('Import zakończony.');
-      renderUi();
+      const importedState = normalizeState(mergeState(createDefaultState(), result.state));
+      runtime.pendingImport = {
+        state: importedState,
+        metadata: buildImportPreviewMetadata(envelope, importedState, result.metadata),
+        preparedAt: now
+      };
+      showPendingImportPreview();
     } catch (error) {
-      setBackupMessage(error && error.message ? error.message : 'Import nie powiódł się.');
+      setBackupMessage('Import nie powiódł się. Sprawdź, czy plik jest poprawnym eksportem Pieczargotchi.');
+    }
+  }
+
+  function buildImportPreviewMetadata(envelope, importedState, parsedMetadata) {
+    const wrapped = envelope && envelope.kind === 'pieczargotchi-state';
+    const rawState = wrapped ? envelope.state : envelope;
+    const state = importedState || rawState || {};
+    const exportedAt = wrapped && typeof envelope.exportedAt === 'string'
+      && Number.isFinite(Date.parse(envelope.exportedAt))
+      ? new Date(envelope.exportedAt).toISOString()
+      : null;
+    const parsed = parsedMetadata || {};
+    return {
+      name: normalizeMushroomNameValue(parsed.name || state.mushroomName) || defaultMushroomName,
+      stage: String(parsed.stage || state.stage || 'spore').slice(0, 32),
+      version: Math.max(0, Math.floor(
+        Number(parsed.sourceVersion)
+        || Number(rawState && rawState.version)
+        || Number(state.version)
+        || 0
+      )),
+      exportedAt: parsed.exportedAt || exportedAt
+    };
+  }
+
+  function showPendingImportPreview() {
+    const pending = runtime.pendingImport;
+    if (!pending) {
+      return;
+    }
+    const summary = formatImportPreviewSummary(pending.metadata);
+    if (dom.importPreviewSummary) {
+      dom.importPreviewSummary.textContent = summary;
+    }
+    if (dom.importButton) {
+      if (!dom.importButton.dataset.defaultLabel) {
+        dom.importButton.dataset.defaultLabel = dom.importButton.textContent || 'Importuj';
+      }
+      dom.importButton.textContent = 'Potwierdź import';
+      dom.importButton.setAttribute('aria-label', 'Potwierdź zastąpienie obecnego zapisu');
+    }
+    setBackupMessage('Sprawdź podgląd. Import nie zmieni zapisu, dopóki go nie potwierdzisz. Escape anuluje.');
+    runtime.importDialogReturnFocus = dom.importButton || document.activeElement;
+    if (dom.importPreview) {
+      openRuntimeDialog(dom.importPreview, dom.importCancel || dom.importConfirm, 'import', runtime.importDialogReturnFocus);
+    }
+  }
+
+  function formatImportPreviewSummary(metadata) {
+    const value = metadata || {};
+    const date = value.exportedAt
+      ? new Date(value.exportedAt).toLocaleString('pl-PL')
+      : 'brak daty eksportu';
+    return [
+      'Imię: ' + (value.name || defaultMushroomName),
+      'etap: ' + formatImportStageLabel(value.stage),
+      'wersja zapisu: ' + (Number(value.version) || 0),
+      'eksport: ' + date
+    ].join(' · ');
+  }
+
+  function formatImportStageLabel(stage) {
+    const labels = {
+      spore: 'zarodnik',
+      sprout: 'maluch',
+      baby: 'maluch',
+      juvenile: 'młoda',
+      young: 'młoda',
+      adult: 'dorosła',
+      legendary: 'legendarna'
+    };
+    const id = String(stage || 'spore').toLowerCase();
+    return labels[id] || 'nieznany (' + id.slice(0, 24) + ')';
+  }
+
+  function confirmPendingImport() {
+    const pending = runtime.pendingImport;
+    if (!pending) {
+      return;
+    }
+    if (isImportReplacementBlocked()) {
+      setBackupMessage('Import zatrzymany: trwa aktywna minigra, walka albo sesja tylko do odczytu.');
+      return;
+    }
+    const now = getRuntimeNow();
+    const previousState = runtime.state;
+    const importedState = normalizeState(mergeState(createDefaultState(), pending.state));
+    importedState.lastUpdatedAt = new Date(now).toISOString();
+    addLog(importedState, 'Zapis został zaimportowany.', now);
+    const saveResult = saveReplacementState(importedState, previousState);
+    if (!saveResult.ok) {
+      setBackupMessage('Zapis zmienił się w innej karcie. Import został zatrzymany.');
+      return;
+    }
+    runtime.state = importedState;
+    stopMinigameRuntime();
+    cancelPendingImport({ keepMessage: true, restoreFocus: false });
+    resumeMinigameIfActive();
+    setBackupMessage('Import zakończony.');
+    renderUi();
+  }
+
+  function cancelPendingImport(options) {
+    const settings = options || {};
+    const returnFocus = runtime.importDialogReturnFocus;
+    runtime.importDialogReturnFocus = null;
+    runtime.pendingImport = null;
+    if (dom.importPreview) {
+      closeRuntimeDialog(dom.importPreview, returnFocus, settings.restoreFocus !== false);
+    }
+    if (dom.importButton) {
+      dom.importButton.textContent = dom.importButton.dataset.defaultLabel || 'Importuj';
+      dom.importButton.setAttribute('aria-label', 'Importuj zapis gry');
+    }
+    if (!settings.keepMessage) {
+      setBackupMessage('Import anulowany. Obecny zapis pozostał bez zmian.');
+    }
+  }
+
+  function isImportReplacementBlocked() {
+    return Boolean(
+      typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()
+      || typeof isMinigameActive === 'function' && isMinigameActive()
+      || typeof isBattleSessionActive === 'function' && isBattleSessionActive()
+    );
+  }
+
+  function handleBackupDialogKeydown(event) {
+    if (!event || event.key !== 'Escape') {
+      return;
+    }
+    if (runtime.pendingImport) {
+      event.preventDefault();
+      cancelPendingImport();
     }
   }
 

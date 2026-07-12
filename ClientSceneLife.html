@@ -1,6 +1,5 @@
   function drawAmbientLifeBackground(ctx, palette, now, scene) {
     const profile = getAmbientLifeProfile(scene);
-    beginAmbientLifeDiagnostics(now);
     if (!hasAmbientLife(profile)) {
       return;
     }
@@ -11,12 +10,13 @@
     drawNocturnalBats(ctx, palette, now, scene, profile);
     drawNocturnalMoths(ctx, palette, now, scene, profile, false);
     drawSmallFlyingInsects(ctx, palette, now, scene, profile);
-    drawFireflies(ctx, palette, now, scene, profile, false);
+    drawFireflies(ctx, palette, now, scene, profile, false, 'base');
   }
 
   function drawAmbientLifeForeground(ctx, now) {
-    const scene = getCurrentWeatherScene();
-    const palette = getScenePalette(scene);
+    const frameScene = typeof getSceneFrameSnapshot === 'function' ? getSceneFrameSnapshot(now) : null;
+    const scene = frameScene ? frameScene.scene : getCurrentWeatherScene();
+    const palette = frameScene ? frameScene.palette : getScenePalette(scene);
     const profile = getAmbientLifeProfile(scene);
     const visitor = getLongLoopSceneVisitor(scene);
     if (!hasAmbientLife(profile)) {
@@ -31,8 +31,21 @@
     drawSmallFlyingInsects(ctx, palette, now, scene, profile, true);
     drawCrawlingBugs(ctx, palette, now, scene, profile);
     drawLongLoopHabitatVisitor(ctx, palette, now, scene, visitor);
-    drawFireflies(ctx, palette, now, scene, profile, true);
-    drawAmbientLifeFocusCue(ctx, palette, now, scene);
+    drawFireflies(ctx, palette, now, scene, profile, true, 'base');
+    drawAmbientLifeFocusCue(ctx, palette, now, scene, 'base');
+  }
+
+  function drawAmbientLifeEmissive(ctx, now) {
+    const frameScene = typeof getSceneFrameSnapshot === 'function' ? getSceneFrameSnapshot(now) : null;
+    const scene = frameScene ? frameScene.scene : getCurrentWeatherScene();
+    const palette = frameScene ? frameScene.palette : getScenePalette(scene);
+    const profile = getAmbientLifeProfile(scene);
+    if (!hasAmbientLife(profile)) {
+      return;
+    }
+    drawFireflies(ctx, palette, now, scene, profile, false, 'emissive');
+    drawFireflies(ctx, palette, now, scene, profile, true, 'emissive');
+    drawAmbientLifeFocusCue(ctx, palette, now, scene, 'emissive');
   }
 
   function getLongLoopSceneVisitor(scene) {
@@ -1725,18 +1738,25 @@
     }
   }
 
-  function drawFireflies(ctx, palette, now, scene, profile, foreground) {
+  function drawFireflies(ctx, palette, now, scene, profile, foreground, pass) {
     const intensity = clamp(Number(profile.fireflyIntensity), 0, 1, 0);
     if (intensity < 0.035) {
       return;
     }
 
+    const renderPass = pass || 'all';
+    const drawBase = renderPass !== 'emissive';
+    const drawEmission = renderPass !== 'base';
     const wind = getDynamicWindState(scene, now);
     const layer = getFireflyLayerProfile(foreground, intensity);
     const slots = layer.slots;
 
     ctx.save();
-    ctx.globalCompositeOperation = foreground ? 'lighter' : 'source-over';
+    ctx.globalCompositeOperation = drawEmission && !drawBase
+      ? 'lighter'
+      : foreground && renderPass === 'all'
+        ? 'lighter'
+        : 'source-over';
     for (let index = 0; index < slots; index += 1) {
       const seed = layer.seedBase + index * 131;
       if (seededUnit(seed + 11) > intensity + layer.presenceBonus) {
@@ -1770,35 +1790,40 @@
       const lightAlpha = glow * layer.alphaScale * lifeVisibility * displayFlight.lightScale;
       const emitting = lightAlpha >= 0.035;
       const visual = getFireflyVisualMetrics(lightAlpha, foreground, emitting);
-      if (emitting) {
+      const emissionOccluded = renderPass === 'emissive' && !foreground && mushroomOverlap;
+      if (emitting && drawEmission && !emissionOccluded) {
         drawFireflyEnvironmentalLight(ctx, displayFlight.x, displayFlight.y, lightAlpha, foreground, palette, displayFlight);
       }
-      drawPixelFirefly(ctx, displayFlight.x, displayFlight.y, alpha, foreground, emitting);
+      if (!emissionOccluded) {
+        drawPixelFirefly(ctx, displayFlight.x, displayFlight.y, alpha, foreground, emitting, renderPass);
+      }
 
-      recordAmbientLifeSample('fireflies', {
-        seed: seed,
-        layer: foreground ? 'foreground' : 'background',
-        depth: foreground ? 'front' : 'back',
-        route: flight.route,
-        x: Number(displayFlight.x.toFixed(2)),
-        y: Number(displayFlight.y.toFixed(2)),
-        progress: Number(progress.toFixed(3)),
-        alpha: Number(alpha.toFixed(3)),
-        glow: Number(glow.toFixed(3)),
-        lightAlpha: Number(lightAlpha.toFixed(3)),
-        emitting: emitting,
-        mushroomOverlap: mushroomOverlap,
-        direction: flight.direction,
-        visibility: Number(lifeVisibility.toFixed(3)),
-        scareState: influence.strength > 0.05 ? 'spark' : 'calm',
-        scareOffsetX: Number(influence.dx.toFixed(2)),
-        scareOffsetY: Number(influence.dy.toFixed(2)),
-        excursion: Number(flight.excursion.toFixed(1)),
-        glowRadius: Number(getFireflyGlowRadius(lightAlpha, foreground).toFixed(1)),
-        lightRadius: Number(getFireflyLightRadius(lightAlpha, foreground, flight).toFixed(1)),
-        visualWidth: visual.width,
-        visualHeight: visual.height
-      });
+      if (drawBase) {
+        recordAmbientLifeSample('fireflies', {
+          seed: seed,
+          layer: foreground ? 'foreground' : 'background',
+          depth: foreground ? 'front' : 'back',
+          route: flight.route,
+          x: Number(displayFlight.x.toFixed(2)),
+          y: Number(displayFlight.y.toFixed(2)),
+          progress: Number(progress.toFixed(3)),
+          alpha: Number(alpha.toFixed(3)),
+          glow: Number(glow.toFixed(3)),
+          lightAlpha: Number(lightAlpha.toFixed(3)),
+          emitting: emitting,
+          mushroomOverlap: mushroomOverlap,
+          direction: flight.direction,
+          visibility: Number(lifeVisibility.toFixed(3)),
+          scareState: influence.strength > 0.05 ? 'spark' : 'calm',
+          scareOffsetX: Number(influence.dx.toFixed(2)),
+          scareOffsetY: Number(influence.dy.toFixed(2)),
+          excursion: Number(flight.excursion.toFixed(1)),
+          glowRadius: Number(getFireflyGlowRadius(lightAlpha, foreground).toFixed(1)),
+          lightRadius: Number(getFireflyLightRadius(lightAlpha, foreground, flight).toFixed(1)),
+          visualWidth: visual.width,
+          visualHeight: visual.height
+        });
+      }
     }
     ctx.restore();
   }
@@ -1973,7 +1998,10 @@
     };
   }
 
-  function drawPixelFirefly(ctx, x, y, alpha, foreground, emitting) {
+  function drawPixelFirefly(ctx, x, y, alpha, foreground, emitting, pass) {
+    const renderPass = pass || 'all';
+    const drawBase = renderPass !== 'emissive';
+    const drawEmission = renderPass !== 'base';
     const glowRadius = getFireflyGlowRadius(alpha, foreground);
     const px = Math.round(x);
     const py = Math.round(y);
@@ -1983,7 +2011,7 @@
     const bodySize = foreground ? 3 : 2;
     const baseAlpha = ctx.globalAlpha;
 
-    if (emitting) {
+    if (emitting && drawEmission) {
       ctx.globalAlpha = baseAlpha * alpha * 0.10;
       ctx.fillStyle = '#e8ff76';
       ctx.fillRect(px - outer, py - Math.floor(outer * 0.55), outer * 2 + 1, Math.max(2, Math.round(outer * 1.1)));
@@ -1993,18 +2021,24 @@
       ctx.globalAlpha = baseAlpha * alpha * 0.38;
       ctx.fillStyle = '#fff2a5';
       ctx.fillRect(px - inner, py - inner, inner * 2 + 1, inner * 2 + 1);
-    } else {
+    } else if (!emitting && drawBase) {
       ctx.globalAlpha = baseAlpha * alpha * 0.14;
       ctx.fillStyle = '#c9da72';
       ctx.fillRect(px - 2, py - 1, 5, 3);
     }
 
-    ctx.globalAlpha = baseAlpha * alpha * (emitting ? 1 : 0.58);
-    ctx.fillStyle = emitting ? '#fff7b2' : '#d7c978';
-    ctx.fillRect(px - Math.floor(bodySize / 2), py - Math.floor(bodySize / 2), bodySize, bodySize);
-    ctx.globalAlpha = baseAlpha * alpha * (emitting ? 0.7 : 0.46);
-    ctx.fillStyle = '#4d5132';
-    ctx.fillRect(px - Math.floor(bodySize / 2), py, Math.max(1, bodySize - 1), 1);
+    if (drawBase) {
+      ctx.globalAlpha = baseAlpha * alpha * (emitting ? 1 : 0.58);
+      ctx.fillStyle = emitting ? '#fff7b2' : '#d7c978';
+      ctx.fillRect(px - Math.floor(bodySize / 2), py - Math.floor(bodySize / 2), bodySize, bodySize);
+      ctx.globalAlpha = baseAlpha * alpha * (emitting ? 0.7 : 0.46);
+      ctx.fillStyle = '#4d5132';
+      ctx.fillRect(px - Math.floor(bodySize / 2), py, Math.max(1, bodySize - 1), 1);
+    } else if (emitting) {
+      ctx.globalAlpha = baseAlpha * alpha * 0.72;
+      ctx.fillStyle = '#fff7b2';
+      ctx.fillRect(px - Math.floor(bodySize / 2), py - Math.floor(bodySize / 2), bodySize, bodySize);
+    }
     ctx.globalAlpha = baseAlpha;
   }
 
@@ -2050,7 +2084,7 @@
     return ((foreground ? 13 : 10) + clamp(Number(alpha), 0, 1, 0) * (foreground ? 16 : 12)) * heightBoost;
   }
 
-  function drawAmbientLifeFocusCue(ctx, palette, now, scene) {
+  function drawAmbientLifeFocusCue(ctx, palette, now, scene, pass) {
     const cue = getAmbientLifeFocusCue(scene);
     if (!cue || !cue.visible) {
       return;
@@ -2058,6 +2092,11 @@
 
     const alpha = fadeLifeEdge(cue.progress || 0) * (0.48 + clamp(Number(cue.intensity), 0, 1, 0) * 0.18);
     if (alpha <= 0.04) {
+      return;
+    }
+
+    const renderPass = pass || 'all';
+    if (renderPass === 'emissive' && cue.kind !== 'firefly') {
       return;
     }
 
@@ -2070,10 +2109,10 @@
     } else if (cue.kind === 'firefly') {
       const tail = 1 - smoothStep(0.18, 0.72, cue.progress || 0);
       const glowPulse = (Math.sin(now / 1400 + cue.seed) + 1) / 2;
-      ctx.globalCompositeOperation = 'lighter';
-      drawPixelFirefly(ctx, cue.x, cue.y, 0.36 + glowPulse * 0.26, true, true);
+      ctx.globalCompositeOperation = renderPass === 'base' ? 'source-over' : 'lighter';
+      drawPixelFirefly(ctx, cue.x, cue.y, 0.36 + glowPulse * 0.26, true, true, renderPass);
       if (tail > 0.08) {
-        drawPixelFirefly(ctx, cue.x - (cue.direction || 1) * 18, cue.y + 6, tail * 0.26, false, true);
+        drawPixelFirefly(ctx, cue.x - (cue.direction || 1) * 18, cue.y + 6, tail * 0.26, false, true, renderPass);
       }
     } else if (cue.kind === 'crawler') {
       drawPixelCrawler(ctx, cue.x, cue.y, cue.direction || 1, 8, now, palette, cue.seed || 1);
@@ -2125,6 +2164,7 @@
       moths: [],
       fireflies: [],
       crawlers: [],
+      visitors: [],
       sleepGlyphs: [],
       sleepBody: null,
       activityBody: null,

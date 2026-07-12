@@ -1,3 +1,37 @@
+  function normalizeJournalSnapshotStageCore(stage, growth, stageThresholds) {
+    const aliases = {
+      sprout: 'baby',
+      juvenile: 'young'
+    };
+    const supported = ['spore', 'baby', 'young', 'adult', 'legendary'];
+    const rawStage = String(stage || '').trim().toLowerCase();
+    const normalizedStage = aliases[rawStage] || rawStage;
+    if (supported.includes(normalizedStage)) {
+      return normalizedStage;
+    }
+
+    const fallbackThresholds = [
+      { id: 'spore', growth: 0 },
+      { id: 'baby', growth: 8 },
+      { id: 'young', growth: 28 },
+      { id: 'adult', growth: 62 },
+      { id: 'legendary', growth: 100 }
+    ];
+    const thresholds = Array.isArray(stageThresholds) && stageThresholds.length
+      ? stageThresholds
+      : fallbackThresholds;
+    const numericGrowth = Math.max(0, Math.min(100, Number(growth) || 0));
+    let resolved = 'spore';
+    thresholds.forEach(function(candidate) {
+      const candidateId = aliases[String(candidate && candidate.id || '').toLowerCase()]
+        || String(candidate && candidate.id || '').toLowerCase();
+      if (supported.includes(candidateId) && numericGrowth >= Number(candidate && candidate.growth || 0)) {
+        resolved = candidateId;
+      }
+    });
+    return resolved;
+  }
+
   global.PieczargotchiCore = {
     calculateAmbientLife: calculateAmbientLife,
     calculateAmbientLifeFocusCue: calculateAmbientLifeFocusCue,
@@ -10,6 +44,7 @@
     buildStateExportEnvelope: buildStateExportEnvelopeCore,
     buyDecoration: buyDecorationCore,
     calculateCareTimeSegments: calculateCareTimeSegmentsCore,
+    reduceElapsedCareState: reduceElapsedCareStateCore,
     chooseOpponentMove: chooseOpponentMove,
     createMinigameSession: createMinigameSessionCore,
     createDefaultBattleState: createDefaultBattleState,
@@ -58,12 +93,15 @@
     isArenaUnlocked: isArenaUnlocked,
     maybeApplyEvolution: maybeApplyEvolutionCore,
     migrateStateVersion: migrateStateVersion,
+    getStateVersionInfo: getStateVersionInfoCore,
+    prepareStatePersistenceWrite: prepareStatePersistenceWriteCore,
     normalizeProgressionState: normalizeProgressionState,
     normalizeDailyPlan: normalizeDailyPlanCore,
     normalizeDailyRhythm: normalizeDailyRhythmCore,
     normalizeRelationship: normalizeRelationshipCore,
     normalizeWorldJournal: normalizeWorldJournalCore,
     normalizeWorldJournalPhotoSnapshot: normalizeWorldJournalPhotoSnapshotCore,
+    normalizeJournalSnapshotStage: normalizeJournalSnapshotStageCore,
     normalizeReturnRecap: normalizeReturnRecapCore,
     normalizeLongLoopState: normalizeLongLoopStateCore,
     normalizeLegendaryGamesState: normalizeLegendaryGamesStateCore,

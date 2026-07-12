@@ -1,6 +1,9 @@
   function drawWeatherForeground(ctx, now) {
-    const scene = getCurrentWeatherScene();
-    const surface = getWeatherSurfaceState(scene, now);
+    const frameScene = typeof getSceneFrameSnapshot === 'function' ? getSceneFrameSnapshot(now) : null;
+    const scene = frameScene ? frameScene.scene : getCurrentWeatherScene();
+    const surface = frameScene && frameScene.surface
+      ? frameScene.surface
+      : getWeatherSurfaceState(scene, now);
     if (surface.snowCover > 0.04) {
       drawSnowBaseOverlay(ctx, scene, now, surface.snowCover);
     }

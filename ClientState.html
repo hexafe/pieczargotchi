@@ -1,3 +1,18 @@
+  const persistenceTabId = 'tab_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  const persistenceState = {
+    mode: 'storage',
+    reason: null,
+    readOnly: false,
+    conflicted: false,
+    revision: 0,
+    externalRevision: 0,
+    futureVersion: null,
+    corruptBackupKey: null,
+    corruptRaw: null
+  };
+  let persistenceMemoryRaw = null;
+  let persistenceStorageListener = null;
+
   function createDefaultState() {
     const now = new Date(getRuntimeNow()).toISOString();
     const base = deepClone(stateConfig.defaultState || {});
@@ -13,29 +28,401 @@
 
   function loadState() {
     const key = config.storageKey || 'pieczargotchi_state_v2';
-
+    let rawState = null;
     try {
-      const rawState = window.localStorage.getItem(key);
-      if (!rawState) {
-        return createDefaultState();
-      }
-
-      return migrateState(JSON.parse(rawState));
+      rawState = window.localStorage.getItem(key);
     } catch (error) {
+      enterMemoryPersistenceMode('storageUnavailable');
+      rawState = persistenceMemoryRaw;
+    }
+
+    if (!rawState) {
       return createDefaultState();
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(rawState);
+    } catch (error) {
+      preserveCorruptState(rawState, key);
+      return createDefaultState();
+    }
+    const targetVersion = config.stateVersion || 3;
+    const isTopLevelObject = Boolean(parsed) && typeof parsed === 'object' && !Array.isArray(parsed);
+    const rawVersion = Math.max(1, Math.floor(Number(isTopLevelObject && parsed.version) || 1));
+    persistenceState.revision = Math.max(0, Math.floor(Number(parsed && parsed.saveRevision) || 0));
+    if (rawVersion > targetVersion) {
+      persistenceState.mode = 'readOnly';
+      persistenceState.reason = 'futureVersion';
+      persistenceState.readOnly = true;
+      persistenceState.futureVersion = rawVersion;
+      return deepClone(parsed);
+    }
+    if (!isStoredStateShapeValid(parsed)) {
+      preserveCorruptState(rawState, key);
+      return createDefaultState();
+    }
+
+    return migrateState(parsed);
+  }
+
+  function isStoredStateShapeValid(value) {
+    return Boolean(value)
+      && typeof value === 'object'
+      && !Array.isArray(value)
+      && Boolean(value.stats)
+      && typeof value.stats === 'object'
+      && !Array.isArray(value.stats);
+  }
+
+  function saveState(state, options) {
+    const key = config.storageKey || 'pieczargotchi_state_v2';
+    const settings = options || {};
+    const targetVersion = config.stateVersion || 3;
+    const core = window.PieczargotchiCore;
+    if (persistenceState.readOnly || Number(state && state.version) > targetVersion) {
+      persistenceState.mode = 'readOnly';
+      persistenceState.reason = 'futureVersion';
+      persistenceState.readOnly = true;
+      return { ok: false, reason: 'futureVersion', mode: persistenceState.mode };
+    }
+
+    let storedState = null;
+    let leaseAcquired = false;
+    if (persistenceState.mode === 'storage') {
+      try {
+        leaseAcquired = acquirePersistenceWriteLease(key);
+        if (!leaseAcquired) {
+          persistenceState.reason = 'storageBusy';
+          return { ok: false, reason: 'storageBusy', mode: persistenceState.mode };
+        }
+        const storedRaw = window.localStorage.getItem(key);
+        storedState = storedRaw ? JSON.parse(storedRaw) : null;
+      } catch (error) {
+        releasePersistenceWriteLease(key, leaseAcquired);
+        leaseAcquired = false;
+        enterMemoryPersistenceMode('storageUnavailable');
+      }
+    } else if (persistenceMemoryRaw) {
+      try {
+        storedState = JSON.parse(persistenceMemoryRaw);
+      } catch (error) {
+        storedState = null;
+      }
+    }
+
+    if (settings.replace) {
+      const expectedRevision = Math.max(0, Math.floor(Number(settings.expectedRevision) || 0));
+      const expectedWriterId = String(settings.expectedWriterId || '').slice(0, 80);
+      const memoryFallbackWithoutSnapshot = persistenceState.mode === 'memory' && !storedState;
+      const storedRevision = memoryFallbackWithoutSnapshot
+        ? expectedRevision
+        : Math.max(0, Math.floor(Number(storedState && storedState.saveRevision) || 0));
+      const storedWriterId = memoryFallbackWithoutSnapshot
+        ? expectedWriterId
+        : String(storedState && storedState.saveWriterId || '').slice(0, 80);
+      if (storedRevision !== expectedRevision || storedWriterId !== expectedWriterId) {
+        releasePersistenceWriteLease(key, leaseAcquired);
+        markPersistenceConflict(storedRevision);
+        return {
+          ok: false,
+          reason: 'conflict',
+          revision: expectedRevision,
+          storedRevision: storedRevision,
+          storedWriterId: storedWriterId || null,
+          mode: persistenceState.mode
+        };
+      }
+      state.saveRevision = expectedRevision;
+      state.saveWriterId = expectedWriterId || null;
+    }
+
+    const prepared = core && typeof core.prepareStatePersistenceWrite === 'function'
+      ? core.prepareStatePersistenceWrite(state, storedState, targetVersion, persistenceTabId)
+      : prepareFallbackPersistenceWrite(state, storedState, targetVersion);
+    if (!prepared.ok) {
+      releasePersistenceWriteLease(key, leaseAcquired);
+      if (prepared.reason === 'conflict') {
+        markPersistenceConflict(prepared.storedRevision);
+      } else if (prepared.reason === 'futureVersion') {
+        persistenceState.mode = 'readOnly';
+        persistenceState.reason = 'futureVersion';
+        persistenceState.readOnly = true;
+        persistenceState.futureVersion = prepared.version || null;
+      }
+      return Object.assign({ mode: persistenceState.mode }, prepared);
+    }
+
+    const serialized = JSON.stringify(prepared.state);
+    if (persistenceState.mode === 'storage') {
+      const preflight = confirmPersistenceWriteLease(key, storedState);
+      if (!preflight.ok) {
+        releasePersistenceWriteLease(key, leaseAcquired);
+        if (preflight.reason === 'conflict') {
+          markPersistenceConflict(preflight.storedRevision);
+        } else {
+          persistenceState.reason = preflight.reason || 'storageBusy';
+        }
+        return {
+          ok: false,
+          reason: preflight.reason,
+          storedRevision: preflight.storedRevision,
+          mode: persistenceState.mode
+        };
+      }
+      try {
+        window.localStorage.setItem(key, serialized);
+        const committedRaw = window.localStorage.getItem(key);
+        if (committedRaw !== serialized) {
+          let winningState = null;
+          try {
+            winningState = committedRaw ? JSON.parse(committedRaw) : null;
+          } catch (error) {
+            winningState = null;
+          }
+          const winningRevision = Math.max(0, Math.floor(Number(winningState && winningState.saveRevision) || 0));
+          releasePersistenceWriteLease(key, leaseAcquired);
+          markPersistenceConflict(winningRevision);
+          return {
+            ok: false,
+            reason: 'conflict',
+            storedRevision: winningRevision,
+            mode: persistenceState.mode
+          };
+        }
+      } catch (error) {
+        enterMemoryPersistenceMode('storageUnavailable');
+      }
+    }
+    releasePersistenceWriteLease(key, leaseAcquired);
+    if (persistenceState.mode !== 'storage') {
+      persistenceMemoryRaw = serialized;
+    }
+
+    state.saveRevision = prepared.revision;
+    state.saveWriterId = persistenceTabId;
+    persistenceState.revision = prepared.revision;
+    persistenceState.externalRevision = Math.max(persistenceState.externalRevision, prepared.revision);
+    persistenceState.conflicted = false;
+    if (persistenceState.mode === 'storage'
+      && ['storageBusy', 'conflict', 'externalUpdate'].indexOf(persistenceState.reason) !== -1) {
+      persistenceState.reason = null;
+    }
+    return { ok: true, revision: prepared.revision, mode: persistenceState.mode };
+  }
+
+  function saveReplacementState(state, previousState) {
+    const expectedRevision = Math.max(0, Math.floor(Number(previousState && previousState.saveRevision) || 0));
+    const expectedWriterId = String(previousState && previousState.saveWriterId || '').slice(0, 80);
+    return saveState(state, {
+      replace: true,
+      expectedRevision: expectedRevision,
+      expectedWriterId: expectedWriterId
+    });
+  }
+
+  function getPersistenceStatus() {
+    return Object.assign({}, persistenceState, {
+      tabId: persistenceTabId,
+      memoryOnly: persistenceState.mode === 'memory'
+    });
+  }
+
+  function getCorruptStateBackup() {
+    if (persistenceState.corruptRaw) {
+      return {
+        key: persistenceState.corruptBackupKey || 'pieczargotchi_corrupt_memory',
+        raw: persistenceState.corruptRaw
+      };
+    }
+    if (!persistenceState.corruptBackupKey) {
+      return null;
+    }
+    try {
+      const raw = window.localStorage.getItem(persistenceState.corruptBackupKey);
+      return raw === null ? null : { key: persistenceState.corruptBackupKey, raw: raw };
+    } catch (error) {
+      return null;
     }
   }
 
-  function saveState(state) {
+  function initializePersistenceSync(onExternalState) {
+    if (persistenceStorageListener || typeof window.addEventListener !== 'function') {
+      return function() {};
+    }
     const key = config.storageKey || 'pieczargotchi_state_v2';
-    window.localStorage.setItem(key, JSON.stringify(state));
+    persistenceStorageListener = function(event) {
+      if (!event || event.key !== key || !event.newValue) {
+        return;
+      }
+      let nextState;
+      try {
+        nextState = JSON.parse(event.newValue);
+      } catch (error) {
+        return;
+      }
+      if (nextState.saveWriterId === persistenceTabId) {
+        return;
+      }
+      const revision = Math.max(0, Math.floor(Number(nextState.saveRevision) || 0));
+      const equalRevisionDifferentWriter = revision === persistenceState.revision
+        && revision > 0
+        && Boolean(nextState.saveWriterId);
+      if (revision < persistenceState.revision
+        || revision === persistenceState.revision && !equalRevisionDifferentWriter) {
+        return;
+      }
+      persistenceState.externalRevision = revision;
+      persistenceState.conflicted = true;
+      persistenceState.reason = 'externalUpdate';
+      if (typeof onExternalState === 'function') {
+        onExternalState({
+          state: nextState,
+          revision: revision,
+          writerId: nextState.saveWriterId || null,
+          futureVersion: Number(nextState.version) > (config.stateVersion || 3),
+          raw: event.newValue
+        });
+      }
+    };
+    window.addEventListener('storage', persistenceStorageListener);
+    return function() {
+      if (persistenceStorageListener) {
+        window.removeEventListener('storage', persistenceStorageListener);
+        persistenceStorageListener = null;
+      }
+    };
+  }
+
+  function acknowledgePersistenceRevision(revision) {
+    const nextRevision = Math.max(0, Math.floor(Number(revision) || 0));
+    persistenceState.revision = Math.max(persistenceState.revision, nextRevision);
+    persistenceState.externalRevision = Math.max(persistenceState.externalRevision, nextRevision);
+    persistenceState.conflicted = false;
+    if (persistenceState.reason === 'externalUpdate') {
+      persistenceState.reason = null;
+    }
+    return getPersistenceStatus();
+  }
+
+  function enterMemoryPersistenceMode(reason) {
+    persistenceState.mode = 'memory';
+    persistenceState.reason = reason || 'storageUnavailable';
+    persistenceState.readOnly = false;
+  }
+
+  function acquirePersistenceWriteLease(key) {
+    const lockKey = key + '_write_lock';
+    const now = Date.now();
+    let existing = null;
+    try {
+      const raw = window.localStorage.getItem(lockKey);
+      existing = raw ? JSON.parse(raw) : null;
+    } catch (error) {
+      existing = null;
+    }
+    if (existing && existing.owner !== persistenceTabId && Number(existing.expiresAt) > now) {
+      return false;
+    }
+    const lease = {
+      owner: persistenceTabId,
+      expiresAt: now + 10000
+    };
+    window.localStorage.setItem(lockKey, JSON.stringify(lease));
+    const confirmedRaw = window.localStorage.getItem(lockKey);
+    const confirmed = confirmedRaw ? JSON.parse(confirmedRaw) : null;
+    return Boolean(confirmed && confirmed.owner === persistenceTabId);
+  }
+
+  function releasePersistenceWriteLease(key, acquired) {
+    if (!acquired || persistenceState.mode !== 'storage') {
+      return;
+    }
+    const lockKey = key + '_write_lock';
+    try {
+      const raw = window.localStorage.getItem(lockKey);
+      const lease = raw ? JSON.parse(raw) : null;
+      if (lease && lease.owner === persistenceTabId) {
+        window.localStorage.removeItem(lockKey);
+      }
+    } catch (error) {
+      // The lease expires by itself; persistence fallback is handled by the caller.
+    }
+  }
+
+  function confirmPersistenceWriteLease(key, previouslyStoredState) {
+    const lockKey = key + '_write_lock';
+    try {
+      const lockRaw = window.localStorage.getItem(lockKey);
+      const lock = lockRaw ? JSON.parse(lockRaw) : null;
+      if (!lock || lock.owner !== persistenceTabId || Number(lock.expiresAt) <= Date.now()) {
+        return { ok: false, reason: 'storageBusy', storedRevision: persistenceState.revision };
+      }
+      lock.expiresAt = Date.now() + 10000;
+      window.localStorage.setItem(lockKey, JSON.stringify(lock));
+      const refreshedRaw = window.localStorage.getItem(lockKey);
+      const refreshed = refreshedRaw ? JSON.parse(refreshedRaw) : null;
+      if (!refreshed || refreshed.owner !== persistenceTabId || Number(refreshed.expiresAt) <= Date.now()) {
+        return { ok: false, reason: 'storageBusy', storedRevision: persistenceState.revision };
+      }
+
+      const latestRaw = window.localStorage.getItem(key);
+      const latest = latestRaw ? JSON.parse(latestRaw) : null;
+      const previousRevision = Math.max(0, Math.floor(Number(previouslyStoredState && previouslyStoredState.saveRevision) || 0));
+      const latestRevision = Math.max(0, Math.floor(Number(latest && latest.saveRevision) || 0));
+      const previousWriter = String(previouslyStoredState && previouslyStoredState.saveWriterId || '');
+      const latestWriter = String(latest && latest.saveWriterId || '');
+      if (latestRevision !== previousRevision || previousWriter !== latestWriter) {
+        return { ok: false, reason: 'conflict', storedRevision: latestRevision };
+      }
+      return { ok: true, storedRevision: latestRevision };
+    } catch (error) {
+      return { ok: false, reason: 'storageBusy', storedRevision: persistenceState.revision };
+    }
+  }
+
+  function markPersistenceConflict(storedRevision) {
+    persistenceState.conflicted = true;
+    persistenceState.reason = 'conflict';
+    persistenceState.externalRevision = Math.max(
+      persistenceState.externalRevision,
+      Math.max(0, Math.floor(Number(storedRevision) || 0))
+    );
+  }
+
+  function preserveCorruptState(rawState, key) {
+    const backupKey = key + '_corrupt_' + Date.now();
+    persistenceState.reason = 'corruptRecovered';
+    persistenceState.corruptRaw = rawState;
+    try {
+      window.localStorage.setItem(backupKey, rawState);
+      persistenceState.corruptBackupKey = backupKey;
+      persistenceState.corruptRaw = null;
+      window.localStorage.removeItem(key);
+    } catch (error) {
+      enterMemoryPersistenceMode('corruptRecovered');
+      persistenceState.corruptRaw = rawState;
+    }
+  }
+
+  function prepareFallbackPersistenceWrite(state, storedState, targetVersion) {
+    const revision = Math.max(0, Math.floor(Number(state && state.saveRevision) || 0));
+    const storedRevision = Math.max(0, Math.floor(Number(storedState && storedState.saveRevision) || 0));
+    if (storedState && storedRevision > revision) {
+      return { ok: false, reason: 'conflict', revision: revision, storedRevision: storedRevision };
+    }
+    const nextState = deepClone(state || {});
+    nextState.version = targetVersion;
+    nextState.saveRevision = Math.max(revision, storedRevision) + 1;
+    nextState.saveWriterId = persistenceTabId;
+    return { ok: true, state: nextState, revision: nextState.saveRevision };
   }
 
   function migrateState(rawState) {
     const targetVersion = config.stateVersion || 3;
     const core = window.PieczargotchiCore;
     const migratedState = core && core.migrateStateVersion
-      ? core.migrateStateVersion(rawState, targetVersion)
+      ? core.migrateStateVersion(rawState, targetVersion, rules, getRuntimeNow())
       : rawState;
     const base = createDefaultState();
     const merged = mergeState(base, migratedState || {});
@@ -72,12 +459,19 @@
   }
 
   function normalizeState(state) {
+    state.saveRevision = Math.max(0, Math.floor(Number(state.saveRevision) || 0));
+    state.saveWriterId = state.saveWriterId || null;
     state.mode = state.mode === 'awake' ? 'awake' : 'sleeping';
     state.mushroomName = normalizeMushroomNameValue(state.mushroomName);
     state.createdAt = state.createdAt || new Date(getRuntimeNow()).toISOString();
     state.lastUpdatedAt = state.lastUpdatedAt || state.createdAt;
     state.stats = clampAllStats(state.stats || {});
     state.inventory = state.inventory || {};
+    state.inventory.spores = Math.max(
+      0,
+      Number(state.inventory.spores) || Number(state.coins) || 0
+    );
+    state.coins = state.inventory.spores;
     state.patch = normalizePatch(state.patch || {});
     state.attention = normalizeAttention(state.attention || {});
     state.recovery = normalizeRecovery(state.recovery || {});
@@ -88,7 +482,7 @@
     state.discoveries = normalizeDiscoveriesForRuntime(state.discoveries || {});
     state.cooldowns = state.cooldowns || {};
     state.flags = normalizeFlags(state.flags || {}, state.mushroomName);
-    state.log = Array.isArray(state.log) ? state.log.slice(0, rules.maxLogEntries || 8) : [];
+    state.log = normalizeRuntimeLog(state.log, rules.maxLogEntries || 8);
     state.stage = getStageForGrowth(state.stats.growth || 0);
     state = applyEvolutionIfReady(state, getRuntimeNow(), false);
     updateRecoveryState(state, getRuntimeNow(), false);
@@ -127,8 +521,10 @@
       return state;
     }
 
-    const normalized = core.normalizeProgressionState(state, rules, actions);
+    const normalized = core.normalizeProgressionState(state, rules, actions, getRuntimeNow());
     state.history = normalized.history;
+    state.inventory = normalized.inventory || state.inventory || {};
+    state.coins = Math.max(0, Number(state.inventory.spores) || 0);
     state.evolution = normalized.evolution;
     state.minigames = normalized.minigames;
     state.legendaryGames = normalized.legendaryGames || state.legendaryGames || {};
@@ -140,6 +536,8 @@
     state.discoveries = normalized.discoveries || normalizeDiscoveriesForRuntime(state.discoveries || {});
     state.returnRecap = normalized.returnRecap || state.returnRecap || { lastSeenAt: null, lastDigestAt: null, entries: [] };
     state.longLoop = normalized.longLoop || state.longLoop || {};
+    state.cooldowns = normalized.cooldowns || state.cooldowns || {};
+    state.weatherCare = normalized.weatherCare || state.weatherCare || { sceneKey: null, appliedMs: 0 };
     state.recovery = normalized.recovery || normalizeRecovery(state.recovery || {});
     state.gameOver = normalized.gameOver || normalizeGameOver(state.gameOver || {});
     return state;
@@ -167,11 +565,19 @@
   }
 
   function normalizeRecovery(recovery) {
+    const careActions = recovery && recovery.careActions && typeof recovery.careActions === 'object'
+      ? recovery.careActions
+      : {};
     return {
       active: Boolean(recovery.active),
       startedAt: recovery.startedAt || null,
       until: recovery.until || null,
       lastCareAt: recovery.lastCareAt || null,
+      careActions: {
+        hydrate: careActions.hydrate || null,
+        feed: careActions.feed || null,
+        clean: careActions.clean || null
+      },
       missedCare: Math.max(0, Math.floor(Number(recovery.missedCare) || 0)),
       reason: recovery.reason || null,
       endedAt: recovery.endedAt || null
@@ -198,10 +604,24 @@
     };
   }
 
+  function normalizeRuntimeLog(entries, maximumEntries) {
+    return (Array.isArray(entries) ? entries : []).slice(0, maximumEntries).filter(function(entry) {
+      return Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry);
+    }).map(function(entry) {
+      const timestamp = Date.parse(entry.at || '');
+      return {
+        at: Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null,
+        text: String(entry.text || '').slice(0, 500)
+      };
+    }).filter(function(entry) {
+      return Boolean(entry.text);
+    });
+  }
+
   function normalizeBattleForRuntime(battle) {
     const core = window.PieczargotchiCore;
     if (core && core.normalizeBattleState) {
-      return core.normalizeBattleState(battle);
+      return core.normalizeBattleState(battle, getRuntimeNow());
     }
 
     return battle || {};
@@ -240,6 +660,9 @@
   }
 
   function applyElapsedTime(state, now) {
+    if (persistenceState.readOnly) {
+      return state;
+    }
     if (state.gameOver && state.gameOver.active) {
       state.lastUpdatedAt = new Date(now).toISOString();
       cleanupActivity(now);
@@ -259,6 +682,45 @@
     }
 
     const core = window.PieczargotchiCore;
+    if (core && typeof core.reduceElapsedCareState === 'function') {
+      const scene = typeof getCurrentWeatherScene === 'function' ? getCurrentWeatherScene() : null;
+      const previousEvolution = state.evolution && state.evolution.variant;
+      const reduced = core.reduceElapsedCareState(state, rules, safeLastUpdated, now, {
+        weatherScene: scene
+      });
+      state = reduced.state || state;
+      (reduced.events || []).forEach(function(event) {
+        if (event.type === 'harvest') {
+          logElapsedHarvestEvent(state, event, event.at || now);
+        } else if (event.type === 'evolution') {
+          if (!previousEvolution) {
+            const label = core.getEvolutionLabel
+              ? core.getEvolutionLabel(event.variant, rules)
+              : 'Legendarna Pieczarka';
+            addLog(state, 'Ewolucja: ' + label + '. ' + event.reason + '.', event.at || now);
+            triggerEffect('spores');
+          }
+        } else if (event.type.indexOf('recovery') === 0 || event.type === 'gameOver') {
+          logRecoveryEvent(state, event, event.at || now);
+        } else {
+          logAttentionEvent(state, event, event.at || now);
+        }
+      });
+      state.stage = getStageForGrowth(state.stats.growth || 0);
+      updateArenaUnlock(state);
+      const terminal = Boolean(state.gameOver && state.gameOver.active);
+      if (!terminal) {
+        refreshDailyPlanState(state, now);
+        applyReturnRecapState(state, safeLastUpdated, now, reduced.timePlan || {});
+      } else {
+        state.currentActivity = null;
+      }
+      state.lastUpdatedAt = new Date(now).toISOString();
+      if (state.currentActivity && Number(state.currentActivity.until) <= now) {
+        state.currentActivity = null;
+      }
+      return state;
+    }
     const timePlan = core && core.calculateCareTimeSegments
       ? core.calculateCareTimeSegments(safeLastUpdated, now, state.mode, rules)
       : {
@@ -291,11 +753,34 @@
     updateArenaUnlock(state);
     evaluateAttention(state, now);
     updateRecoveryState(state, now, true);
-    refreshDailyPlanState(state, now);
-    applyReturnRecapState(state, safeLastUpdated, now, timePlan);
+    if (!(state.gameOver && state.gameOver.active)) {
+      refreshDailyPlanState(state, now);
+      applyReturnRecapState(state, safeLastUpdated, now, timePlan);
+    } else {
+      state.currentActivity = null;
+    }
     state.lastUpdatedAt = new Date(now).toISOString();
     cleanupActivity(now);
     return state;
+  }
+
+  function logElapsedHarvestEvent(state, event, now) {
+    const spores = Math.max(0, Math.floor(Number(event.spores) || 0));
+    state.currentActivity = {
+      type: 'harvest',
+      label: 'Plon grzybni',
+      startedAt: now,
+      until: now + (rules.activityMs || 2400)
+    };
+    addLog(state, 'Dojrzała grzybnia wypuściła plon: +' + formatStateCount(spores, ['zarodnik', 'zarodniki', 'zarodników']) + '.', now);
+    applyGameplayEventToState(state, { type: 'harvest', spores: spores }, now);
+    appendRelationshipEntryToState(state, {
+      title: 'Plon grzybni',
+      body: 'Dojrzała grzybnia oddała zarodniki i zaczęła nowy cykl.',
+      tone: 'spores',
+      tag: 'harvest'
+    }, now);
+    triggerEffect('spores');
   }
 
   function refreshDailyPlanState(state, now) {
@@ -646,12 +1131,16 @@
 
     const result = core.updateRecoveryState(state, rules, now);
     const nextState = result.state || state;
-    state.recovery = normalizeRecovery(nextState.recovery || {});
-    state.gameOver = normalizeGameOver(nextState.gameOver || state.gameOver || {});
-    state.stats = clampAllStats(nextState.stats || state.stats);
-    state.patch = normalizePatch(nextState.patch || state.patch);
-    state.mode = nextState.mode || state.mode;
-    state.currentActivity = nextState.currentActivity || state.currentActivity;
+    if (nextState !== state) {
+      Object.keys(state).forEach(function(key) {
+        delete state[key];
+      });
+      Object.assign(state, nextState);
+    }
+    state.recovery = normalizeRecovery(state.recovery || {});
+    state.gameOver = normalizeGameOver(state.gameOver || {});
+    state.stats = clampAllStats(state.stats || {});
+    state.patch = normalizePatch(state.patch || {});
 
     if (shouldLog) {
       (result.events || []).forEach(function(event) {

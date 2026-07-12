@@ -5,6 +5,10 @@
     return order.indexOf(currentStage) >= order.indexOf(requiredStage);
   }
   function handleAction(actionId, source) {
+    if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
+      renderPersistenceStatus();
+      return;
+    }
     const action = actionsById.get(actionId);
     if (!action) {
       return;
@@ -45,18 +49,51 @@
     runtime.state = applyEvolutionIfReady(runtime.state, now, true);
     updateArenaUnlock(runtime.state);
     runtime.state.lastUpdatedAt = new Date(now).toISOString();
-    saveState(runtime.state);
+    const persisted = persistRuntimeState(runtime.state);
+    if (persisted && persisted.ok === false && persisted.reason !== 'storageBusy') {
+      reconcileExclusiveRuntimeSession(now);
+    }
     renderUi();
   }
 
   function setViewMode(mode) {
-    runtime.viewMode = mode === 'arena' && isArenaUnlockedForRuntime()
+    const requestedMode = mode === 'arena' && isArenaUnlockedForRuntime()
       ? 'arena'
       : 'care';
+    const activeMinigame = runtime.state && runtime.state.minigames
+      ? runtime.state.minigames.active
+      : null;
+    const pendingMinigame = runtime.pendingExclusiveStart && runtime.pendingExclusiveStart.kind === 'minigame'
+      ? runtime.pendingExclusiveStart
+      : null;
+    if (activeMinigame || pendingMinigame) {
+      const requiredMode = activeMinigame
+        ? isLegendaryMinigameRuntimeId(activeMinigame.id) ? 'arena' : 'care'
+        : pendingMinigame.legendary ? 'arena' : 'care';
+      if (requestedMode !== requiredMode) {
+        setTransientMessage('Aktywna minigra', 'Najpierw zakończ rozgrywkę albo wróć do jej planszy.');
+        if (typeof returnToActiveMinigame === 'function') {
+          if (!returnToActiveMinigame()) {
+            renderUi();
+          }
+        } else {
+          renderUi();
+        }
+        return;
+      }
+    }
+    runtime.viewMode = requestedMode;
+    if (runtime.viewMode === 'arena' && typeof warmUpBattleAssets === 'function') {
+      warmUpBattleAssets();
+    }
     renderUi();
   }
 
   function handleDailyRhythmSelect(rhythmId) {
+    if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
+      renderPersistenceStatus();
+      return;
+    }
     const core = window.PieczargotchiCore;
     if (!core || typeof core.selectDailyRhythm !== 'function') {
       return;
@@ -81,6 +118,11 @@
       return;
     }
 
+    if (result.unchanged) {
+      renderUi();
+      return;
+    }
+
     addLog(runtime.state, 'Rytm dnia: ' + result.rhythm.label + '.', now);
     appendRelationshipEntryToState(runtime.state, {
       title: 'Rytm dnia',
@@ -89,7 +131,7 @@
       tag: result.rhythm.id
     }, now);
     runtime.state.lastUpdatedAt = new Date(now).toISOString();
-    saveState(runtime.state);
+    persistRuntimeState(runtime.state);
     renderUi();
   }
 
@@ -116,11 +158,29 @@
   }
 
   function handleBattleStart() {
+    if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
+      renderPersistenceStatus();
+      return;
+    }
     const core = window.PieczargotchiCore;
     if (!core || !core.startBattle) {
       return;
     }
     if (!ensureMushroomNamed()) {
+      return;
+    }
+    if (typeof warmUpBattleAssets === 'function') {
+      warmUpBattleAssets();
+    }
+
+    if (isMinigameActive()) {
+      setTransientMessage('Arena', 'Najpierw zakończ minigrę.');
+      renderUi();
+      return;
+    }
+    if (isBattleSessionActive()) {
+      setTransientMessage('Arena', 'Ta walka już trwa.');
+      renderUi();
       return;
     }
 
@@ -142,13 +202,35 @@
       return;
     }
 
-    runtime.state = result.state;
-    runtime.state.lastUpdatedAt = new Date(now).toISOString();
-    saveState(runtime.state);
-    renderUi();
+    const baseState = deepClone(runtime.state);
+    const candidateState = result.state;
+    const battleToken = createRuntimeSessionToken('battle', result.battle && result.battle.id, now);
+    if (candidateState.battle && candidateState.battle.activeBattle) {
+      candidateState.battle.activeBattle.runtimeToken = battleToken;
+    }
+    assignExclusiveSessionOwnership(candidateState, getExclusiveOwnershipNow());
+    candidateState.lastUpdatedAt = new Date(now).toISOString();
+    const pending = { kind: 'battle', phase: 'start', id: result.battle && result.battle.id, token: battleToken, timer: null };
+    persistExclusiveStartCandidate(candidateState, baseState, pending, function(persistedBattle, savedState) {
+      if (!persistedBattle.ok) {
+        reconcileExclusiveRuntimeSession(getRuntimeNow());
+        resumeMinigameIfActive();
+        renderUi();
+        return;
+      }
+      runtime.state = savedState;
+      runtime.exclusiveSession = { kind: 'battle', id: pending.id, token: battleToken };
+      renderUi();
+    });
   }
 
   function handleBattleTrain(statId) {
+    if ((typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked())
+      || isMinigameActive()
+      || isBattleSessionActive()) {
+      renderPersistenceStatus();
+      return;
+    }
     const core = window.PieczargotchiCore;
     if (!core || !core.trainBattleStat) {
       return;
@@ -177,14 +259,23 @@
 
     runtime.state = result.state;
     runtime.state.lastUpdatedAt = new Date(now).toISOString();
-    saveState(runtime.state);
+    persistRuntimeState(runtime.state);
     renderUi();
   }
 
   function handleBattleMove(moveId) {
+    if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
+      renderPersistenceStatus();
+      return;
+    }
     const core = window.PieczargotchiCore;
     const activeBattle = runtime.state && runtime.state.battle && runtime.state.battle.activeBattle;
-    if (!core || !core.resolveBattleRound || !activeBattle || ['victory', 'defeat'].includes(activeBattle.mode)) {
+    if (!core
+      || !core.resolveBattleRound
+      || !activeBattle
+      || isMinigameActive()
+      || runtime.pendingExclusiveStart && runtime.pendingExclusiveStart.kind === 'battle'
+      || ['victory', 'defeat'].includes(activeBattle.mode)) {
       return;
     }
     if (!ensureMushroomNamed()) {
@@ -201,15 +292,17 @@
       renderUi();
       return;
     }
+    const baseState = deepClone(runtime.state);
+    let candidateState = deepClone(runtime.state);
     const resolved = core.resolveBattleRound(activeBattle, moveId, rules.battle && rules.battle.moveCatalog);
-    runtime.state.battle.activeBattle = resolved;
-    runtime.state.battle.mode = resolved.mode;
-    addBattleLogEntry(runtime.state, formatBattleEvents(resolved), now);
+    candidateState.battle.activeBattle = resolved;
+    candidateState.battle.mode = resolved.mode;
+    addBattleLogEntry(candidateState, formatBattleEvents(resolved), now);
 
     if (['victory', 'defeat'].includes(resolved.mode) && core.applyBattleOutcomeRewards) {
-      runtime.state = core.applyBattleOutcomeRewards(runtime.state, rules, now).state;
+      candidateState = core.applyBattleOutcomeRewards(candidateState, rules, now).state;
       if (resolved.mode === 'victory') {
-        applyGameplayEventToState(runtime.state, {
+        applyGameplayEventToState(candidateState, {
           type: 'battle',
           result: 'victory',
           label: 'Wygrana arena'
@@ -217,9 +310,29 @@
       }
     }
 
-    runtime.state.lastUpdatedAt = new Date(now).toISOString();
-    saveState(runtime.state);
-    renderUi();
+    assignExclusiveSessionOwnership(candidateState, getExclusiveOwnershipNow());
+
+    candidateState.lastUpdatedAt = new Date(now).toISOString();
+    const token = 'turn:' + String(activeBattle.runtimeToken || activeBattle.id || now) + ':' + String(resolved.turn);
+    const pending = { kind: 'battle', phase: 'turn', id: activeBattle.id, token: token, timer: null };
+    persistExclusiveStartCandidate(candidateState, baseState, pending, function(persisted, savedState) {
+      if (!persisted.ok) {
+        reconcileExclusiveRuntimeSession(getRuntimeNow());
+        renderUi();
+        return;
+      }
+      runtime.state = savedState;
+      if (['victory', 'defeat'].includes(resolved.mode)) {
+        releaseExclusiveRuntimeSession('battle');
+      } else {
+        runtime.exclusiveSession = {
+          kind: 'battle',
+          id: savedState.battle.activeBattle.id,
+          token: savedState.battle.activeBattle.runtimeToken || ''
+        };
+      }
+      renderUi();
+    });
   }
 
   function canRunAction(action, now) {
@@ -394,6 +507,10 @@
   }
 
   function handleMinigameStart(minigameId) {
+    if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
+      renderPersistenceStatus();
+      return;
+    }
     const core = window.PieczargotchiCore;
     const minigameRules = rules.minigames && rules.minigames[minigameId];
     const now = getRuntimeNow();
@@ -403,6 +520,17 @@
       return;
     }
     if (!ensureMushroomNamed()) {
+      return;
+    }
+
+    if (isMinigameActive()) {
+      setTransientMessage('Gry', 'Ta rozgrywka już trwa. Najpierw ją zakończ.');
+      renderUi();
+      return;
+    }
+    if (isBattleSessionActive()) {
+      setTransientMessage('Gry', 'Najpierw zakończ walkę na arenie.');
+      renderUi();
       return;
     }
 
@@ -442,17 +570,56 @@
       return;
     }
 
-    runtime.state.minigames.active = result.session;
-    runtime.state.lastUpdatedAt = new Date(now).toISOString();
-    if (minigameRules.legendary) {
-      runtime.viewMode = 'arena';
+    const baseState = deepClone(runtime.state);
+    const candidateState = deepClone(runtime.state);
+    const sessionToken = createRuntimeSessionToken('minigame', result.session.id, now);
+    if (typeof prepareMinigameSessionLaunch === 'function') {
+      result.session = prepareMinigameSessionLaunch(result.session, now);
     }
-    saveState(runtime.state);
-    startMinigameRuntime(result.session);
-    renderUi();
+    result.session.runtimeToken = sessionToken;
+    candidateState.minigames.active = result.session;
+    assignExclusiveSessionOwnership(candidateState, getExclusiveOwnershipNow());
+    candidateState.lastUpdatedAt = new Date(now).toISOString();
+    const pending = {
+      kind: 'minigame',
+      phase: 'start',
+      id: result.session.id,
+      token: sessionToken,
+      timer: null,
+      returnFocus: document.activeElement,
+      legendary: Boolean(minigameRules.legendary),
+      launchDelayMs: Math.max(0, Number(result.session.startedAt) - now)
+    };
+    persistExclusiveStartCandidate(candidateState, baseState, pending, function(persisted, savedState) {
+      if (!persisted.ok) {
+        releaseExclusiveRuntimeSession('minigame');
+        reconcileExclusiveRuntimeSession(getRuntimeNow());
+        resumeMinigameIfActive();
+        renderUi();
+        return;
+      }
+      runtime.state = savedState;
+      runtime.exclusiveSession = { kind: 'minigame', id: pending.id, token: sessionToken };
+      runtime.viewMode = pending.legendary ? 'arena' : 'care';
+      if (runtime.ui) {
+        runtime.ui.workspaceTab = pending.legendary ? runtime.ui.workspaceTab : 'games';
+        runtime.ui.legendsTab = pending.legendary ? 'challenges' : runtime.ui.legendsTab;
+      }
+      runtime.minigameReturnFocus = pending.returnFocus;
+      renderUi();
+      startMinigameRuntime(savedState.minigames.active);
+    });
   }
 
   function handleMinigameEnd(reason) {
+    if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
+      renderPersistenceStatus();
+      return;
+    }
+    if (runtime.pendingExclusiveStart && runtime.pendingExclusiveStart.kind === 'minigame') {
+      renderPersistenceStatus({ reason: 'storageBusy' });
+      return;
+    }
     const core = window.PieczargotchiCore;
     const now = getRuntimeNow();
     const session = runtime.minigame && runtime.minigame.session
@@ -464,28 +631,68 @@
       return;
     }
 
-    stopMinigameRuntime();
+    const activeSession = runtime.state && runtime.state.minigames
+      ? runtime.state.minigames.active
+      : null;
+    if (!doesRuntimeMinigameSessionMatch(session, activeSession)
+      || isGameOverForRuntime()
+      || isRecoveryActiveForRuntime(now)
+      || isBattleSessionActive()) {
+      stopMinigameRuntime();
+      releaseExclusiveRuntimeSession('minigame');
+      setTransientMessage('Gry', 'Ta sesja już wygasła — wynik nie został dopisany.');
+      renderUi();
+      return;
+    }
+
+    if (typeof flushMinigameRuntimePersist === 'function') {
+      flushMinigameRuntimePersist('end');
+    }
+    const baseState = deepClone(runtime.state);
     const result = core.finishMinigame(runtime.state, session, rules, now);
+    let candidateState = result.state || deepClone(runtime.state);
+    let resultTitle = 'Gry';
+    let resultBody = result.reason || 'Nie udało się zakończyć sesji.';
     if (!result.ok) {
-      runtime.state.minigames.active = null;
-      setTransientMessage('Gry', result.reason);
+      candidateState.minigames.active = null;
     } else {
-      runtime.state = result.state;
-      runtime.state.stats = clampAllStats(runtime.state.stats);
-      runtime.state.cooldowns[getMinigameCooldownKey(session.id)] = now + getMinigameCooldownMs(session.id);
-      addLog(runtime.state, formatMinigameRewardLog(session, result.rewards, reason), now);
-      applyGameplayEventToState(runtime.state, {
+      candidateState.stats = clampAllStats(candidateState.stats);
+      candidateState.cooldowns[getMinigameCooldownKey(session.id)] = now + getMinigameCooldownMs(session.id);
+      addLog(candidateState, formatMinigameRewardLog(session, result.rewards, reason), now);
+      applyGameplayEventToState(candidateState, {
         type: 'minigame',
         minigameId: session.id,
         score: session.score
       }, now);
-      setTransientMessage(getMinigameResultTitle(result.state.minigames.lastResult), getMinigameResultBody(session, result.state.minigames.lastResult));
-      triggerEffect(getMinigameEffectType(session.id));
+      resultTitle = getMinigameResultTitle(candidateState.minigames.lastResult);
+      resultBody = getMinigameResultBody(session, candidateState.minigames.lastResult);
     }
 
-    runtime.state.lastUpdatedAt = new Date(now).toISOString();
-    saveState(runtime.state);
-    renderUi();
+    candidateState.lastUpdatedAt = new Date(now).toISOString();
+    stopMinigameRuntime();
+    releaseExclusiveRuntimeSession('minigame');
+    const pending = {
+      kind: 'minigame',
+      phase: 'finish',
+      id: session.id,
+      token: 'finish:' + String(session.runtimeToken || session.startedAt || now),
+      timer: null
+    };
+    persistExclusiveStartCandidate(candidateState, baseState, pending, function(persisted, savedState) {
+      if (!persisted.ok) {
+        reconcileExclusiveRuntimeSession(getRuntimeNow());
+        setTransientMessage('Wynik oczekuje', 'Nie udało się trwale zapisać wyniku. Spróbuj zakończyć sesję ponownie.');
+        renderUi();
+        return;
+      }
+      runtime.state = savedState;
+      releaseExclusiveRuntimeSession('minigame');
+      setTransientMessage(resultTitle, resultBody);
+      if (result.ok) {
+        triggerEffect(getMinigameEffectType(session.id));
+      }
+      renderUi();
+    });
   }
 
   function handleDecorationBuy(decorationId) {
@@ -519,7 +726,7 @@
 
     runtime.state.stats = clampAllStats(runtime.state.stats);
     runtime.state.lastUpdatedAt = new Date(now).toISOString();
-    saveState(runtime.state);
+    persistRuntimeState(runtime.state);
     renderUi();
   }
 
@@ -556,7 +763,7 @@
     }
 
     runtime.state.lastUpdatedAt = new Date(now).toISOString();
-    saveState(runtime.state);
+    persistRuntimeState(runtime.state);
     renderUi();
   }
 
@@ -592,7 +799,7 @@
     }
 
     runtime.state.lastUpdatedAt = new Date(now).toISOString();
-    saveState(runtime.state);
+    persistRuntimeState(runtime.state);
     renderUi();
   }
 
@@ -629,15 +836,117 @@
     }
 
     runtime.state.lastUpdatedAt = new Date(now).toISOString();
-    saveState(runtime.state);
+    persistRuntimeState(runtime.state);
     renderUi();
   }
 
   function isMinigameActive() {
     return Boolean(
+      runtime.pendingExclusiveStart && runtime.pendingExclusiveStart.kind === 'minigame'
+      ||
       runtime.minigame && runtime.minigame.session
       || runtime.state && runtime.state.minigames && runtime.state.minigames.active
     );
+  }
+
+  function isBattleSessionActive() {
+    const active = runtime.state && runtime.state.battle && runtime.state.battle.activeBattle;
+    return Boolean(runtime.pendingExclusiveStart && runtime.pendingExclusiveStart.kind === 'battle')
+      || Boolean(active && ['victory', 'defeat'].indexOf(active.mode) === -1);
+  }
+
+  function createRuntimeSessionToken(kind, id, now) {
+    let randomPart = Math.floor(Math.random() * 0x7fffffff).toString(36);
+    if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+      const random = new Uint32Array(1);
+      window.crypto.getRandomValues(random);
+      randomPart = random[0].toString(36);
+    }
+    return [kind || 'session', id || 'unknown', Math.floor(Number(now) || Date.now()), randomPart].join(':');
+  }
+
+  function doesRuntimeMinigameSessionMatch(session, active) {
+    if (!session || !active || String(session.id) !== String(active.id)) {
+      return false;
+    }
+    if (Number(session.startedAt) !== Number(active.startedAt)) {
+      return false;
+    }
+    const sessionToken = String(session.runtimeToken || '');
+    const activeToken = String(active.runtimeToken || '');
+    return sessionToken && activeToken ? sessionToken === activeToken : true;
+  }
+
+  function releaseExclusiveRuntimeSession(kind) {
+    if (!runtime.exclusiveSession || !kind || runtime.exclusiveSession.kind === kind) {
+      runtime.exclusiveSession = null;
+    }
+  }
+
+  function abortExclusiveRuntimeSession(reason) {
+    if (typeof cancelPendingExclusiveStart === 'function') {
+      cancelPendingExclusiveStart();
+    }
+    if (typeof stopMinigameRuntime === 'function') {
+      stopMinigameRuntime();
+    }
+    if (runtime.state && runtime.state.minigames) {
+      runtime.state.minigames.active = null;
+    }
+    if (runtime.state && runtime.state.battle) {
+      runtime.state.battle.activeBattle = null;
+      runtime.state.battle.mode = reason === 'gameOver' ? 'gameOver' : reason === 'recovery' ? 'recovery' : 'idle';
+    }
+    runtime.exclusiveSession = null;
+  }
+
+  function reconcileExclusiveRuntimeSession(now) {
+    if (!runtime.state) {
+      return;
+    }
+    if (typeof isForeignExclusiveSessionActive === 'function' && isForeignExclusiveSessionActive()) {
+      if (typeof stopMinigameRuntime === 'function') {
+        stopMinigameRuntime();
+      }
+      runtime.exclusiveSession = null;
+      return;
+    }
+    if (isGameOverForRuntime()) {
+      abortExclusiveRuntimeSession('gameOver');
+      return;
+    }
+    if (isRecoveryActiveForRuntime(now)) {
+      abortExclusiveRuntimeSession('recovery');
+      return;
+    }
+
+    const activeMinigame = runtime.state.minigames && runtime.state.minigames.active;
+    const activeBattle = isBattleSessionActive()
+      ? runtime.state.battle.activeBattle
+      : null;
+    if (activeMinigame && activeBattle) {
+      abortExclusiveRuntimeSession('conflict');
+      setTransientMessage('Sesja przerwana', 'Wykryto dwie równoległe aktywności. Żadna nie otrzyma nagrody.');
+      return;
+    }
+    if (runtime.minigame && !doesRuntimeMinigameSessionMatch(runtime.minigame.session, activeMinigame)) {
+      stopMinigameRuntime();
+    }
+    if (activeMinigame) {
+      runtime.exclusiveSession = {
+        kind: 'minigame',
+        id: activeMinigame.id,
+        token: activeMinigame.runtimeToken || ''
+      };
+    } else if (activeBattle) {
+      runtime.exclusiveSession = {
+        kind: 'battle',
+        id: activeBattle.id,
+        token: activeBattle.runtimeToken || ''
+      };
+    } else {
+      runtime.exclusiveSession = null;
+    }
   }
 
   function isRecoveryActiveForRuntime(now) {
@@ -660,13 +969,20 @@
     const result = core.recordRecoveryCare(state, actionId, rules, now);
     const nextState = result.state || state;
     state.recovery = nextState.recovery || state.recovery;
+    state.gameOver = nextState.gameOver || state.gameOver;
+    state.attention = nextState.attention || state.attention;
+    state.minigames = nextState.minigames || state.minigames;
+    state.battle = nextState.battle || state.battle;
     state.mode = nextState.mode || state.mode;
-    state.currentActivity = nextState.currentActivity || state.currentActivity;
+    if (Object.prototype.hasOwnProperty.call(nextState, 'currentActivity')) {
+      state.currentActivity = nextState.currentActivity;
+    }
     (result.events || []).forEach(function(event) {
       if (event.type === 'recoveryStart') {
         addLog(state, 'Pieczarka układa się w mchu. Kuracja potrwa kilka godzin.', now);
       }
     });
+    reconcileExclusiveRuntimeSession(now);
     return state;
   }
 

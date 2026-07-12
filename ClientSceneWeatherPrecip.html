@@ -13,7 +13,8 @@
   }
 
   function drawWeatherPrecipitationForeground(ctx, now) {
-    const scene = getCurrentWeatherScene();
+    const frameScene = typeof getSceneFrameSnapshot === 'function' ? getSceneFrameSnapshot(now) : null;
+    const scene = frameScene ? frameScene.scene : getCurrentWeatherScene();
     if (!scene) {
       return;
     }
@@ -107,7 +108,8 @@
 
     const wind = getDynamicWindState(scene, now);
     const motionNow = getPrecipitationMotionNow(now);
-    const baseCount = Math.round((32 + intensity * 96 + wind.averageLevel * 18) * profile.countMultiplier);
+    const qualityScale = getPrecipitationRenderScale();
+    const baseCount = Math.round((32 + intensity * 96 + wind.averageLevel * 18) * profile.countMultiplier * qualityScale);
     const slant = getRainSlant(wind);
     const cycleBase = getRainCycleBase(profile, intensity, wind);
     const layers = [
@@ -133,7 +135,7 @@
       },
       {
         seedOffset: 4000,
-        count: Math.max(profile.foregroundMin, Math.round(baseCount * profile.foregroundShare)),
+        count: Math.max(Math.round(profile.foregroundMin * qualityScale), Math.round(baseCount * profile.foregroundShare)),
         alpha: profile.foregroundAlpha + intensity * 0.16,
         color: '#c7e2ff',
         width: profile.dropWidth + (profile.rainClass === 'heavy' || profile.rainClass === 'violent' ? 1 : 0),
@@ -272,9 +274,9 @@
     ctx.fillStyle = scene.condition === 'storm' ? '#8dbce8' : '#a8cfef';
     for (let index = 0; index < sheetCount; index += 1) {
       const width = 44 + Math.round(profile.intensity * 44 + seededUnit(5100 + index) * 36);
-      const height = 430 + Math.round(profile.intensity * 80);
       const x = positiveModulo(index * 126 + drift * (10 + wind.level * 16), 760) - 132;
       const y = -36 + Math.round(seededUnit(5110 + index) * 42);
+      const height = Math.max(1, 390 - y);
       ctx.globalAlpha = profile.sheetAlpha * (0.52 + seededUnit(5120 + index) * 0.46);
       ctx.fillRect(Math.round(x + slant * 0.28), y, width, height);
       ctx.globalAlpha = profile.sheetAlpha * 0.45;
@@ -308,12 +310,12 @@
       const spawnY = -112 - seededUnit(seed + 4) * 80;
       const landingY = getPrecipitationGrassLandingY(seed + 9, layer.depth, 'rain');
       const travelHeight = getPrecipitationTravelHeight(spawnY, landingY);
-      const cullBottom = getPrecipitationCullBottom(landingY, 'rain');
       const windDrift = slant * progress * (1.16 + seededUnit(seed + 5) * 0.54);
       const jitter = Math.round((seededUnit(seed + Math.floor(motionNow / 180)) - 0.5) * 2);
       const x = positiveModulo(spawnX + windDrift + coverageMargin, coverageWidth + coverageMargin * 2) - coverageMargin + jitter;
       const y = getPrecipitationFallY(spawnY, progress, travelHeight);
       const length = Math.round(layer.length + seededUnit(seed + 6) * (7 + windLevel * 9) + wind.gustPulse * 3);
+      const cullBottom = getPrecipitationCullBottom(landingY, 'rain', layer.depth, Math.ceil(length * 1.15) + 2);
       const width = layer.width + (seededUnit(seed + 7) > 0.86 ? 1 : 0);
       const localSlant = Math.round(slant * (0.42 + seededUnit(seed + 8) * 0.22));
 
@@ -323,7 +325,7 @@
 
       drawRainDrop(ctx, x, y, localSlant, length, width);
 
-      if (y > landingY - 10 && seededUnit(seed + Math.floor(motionNow / 90)) > 0.62) {
+      if (layer.depth === 'foreground' && y > landingY - 10 && seededUnit(seed + Math.floor(motionNow / 90)) > 0.62) {
         drawRainSplash(ctx, x + localSlant * 0.45, landingY + 3, layer.width);
       }
     }
@@ -403,8 +405,9 @@
     const styleCount = snowStyle === 'blowing' ? 1.22 : snowStyle === 'wet' ? 0.72 : 1;
     const styleSpeed = snowStyle === 'blowing' ? 1.28 : snowStyle === 'wet' ? 1.18 : 1;
     const styleSway = snowStyle === 'wet' ? 0.46 : snowStyle === 'blowing' ? 1.28 : 1;
-    const baseCount = Math.round((24 + intensity * 58 + wind.averageLevel * 10) * styleCount);
-    const foregroundSnowMin = snowStyle === 'wet' ? 18 : 24;
+    const qualityScale = getPrecipitationRenderScale();
+    const baseCount = Math.round((24 + intensity * 58 + wind.averageLevel * 10) * styleCount * qualityScale);
+    const foregroundSnowMin = Math.round((snowStyle === 'wet' ? 18 : 24) * qualityScale);
     const slant = wind.directionX * (2 + wind.level * 26 + wind.gustPulse * 8) * (snowStyle === 'blowing' ? 1.48 : 1);
     const cycleBase = getSnowCycleBase(intensity, wind, styleSpeed);
     const layers = [
@@ -464,13 +467,13 @@
       const spawnY = -74 - seededUnit(seed + 4) * 58;
       const landingY = getPrecipitationGrassLandingY(seed + 9, layer.depth, 'snow');
       const travelHeight = getPrecipitationTravelHeight(spawnY, landingY);
-      const cullBottom = getPrecipitationCullBottom(landingY, 'snow');
       const calmSway = Math.sin(motionNow / (720 + seededUnit(seed + 5) * 420) + seed) * layer.sway * (1 - wind.level * 0.62);
       const gustSway = Math.sin(motionNow / 620 + seed) * wind.gustPulse * (3 + wind.level * 5);
       const windDrift = slant * progress * (1.12 + seededUnit(seed + 6) * 0.82);
       const x = positiveModulo(spawnX + windDrift + calmSway + gustSway + coverageMargin, coverageWidth + coverageMargin * 2) - coverageMargin;
       const y = getPrecipitationFallY(spawnY, progress, travelHeight);
       const size = layer.size + (seededUnit(seed + 7) > 0.72 ? 1 : 0);
+      const cullBottom = getPrecipitationCullBottom(landingY, 'snow', layer.depth, size + 2);
 
       if (y < -30 || y > cullBottom) {
         continue;
@@ -527,10 +530,10 @@
     const wetDrop = kind === 'rain';
     const minY = foreground
       ? (wetDrop ? 430 : 432)
-      : (wetDrop ? 416 : 418);
+      : (wetDrop ? 342 : 346);
     const maxY = foreground
       ? (wetDrop ? 472 : 498)
-      : (wetDrop ? 456 : 476);
+      : 388;
     const mixed = seededUnit(seed) * 0.68 + seededUnit(seed + 17) * 0.32;
     return Math.round(minY + mixed * (maxY - minY));
   }
@@ -543,8 +546,20 @@
     return spawnY + progress * travelHeight;
   }
 
-  function getPrecipitationCullBottom(landingY, kind) {
+  function getPrecipitationCullBottom(landingY, kind, depth, extent) {
+    if (depth === 'background') {
+      return Math.min(390 - Math.max(0, Number(extent) || 0), landingY);
+    }
     return landingY + (kind === 'rain' ? 28 : 8);
+  }
+
+  function getPrecipitationRenderScale() {
+    const quality = runtime && runtime.sceneFrameSnapshot && runtime.sceneFrameSnapshot.quality
+      ? runtime.sceneFrameSnapshot.quality
+      : null;
+    return quality && Number.isFinite(Number(quality.precipitationScale))
+      ? clamp(Number(quality.precipitationScale), 0.35, 1, 1)
+      : 1;
   }
 
   function getDistributedPrecipitationX(index, count, seed, width, margin) {

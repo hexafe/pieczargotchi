@@ -438,13 +438,13 @@
     if (event.type === 'minigame' && typeof isLegendaryGameIdCore === 'function' && isLegendaryGameIdCore(event.minigameId, rules)) {
       const config = typeof getLegendaryGameConfigCore === 'function' ? getLegendaryGameConfigCore(event.minigameId, rules) : null;
       eventPoints = Number(config && config.projectPoints) || 3;
-      if (typeof applyLegendaryProjectDailyCapCore === 'function') {
-        const capped = applyLegendaryProjectDailyCapCore(state, eventPoints, rules, now);
-        state = capped.state || state;
-        eventPoints = capped.points;
-        if (!eventPoints) {
-          return;
-        }
+    }
+    if (typeof applyLegendaryProjectDailyCapCore === 'function') {
+      const capped = applyLegendaryProjectDailyCapCore(state, eventPoints, rules, now);
+      state = capped.state || state;
+      eventPoints = capped.points;
+      if (!eventPoints) {
+        return;
       }
     }
     progress.points = clampInteger(progress.points + eventPoints, 0, project.target, 0);
@@ -760,6 +760,9 @@
   }
 
   function getMinigamePerfectScoreCore(minigameId, config) {
+    if (config && Number(config.perfectTarget)) {
+      return Math.max(1, Math.floor(Number(config.perfectTarget)));
+    }
     if (config && Number(config.masteryTarget)) {
       return Math.max(1, Math.floor(Number(config.masteryTarget)));
     }

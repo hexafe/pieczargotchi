@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -15,6 +15,8 @@ const captureDelayMs = Number.isFinite(captureDelayOverride) ? Math.max(0, captu
 const captureAppsScriptNoAssets = process.env.PIECZARGOTCHI_CAPTURE_APPS_SCRIPT_NO_ASSETS === '1';
 const captureBeforeAssets = process.env.PIECZARGOTCHI_CAPTURE_BEFORE_ASSETS === '1';
 const captureAllMinigames = process.env.PIECZARGOTCHI_CAPTURE_ALL_MINIGAMES === '1';
+const captureUiFlow = process.env.PIECZARGOTCHI_CAPTURE_UI_FLOW === '1';
+const captureExceptionProbe = process.env.PIECZARGOTCHI_CAPTURE_EXCEPTION_PROBE === '1';
 const captureLegendaryGames = process.env.PIECZARGOTCHI_CAPTURE_LEGENDARY_GAMES === '1';
 const captureMinigamePanelScreens = process.env.PIECZARGOTCHI_CAPTURE_MINIGAME_PANEL === '1';
 const captureJournal = process.env.PIECZARGOTCHI_CAPTURE_JOURNAL === '1';
@@ -29,8 +31,7 @@ const captureCleanlinessOverride = readOptionalEnvNumber('PIECZARGOTCHI_CAPTURE_
 const captureCleanliness = captureCleanlinessOverride === null
   ? 80
   : Math.max(0, Math.min(100, captureCleanlinessOverride));
-const port = 9237 + Math.floor(Math.random() * 400);
-const userDataDir = path.join(tmpdir(), `pieczargotchi-cdp-${Date.now()}`);
+const userDataDir = path.join(tmpdir(), `pieczargotchi-cdp-${process.pid}-${Date.now()}`);
 const captureDebugSettings = createCaptureDebugSettings();
 const captureSceneOverrides = createCaptureSceneOverrides();
 const captureDecorations = readListEnv('PIECZARGOTCHI_CAPTURE_DECORATIONS');
@@ -251,7 +252,7 @@ const browser = spawn(chromiumPath, [
   '--headless=new',
   '--disable-gpu',
   '--no-sandbox',
-  `--remote-debugging-port=${port}`,
+  '--remote-debugging-port=0',
   `--user-data-dir=${userDataDir}`,
   'about:blank'
 ], {
@@ -317,6 +318,17 @@ try {
   });
 
   await navigate(cdp, appUrl);
+  if (captureExceptionProbe) {
+    await cdp.send('Runtime.evaluate', {
+      expression: `setTimeout(() => { throw new Error('PIECZARGOTCHI_CAPTURE_EXCEPTION_PROBE'); }, 0)`
+    });
+    await delay(100);
+    cdp.throwIfPageExceptions();
+    throw new Error('Próba wyjątku strony nie została wykryta przez capture QA.');
+  }
+  if (captureUiFlow) {
+    await captureRealUiFlow(cdp);
+  } else {
   if (process.env.PIECZARGOTCHI_CAPTURE_VIEWPORT === '1') {
     await setCaptureGrowth(cdp, 70);
     await captureViewport(cdp);
@@ -454,7 +466,9 @@ try {
       domainPixelExpression: `(r > 150 && g > 110 && b < 130)`
     });
   }
+  }
 
+  cdp.throwIfPageExceptions();
   await cdp.close();
 } finally {
   browser.kill('SIGTERM');
@@ -467,6 +481,149 @@ try {
       await delay(250);
     }
   }
+}
+
+async function captureRealUiFlow(cdp) {
+  await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.booted)`, 6000);
+  await waitForExpression(cdp, `Boolean(document.querySelector('[data-name-gate]:not([hidden])'))`, 3000);
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const input = document.querySelector('[data-name-input]');
+      const form = document.querySelector('[data-name-form]');
+      input.value = 'Przepływka';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      form.requestSubmit();
+      return true;
+    })()`,
+    returnByValue: true
+  });
+  await waitForExpression(cdp, `Boolean(document.querySelector('[data-name-gate][hidden]'))`, 3000);
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const wake = document.querySelector('[data-action-id="sleepWake"]');
+      if (!wake) return false;
+      wake.click();
+      return true;
+    })()`,
+    returnByValue: true
+  });
+  await waitForExpression(cdp, `window.__pieczargotchiRuntime.state.mode === 'awake'`, 3000);
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      document.querySelector('[data-workspace-tab="games"]').click();
+      const start = document.querySelector('[data-minigame-start="dewCatch"]');
+      if (!start || start.disabled) return false;
+      start.click();
+      return true;
+    })()`,
+    returnByValue: true
+  });
+  await waitForExpression(cdp, `(() => {
+    const field = document.querySelector('[data-minigame-playfield]');
+    return Boolean(field && !field.hidden && field.dataset.launchPhase === 'countdown');
+  })()`, 3000);
+  await waitForExpression(cdp, `(() => {
+    const field = document.querySelector('[data-minigame-playfield]');
+    if (!field) return false;
+    const rect = field.getBoundingClientRect();
+    return rect.top >= 0 && rect.bottom <= innerHeight + 1;
+  })()`, 1800);
+
+  const countdown = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const runtime = window.__pieczargotchiRuntime;
+      const field = document.querySelector('[data-minigame-playfield]');
+      const status = document.querySelector('[data-minigame-launch-status]');
+      const session = runtime.state.minigames.active;
+      const rect = field.getBoundingClientRect();
+      return {
+        phase: field.dataset.launchPhase,
+        status: status && status.textContent,
+        startedIn: Number(session.startedAt) - Date.now(),
+        duration: Number(session.until) - Number(session.startedAt),
+        visible: rect.top >= 0 && rect.bottom <= innerHeight + 1,
+        focusedInside: field.contains(document.activeElement)
+      };
+    })()`,
+    returnByValue: true
+  });
+  const countdownInfo = countdown.result.value || {};
+  if (countdownInfo.phase !== 'countdown'
+    || !/Start za [123]/.test(String(countdownInfo.status || ''))
+    || Number(countdownInfo.startedIn) < 1200
+    || Number(countdownInfo.duration) !== 20000
+    || !countdownInfo.visible
+    || !countdownInfo.focusedInside) {
+    throw new Error(`Niepoprawny realny launch minigry: ${JSON.stringify(countdownInfo)}`);
+  }
+
+  await waitForExpression(cdp, `(() => {
+    const field = document.querySelector('[data-minigame-playfield]');
+    const runtime = window.__pieczargotchiRuntime;
+    return Boolean(field && field.dataset.launchPhase === 'running' && runtime.minigame && runtime.minigame.session);
+  })()`, 5000);
+
+  const running = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const runtime = window.__pieczargotchiRuntime;
+      const session = runtime.minigame.session;
+      return {
+        id: session.id,
+        duration: Number(session.until) - Number(session.startedAt),
+        elapsed: Date.now() - Number(session.startedAt),
+        workspace: runtime.ui && runtime.ui.workspaceTab
+      };
+    })()`,
+    returnByValue: true
+  });
+  const runningInfo = running.result.value || {};
+  if (runningInfo.id !== 'dewCatch'
+    || runningInfo.duration !== 20000
+    || runningInfo.elapsed < 0
+    || runningInfo.elapsed > 1800
+    || runningInfo.workspace !== 'games') {
+    throw new Error(`Minigra nie wystartowała z pełnym czasem: ${JSON.stringify(runningInfo)}`);
+  }
+
+  const screenshot = await cdp.send('Page.captureScreenshot', { format: 'png', fromSurface: true });
+  const screenshotPath = `${outputPrefix}-real-ui-flow-${viewportWidth}x${viewportHeight}.png`;
+  writeFileSync(screenshotPath, Buffer.from(screenshot.data, 'base64'));
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `document.querySelector('[data-minigame-end]').click()`,
+    returnByValue: true
+  });
+  await waitForExpression(cdp, `!window.__pieczargotchiRuntime.state.minigames.active`, 4000);
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      document.querySelector('[data-settings-open]').click();
+      return true;
+    })()`,
+    returnByValue: true
+  });
+  await waitForExpression(cdp, `Boolean(document.querySelector('[data-settings-dialog][open]'))`, 2000);
+  const modal = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const dialog = document.querySelector('[data-settings-dialog]');
+      return {
+        open: dialog.open,
+        modalActive: window.__pieczargotchiRuntime.ui.activeModal,
+        focusInside: dialog.contains(document.activeElement)
+      };
+    })()`,
+    returnByValue: true
+  });
+  const modalInfo = modal.result.value || {};
+  if (!modalInfo.open || modalInfo.modalActive !== 'settings' || !modalInfo.focusInside) {
+    throw new Error(`Menu nie zachowuje natywnej modalności: ${JSON.stringify(modalInfo)}`);
+  }
+
+  console.log(`real-ui-flow: ${screenshotPath}`);
+  console.log(`real-ui-flow launch: ${JSON.stringify({ countdown: countdownInfo, running: runningInfo, modal: modalInfo })}`);
 }
 
 async function captureState(cdp, mode) {
@@ -532,6 +689,10 @@ async function captureInteractionSmoke(cdp) {
       const runtime = window.__pieczargotchiRuntime;
       if (!canvas || !runtime) {
         return { ok: false, reason: 'missing-canvas-runtime' };
+      }
+      if (runtime.captureOriginalImmersionSelector && window.PieczargotchiCore) {
+        window.PieczargotchiCore.selectImmersionReaction = runtime.captureOriginalImmersionSelector;
+        runtime.captureOriginalImmersionSelector = null;
       }
       const rect = canvas.getBoundingClientRect();
       const toClient = (x, y) => ({
@@ -676,6 +837,9 @@ async function captureInteractionSmoke(cdp) {
   if (!drawnGrassFeedback.length) {
     throw new Error(`Interaction capture did not render visible grass feedback: ${JSON.stringify({ drawnEffects, state })}`);
   }
+  if (!drawnGrassFeedback.some((effect) => Number(effect.alpha) > 0.02)) {
+    throw new Error(`Interaction capture recorded grass feedback without visible alpha: ${JSON.stringify({ drawnEffects, state })}`);
+  }
   state.sunTargetVisible = Boolean(info.sunTargetVisible);
   state.sunMoodAfterOne = info.sunMoodAfterOne;
   state.sunMoodCountAfterOne = info.sunMoodCountAfterOne;
@@ -686,11 +850,11 @@ async function captureInteractionSmoke(cdp) {
   state.sunMoodAfterSix = info.sunMoodAfterSix;
   state.sunMoodCountAfterSix = info.sunMoodCountAfterSix;
   if (state.sunTargetVisible) {
-    if (state.sunMoodAfterOne !== 'neutral' || Number(state.sunMoodCountAfterOne) !== 1) {
-      throw new Error(`Interaction capture reacted to the first accidental sun click: ${JSON.stringify(state)}`);
+    if (state.sunMoodAfterOne !== 'blink' || Number(state.sunMoodCountAfterOne) !== 1) {
+      throw new Error(`Interaction capture did not acknowledge the first sun click: ${JSON.stringify(state)}`);
     }
-    if (state.sunMoodAfterTwo !== 'neutral' || Number(state.sunMoodCountAfterTwo) !== 2) {
-      throw new Error(`Interaction capture reacted before several sun clicks: ${JSON.stringify(state)}`);
+    if (state.sunMoodAfterTwo !== 'blink' || Number(state.sunMoodCountAfterTwo) !== 2) {
+      throw new Error(`Interaction capture did not keep the early sun response subtle: ${JSON.stringify(state)}`);
     }
     if (state.sunMoodAfterThree !== 'blink' || Number(state.sunMoodCountAfterThree) !== 3) {
       throw new Error(`Interaction capture did not start the sun reaction after several clicks: ${JSON.stringify(state)}`);
@@ -709,6 +873,22 @@ async function captureInteractionSmoke(cdp) {
   const png = Buffer.from(image.result.value.replace(/^data:image\/png;base64,/, ''), 'base64');
   const filePath = `${outputPrefix}-interactions.png`;
   writeFileSync(filePath, png);
+  await delay(1700);
+  const expired = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const runtime = window.__pieczargotchiRuntime || {};
+      const effects = runtime.worldInteractions && Array.isArray(runtime.worldInteractions.effects)
+        ? runtime.worldInteractions.effects.filter((effect) => ['grassRustle', 'grassFind', 'frogJump'].includes(effect.type))
+        : [];
+      const ground = runtime.motionDiagnostics && runtime.motionDiagnostics.ground && runtime.motionDiagnostics.ground.field;
+      return { effectCount: effects.length, brushActive: Boolean(ground && ground.brushActive), brushAgeMs: ground && ground.brushAgeMs };
+    })()`,
+    returnByValue: true
+  });
+  const expiredState = expired.result.value || {};
+  if (Number(expiredState.effectCount) !== 0 || expiredState.brushActive) {
+    throw new Error(`Interaction capture did not expire grass feedback: ${JSON.stringify(expiredState)}`);
+  }
   console.log(`interactions: ${filePath}`);
   console.log(`interactions diagnostics: ${JSON.stringify(state)}`);
 }
@@ -1079,13 +1259,49 @@ async function captureDewMinigame(cdp) {
       caught: [],
       missed: []
     };
-    localStorage.setItem(config.storageKey, JSON.stringify(state));
+    return {
+      storageKey: config.storageKey,
+      state
+    };
   })()`;
 
-  await cdp.send('Runtime.evaluate', { expression: stateExpression, awaitPromise: true });
+  const stateResult = await cdp.send('Runtime.evaluate', {
+    expression: stateExpression,
+    awaitPromise: true,
+    returnByValue: true
+  });
+  if (stateResult.exceptionDetails) {
+    throw new Error(`Nie udało się przygotować stanu minigry Łapanie rosy: ${JSON.stringify(stateResult.exceptionDetails)}`);
+  }
+  const preparedEnvelope = stateResult.result && stateResult.result.value ? stateResult.result.value : null;
+  const preparedState = preparedEnvelope && preparedEnvelope.state ? preparedEnvelope.state : null;
+  const preparedStorageKey = preparedEnvelope && preparedEnvelope.storageKey
+    ? preparedEnvelope.storageKey
+    : 'pieczargotchi_state_v2';
+  if (!preparedState || !preparedState.minigames || !preparedState.minigames.active) {
+    throw new Error(`Nie udało się przygotować fixture minigry Łapanie rosy: ${JSON.stringify(preparedEnvelope)}`);
+  }
+  const preloadScript = await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
+    source: `try {
+      localStorage.setItem(${JSON.stringify(preparedStorageKey)}, ${JSON.stringify(JSON.stringify(preparedState))});
+    } catch (error) {}`
+  });
   await waitForLoad(cdp, () => cdp.send('Page.reload', { ignoreCache: true }));
+  if (preloadScript && preloadScript.identifier) {
+    await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: preloadScript.identifier }).catch(() => {});
+  }
   await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.booted && window.__pieczargotchiRuntime.minigame && window.__pieczargotchiRuntime.minigame.session && window.__pieczargotchiRuntime.minigame.session.id === 'dewCatch')`, 6000);
   await delay(Math.max(captureDelayMs, 650));
+  const dewKeyboard = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const runtime = window.__pieczargotchiRuntime || {};
+      const bucket = runtime.minigame && runtime.minigame.bucket;
+      const before = bucket && bucket.targetX;
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+      return { before, after: bucket && bucket.targetX };
+    })()`,
+    returnByValue: true
+  });
   const diagnostics = await cdp.send('Runtime.evaluate', {
     expression: `(() => {
       const canvas = document.querySelector('[data-dew-catch-canvas]');
@@ -1136,6 +1352,10 @@ async function captureDewMinigame(cdp) {
   const info = diagnostics.result.value || {};
   if (info.nonBlank < 8000 || info.bluePixels < 6 || info.bucketPixels < 80 || !info.dropCount) {
     throw new Error(`Dew minigame render looks incomplete: ${JSON.stringify(info)}`);
+  }
+  const keyboard = dewKeyboard.result.value || {};
+  if (!(Number(keyboard.after) > Number(keyboard.before))) {
+    throw new Error(`Dew minigame keyboard input did not move the bucket: ${JSON.stringify(keyboard)}`);
   }
 
   const result = await cdp.send('Runtime.evaluate', {
@@ -1190,12 +1410,38 @@ async function captureConfiguredMinigame(cdp, sample) {
       nextBeat: 0,
       habitatTags: ${JSON.stringify(sample.habitatTags || {})}
     };
-    localStorage.setItem(config.storageKey, JSON.stringify(state));
-    localStorage.removeItem((config.storageKey || 'pieczargotchi_state_v2') + '_debug');
+    return {
+      storageKey: config.storageKey,
+      state
+    };
   })()`;
 
-  await cdp.send('Runtime.evaluate', { expression: stateExpression, awaitPromise: true });
+  const stateResult = await cdp.send('Runtime.evaluate', {
+    expression: stateExpression,
+    awaitPromise: true,
+    returnByValue: true
+  });
+  if (stateResult.exceptionDetails) {
+    throw new Error(`Nie udało się przygotować stanu minigry ${sample.label}: ${JSON.stringify(stateResult.exceptionDetails)}`);
+  }
+  const preparedEnvelope = stateResult.result && stateResult.result.value ? stateResult.result.value : null;
+  const preparedState = preparedEnvelope && preparedEnvelope.state ? preparedEnvelope.state : null;
+  const preparedStorageKey = preparedEnvelope && preparedEnvelope.storageKey
+    ? preparedEnvelope.storageKey
+    : 'pieczargotchi_state_v2';
+  if (!preparedState || !preparedState.minigames || !preparedState.minigames.active) {
+    throw new Error(`Nie udało się przygotować fixture minigry ${sample.label}: ${JSON.stringify(preparedEnvelope)}`);
+  }
+  const preloadScript = await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
+    source: `try {
+      localStorage.setItem(${JSON.stringify(preparedStorageKey)}, ${JSON.stringify(JSON.stringify(preparedState))});
+      localStorage.removeItem(${JSON.stringify(preparedStorageKey + '_debug')});
+    } catch (error) {}`
+  });
   await waitForLoad(cdp, () => cdp.send('Page.reload', { ignoreCache: true }));
+  if (preloadScript && preloadScript.identifier) {
+    await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: preloadScript.identifier }).catch(() => {});
+  }
   await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.booted && window.__pieczargotchiRuntime.minigame && window.__pieczargotchiRuntime.minigame.session && window.__pieczargotchiRuntime.minigame.session.id === ${JSON.stringify(sample.id)})`, 6000);
   if (sample.viewArena) {
     await cdp.send('Runtime.evaluate', {
@@ -1207,7 +1453,7 @@ async function captureConfiguredMinigame(cdp, sample) {
   await delay(Math.max(captureDelayMs, 650));
   const interaction = await performConfiguredMinigameInteraction(cdp, sample);
   if (interaction && Number.isFinite(Number(interaction.waitMs))) {
-    await delay(Math.max(40, Math.min(1300, Number(interaction.waitMs) || 0)));
+    await delay(Math.max(40, Math.min(3000, Number(interaction.waitMs) || 0)));
     await performConfiguredMinigameInteraction(cdp, Object.assign({}, sample, { fireInteractionNow: true }));
     await delay(120);
   } else if (interaction && interaction.applied) {
@@ -1306,16 +1552,9 @@ async function performConfiguredMinigameInteraction(cdp, sample) {
         if (raw < 0 || raw > 1) {
           return { applied: false, raw };
         }
-        const rect = canvas.getBoundingClientRect();
-        canvas.dispatchEvent(new PointerEvent('pointerdown', {
-          bubbles: true,
-          cancelable: true,
-          clientX: rect.left + x / canvas.width * rect.width,
-          clientY: rect.top + y / canvas.height * rect.height,
-          pointerId: 1,
-          pointerType: 'mouse'
-        }));
-        return { applied: true, score: session.score, target: spore.id };
+        const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+        const canceled = !window.dispatchEvent(event);
+        return { applied: true, score: session.score, target: spore.id, input: 'keyboard', canceled };
       })()`,
       returnByValue: true
     });
@@ -1348,21 +1587,10 @@ async function performConfiguredMinigameInteraction(cdp, sample) {
         }
         const x = Math.round(Math.max(12, Math.min(canvas.width - 12, piece.x + Math.sin(local * 5 + piece.variant) * 9)));
         const y = Math.round(22 + piece.lane * 30 + eased * 38);
-        const dropX = piece.good ? canvas.width - 40 : 40;
-        const dropY = canvas.height - 28;
-        const rect = canvas.getBoundingClientRect();
-        const eventOptions = (px, py, type) => ({
-          bubbles: true,
-          cancelable: true,
-          clientX: rect.left + px / canvas.width * rect.width,
-          clientY: rect.top + py / canvas.height * rect.height,
-          pointerId: 1,
-          pointerType: 'mouse'
-        });
-        canvas.dispatchEvent(new PointerEvent('pointerdown', eventOptions(x, y, 'pointerdown')));
-        canvas.dispatchEvent(new PointerEvent('pointermove', eventOptions(dropX, dropY, 'pointermove')));
-        canvas.dispatchEvent(new PointerEvent('pointerup', eventOptions(dropX, dropY, 'pointerup')));
-        return { applied: true, score: session.score, target: piece.id, good: piece.good };
+        const key = piece.good ? 'c' : 'r';
+        const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+        const canceled = !window.dispatchEvent(event);
+        return { applied: true, score: session.score, target: piece.id, good: piece.good, input: 'keyboard', key, canceled };
       })()`,
       returnByValue: true
     });
@@ -1384,24 +1612,13 @@ async function performConfiguredMinigameInteraction(cdp, sample) {
         if (!canvas || !target) {
           return { applied: false };
         }
-        const rect = canvas.getBoundingClientRect();
         const sampleId = ${JSON.stringify(sample.id)};
-        const clickX = sampleId === 'myceliumLeague'
-          ? target.lane === 'strike' ? 78 : target.lane === 'guard' ? 150 : 222
-          : target.x;
-        const clickY = sampleId === 'myceliumLeague'
-          ? canvas.height - 36
-          : target.y;
-        const event = new PointerEvent('pointerdown', {
-          bubbles: true,
-          cancelable: true,
-          clientX: rect.left + clickX / canvas.width * rect.width,
-          clientY: rect.top + clickY / canvas.height * rect.height,
-          pointerId: 1,
-          pointerType: 'mouse'
-        });
-        canvas.dispatchEvent(event);
-        return { applied: true, score: session.score, target: target.id };
+        const key = sampleId === 'myceliumLeague'
+          ? target.lane === 'strike' ? 'c' : target.lane === 'guard' ? 'o' : 's'
+          : 'Enter';
+        const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+        const canceled = !window.dispatchEvent(event);
+        return { applied: true, score: session.score, target: target.id, input: 'keyboard', key, canceled };
       })()`,
       returnByValue: true
     });
@@ -1577,7 +1794,11 @@ async function setCaptureGrowth(cdp, growth) {
     expression: `(() => {
       const config = window.PIECZARGOTCHI_CONFIG;
       const state = JSON.parse(JSON.stringify(config.state.defaultState));
-      const iso = new Date(${now}).toISOString();
+      const debugSettings = ${JSON.stringify(captureDebugSettings)};
+      const runtimeNow = debugSettings && Number.isFinite(Number(debugSettings.fixedAt))
+        ? Number(debugSettings.fixedAt)
+        : ${now};
+      const iso = new Date(runtimeNow).toISOString();
       state.version = config.stateVersion;
       state.playerId = 'arena-unlock-audit';
       state.mushroomName = 'Auditka';
@@ -1611,6 +1832,9 @@ async function setCaptureGrowth(cdp, growth) {
         });
       }
       localStorage.setItem(config.storageKey, JSON.stringify(state));
+      if (debugSettings) {
+        localStorage.setItem((config.storageKey || 'pieczargotchi_state_v2') + '_debug', JSON.stringify(debugSettings));
+      }
     })()`,
     awaitPromise: true
   });
@@ -1851,11 +2075,21 @@ async function captureCanvas(cdp, label, options) {
     await suppressCaptureImmersion(cdp);
   }
   await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.booted && window.__pieczargotchiRuntime.currentAnimationKey)`, 6000);
+  if (options.expectedAnimationKey) {
+    await waitForExpression(
+      cdp,
+      `window.__pieczargotchiRuntime.currentAnimationKey === ${JSON.stringify(options.expectedAnimationKey)}`,
+      3000
+    );
+  }
   await delay(captureDelayMs);
 
   const animationKey = await getCurrentAnimationKey(cdp);
   if (options.expectedAnimationKey && animationKey !== options.expectedAnimationKey) {
     throw new Error(`Nieprawidlowa animacja dla ${label}: ${animationKey}, oczekiwano ${options.expectedAnimationKey}`);
+  }
+  if (animationKey) {
+    await assertCurrentAnimationAtlasContract(cdp, animationKey, label);
   }
 
   const result = await cdp.send('Runtime.evaluate', {
@@ -2149,7 +2383,7 @@ async function forceCaptureGrassPointer(cdp) {
       if (!runtime) {
         return;
       }
-      const now = Number(runtime.debug && runtime.debug.fixedAt) || Date.now();
+      const now = Number(runtime.wallNow) || Date.now();
       runtime.input = Object.assign(runtime.input || {}, {
         inside: true,
         x: 262,
@@ -2222,10 +2456,23 @@ async function suppressCaptureImmersion(cdp) {
       if (!runtime) {
         return;
       }
-      const now = Number(runtime.debug && runtime.debug.fixedAt) || Date.now();
+      const core = window.PieczargotchiCore;
+      if (core && typeof core.selectImmersionReaction === 'function') {
+        runtime.captureOriginalImmersionSelector = runtime.captureOriginalImmersionSelector
+          || core.selectImmersionReaction;
+        core.selectImmersionReaction = function() { return null; };
+      }
+      const now = Number(runtime.wallNow) || Date.now();
       runtime.immersion = runtime.immersion || {};
       runtime.immersion.active = null;
       runtime.immersion.cooldownUntil = now + 30000;
+      runtime.immersion.cooldowns = Object.assign({}, runtime.immersion.cooldowns || {}, {
+        sun: now + 30000,
+        stargaze: now + 30000,
+        weather: now + 30000,
+        ambient: now + 30000,
+        idle: now + 30000
+      });
     })()`,
     awaitPromise: true
   });
@@ -2400,7 +2647,7 @@ async function captureViewport(cdp) {
           clipped: rect && rect.height > 0 && (element.scrollHeight > element.clientHeight + 1 || element.scrollWidth > element.clientWidth + 1)
         };
       };
-      const actionButtons = Array.from(document.querySelectorAll('.action-button')).map((button) => {
+      const actionButtons = Array.from(document.querySelectorAll('.action-button, .action-more-button')).map((button) => {
         const rect = button.getBoundingClientRect();
         const label = button.querySelector('.action-label');
         const style = getComputedStyle(button);
@@ -2410,13 +2657,14 @@ async function captureViewport(cdp) {
           left: rect.left,
           width: rect.width,
           height: rect.height,
-          labelText: label ? label.textContent : '',
+          labelText: label ? label.textContent : button.textContent.trim(),
           visible: style.display !== 'none' && rect.width > 0 && rect.height > 0,
           hiddenByContext: button.classList.contains('is-mobile-context-hidden'),
           labelClipped: label ? label.scrollWidth > label.clientWidth + 1 || label.scrollHeight > label.clientHeight + 1 : false
         };
       });
       const actionsGrid = document.querySelector('.actions-grid');
+      const actionsPrimary = document.querySelector('[data-actions-primary]');
       const actionsPanel = document.querySelector('.panel-block--actions');
       const actionsStyle = actionsPanel ? getComputedStyle(actionsPanel) : null;
       const getOverlapRatio = (base, overlay) => {
@@ -2433,7 +2681,12 @@ async function captureViewport(cdp) {
       const actionColumns = actionsGrid
         ? getComputedStyle(actionsGrid).gridTemplateColumns.split(' ').filter(Boolean).length
         : 0;
+      const primaryActionColumns = actionsPrimary
+        ? getComputedStyle(actionsPrimary).gridTemplateColumns.split(' ').filter(Boolean).length
+        : 0;
       const stageRect = rectOf('.stage-panel');
+      const topbarRect = rectOf('.topbar');
+      const stageToolbarRect = rectOf('.stage-toolbar');
       const messageRect = elementInfo('.message-panel');
       const canvasRect = rectOf('.canvas-wrap');
       const actionsRect = rectOf('.panel-block--actions');
@@ -2447,7 +2700,9 @@ async function captureViewport(cdp) {
         documentWidth: document.documentElement.scrollWidth,
         bodyWidth: document.body.scrollWidth,
         app: rectOf('.app'),
+        topbar: topbarRect,
         stage: stageRect,
+        stageToolbar: stageToolbarRect,
         message: messageRect,
         side: sideRect,
         actions: actionsRect,
@@ -2459,6 +2714,8 @@ async function captureViewport(cdp) {
         discoveries: rectOf('.panel-block--discoveries'),
         minigames: minigamesRect,
         minigamesHeading: elementInfo('.panel-block--minigames .block-heading'),
+        workspaceTabs: elementInfo('[data-workspace-tabs]'),
+        activeWorkspacePanel: elementInfo('[data-workspace-panel]:not([hidden])'),
         buildBadge: elementInfo('[data-build-badge]'),
         calendar: rectOf('[data-calendar-checklist]'),
         calendarList: rectOf('[data-calendar-list]'),
@@ -2482,7 +2739,9 @@ async function captureViewport(cdp) {
         actionsPosition: actionsStyle ? actionsStyle.position : '',
         actionsDockActive: actionsPanel ? actionsPanel.classList.contains('is-adaptive-docked') : false,
         actionsDockPlacement: actionsPanel ? actionsPanel.dataset.adaptiveDock || 'flow' : 'missing',
+        actionsTopbarOverlapRatio: getOverlapRatio(topbarRect, actionsRect),
         actionsStageOverlapRatio: getOverlapRatio(stageRect, actionsRect),
+        actionsStageToolbarOverlapRatio: getOverlapRatio(stageToolbarRect, actionsRect),
         actionsCanvasOverlapRatio: getOverlapRatio(canvasRect, actionsRect),
         actionsMessageOverlapRatio: getOverlapRatio(messageRect, actionsRect),
         actionsSideOverlapRatio: getOverlapRatio(sideRect, actionsRect),
@@ -2492,6 +2751,7 @@ async function captureViewport(cdp) {
         sideScrollHeight: sidePanel ? sidePanel.scrollHeight : 0,
         sideClientHeight: sidePanel ? sidePanel.clientHeight : 0,
         actionColumns,
+        primaryActionColumns,
         actionButtons
       };
     })()`,
@@ -2521,15 +2781,11 @@ async function captureViewport(cdp) {
   });
   const filePath = `${outputPrefix}-viewport-${viewportWidth}x${viewportHeight}.png`;
   writeFileSync(filePath, Buffer.from(screenshot.data, 'base64'));
-  if ((viewportWidth <= 1024 || viewportHeight <= 760) && info.actionsDockActive) {
-    await assertAdaptiveDockReleasesOnSidePanelScroll(cdp, info);
-    await assertAdaptiveDockReleasesPastStandardPlace(cdp);
-  }
   if (viewportWidth > 640 && viewportHeight <= 700 && !info.actionsDockActive && info.actionsPosition === 'sticky') {
     await assertShortDesktopActionsStayVisibleOnSidePanelScroll(cdp, info);
   }
   console.log(`viewport: ${filePath}`);
-  console.log(`viewport layout: side=${Math.round(info.side.width)}x${Math.round(info.side.height)}, canvas=${Math.round(info.canvas.width)}x${Math.round(info.canvas.height)}, actionColumns=${info.actionColumns}`);
+  console.log(`viewport layout: side=${Math.round(info.side.width)}x${Math.round(info.side.height)}, canvas=${Math.round(info.canvas.width)}x${Math.round(info.canvas.height)}, actionColumns=${info.primaryActionColumns}/${info.actionColumns}`);
 }
 
 async function waitForMobileActionDock(cdp) {
@@ -2548,11 +2804,51 @@ async function waitForMobileActionDock(cdp) {
     returnByValue: true
   });
 
-  await waitForExpression(
-    cdp,
-    `Boolean(document.querySelector('.panel-block--actions.is-adaptive-docked'))`,
-    2500
-  );
+  try {
+    await waitForExpression(
+      cdp,
+      `(() => {
+        const panel = document.querySelector('.panel-block--actions');
+        return Boolean(panel && (
+          panel.classList.contains('is-adaptive-docked')
+          || (panel.dataset.adaptiveDock === 'flow' && getComputedStyle(panel).display !== 'none')
+        ));
+      })()`,
+      2500
+    );
+  } catch (error) {
+    const diagnostic = await cdp.send('Runtime.evaluate', {
+      expression: `(() => {
+        const runtime = window.__pieczargotchiRuntime || {};
+        const state = runtime.state || {};
+        const panel = document.querySelector('.panel-block--actions');
+        const openDialog = document.querySelector('dialog[open]');
+        return {
+          innerWidth: window.innerWidth,
+          viewMode: runtime.viewMode,
+          ui: runtime.ui || null,
+          named: Boolean(state.mushroomName && state.flags && state.flags.nameConfirmed),
+          gameOver: Boolean(state.gameOver && state.gameOver.active),
+          recovery: Boolean(state.recovery && state.recovery.active),
+          stateMinigame: state.minigames && state.minigames.active ? state.minigames.active.id : null,
+          runtimeMinigame: runtime.minigame && runtime.minigame.session ? runtime.minigame.session.id : null,
+          battle: state.battle && state.battle.activeBattle ? state.battle.activeBattle.mode : null,
+          openDialog: openDialog ? openDialog.outerHTML.slice(0, 180) : null,
+          hideDecision: typeof shouldHideMobileActionTray === 'function' ? shouldHideMobileActionTray() : null,
+          trayPresent: Boolean(runtime.actionTray && runtime.actionTray.primary && runtime.actionTray.moreButton),
+          trayHiddenReason: runtime.actionTray && runtime.actionTray.hiddenReason || null,
+          trayFallbackReason: runtime.actionTray && runtime.actionTray.fallbackReason || null,
+          panelHidden: panel ? panel.hidden : null,
+          panelClasses: panel ? panel.className : null,
+          panelDisplay: panel ? getComputedStyle(panel).display : null,
+          appTrayVisible: document.querySelector('[data-app]')?.dataset.actionTrayVisible || null,
+          trayHeight: getComputedStyle(document.documentElement).getPropertyValue('--action-tray-height')
+        };
+      })()`,
+      returnByValue: true
+    });
+    throw new Error(`Mobilny tray nie został zadokowany: ${JSON.stringify(diagnostic.result.value || {})}`);
+  }
 }
 
 function assertMobileLayout(info) {
@@ -2565,26 +2861,29 @@ function assertMobileLayout(info) {
     throw new Error(`Canvas jest zbyt nisko na mobile: top=${Math.round(info.canvas.top)}px, limit=${canvasTopLimit}px`);
   }
 
-  if (!info.actionsDockActive) {
-    throw new Error('Mobilny panel akcji powinien przejść w aktywny dock, gdy scena jest w widoku.');
-  }
-
   if (info.actionsDockActive && info.actionsPosition !== 'fixed') {
     throw new Error(`Aktywny dock akcji powinien być fixed, wykryto ${info.actionsPosition}.`);
   }
 
-  if (info.actionsDockActive && !['bottom', 'top'].includes(info.actionsDockPlacement)) {
-    throw new Error(`Mobilny dock akcji powinien być na dole albo u góry, wykryto ${info.actionsDockPlacement}.`);
+  if (info.actionsDockActive && info.actionsDockPlacement !== 'bottom') {
+    throw new Error(`Mobilny dock akcji powinien być wyłącznie na dole, wykryto ${info.actionsDockPlacement}.`);
   }
 
-  if (info.actionColumns !== 5) {
-    throw new Error(`Kompaktowy panel akcji powinien mieć 5 kolumn, wykryto ${info.actionColumns}.`);
+  if (info.actionsDockActive && info.primaryActionColumns !== 5) {
+    throw new Error(`Podstawowy rząd akcji powinien mieć 5 kolumn, wykryto ${info.primaryActionColumns}.`);
+  }
+
+  if (!info.actionsDockActive && (
+    info.actionsDockPlacement !== 'flow'
+    || !['static', 'relative'].includes(info.actionsPosition)
+  )) {
+    throw new Error(`Bezpieczny fallback akcji powinien pozostać w przepływie, wykryto ${info.actionsDockPlacement}/${info.actionsPosition}.`);
   }
 
   assertAdaptiveDockBounds(info);
 
   const visibleActionButtons = info.actionButtons.filter((button) => button.visible);
-  if (visibleActionButtons.length > 8) {
+  if (visibleActionButtons.length > 6) {
     throw new Error(`Kompaktowy panel akcji pokazuje za dużo przycisków naraz: ${visibleActionButtons.length}.`);
   }
 
@@ -2634,16 +2933,12 @@ function assertShortViewportLayout(info) {
   assertShortStageStack(info);
 
   if (info.innerWidth <= 640) {
-    if (!info.actionsDockActive) {
-      throw new Error('Akcje w krótkim layoucie dotykowym powinny przejść w aktywny dock, gdy scena jest w widoku.');
-    }
-
-    if (info.actionsPosition !== 'fixed') {
+    if (info.actionsDockActive && info.actionsPosition !== 'fixed') {
       throw new Error(`Aktywny dock akcji w krótkim layoucie powinien być fixed, wykryto ${info.actionsPosition}.`);
     }
 
-    if (info.actionColumns !== 2 && info.actionColumns !== 5) {
-      throw new Error(`Dock akcji w krótkim layoucie powinien mieć 2 albo 5 kolumn, wykryto ${info.actionColumns}.`);
+    if (info.actionsDockActive && info.primaryActionColumns !== 5) {
+      throw new Error(`Dock akcji w krótkim layoucie powinien mieć 5 podstawowych kolumn, wykryto ${info.primaryActionColumns}.`);
     }
 
     assertAdaptiveDockBounds(info);
@@ -2684,8 +2979,8 @@ function assertShortDesktopActionFlow(info) {
     throw new Error(`Panel akcji powinien zostać w przepływie side-panelu, wykryto ${info.actionsDockPlacement}.`);
   }
 
-  if (info.actionsPosition !== 'static') {
-    throw new Error(`Panel akcji w krótkim layoucie desktopowym powinien zostać w przepływie, wykryto ${info.actionsPosition}.`);
+  if (!['static', 'sticky'].includes(info.actionsPosition)) {
+    throw new Error(`Panel akcji w krótkim layoucie desktopowym powinien być w przepływie lub sticky, wykryto ${info.actionsPosition}.`);
   }
 
   if (info.actionColumns !== 3) {
@@ -2708,17 +3003,17 @@ function assertShortDesktopActionFlow(info) {
     );
   }
 
-  if (!info.minigamesHeading || !info.minigamesHeading.visible) {
-    throw new Error('Nagłówek Gry powinien być widoczny w krótkim layoucie.');
+  if (!info.workspaceTabs || !info.workspaceTabs.visible) {
+    throw new Error('Nawigacja Opieka/Gry/Grzybnia powinna być widoczna w krótkim layoucie.');
   }
 
-  if (info.minigamesHeading.top < info.side.top - 1 || info.minigamesHeading.top > info.innerHeight - 32) {
-    throw new Error(`Nagłówek Gry jest poza pierwszym widokiem: top=${Math.round(info.minigamesHeading.top)}, height=${info.innerHeight}.`);
+  if (info.workspaceTabs.top < info.side.top - 1 || info.workspaceTabs.top > info.innerHeight - 32) {
+    throw new Error(`Nawigacja workspace jest poza pierwszym widokiem: top=${Math.round(info.workspaceTabs.top)}, height=${info.innerHeight}.`);
   }
 
-  const headingOverlap = getLayoutOverlapRatio(info.minigamesHeading, info.actions);
-  if (headingOverlap > 0.01) {
-    throw new Error(`Panel akcji nachodzi na nagłówek Gry: ${(headingOverlap * 100).toFixed(1)}%.`);
+  const tabsOverlap = getLayoutOverlapRatio(info.workspaceTabs, info.actions);
+  if (tabsOverlap > 0.01) {
+    throw new Error(`Panel akcji nachodzi na nawigację workspace: ${(tabsOverlap * 100).toFixed(1)}%.`);
   }
 
   if (info.buildBadge && info.buildBadge.visible) {
@@ -2765,6 +3060,20 @@ function assertAdaptiveDockBounds(info) {
 
   if (info.actionsCanvasOverlapRatio > 0.18) {
     throw new Error(`Dock akcji zasłania zbyt dużo sceny: ${(info.actionsCanvasOverlapRatio * 100).toFixed(1)}%.`);
+  }
+
+  const protectedOverlap = Math.max(
+    Number(info.actionsTopbarOverlapRatio) || 0,
+    Number(info.actionsStageToolbarOverlapRatio) || 0,
+    Number(info.actionsCanvasOverlapRatio) || 0,
+    Number(info.actionsMessageOverlapRatio) || 0
+  );
+  if (protectedOverlap > 0.01) {
+    throw new Error(
+      `Dolny tray nachodzi na chroniony obszar: topbar=${(info.actionsTopbarOverlapRatio * 100).toFixed(1)}%, `
+      + `toolbar=${(info.actionsStageToolbarOverlapRatio * 100).toFixed(1)}%, canvas=${(info.actionsCanvasOverlapRatio * 100).toFixed(1)}%, `
+      + `message=${(info.actionsMessageOverlapRatio * 100).toFixed(1)}%.`
+    );
   }
 
   if (info.innerWidth > 640) {
@@ -3029,6 +3338,54 @@ async function getCurrentAnimationKey(cdp) {
   return result.result ? result.result.value : null;
 }
 
+async function assertCurrentAnimationAtlasContract(cdp, animationKey, label) {
+  const result = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const key = ${JSON.stringify(animationKey)};
+      const config = window.PIECZARGOTCHI_CONFIG || {};
+      const runtime = window.__pieczargotchiRuntime || {};
+      const animation = Array.isArray(config.animations)
+        ? config.animations.find((entry) => entry.key === key)
+        : null;
+      const asset = Array.isArray(config.assets)
+        ? config.assets.find((entry) => entry.key === key)
+        : null;
+      const image = runtime.assets && runtime.assets[key];
+      return {
+        key,
+        hasAnimation: Boolean(animation),
+        hasAsset: Boolean(asset),
+        hasImage: Boolean(image),
+        bakedGrass: animation && animation.bakedGrass,
+        frameWidth: Number(animation && animation.frameWidth) || 0,
+        frameHeight: Number(animation && animation.frameHeight) || 0,
+        storedFrameCount: Number(animation && animation.storedFrameCount) || 0,
+        assetWidth: Number(asset && asset.width) || 0,
+        assetHeight: Number(asset && asset.height) || 0,
+        naturalWidth: Number(image && image.naturalWidth) || 0,
+        naturalHeight: Number(image && image.naturalHeight) || 0
+      };
+    })()`,
+    returnByValue: true
+  });
+  const info = result.result && result.result.value ? result.result.value : {};
+  const expectedWidth = info.frameWidth * info.storedFrameCount;
+  if (
+    !info.hasAnimation
+    || !info.hasAsset
+    || !info.hasImage
+    || info.bakedGrass !== false
+    || expectedWidth <= 0
+    || info.frameHeight <= 0
+    || info.assetWidth !== expectedWidth
+    || info.assetHeight !== info.frameHeight
+    || info.naturalWidth !== expectedWidth
+    || info.naturalHeight !== info.frameHeight
+  ) {
+    throw new Error(`Niespójny ciasny atlas animacji dla ${label}: ${JSON.stringify(info)}`);
+  }
+}
+
 function getAssetStatusReadyExpression() {
   if (captureAppsScriptNoAssets) {
     return `(() => {
@@ -3052,7 +3409,17 @@ async function waitForEndpoint() {
   const deadline = Date.now() + 6000;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(`http://127.0.0.1:${port}/json/list`);
+      const devToolsPortFile = path.join(userDataDir, 'DevToolsActivePort');
+      if (!existsSync(devToolsPortFile)) {
+        await delay(50);
+        continue;
+      }
+      const devToolsPort = Number.parseInt(readFileSync(devToolsPortFile, 'utf8').split(/\r?\n/)[0], 10);
+      if (!Number.isInteger(devToolsPort) || devToolsPort <= 0) {
+        await delay(50);
+        continue;
+      }
+      const response = await fetch(`http://127.0.0.1:${devToolsPort}/json/list`);
       if (response.ok) {
         const targets = await response.json();
         const page = targets.find((target) => target.type === 'page' && target.webSocketDebuggerUrl);
@@ -3071,8 +3438,24 @@ async function waitForEndpoint() {
 function connectCdp(url) {
   const socket = new WebSocket(url);
   let nextId = 1;
+  let opened = false;
+  let intentionallyClosed = false;
   const pending = new Map();
   const listeners = new Map();
+  const pageExceptions = [];
+
+  function rejectPending(error) {
+    pending.forEach((entry) => {
+      clearTimeout(entry.timeout);
+      entry.reject(error);
+    });
+    pending.clear();
+  }
+
+  function handleSocketFailure(event) {
+    const detail = event && event.message ? `: ${event.message}` : '';
+    rejectPending(new Error(`Połączenie Chromium DevTools zostało przerwane${detail}`));
+  }
 
   socket.addEventListener('message', (event) => {
     const message = JSON.parse(event.data);
@@ -3080,7 +3463,9 @@ function connectCdp(url) {
       const details = message.params && message.params.exceptionDetails;
       const text = details && (details.exception && details.exception.description || details.text);
       const url = details && details.url ? ` ${details.url}:${details.lineNumber || 0}` : '';
-      console.error(`page exception:${url} ${text || JSON.stringify(details || {})}`);
+      const diagnostic = `page exception:${url} ${text || JSON.stringify(details || {})}`;
+      pageExceptions.push(diagnostic);
+      console.error(diagnostic);
     }
     if (message.method && listeners.has(message.method)) {
       const callbacks = listeners.get(message.method);
@@ -3092,8 +3477,9 @@ function connectCdp(url) {
       return;
     }
 
-    const { resolve, reject } = pending.get(message.id);
+    const { resolve, reject, timeout } = pending.get(message.id);
     pending.delete(message.id);
+    clearTimeout(timeout);
     if (message.error) {
       reject(new Error(message.error.message || JSON.stringify(message.error)));
     } else {
@@ -3103,17 +3489,34 @@ function connectCdp(url) {
 
   return new Promise((resolve, reject) => {
     socket.addEventListener('open', () => {
+      opened = true;
       resolve({
-        send(method, params = {}) {
+        send(method, params = {}, timeoutMs = 15000) {
           const id = nextId;
           nextId += 1;
-          socket.send(JSON.stringify({ id, method, params }));
           return new Promise((resolveSend, rejectSend) => {
-            pending.set(id, { resolve: resolveSend, reject: rejectSend });
+            const timeout = setTimeout(() => {
+              pending.delete(id);
+              rejectSend(new Error(`Timeout polecenia CDP po ${timeoutMs} ms: ${method}`));
+            }, timeoutMs);
+            pending.set(id, { resolve: resolveSend, reject: rejectSend, timeout });
+            try {
+              socket.send(JSON.stringify({ id, method, params }));
+            } catch (error) {
+              clearTimeout(timeout);
+              pending.delete(id);
+              rejectSend(error);
+            }
           });
         },
         close() {
+          intentionallyClosed = true;
           socket.close();
+        },
+        throwIfPageExceptions() {
+          if (pageExceptions.length) {
+            throw new Error(`Wykryto nieobsłużone wyjątki strony:\n${pageExceptions.join('\n')}`);
+          }
         },
         once(method, timeoutMs = 5000) {
           return new Promise((resolveOnce, rejectOnce) => {
@@ -3135,7 +3538,17 @@ function connectCdp(url) {
         }
       });
     });
-    socket.addEventListener('error', reject);
+    socket.addEventListener('error', (event) => {
+      handleSocketFailure(event);
+      if (!opened) {
+        reject(new Error('Nie udało się otworzyć połączenia Chromium DevTools.'));
+      }
+    });
+    socket.addEventListener('close', () => {
+      if (!intentionallyClosed) {
+        handleSocketFailure({ message: 'socket closed' });
+      }
+    });
   });
 }
 
@@ -3172,6 +3585,8 @@ async function getRuntimeWaitDiagnostic(cdp) {
         try {
           stored = JSON.parse(localStorage.getItem(storageKey) || 'null');
         } catch {}
+        const playfield = document.querySelector('[data-minigame-playfield]');
+        const playfieldRect = playfield ? playfield.getBoundingClientRect() : null;
         return {
           hasConfig: Boolean(window.PIECZARGOTCHI_CONFIG),
           hasRuntime: Boolean(runtime),
@@ -3186,6 +3601,26 @@ async function getRuntimeWaitDiagnostic(cdp) {
           storedName: stored && stored.mushroomName || null,
           storedVersion: stored && stored.version || null,
           storedFlags: stored && stored.flags || null,
+          viewport: { width: innerWidth, height: innerHeight, scrollY, scrollHeight: document.documentElement.scrollHeight },
+          documentState: {
+            htmlClass: document.documentElement.className,
+            bodyClass: document.body && document.body.className,
+            htmlOverflow: getComputedStyle(document.documentElement).overflow,
+            bodyOverflow: document.body ? getComputedStyle(document.body).overflow : null,
+            scrollingElement: document.scrollingElement && document.scrollingElement.tagName,
+            scrollingTop: document.scrollingElement && document.scrollingElement.scrollTop,
+            activeElement: document.activeElement && (document.activeElement.getAttribute('data-dew-catch-canvas') !== null
+              ? 'dew-canvas'
+              : document.activeElement.tagName)
+          },
+          playfieldRect: playfieldRect ? {
+            top: playfieldRect.top,
+            right: playfieldRect.right,
+            bottom: playfieldRect.bottom,
+            left: playfieldRect.left,
+            width: playfieldRect.width,
+            height: playfieldRect.height
+          } : null,
           assetStatus: document.querySelector('[data-asset-status]') && document.querySelector('[data-asset-status]').textContent,
           bodyText: document.body && document.body.textContent ? document.body.textContent.slice(0, 180) : ''
         };

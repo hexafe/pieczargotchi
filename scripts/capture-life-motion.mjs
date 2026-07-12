@@ -1,5 +1,4 @@
 import { spawn } from 'node:child_process';
-import { createServer } from 'node:net';
 import { mkdir, rm } from 'node:fs/promises';
 import { get } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -8,8 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const outputDir = process.argv[2] || path.join(tmpdir(), `pieczargotchi-life-motion-${Date.now()}`);
-const port = await getAvailablePort();
-const appUrl = `http://127.0.0.1:${port}/`;
+let appUrl = '';
 
 const scenarios = [
   {
@@ -216,20 +214,38 @@ const scenarios = [
 
 await mkdir(outputDir, { recursive: true });
 
-const server = spawn(process.execPath, ['dev-server.mjs', String(port)], {
+const server = spawn(process.execPath, ['dev-server.mjs', '0'], {
   cwd: rootDir,
-  env: { ...process.env, PORT: String(port) },
+  env: { ...process.env, PORT: '0' },
   stdio: ['ignore', 'pipe', 'pipe']
 });
 let serverExited = false;
+let serverOutput = '';
+let serverError = '';
+let serverSpawnError = null;
 server.on('exit', () => {
   serverExited = true;
 });
-server.stdout.on('data', (chunk) => process.stdout.write(chunk));
-server.stderr.on('data', (chunk) => process.stderr.write(chunk));
+server.on('error', (error) => {
+  serverSpawnError = error;
+});
+server.stdout.on('data', (chunk) => {
+  const text = String(chunk);
+  serverOutput += text;
+  const match = serverOutput.match(/http:\/\/127\.0\.0\.1:(\d+)\//);
+  if (match) {
+    appUrl = `http://127.0.0.1:${match[1]}/`;
+  }
+  process.stdout.write(text);
+});
+server.stderr.on('data', (chunk) => {
+  const text = String(chunk);
+  serverError += text;
+  process.stderr.write(text);
+});
 
 try {
-  await waitForServer(appUrl, 6000);
+  await waitForServer(6000);
   for (const scenario of scenarios) {
     await runScenario(scenario);
   }
@@ -879,15 +895,23 @@ function runCommand(command, args, env) {
   });
 }
 
-function waitForServer(url, timeoutMs) {
+function waitForServer(timeoutMs) {
   const startedAt = Date.now();
   return new Promise((resolve, reject) => {
     const attempt = () => {
-      if (serverExited) {
-        reject(new Error('Local preview server exited before it became ready'));
+      if (serverSpawnError) {
+        reject(serverSpawnError);
         return;
       }
-      get(url, (response) => {
+      if (serverExited) {
+        reject(new Error(`Local preview server exited before it became ready: ${serverError.trim() || serverOutput.trim()}`));
+        return;
+      }
+      if (!appUrl) {
+        retry();
+        return;
+      }
+      get(appUrl, (response) => {
         response.resume();
         if (response.statusCode && response.statusCode < 500) {
           resolve();
@@ -898,28 +922,11 @@ function waitForServer(url, timeoutMs) {
     };
     const retry = () => {
       if (Date.now() - startedAt > timeoutMs) {
-        reject(new Error(`Timed out waiting for ${url}`));
+        reject(new Error(`Timed out waiting for local preview: ${serverError.trim() || serverOutput.trim()}`));
         return;
       }
       setTimeout(attempt, 150);
     };
     attempt();
-  });
-}
-
-function getAvailablePort() {
-  return new Promise((resolve, reject) => {
-    const probe = createServer();
-    probe.on('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const address = probe.address();
-      probe.close(() => {
-        if (!address || typeof address === 'string') {
-          reject(new Error('Could not allocate a local TCP port'));
-          return;
-        }
-        resolve(address.port);
-      });
-    });
   });
 }

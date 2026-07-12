@@ -20,8 +20,15 @@
       dragging: null,
       pulses: [],
       floaters: [],
+      keyboardPieceIndex: 0,
+      keyHandler: handleCompostSortKeydown,
       animationFrame: 0
     };
+    canvas.tabIndex = 0;
+    canvas.setAttribute('role', 'application');
+    canvas.setAttribute('aria-label', 'Sortowanie kompostu. Strzałkami wybierz element, C lub 1 odkłada do kompostu, R lub 2 odrzuca.');
+    focusMinigameCanvas(canvas);
+    window.addEventListener('keydown', runtime.minigame.keyHandler, { passive: false });
     ctx.imageSmoothingEnabled = false;
     renderCompostSortFrame();
   }
@@ -55,6 +62,9 @@
       const position = getCompostPiecePosition(piece, progress, canvas.width, canvas.height);
       if (position.visible) {
         drawCompostPiece(ctx, position.x, position.y, piece, now);
+        if (piece.id === runtime.minigame.keyboardPieceId) {
+          drawMinigameKeyboardFocus(ctx, position.x, position.y, piece.size + 7);
+        }
       }
     });
     drawCompostBasket(ctx, canvas.width, canvas.height, now);
@@ -62,7 +72,7 @@
     drawCompostSortPulses(ctx, now);
     drawMinigameFloaters(ctx, now);
     updateMinigameHud(now);
-    runtime.minigame.animationFrame = window.requestAnimationFrame(renderCompostSortFrame);
+    runtime.minigame.animationFrame = scheduleMinigameAnimationFrame(renderCompostSortFrame);
   }
 
   function handleCompostSortPointer(event) {
@@ -72,6 +82,7 @@
 
     event.preventDefault();
     const canvas = dom.compostSortCanvas;
+    focusMinigameCanvas(canvas);
     const point = getCompostPointerPosition(event);
     const x = point.x;
     const y = point.y;
@@ -87,7 +98,12 @@
       return;
     }
 
-    if (event.type === 'pointerup' || event.type === 'pointercancel') {
+    if (event.type === 'pointercancel') {
+      runtime.minigame.dragging = null;
+      return;
+    }
+
+    if (event.type === 'pointerup') {
       if (runtime.minigame.dragging) {
         const piece = runtime.minigame.pieces.find(function(candidate) {
           return candidate.id === runtime.minigame.dragging.id;
@@ -120,6 +136,43 @@
         // Pointer capture is best effort; dragging still works without it.
       }
     }
+  }
+
+  function handleCompostSortKeydown(event) {
+    if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.repeat || !runtime.minigame || runtime.minigame.session.id !== 'compostSort') {
+      return;
+    }
+    const key = String(event.key || '').toLowerCase();
+    const direction = key === 'arrowleft' || key === 'left' ? -1 : key === 'arrowright' || key === 'right' ? 1 : 0;
+    const bin = key === 'c' || key === '1' ? 'compost' : key === 'r' || key === '2' ? 'reject' : null;
+    if (!direction && !bin) {
+      return;
+    }
+    event.preventDefault();
+    const now = getRuntimeNow();
+    const pieces = getVisibleKeyboardCompostPieces(now);
+    if (!pieces.length) {
+      return;
+    }
+    if (direction) {
+      runtime.minigame.keyboardPieceIndex = positiveModulo((Number(runtime.minigame.keyboardPieceIndex) || 0) + direction, pieces.length);
+    }
+    const selected = pieces[Math.min(pieces.length - 1, Number(runtime.minigame.keyboardPieceIndex) || 0)];
+    runtime.minigame.keyboardPieceId = selected.piece.id;
+    if (bin) {
+      finishCompostSortDrag(selected.piece, bin, selected.position.x, selected.position.y, now);
+    }
+  }
+
+  function getVisibleKeyboardCompostPieces(now) {
+    const canvas = dom.compostSortCanvas;
+    const session = runtime.minigame.session;
+    const progress = (now - Number(session.startedAt)) / Math.max(1, Number(session.until) - Number(session.startedAt));
+    return runtime.minigame.pieces.map(function(piece) {
+      return { piece: piece, position: getCompostPiecePosition(piece, progress, canvas.width, canvas.height) };
+    }).filter(function(item) {
+      return item.position.visible && session.caught.indexOf(item.piece.id) === -1;
+    });
   }
 
   function finishCompostSortDrag(picked, bin, x, y, now) {
@@ -179,12 +232,16 @@
 
   function findCompostPieceAt(x, y, progress, width, height) {
     const session = runtime.minigame.session;
+    const config = rules.minigames && rules.minigames.compostSort ? rules.minigames.compostSort : {};
+    const forgivenessPx = getMinigamePointerForgivenessPx(config);
     return runtime.minigame.pieces.find(function(piece) {
       if (session.caught.indexOf(piece.id) !== -1) {
         return false;
       }
       const position = getCompostPiecePosition(piece, progress, width, height);
-      return position.visible && Math.abs(position.x - x) <= piece.size + 10 && Math.abs(position.y - y) <= piece.size + 10;
+      return position.visible
+        && Math.abs(position.x - x) <= piece.size + 10 + forgivenessPx
+        && Math.abs(position.y - y) <= piece.size + 10 + forgivenessPx;
     }) || null;
   }
 
@@ -210,7 +267,7 @@
       bestCombo: session.bestCombo
     });
     if (shouldSave) {
-      saveState(runtime.state);
+      scheduleMinigameRuntimePersist();
     }
   }
 
@@ -306,6 +363,7 @@
     ctx.fillRect(width - 54, height - 30, 32, 14);
     ctx.fillStyle = '#d6e65a';
     ctx.fillRect(width - 46, height - 25, 16, 2);
+    drawCompostZoneSymbols(ctx, width, height);
     ctx.restore();
   }
 
@@ -324,12 +382,30 @@
     ctx.fillStyle = '#fff0a8';
     ctx.fillRect(31, height - 27, 18, 2);
     ctx.fillRect(width - 49, height - 27, 18, 2);
+    drawCompostZoneSymbols(ctx, width, height);
     if (dragging) {
       ctx.globalAlpha = 0.28 + pulse * 0.22;
       ctx.fillStyle = '#fffdf7';
       ctx.fillRect(16, height - 43, 48, 2);
       ctx.fillRect(width - 64, height - 43, 48, 2);
     }
+    ctx.restore();
+  }
+
+  function drawCompostZoneSymbols(ctx, width, height) {
+    const rejectX = 40;
+    const compostX = width - 40;
+    const centerY = height - 27;
+    ctx.save();
+    ctx.fillStyle = '#fffdf7';
+    for (let step = -3; step <= 3; step += 1) {
+      ctx.fillRect(rejectX + step * 2 - 1, centerY + step * 2 - 1, 3, 3);
+      ctx.fillRect(rejectX + step * 2 - 1, centerY - step * 2 - 1, 3, 3);
+    }
+    ctx.fillRect(compostX - 8, centerY, 5, 4);
+    ctx.fillRect(compostX - 4, centerY + 3, 5, 4);
+    ctx.fillRect(compostX, centerY - 1, 5, 4);
+    ctx.fillRect(compostX + 4, centerY - 5, 5, 4);
     ctx.restore();
   }
 

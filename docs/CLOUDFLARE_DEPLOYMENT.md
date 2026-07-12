@@ -9,7 +9,8 @@ builds a static Cloudflare bundle into `dist/`.
 From the repository root:
 
 ```sh
-npm run build
+npm ci
+npm run build:verified
 ```
 
 The build writes:
@@ -29,20 +30,25 @@ Cloudflare used Workers Builds and tried to deploy the repository without a
 static output directory. Use these settings:
 
 - Root directory: repository root
-- Build command: `npm run build`
-- Deploy command: `npx wrangler deploy`
-- Non-production branch deploy command: `npx wrangler versions upload`
+- Build command: `npm ci && npm run build:verified`
+- Deploy command: `npx --no-install wrangler deploy`
+- Non-production branch deploy command: `npx --no-install wrangler versions upload`
 
 The Worker name in Cloudflare must match `name` in `wrangler.jsonc`. The repo
 uses `pieczargotchi`; if the Cloudflare Worker has another name, rename the
 Worker or update `wrangler.jsonc`.
+
+Workers Builds already run the deterministic verified-build gate above. For a
+manual release from a workstation with Chrome and Pillow installed, use
+`npm run deploy`; that wrapper rejects debug flags, runs the full `npm run qa`,
+and only then invokes the pinned Wrangler JavaScript entry through Node.
 
 ## Cloudflare Pages alternative
 
 If using Pages instead of Workers:
 
 - Framework preset: None
-- Build command: `npm run build`
+- Build command: `npm ci && npm run build:verified`
 - Build output directory: `dist`
 
 Pages will create branch and pull-request preview URLs from the built static
@@ -51,15 +57,16 @@ files.
 ## Notes
 
 - No private Drive IDs or Google deployment credentials are needed.
-- The Cloudflare build uses the committed PNG files under `assets/` and skips
-  `assets/source/` plus `assets/reference/`.
+- The Cloudflare build copies only files referenced by the application manifest.
+  Source, reference, and unmanifested compatibility files never enter `dist/`.
 - Browser saves still use `localStorage` under `pieczargotchi_state_v2`.
 
-For local screenshot QA only, the build can expose the browser czas działania:
+For local screenshot QA only, build a separate debug directory:
 
 ```sh
-PIECZARGOTCHI_CLOUDFLARE_EXPOSE_RUNTIME=1 npm run build
+npm run build:debug
 ```
 
-Do not use that flag for the public friend-testing build unless you deliberately
-want the debug czas działania visible in the browser console.
+This writes `dist-debug/`, never `dist/`. The production deploy wrapper rejects
+debug/expose flags, alternate output directories, and full-asset mode before QA,
+then rebuilds `dist/` with an explicit production marker.

@@ -1,11 +1,79 @@
+  const minigameLaunchCountdownMs = 3000;
+  const minigamePersistDebounceMs = 250;
+
+  function prepareMinigameSessionLaunch(session, now) {
+    const prepared = Object.assign({}, session || {});
+    const requestedAt = Number(now) || Date.now();
+    const duration = Math.max(1000, Number(prepared.until) - Number(prepared.startedAt));
+    prepared.startedAt = requestedAt + minigameLaunchCountdownMs;
+    prepared.until = prepared.startedAt + duration;
+    return prepared;
+  }
+
+  function getMinigameLaunchPhase(session, now) {
+    if (!session) {
+      return 'idle';
+    }
+    const timestamp = Number(now) || Date.now();
+    if (timestamp < Number(session.startedAt)) {
+      return 'countdown';
+    }
+    return timestamp < Number(session.until) ? 'running' : 'expired';
+  }
+
   function resumeMinigameIfActive() {
+    if (typeof isForeignExclusiveSessionActive === 'function' && isForeignExclusiveSessionActive()) {
+      stopMinigameRuntime();
+      runtime.exclusiveSession = null;
+      return;
+    }
     const active = runtime.state && runtime.state.minigames ? runtime.state.minigames.active : null;
-    if (active) {
+    if (active && !isGameOverForRuntime() && !isRecoveryActiveForRuntime(getRuntimeNow()) && !isBattleSessionActive()) {
       startMinigameRuntime(active);
+    } else if (active) {
+      runtime.state.minigames.active = null;
+      persistRuntimeState(runtime.state);
     }
   }
 
   function startMinigameRuntime(session) {
+    if (!session) {
+      return;
+    }
+
+    const known = ['dewCatch', 'sporePop', 'compostSort', 'rhythmHum'].indexOf(session.id) !== -1
+      || isLegendaryMinigameRuntimeId(session.id);
+    if (!known) {
+      if (runtime.state && runtime.state.minigames) {
+        runtime.state.minigames.active = null;
+        persistRuntimeState(runtime.state);
+      }
+      setTransientMessage('Gry', 'Nieznana, stara sesja została bezpiecznie zamknięta.');
+      return;
+    }
+    if (!session.runtimeToken) {
+      session.runtimeToken = createRuntimeSessionToken('minigame', session.id, Number(session.startedAt) || getRuntimeNow());
+      if (runtime.state && runtime.state.minigames && runtime.state.minigames.active) {
+        runtime.state.minigames.active.runtimeToken = session.runtimeToken;
+      }
+    }
+
+    const now = getRuntimeNow();
+    const launchPhase = getMinigameLaunchPhase(session, now);
+    if (launchPhase === 'expired') {
+      handleMinigameEnd('timeout');
+      return;
+    }
+    if (launchPhase === 'countdown') {
+      beginMinigameLaunch(session);
+      return;
+    }
+
+    revealMinigameSurface(session, 'running', true);
+    launchMinigameRuntimeNow(session);
+  }
+
+  function launchMinigameRuntimeNow(session) {
     if (!session) {
       return;
     }
@@ -21,6 +89,329 @@
     } else if (session.id === 'rhythmHum' && typeof startRhythmHumRuntime === 'function') {
       startRhythmHumRuntime(session);
     }
+    if (runtime.minigame && runtime.minigame.session) {
+      runtime.exclusiveSession = {
+        kind: 'minigame',
+        id: runtime.minigame.session.id,
+        token: runtime.minigame.session.runtimeToken || ''
+      };
+      observeActiveMinigameSurface();
+    }
+  }
+
+  function beginMinigameLaunch(session) {
+    const token = String(session.runtimeToken || session.id + ':' + session.startedAt);
+    if (runtime.minigameLaunch && runtime.minigameLaunch.token === token) {
+      updateMinigameLaunchCountdown();
+      return;
+    }
+    cancelMinigameLaunchTimer();
+    runtime.minigameLaunch = {
+      id: session.id,
+      token: token,
+      phase: 'preparing',
+      countdownUntil: Number(session.startedAt),
+      timer: null
+    };
+    revealMinigameSurface(session, 'preparing', true);
+    window.requestAnimationFrame(function() {
+      if (!runtime.minigameLaunch || runtime.minigameLaunch.token !== token) {
+        return;
+      }
+      runtime.minigameLaunch.phase = 'countdown';
+      focusActiveMinigameSurface(session.id);
+      observeActiveMinigameSurface();
+      updateMinigameLaunchCountdown();
+    });
+  }
+
+  function updateMinigameLaunchCountdown() {
+    const launch = runtime.minigameLaunch;
+    const session = runtime.state && runtime.state.minigames
+      ? runtime.state.minigames.active
+      : null;
+    if (!launch || !session || String(session.id) !== String(launch.id)) {
+      cancelMinigameLaunchTimer();
+      return;
+    }
+    const now = getRuntimeNow();
+    const remaining = Number(launch.countdownUntil) - now;
+    if (remaining <= 0) {
+      const surface = getActiveMinigameSurface(session.id);
+      const status = getMinigameLaunchStatusNode();
+      if (surface) {
+        surface.dataset.launchPhase = 'running';
+        surface.setAttribute('aria-busy', 'false');
+      }
+      if (status) {
+        status.textContent = 'Start! ' + getMinigameInstructionText(session.id);
+      }
+      cancelMinigameLaunchTimer(true);
+      launchMinigameRuntimeNow(session);
+      return;
+    }
+    const seconds = Math.max(1, Math.ceil(remaining / 1000));
+    const status = getMinigameLaunchStatusNode();
+    const surface = getActiveMinigameSurface(session.id);
+    launch.phase = 'countdown';
+    if (surface) {
+      surface.dataset.launchPhase = 'countdown';
+      surface.setAttribute('aria-busy', 'true');
+    }
+    if (status) {
+      status.textContent = getMinigameInstructionText(session.id) + ' Start za ' + seconds + '.';
+    }
+    launch.timer = window.setTimeout(updateMinigameLaunchCountdown, Math.min(250, Math.max(40, remaining)));
+  }
+
+  function cancelMinigameLaunchTimer(clearState) {
+    if (runtime.minigameLaunch && runtime.minigameLaunch.timer) {
+      window.clearTimeout(runtime.minigameLaunch.timer);
+      runtime.minigameLaunch.timer = null;
+    }
+    if (clearState) {
+      runtime.minigameLaunch = null;
+    }
+  }
+
+  function revealMinigameSurface(session, phase, shouldScroll) {
+    const surface = getActiveMinigameSurface(session && session.id);
+    const canvas = getMinigameCanvas(session && session.id);
+    const status = getMinigameLaunchStatusNode();
+    setActiveMinigameCanvas(session && session.id);
+    if (surface) {
+      surface.hidden = false;
+      surface.dataset.launchPhase = phase || 'running';
+      surface.setAttribute('aria-busy', phase === 'running' ? 'false' : 'true');
+      if (!surface.hasAttribute('tabindex')) {
+        surface.tabIndex = -1;
+      }
+      if (shouldScroll && typeof surface.scrollIntoView === 'function') {
+        window.requestAnimationFrame(function() {
+          window.requestAnimationFrame(function() {
+            if (!surface.isConnected || surface.hidden) {
+              return;
+            }
+            try {
+              const compactViewport = window.matchMedia && window.matchMedia('(max-width: 640px)').matches;
+              surface.scrollIntoView({
+                behavior: runtime.reducedMotion || compactViewport ? 'auto' : 'smooth',
+                block: 'center'
+              });
+            } catch (error) {
+              surface.scrollIntoView();
+            }
+          });
+        });
+      }
+    }
+    if (status) {
+      if (!status.id) {
+        status.id = 'minigameLaunchStatus';
+      }
+      status.setAttribute('role', 'status');
+      status.setAttribute('aria-live', 'polite');
+      status.setAttribute('aria-atomic', 'true');
+    }
+    if (canvas) {
+      canvas.tabIndex = 0;
+      canvas.setAttribute('role', 'application');
+      canvas.setAttribute('aria-label', getMinigameAccessibleLabel(session && session.id));
+      if (status && status.id) {
+        canvas.setAttribute('aria-describedby', status.id);
+      }
+    }
+  }
+
+  function getActiveMinigameSurface(minigameId) {
+    return isLegendaryMinigameRuntimeId(minigameId)
+      ? dom.legendaryGamePlayfield
+      : dom.minigamePlayfield;
+  }
+
+  function getMinigameCanvas(minigameId) {
+    if (minigameId === 'dewCatch') return dom.dewCatchCanvas;
+    if (minigameId === 'sporePop') return dom.sporePopCanvas;
+    if (minigameId === 'compostSort') return dom.compostSortCanvas;
+    if (minigameId === 'rhythmHum') return dom.rhythmHumCanvas;
+    return isLegendaryMinigameRuntimeId(minigameId) ? dom.legendaryGameCanvas : null;
+  }
+
+  function getMinigameAccessibleLabel(minigameId) {
+    const labels = {
+      dewCatch: 'Łapanie rosy. Użyj strzałek w lewo i w prawo, aby przesuwać koszyk.',
+      sporePop: 'Pękanie zarodników. Strzałkami wybierz widoczny zarodnik, Enterem lub spacją go pęknij.',
+      compostSort: 'Sortowanie kompostu. Strzałkami wybierz element, C lub 1 odkłada do kompostu, R lub 2 odrzuca.',
+      rhythmHum: 'Rytmiczne nucenie. Użyj strzałek, gdy nuta trafi w jasną linię.'
+    };
+    return labels[minigameId] || 'Legendarne wyzwanie. Instrukcja znajduje się nad planszą.';
+  }
+
+  function getMinigameInstructionText(minigameId) {
+    const instructions = {
+      dewCatch: 'Przesuwaj koszyk strzałkami albo wskaźnikiem i łap krople.',
+      sporePop: 'Wybieraj zarodniki strzałkami i pękaj je Enterem, spacją albo dotknięciem.',
+      compostSort: 'Przenieś dobry materiał do kompostu, a kamienie i pleśń odrzuć.',
+      rhythmHum: 'Naciśnij właściwą strzałkę, gdy nuta dotrze do jasnej linii.'
+    };
+    return instructions[minigameId] || 'Wykonuj ruchy zgodnie ze wskazówkami wyzwania.';
+  }
+
+  function getMinigameLaunchStatusNode() {
+    const active = runtime.state && runtime.state.minigames ? runtime.state.minigames.active : null;
+    if (active && isLegendaryMinigameRuntimeId(active.id)) {
+      return dom.legendaryGamesStatus || dom.minigameLaunchStatus || dom.minigameStatus || null;
+    }
+    return dom.minigameLaunchStatus || dom.minigameStatus || null;
+  }
+
+  function focusActiveMinigameSurface(minigameId) {
+    const canvas = getMinigameCanvas(minigameId);
+    const surface = getActiveMinigameSurface(minigameId);
+    const target = canvas || surface;
+    if (!target || typeof target.focus !== 'function') {
+      return;
+    }
+    try {
+      target.focus({ preventScroll: true });
+    } catch (error) {
+      target.focus();
+    }
+  }
+
+  function returnToActiveMinigame() {
+    const active = runtime.state && runtime.state.minigames
+      ? runtime.state.minigames.active
+      : null;
+    if (!active) {
+      return false;
+    }
+    const legendary = isLegendaryMinigameRuntimeId(active.id);
+    runtime.viewMode = legendary ? 'arena' : 'care';
+    if (runtime.ui) {
+      runtime.ui.workspaceTab = legendary ? runtime.ui.workspaceTab : 'games';
+      runtime.ui.legendsTab = legendary ? 'challenges' : runtime.ui.legendsTab;
+    }
+    renderUi();
+    window.requestAnimationFrame(function() {
+      revealMinigameSurface(active, runtime.minigameLaunch ? runtime.minigameLaunch.phase : 'running', true);
+      focusActiveMinigameSurface(active.id);
+    });
+    return true;
+  }
+
+  function bindMinigameLaunchControls() {
+    if (dom.minigameReturn) {
+      dom.minigameReturn.addEventListener('click', returnToActiveMinigame);
+      dom.minigameReturn.hidden = true;
+    }
+    document.addEventListener('click', guardActiveMinigameNavigation, true);
+    document.addEventListener('keydown', guardActiveMinigameNavigationKeydown, true);
+    if (!runtime.minigameVisibilityBound) {
+      runtime.minigameVisibilityBound = true;
+      document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'hidden') {
+          flushMinigameRuntimePersist('visibility');
+        }
+      });
+    }
+  }
+
+  function guardActiveMinigameNavigation(event) {
+    const active = runtime.state && runtime.state.minigames
+      ? runtime.state.minigames.active
+      : null;
+    const target = event.target && event.target.closest
+      ? event.target.closest('[data-workspace-tab], [data-legends-tab]')
+      : null;
+    if (!active || !target || isMinigameNavigationTargetAllowed(active.id, target)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    setTransientMessage('Aktywna minigra', 'Zakończ rozgrywkę albo wróć do jej planszy.');
+    returnToActiveMinigame();
+  }
+
+  function guardActiveMinigameNavigationKeydown(event) {
+    if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(event.key) === -1) {
+      return;
+    }
+    const active = runtime.state && runtime.state.minigames
+      ? runtime.state.minigames.active
+      : null;
+    const target = event.target && event.target.closest
+      ? event.target.closest('[data-workspace-tab], [data-legends-tab]')
+      : null;
+    if (!active || !target) {
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    setTransientMessage('Aktywna minigra', 'Zakładki odblokują się po zakończeniu rozgrywki.');
+    returnToActiveMinigame();
+  }
+
+  function isMinigameNavigationTargetAllowed(minigameId, target) {
+    const value = String(
+      target && (target.dataset.workspaceTab || target.dataset.legendsTab || target.dataset.tab) || ''
+    ).toLowerCase();
+    const legendary = isLegendaryMinigameRuntimeId(minigameId);
+    return legendary
+      ? ['challenges', 'wyzwania', 'legendary-games', 'games'].indexOf(value) !== -1
+      : ['games', 'gry'].indexOf(value) !== -1;
+  }
+
+  function observeActiveMinigameSurface() {
+    if (!dom.minigameReturn || typeof window.IntersectionObserver !== 'function') {
+      return;
+    }
+    if (runtime.minigameReturnObserver) {
+      runtime.minigameReturnObserver.disconnect();
+    }
+    const active = runtime.state && runtime.state.minigames ? runtime.state.minigames.active : null;
+    const surface = active ? getActiveMinigameSurface(active.id) : null;
+    if (!surface) {
+      dom.minigameReturn.hidden = true;
+      return;
+    }
+    runtime.minigameReturnObserver = new window.IntersectionObserver(function(entries) {
+      const entry = entries && entries[0];
+      dom.minigameReturn.hidden = Boolean(entry && entry.intersectionRatio >= 0.35);
+    }, { threshold: [0, 0.35, 1] });
+    runtime.minigameReturnObserver.observe(surface);
+  }
+
+  function scheduleMinigameRuntimePersist() {
+    if (!runtime.minigame || runtime.minigame.persistTimer) {
+      return;
+    }
+    const owner = runtime.minigame;
+    owner.persistTimer = window.setTimeout(function() {
+      if (runtime.minigame !== owner) {
+        return;
+      }
+      owner.persistTimer = null;
+      persistRuntimeState(runtime.state);
+    }, minigamePersistDebounceMs);
+  }
+
+  function flushMinigameRuntimePersist(reason) {
+    if (!runtime.minigame) {
+      return null;
+    }
+    if (runtime.minigame.persistTimer) {
+      window.clearTimeout(runtime.minigame.persistTimer);
+      runtime.minigame.persistTimer = null;
+    }
+    if (reason === 'end') {
+      if (runtime.persistenceRetryTimer) {
+        window.clearTimeout(runtime.persistenceRetryTimer);
+        runtime.persistenceRetryTimer = null;
+      }
+      return { ok: true, deferred: true, reason: 'exclusiveFinish' };
+    }
+    return persistRuntimeState(runtime.state);
   }
 
   function startDewCatchRuntime(session) {
@@ -53,21 +444,72 @@
       splashes: [],
       floaters: [],
       lastFrameAt: getRuntimeNow(),
+      keyHandler: handleDewCatchKeydown,
       animationFrame: 0
     };
+    canvas.tabIndex = 0;
+    canvas.setAttribute('role', 'application');
+    canvas.setAttribute('aria-label', 'Łapanie rosy. Użyj strzałek w lewo i w prawo, aby przesuwać koszyk.');
+    focusMinigameCanvas(canvas);
+    window.addEventListener('keydown', runtime.minigame.keyHandler, { passive: false });
     ctx.imageSmoothingEnabled = false;
     renderDewCatchFrame();
   }
 
   function stopMinigameRuntime() {
+    const hadActiveRuntime = Boolean(runtime.minigame || runtime.minigameLaunch);
     if (runtime.minigame && runtime.minigame.animationFrame) {
       window.cancelAnimationFrame(runtime.minigame.animationFrame);
+    }
+    if (runtime.minigame && runtime.minigame.animationTimer) {
+      window.clearTimeout(runtime.minigame.animationTimer);
     }
     if (runtime.minigame && runtime.minigame.keyHandler) {
       window.removeEventListener('keydown', runtime.minigame.keyHandler);
     }
+    if (runtime.minigame && runtime.minigame.persistTimer) {
+      window.clearTimeout(runtime.minigame.persistTimer);
+    }
+    cancelMinigameLaunchTimer(true);
+    if (runtime.minigameReturnObserver) {
+      runtime.minigameReturnObserver.disconnect();
+      runtime.minigameReturnObserver = null;
+    }
+    if (dom.minigameReturn) {
+      dom.minigameReturn.hidden = true;
+    }
     runtime.minigame = null;
     setActiveMinigameCanvas(null);
+    if (hadActiveRuntime) {
+      const returnFocus = runtime.minigameReturnFocus;
+      runtime.minigameReturnFocus = null;
+      if (returnFocus && returnFocus.isConnected && typeof returnFocus.focus === 'function') {
+        window.setTimeout(function() {
+          try {
+            returnFocus.focus({ preventScroll: true });
+          } catch (error) {
+            returnFocus.focus();
+          }
+        }, 0);
+      }
+    }
+  }
+
+  function scheduleMinigameAnimationFrame(callback) {
+    if (!runtime.minigame || typeof callback !== 'function') {
+      return 0;
+    }
+    if (!runtime.reducedMotion) {
+      return window.requestAnimationFrame(callback);
+    }
+    runtime.minigame.animationTimer = window.setTimeout(function() {
+      if (!runtime.minigame) {
+        return;
+      }
+      runtime.minigame.animationTimer = 0;
+      runtime.minigame.animationFrame = window.requestAnimationFrame(callback);
+    }, 72);
+    return 0;
   }
 
   function renderDewCatchFrame() {
@@ -121,7 +563,7 @@
     drawMinigameFloaters(ctx, now);
 
     updateMinigameHud(now);
-    runtime.minigame.animationFrame = window.requestAnimationFrame(renderDewCatchFrame);
+    runtime.minigame.animationFrame = scheduleMinigameAnimationFrame(renderDewCatchFrame);
   }
 
   function handleDewCatchPointer(event) {
@@ -130,6 +572,7 @@
     }
 
     const canvas = dom.dewCatchCanvas;
+    focusMinigameCanvas(canvas);
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / Math.max(1, rect.width);
     const x = (event.clientX - rect.left) * scaleX;
@@ -146,6 +589,24 @@
         // Pointer capture is best effort; drag still works without it in browsers that reject capture.
       }
     }
+  }
+
+  function handleDewCatchKeydown(event) {
+    if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing || !runtime.minigame || runtime.minigame.session.id !== 'dewCatch') {
+      return;
+    }
+    const direction = event.key === 'ArrowLeft' || event.key === 'Left'
+      ? -1
+      : event.key === 'ArrowRight' || event.key === 'Right'
+        ? 1
+        : 0;
+    if (!direction) {
+      return;
+    }
+    event.preventDefault();
+    const bucket = runtime.minigame.bucket;
+    const canvas = dom.dewCatchCanvas;
+    bucket.targetX = clampDewBucketX((Number(bucket.targetX) || Number(bucket.x)) + direction * 26, canvas.width, bucket.width);
   }
 
   function buildDewCatchDrops(session) {
@@ -226,10 +687,36 @@
 
     const bucketY = getDewBucketY(canvas.height, bucket);
     const mouthHalf = bucket.width / 2 - 4;
+    const config = rules.minigames && rules.minigames.dewCatch ? rules.minigames.dewCatch : {};
+    const forgivenessPx = getMinigamePointerForgivenessPx(config);
     const dropBottom = position.y + size + 5;
-    return Math.abs(position.x - bucket.x) <= mouthHalf + size * 0.62
-      && dropBottom >= bucketY + 3
-      && position.y <= bucketY + 17;
+    return Math.abs(position.x - bucket.x) <= mouthHalf + size * 0.62 + forgivenessPx
+      && dropBottom >= bucketY + 3 - forgivenessPx * 0.35
+      && position.y <= bucketY + 17 + forgivenessPx * 0.35;
+  }
+
+  function focusMinigameCanvas(canvas) {
+    if (!canvas || typeof canvas.focus !== 'function') {
+      return;
+    }
+    try {
+      canvas.focus({ preventScroll: true });
+    } catch (error) {
+      canvas.focus();
+    }
+  }
+
+  function getMinigamePointerForgivenessPx(config) {
+    const source = config || {};
+    const base = Number(source.pointerForgivenessPx)
+      || Number(source.forgivenessPx)
+      || Number(source.forgivenessMs)
+      || 0;
+    const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    const mobile = coarse
+      ? Number(source.mobileForgivenessPx) || Number(source.mobileForgivenessMs) || 0
+      : 0;
+    return Math.max(0, Math.min(24, base + mobile));
   }
 
   function catchDewDrop(drop, position, now) {
@@ -294,7 +781,7 @@
       bestCombo: session.bestCombo
     });
     if (shouldSave) {
-      saveState(runtime.state);
+      scheduleMinigameRuntimePersist();
     }
   }
 
@@ -340,12 +827,12 @@
   function drawDewCatchClouds(ctx, width, now) {
     const drift = Math.round((now / 1800) % 42);
     ctx.globalAlpha = 0.45;
-    drawPixelCloud(ctx, 26 + drift * 0.12, 28, '#e9f1dc', '#cfdabf');
-    drawPixelCloud(ctx, width - 74 - drift * 0.08, 42, '#edf3df', '#d3ddc4');
+    drawDewCatchPixelCloud(ctx, 26 + drift * 0.12, 28, '#e9f1dc', '#cfdabf');
+    drawDewCatchPixelCloud(ctx, width - 74 - drift * 0.08, 42, '#edf3df', '#d3ddc4');
     ctx.globalAlpha = 1;
   }
 
-  function drawPixelCloud(ctx, x, y, light, shade) {
+  function drawDewCatchPixelCloud(ctx, x, y, light, shade) {
     const px = Math.round(x);
     const py = Math.round(y);
     ctx.fillStyle = shade;

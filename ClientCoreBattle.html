@@ -19,16 +19,21 @@
     };
   }
 
-  function normalizeBattleState(rawBattle) {
+  function normalizeBattleState(rawBattle, now) {
     const base = createDefaultBattleState();
     const battle = isPlainObject(rawBattle) ? rawBattle : {};
     const training = isPlainObject(battle.training) ? battle.training : {};
     const rewards = isPlainObject(battle.rewards) ? battle.rewards : {};
     const validModes = ['idle', 'training', 'matchSetup', 'choosingMove', 'resolvingTurn', 'animatingEvents', 'victory', 'defeat', 'rewards'];
+    const activeBattle = normalizeActiveBattleCore(battle.activeBattle, now);
 
     return {
       version: 1,
-      mode: validModes.includes(battle.mode) ? battle.mode : base.mode,
+      mode: activeBattle && validModes.includes(activeBattle.mode)
+        ? activeBattle.mode
+        : validModes.includes(battle.mode) && !isPlainObject(battle.activeBattle)
+          ? battle.mode
+          : base.mode,
       unlockedAt: battle.unlockedAt || null,
       training: {
         strength: clampInteger(training.strength, 0, 99, 0),
@@ -36,14 +41,69 @@
         speed: clampInteger(training.speed, 0, 99, 0),
         focus: clampInteger(training.focus, 0, 99, 0)
       },
-      activeBattle: isPlainObject(battle.activeBattle) ? deepClone(battle.activeBattle) : null,
+      activeBattle: activeBattle,
       rewards: {
         wins: clampInteger(rewards.wins, 0, 9999, 0),
         losses: clampInteger(rewards.losses, 0, 9999, 0),
         trophies: clampInteger(rewards.trophies, 0, 9999, 0)
       },
-      log: Array.isArray(battle.log) ? battle.log.slice(0, 8) : []
+      log: normalizeBattleLogCore(battle.log, 8),
+      quarantined: isPlainObject(battle.activeBattle) && !activeBattle
+        ? { id: String(battle.activeBattle.id || '').slice(0, 80) || null, reason: 'invalidBattleSession' }
+        : isPlainObject(battle.quarantined) ? normalizeScalarMapCore(battle.quarantined, 8) : null
     };
+  }
+
+  function normalizeActiveBattleCore(rawBattle, now) {
+    if (!isPlainObject(rawBattle)) {
+      return null;
+    }
+    const id = String(rawBattle.id || '').slice(0, 120);
+    const startedAt = Date.parse(rawBattle.startedAt || '');
+    const validModes = ['choosingMove', 'resolvingTurn', 'animatingEvents', 'victory', 'defeat'];
+    if (!id
+      || !Number.isFinite(startedAt)
+      || !validModes.includes(rawBattle.mode)
+      || !isPlainObject(rawBattle.player)
+      || !isPlainObject(rawBattle.opponent)) {
+      return null;
+    }
+    return {
+      id: id,
+      seed: clampInteger(rawBattle.seed, 1, 2147483646, 1),
+      rngSeed: clampInteger(rawBattle.rngSeed, 1, 2147483646, 1),
+      mode: rawBattle.mode,
+      turn: clampInteger(rawBattle.turn, 0, 9999, 0),
+      startedAt: new Date(startedAt).toISOString(),
+      careSnapshot: normalizeScalarMapCore(rawBattle.careSnapshot, 16),
+      trainingSnapshot: normalizeScalarMapCore(rawBattle.trainingSnapshot, 8),
+      player: normalizeCombatant(rawBattle.player, 'playerLegendary'),
+      opponent: normalizeCombatant(rawBattle.opponent, inferBattleOpponentVisualIdCore(rawBattle.opponent)),
+      selectedMoves: normalizeScalarMapCore(rawBattle.selectedMoves, 4),
+      events: normalizeBattleEventsCore(rawBattle.events),
+      rewarded: Boolean(rawBattle.rewarded),
+      runtimeToken: typeof rawBattle.runtimeToken === 'string' ? rawBattle.runtimeToken.slice(0, 160) : null,
+      ownerWriterId: typeof rawBattle.ownerWriterId === 'string' ? rawBattle.ownerWriterId.slice(0, 80) : null,
+      ownerLeaseUntil: normalizeExclusiveOwnerLeaseCore(rawBattle.ownerLeaseUntil, now)
+    };
+  }
+
+  function normalizeBattleEventsCore(events) {
+    return (Array.isArray(events) ? events : []).slice(0, 32).filter(isPlainObject).map(function(event) {
+      return normalizeScalarMapCore(event, 12);
+    });
+  }
+
+  function normalizeBattleLogCore(entries, maximumEntries) {
+    return (Array.isArray(entries) ? entries : []).slice(0, maximumEntries).filter(isPlainObject).map(function(entry) {
+      const at = Date.parse(entry.at || '');
+      return {
+        at: Number.isFinite(at) ? new Date(at).toISOString() : null,
+        text: String(entry.text || '').slice(0, 500)
+      };
+    }).filter(function(entry) {
+      return Boolean(entry.text);
+    });
   }
 
   function isArenaUnlocked(state, rules) {
@@ -96,15 +156,22 @@
   }
 
   function trainBattleStat(rawState, statId, rules, now) {
-    const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    let state = isPlainObject(rawState) ? deepClone(rawState) : {};
     const battleRules = rules && rules.battle ? rules.battle : {};
     const caps = battleRules.trainingCaps || {};
     const validStats = ['strength', 'defense', 'speed', 'focus'];
     const cost = Math.max(1, clampInteger(battleRules.trainingCost, 1, 999, 1));
 
     state.inventory = Object.assign({ spores: 0 }, state.inventory || {});
-    state.battle = normalizeBattleState(state.battle);
+    state.battle = normalizeBattleState(state.battle, now);
 
+    if (state.gameOver && state.gameOver.active || state.recovery && state.recovery.active) {
+      return { ok: false, reason: 'Opieka nad Pieczarką blokuje trening.', state: state };
+    }
+    state = settleCompletedBattleBeforeNewActivityCore(state, rules, now);
+    if (state.battle.activeBattle || state.minigames && state.minigames.active) {
+      return { ok: false, reason: 'Najpierw zakończ aktywną sesję.', state: state };
+    }
     if (!isArenaUnlocked(state, rules)) {
       return { ok: false, reason: 'Arena jest zablokowana.', state: state };
     }
@@ -142,12 +209,19 @@
   }
 
   function startBattle(rawState, rules, now, seedInput) {
-    const state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    let state = isPlainObject(rawState) ? deepClone(rawState) : {};
     const battleRules = rules && rules.battle ? rules.battle : {};
     const timestamp = Number(now) || Date.now();
     const seed = clampInteger(seedInput || buildBattleSeed(state, timestamp), 1, 2147483646, 1);
 
-    state.battle = normalizeBattleState(state.battle);
+    state.battle = normalizeBattleState(state.battle, timestamp);
+    if (state.gameOver && state.gameOver.active || state.recovery && state.recovery.active) {
+      return { ok: false, reason: 'Opieka nad Pieczarką blokuje arenę.', state: state };
+    }
+    state = settleCompletedBattleBeforeNewActivityCore(state, rules, timestamp);
+    if (state.battle.activeBattle || state.minigames && state.minigames.active) {
+      return { ok: false, reason: 'Najpierw zakończ aktywną sesję.', state: state };
+    }
     if (!isArenaUnlocked(state, rules)) {
       return { ok: false, reason: 'Arena jest zablokowana.', state: state };
     }
@@ -163,7 +237,7 @@
       startedAt: new Date(timestamp).toISOString(),
       careSnapshot: deepClone(state.stats || {}),
       trainingSnapshot: deepClone(state.battle.training || {}),
-      player: Object.assign({ name: state.mushroomName || 'Pieczarka' }, playerStats, {
+      player: Object.assign({ name: state.mushroomName || 'Pieczarka', visualId: 'playerLegendary' }, playerStats, {
         hp: playerStats.hp,
         maxHp: playerStats.hp,
         stamina: playerStats.stamina,
@@ -186,6 +260,25 @@
     state.battle.activeBattle = activeBattle;
     addBattleLog(state.battle, 'Walka rozpoczęta.', timestamp, rules);
     return { ok: true, state: state, battle: activeBattle };
+  }
+
+  function settleCompletedBattleBeforeNewActivityCore(rawState, rules, now) {
+    let state = isPlainObject(rawState) ? deepClone(rawState) : {};
+    state.battle = normalizeBattleState(state.battle, now);
+    let activeBattle = state.battle.activeBattle;
+    if (!activeBattle || !['victory', 'defeat'].includes(activeBattle.mode)) {
+      return state;
+    }
+    if (!activeBattle.rewarded) {
+      const rewarded = applyBattleOutcomeRewards(state, rules, now);
+      state = rewarded && rewarded.ok ? rewarded.state : state;
+      activeBattle = state.battle && state.battle.activeBattle;
+    }
+    if (activeBattle && activeBattle.rewarded && ['victory', 'defeat'].includes(activeBattle.mode)) {
+      state.battle.activeBattle = null;
+      state.battle.mode = 'idle';
+    }
+    return state;
   }
 
   function resolveBattleRound(activeBattle, playerMoveId, moveCatalog) {
@@ -267,6 +360,9 @@
 
     state.inventory = Object.assign({ spores: 0 }, state.inventory || {});
     state.battle = battle;
+    if (state.gameOver && state.gameOver.active || state.recovery && state.recovery.active) {
+      return { ok: false, state: state };
+    }
     if (!activeBattle || activeBattle.rewarded || !['victory', 'defeat'].includes(activeBattle.mode)) {
       return { ok: false, state: state };
     }
@@ -350,12 +446,13 @@
     return catalog[firstKey];
   }
 
-  function normalizeCombatant(rawCombatant) {
+  function normalizeCombatant(rawCombatant, fallbackVisualId) {
     const combatant = isPlainObject(rawCombatant) ? rawCombatant : {};
     const hp = clampInteger(combatant.hp, 0, 999, 80);
     const stamina = clampInteger(combatant.stamina, 0, 999, 50);
     return {
-      name: combatant.name || '',
+      name: String(combatant.name || '').slice(0, 80),
+      visualId: normalizeBattleVisualIdCore(combatant.visualId) || normalizeBattleVisualIdCore(fallbackVisualId),
       hp: hp,
       maxHp: clampInteger(combatant.maxHp, Math.max(1, hp), 999, Math.max(1, hp)),
       stamina: stamina,
@@ -367,15 +464,37 @@
       focus: clampInteger(combatant.focus, 0, 999, 10),
       guard: clampNumber(Number(combatant.guard), 0, 0.9, 0),
       statusEffects: normalizeBattleStatusEffects(combatant.statusEffects),
-      strategy: combatant.strategy || 'balanced',
-      weights: isPlainObject(combatant.weights) ? deepClone(combatant.weights) : {}
+      strategy: String(combatant.strategy || 'balanced').slice(0, 40),
+      weights: normalizeScalarMapCore(combatant.weights, 16)
     };
+  }
+
+  function normalizeBattleVisualIdCore(value) {
+    return String(value || '')
+      .replace(/[^0-9A-Za-z_-]+/g, '')
+      .slice(0, 48);
+  }
+
+  function inferBattleOpponentVisualIdCore(rawOpponent) {
+    const opponent = isPlainObject(rawOpponent) ? rawOpponent : {};
+    const explicit = normalizeBattleVisualIdCore(opponent.visualId);
+    if (explicit) {
+      return explicit;
+    }
+    const name = String(opponent.name || '').toLowerCase();
+    if (name.indexOf('wiatro') >= 0) {
+      return 'windcap';
+    }
+    if (name.indexOf('starszy') >= 0 || name.indexOf('mistrz') >= 0) {
+      return 'eldercap';
+    }
+    return 'sproutling';
   }
 
   function normalizeBattleStatusEffects(statusEffects) {
     const source = isPlainObject(statusEffects) ? statusEffects : {};
     const result = {};
-    Object.keys(source).forEach(function(key) {
+    Object.keys(source).slice(0, 16).forEach(function(key) {
       const item = isPlainObject(source[key]) ? source[key] : {};
       const turns = clampInteger(item.turns, 0, 99, 0);
       if (turns > 0) {
@@ -406,6 +525,11 @@
 
   function applyBattleMove(source, target, move, seed) {
     const cost = clampInteger(move.staminaCost, 0, 999, 0);
+    const guardReduction = clampNumber(Number(target.guard), 0, 0.9, 0);
+    // A guard protects against exactly the next opposing turn. Consuming it
+    // here also prevents a missed attack or forced rest from carrying the
+    // shield into an extra round.
+    target.guard = 0;
     if (source.stamina < cost) {
       source.stamina = Math.min(999, source.stamina + 6);
       return {
@@ -425,7 +549,6 @@
     }
 
     const statBonus = move.stat && source[move.stat] ? source[move.stat] * 0.28 : 0;
-    const guardReduction = clampNumber(Number(target.guard), 0, 0.9, 0);
     const rawDamage = (Number(move.power) || 0) + source.attack * 0.58 + statBonus - target.defense * (0.34 + guardReduction);
     const damage = Math.max(1, Math.round(rawDamage));
     target.hp = Math.max(0, target.hp - damage);
@@ -491,6 +614,9 @@
 
     return {
       name: opponentTemplate && opponentTemplate.name ? opponentTemplate.name : rank > 3 ? 'Mistrz grzybni' : 'Rywal grzybni',
+      visualId: opponentTemplate && (opponentTemplate.visualId || opponentTemplate.id)
+        ? String(opponentTemplate.visualId || opponentTemplate.id)
+        : 'sproutling',
       hp: 68 + rank * 8,
       stamina: 46 + rank * 5,
       strength: 9 + rank * 2,

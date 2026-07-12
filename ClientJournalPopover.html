@@ -19,6 +19,24 @@
       if (event.key === 'Escape') {
         hideWorldJournalTooltip();
         closeWorldJournalPolaroid();
+        return;
+      }
+      if (event.key === 'Tab' && dom.journalPolaroid && !dom.journalPolaroid.hidden) {
+        const focusable = Array.from(dom.journalPolaroid.querySelectorAll('button, [href], [tabindex]:not([tabindex="-1"])')).filter(function(node) {
+          return !node.disabled && !node.hidden;
+        });
+        if (!focusable.length) {
+          return;
+        }
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
       }
     });
 
@@ -217,15 +235,21 @@
     dom.journalPolaroid.setAttribute('data-frame-tier', getWorldJournalFrameTier(item.photoSnapshot));
     dom.journalPolaroid.setAttribute('data-snapshot-fallback', item.photoSnapshot && item.photoSnapshot.fallback ? 'true' : 'false');
     drawWorldJournalPolaroidScene(dom.journalPolaroidCanvas, item);
-    dom.journalPolaroid.hidden = false;
+    if (typeof openSceneFirstDialog === 'function') {
+      dom.journalPolaroid.style.removeProperty('left');
+      dom.journalPolaroid.style.removeProperty('top');
+      openSceneFirstDialog(dom.journalPolaroid, 'journal', trigger);
+      return;
+    }
 
+    runtime.journalReturnFocus = trigger || document.activeElement;
+    dom.journalPolaroid.hidden = false;
     if (event && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
       positionWorldJournalBubble(dom.journalPolaroid, event.clientX, event.clientY, 18);
-    } else {
+    } else if (trigger && typeof trigger.getBoundingClientRect === 'function') {
       const rect = trigger.getBoundingClientRect();
       positionWorldJournalBubble(dom.journalPolaroid, rect.left + rect.width / 2, rect.top + rect.height / 2, 18);
     }
-
     if (dom.journalPolaroidClose) {
       dom.journalPolaroidClose.focus({ preventScroll: true });
     }
@@ -235,8 +259,23 @@
     if (!dom.journalPolaroid) {
       return;
     }
-    dom.journalPolaroid.hidden = true;
     runtime.activeJournalPolaroid = null;
+    if (typeof closeSceneFirstDialog === 'function' && (dom.journalPolaroid.open || dom.journalPolaroid.hasAttribute('open'))) {
+      runtime.journalReturnFocus = null;
+      closeSceneFirstDialog(dom.journalPolaroid);
+      return;
+    }
+
+    dom.journalPolaroid.hidden = true;
+    const returnFocus = runtime.journalReturnFocus;
+    runtime.journalReturnFocus = null;
+    if (returnFocus && returnFocus.isConnected && typeof returnFocus.focus === 'function') {
+      try {
+        returnFocus.focus({ preventScroll: true });
+      } catch (error) {
+        returnFocus.focus();
+      }
+    }
   }
 
   function positionWorldJournalBubble(node, clientX, clientY, gap) {
@@ -305,20 +344,40 @@
   }
 
   function getWorldJournalStageLabel(stage, growth) {
-    const stageId = String(stage || '').toLowerCase();
-    if (stageId === 'legendary' || Number(growth) >= 100) {
-      return 'legendarna';
+    const labels = {
+      spore: 'zarodnik',
+      baby: 'maluch',
+      young: 'młoda',
+      adult: 'dorosła',
+      legendary: 'legendarna'
+    };
+    return labels[normalizeJournalSnapshotStage(stage, growth)] || labels.spore;
+  }
+
+  function normalizeJournalSnapshotStage(stage, growth) {
+    const core = window.PieczargotchiCore;
+    if (core && typeof core.normalizeJournalSnapshotStage === 'function') {
+      return core.normalizeJournalSnapshotStage(stage, growth, rules.stageThresholds);
     }
-    if (stageId === 'adult' || Number(growth) >= 65) {
-      return 'dorosła';
+    const aliases = { sprout: 'baby', juvenile: 'young' };
+    const normalized = aliases[String(stage || '').toLowerCase()] || String(stage || '').toLowerCase();
+    if (['spore', 'baby', 'young', 'adult', 'legendary'].includes(normalized)) {
+      return normalized;
     }
-    if (stageId === 'juvenile' || Number(growth) >= 28) {
-      return 'młoda';
+    const numericGrowth = Number(growth) || 0;
+    if (numericGrowth >= 100) {
+      return 'legendary';
     }
-    if (stageId === 'sprout' || Number(growth) > 0) {
-      return 'kiełek';
+    if (numericGrowth >= 62) {
+      return 'adult';
     }
-    return 'zarodnik';
+    if (numericGrowth >= 28) {
+      return 'young';
+    }
+    if (numericGrowth >= 8) {
+      return 'baby';
+    }
+    return 'spore';
   }
 
   function getWorldJournalDayPhaseLabel(dayPhase, isDay) {
@@ -376,35 +435,50 @@
     drawJournalSnapshotClouds(ctx, width, height, item, snapshot);
     drawJournalSnapshotWeather(ctx, width, height, item, snapshot);
     drawJournalPhotoPhenomenon(ctx, width, height, item);
-    drawJournalPhotoGrass(ctx, width, height, item, snapshot);
     drawJournalSnapshotWorldDetails(ctx, width, height, item, snapshot);
     drawJournalPhotoMushroom(ctx, width, height, item);
+    drawJournalPhotoGrass(ctx, width, height, item, snapshot);
     drawJournalSnapshotFilmPatina(ctx, width, height, item, snapshot);
   }
 
   function drawJournalSnapshotSky(ctx, width, height, item, snapshot) {
-    const weather = snapshot && snapshot.weather ? snapshot.weather : {};
-    const condition = String(weather.condition || '').toLowerCase();
-    const phase = String(weather.dayPhase || '').toLowerCase();
-    const night = phase === 'night' || weather.isDay === false;
-    const dawn = phase === 'dawn' || phase === 'morning';
-    const dusk = phase === 'dusk' || phase === 'evening';
-    const snow = condition === 'snow' || Number(weather.snowfall) > 0;
-    const rain = condition === 'rain' || condition === 'drizzle' || condition === 'storm' || Number(weather.rain) > 0;
-    const warm = item && ['sunbeams', 'clearingAfterRain', 'teaDay', 'beeDay', 'biodiversityDay', 'earthDay', 'mushroomDay'].includes(item.photoScene);
-    const top = night ? '#1e274d' : snow ? '#c4d3dc' : rain ? '#70899a' : dawn ? '#cf9d86' : dusk ? '#9b6f83' : warm ? '#d9987c' : '#91b7c7';
-    const bottom = night ? '#454b72' : snow ? '#e7ebdc' : rain ? '#b3bda8' : dawn ? '#efc189' : dusk ? '#c9957b' : warm ? '#f0be85' : '#d6d8b1';
-
-    ctx.fillStyle = top;
-    ctx.fillRect(0, 0, width, Math.ceil(height * 0.54));
-    ctx.fillStyle = bottom;
-    ctx.fillRect(0, Math.floor(height * 0.54), width, height);
+    const palette = getJournalSnapshotPalette(snapshot, item);
+    ctx.fillStyle = palette.skyTop;
+    ctx.fillRect(0, 0, width, Math.ceil(height * 0.36));
+    ctx.fillStyle = palette.skyMid;
+    ctx.fillRect(0, Math.floor(height * 0.36), width, Math.ceil(height * 0.3));
+    ctx.fillStyle = palette.skyLow;
+    ctx.fillRect(0, Math.floor(height * 0.66), width, Math.ceil(height * 0.34));
 
     for (let y = 0; y < height; y += 5) {
-      const alpha = night ? 0.05 + y / height * 0.08 : y / height * 0.15;
+      const alpha = palette.nightFactor > 0.5 ? 0.035 + y / height * 0.055 : y / height * 0.08;
       ctx.fillStyle = 'rgba(255,255,255,' + alpha.toFixed(2) + ')';
       ctx.fillRect(0, y, width, 2);
     }
+  }
+
+  function getJournalSnapshotScene(snapshot, item) {
+    const weather = snapshot && snapshot.weather ? snapshot.weather : {};
+    const phase = String(weather.dayPhase || '').toLowerCase();
+    return Object.assign({}, weather, {
+      condition: String(weather.condition || 'clear').toLowerCase(),
+      dayPhase: phase || (weather.isDay === false ? 'night' : 'noon'),
+      isDay: typeof weather.isDay === 'boolean' ? weather.isDay : phase !== 'night',
+      cloudDensity: Math.max(0, Math.min(1, Number(weather.cloudCover) / 100 || 0)),
+      visualDate: snapshot && snapshot.capturedAt || null,
+      photoScene: item && item.photoScene || ''
+    });
+  }
+
+  function getJournalSnapshotPalette(snapshot, item) {
+    const scene = getJournalSnapshotScene(snapshot, item);
+    if (typeof getScenePaletteImmediate === 'function') {
+      return getScenePaletteImmediate(scene);
+    }
+    const night = scene.isDay === false || scene.dayPhase === 'night';
+    return night
+      ? { skyTop: '#172743', skyMid: '#243b52', skyLow: '#3e5846', ground: '#365f38', groundLight: '#4b7942', blade: '#638b47', sun: '#f5f0c8', sunCore: '#fff7d1', nightFactor: 1 }
+      : { skyTop: '#dff0c6', skyMid: '#d8edb8', skyLow: '#c8e99a', ground: '#69a344', groundLight: '#83b955', blade: '#91ca60', sun: '#ffe596', sunCore: '#fff3b8', nightFactor: 0 };
   }
 
   function drawJournalSnapshotCelestial(ctx, width, height, item, snapshot) {
@@ -432,11 +506,17 @@
 
     const x = width - 42;
     const y = phase === 'dawn' || phase === 'morning' ? 34 : 26;
-    ctx.fillStyle = cloudCover > 80 ? 'rgba(255,231,167,0.42)' : '#f3c579';
-    ctx.fillRect(x, y, 14, 14);
-    ctx.fillStyle = 'rgba(255,229,166,0.28)';
-    ctx.fillRect(x - 10, y + 5, 34, 4);
-    ctx.fillRect(x + 5, y - 10, 4, 34);
+    const palette = getJournalSnapshotPalette(snapshot, item);
+    if (typeof drawPixelSun === 'function') {
+      ctx.save();
+      ctx.globalAlpha = cloudCover > 80 ? 0.42 : 0.86;
+      drawPixelSun(ctx, { x: x, y: y, size: 14, coreInset: 4, coreSize: 6 }, palette, 0);
+      ctx.restore();
+      return;
+    }
+    ctx.fillStyle = cloudCover > 80 ? 'rgba(255,231,167,0.42)' : palette.sun;
+    ctx.fillRect(x + 2, y, 10, 14);
+    ctx.fillRect(x, y + 2, 14, 10);
   }
 
   function drawJournalSnapshotClouds(ctx, width, height, item, snapshot) {
@@ -449,6 +529,18 @@
       const x = Math.round(-18 + seededJournalValue(seed, index + 51) * (width + 18));
       const y = Math.round(22 + seededJournalValue(seed, index + 88) * 58 + index * 4);
       const alpha = 0.18 + Math.min(0.38, cover / 220);
+      if (typeof drawWeatherCloud === 'function') {
+        const palette = getJournalSnapshotPalette(snapshot, item);
+        drawWeatherCloud(ctx, x, y, palette.cloud || 'rgba(255,253,239,0.44)', palette.cloudLight || 'rgba(255,255,247,0.38)', 0.38, alpha, cover > 72 ? 'stratus' : 'cumulus', {
+          direction: 1,
+          widthScale: 1,
+          heightScale: 1,
+          stretch: 1,
+          edgeTexture: 0.3,
+          seed: index + 1
+        });
+        continue;
+      }
       ctx.fillStyle = 'rgba(255,253,239,' + alpha.toFixed(2) + ')';
       ctx.fillRect(x, y, 42, 8);
       ctx.fillRect(x + 8, y - 5, 22, 7);
@@ -952,12 +1044,13 @@
     const frost = item.photoScene === 'frost' || Number(weather.frostRisk) > 0.45 || String(weather.condition || '') === 'snow';
     const wet = Number(weather.surfaceWetness) > 0.35 || Number(weather.rainIntensity) > 0.15;
     const grassSeed = snapshot && snapshot.seed ? snapshot.seed : item.id || 'grass';
-    ctx.fillStyle = frost ? '#9cb08c' : wet ? '#3f7d48' : '#4f8a3d';
+    const palette = getJournalSnapshotPalette(snapshot, item);
+    ctx.fillStyle = frost ? '#9cb08c' : wet ? '#3f7d48' : palette.ground || '#4f8a3d';
     ctx.fillRect(0, height - 33, width, 33);
     for (let x = -4; x < width + 4; x += 5) {
       const seed = seededJournalValue(grassSeed, x + 101);
       const bladeHeight = 13 + Math.floor(seed * 18);
-      ctx.fillStyle = seed > 0.62 ? '#9bd156' : seed > 0.28 ? '#5fa947' : '#2f6f3a';
+      ctx.fillStyle = seed > 0.62 ? palette.blade || '#9bd156' : seed > 0.28 ? palette.groundLight || '#5fa947' : palette.ground || '#2f6f3a';
       if (frost) {
         ctx.fillStyle = seed > 0.54 ? '#dfead5' : '#8ba77a';
       } else if (wet && seed > 0.7) {
@@ -979,16 +1072,33 @@
       ? findStageAnimation(stage, stateName)
       : null;
     const image = animation && runtime.assets ? runtime.assets[animation.key] : null;
-    const assetFailed = Boolean(animation && runtime.assetFailures && runtime.assetFailures[animation.key]);
+    if (image && typeof touchRuntimeAsset === 'function') {
+      touchRuntimeAsset(animation.key);
+    }
+    const assetFailed = Boolean(animation && typeof isRuntimeAssetFailureCoolingDown === 'function'
+      && isRuntimeAssetFailureCoolingDown(animation.key));
     if (animation && !image && !assetFailed && typeof ensureAssetLoaded === 'function') {
       const promise = ensureAssetLoaded(animation.key);
       queueWorldJournalPolaroidRedraw(item, promise);
     }
 
     if (animation && image) {
-      const frameWidth = animation.frameWidth || canvasSize;
-      const frameHeight = animation.frameHeight || canvasSize;
-      ctx.drawImage(image, 0, 0, frameWidth, frameHeight, 24, height - 146, 144, 144);
+      const layout = resolveJournalSpriteFrameLayout(animation, 0);
+      const photoSize = 144;
+      const photoX = 24;
+      const photoY = height - 146;
+      const scale = photoSize / canvasSize;
+      ctx.drawImage(
+        image,
+        layout.sourceX,
+        0,
+        layout.frameWidth,
+        layout.frameHeight,
+        photoX + layout.drawX * scale,
+        photoY + layout.drawY * scale,
+        layout.frameWidth * scale,
+        layout.frameHeight * scale
+      );
       return;
     }
 
@@ -998,6 +1108,24 @@
     }
 
     drawJournalMushroomPendingPlaceholder(ctx, width / 2, height - 40);
+  }
+
+  function resolveJournalSpriteFrameLayout(animation, logicalFrame) {
+    const frameWidth = Math.max(1, Number(animation && animation.frameWidth) || canvasSize);
+    const frameHeight = Math.max(1, Number(animation && animation.frameHeight) || canvasSize);
+    const sequence = animation && Array.isArray(animation.frameSequence) ? animation.frameSequence : null;
+    const frameCount = Math.max(1, Number(animation && animation.frames) || sequence && sequence.length || 1);
+    const logicalIndex = Math.max(0, Math.min(frameCount - 1, Math.floor(Number(logicalFrame) || 0)));
+    const storedFrameCount = Math.max(1, Number(animation && animation.storedFrameCount) || frameCount);
+    const requestedStoredIndex = sequence ? Number(sequence[logicalIndex]) : logicalIndex;
+    const storedIndex = Math.max(0, Math.min(storedFrameCount - 1, Math.floor(requestedStoredIndex) || 0));
+    return {
+      sourceX: storedIndex * frameWidth,
+      frameWidth: frameWidth,
+      frameHeight: frameHeight,
+      drawX: Number.isFinite(Number(animation && animation.drawX)) ? Number(animation.drawX) : 0,
+      drawY: Number.isFinite(Number(animation && animation.drawY)) ? Number(animation.drawY) : 0
+    };
   }
 
   function drawJournalFallbackMushroom(ctx, centerX, baseY, reaction) {
@@ -1034,7 +1162,8 @@
 
   function preloadWorldJournalPolaroidAsset(item) {
     const stage = getJournalPolaroidStage(item);
-    const stateName = getJournalReactionState(item && item.reaction);
+    const snapshot = getJournalPhotoSnapshot(item);
+    const stateName = getJournalReactionState(snapshot && snapshot.reaction || item && item.reaction);
     const animation = typeof findStageAnimation === 'function'
       ? findStageAnimation(stage, stateName)
       : null;
@@ -1045,13 +1174,11 @@
 
   function getJournalPolaroidStage(item) {
     const snapshot = getJournalPhotoSnapshot(item);
-    if (snapshot && snapshot.stage) {
-      return snapshot.stage;
+    if (snapshot) {
+      return normalizeJournalSnapshotStage(snapshot.stage, snapshot.growth);
     }
-    if (snapshot && Number(snapshot.growth) >= 100) {
-      return 'legendary';
-    }
-    return runtime.state && runtime.state.stage ? runtime.state.stage : 'adult';
+    const state = runtime.state || {};
+    return normalizeJournalSnapshotStage(state.stage, state.stats && state.stats.growth);
   }
 
   function queueWorldJournalPolaroidRedraw(item, promise) {

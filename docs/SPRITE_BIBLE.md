@@ -1,6 +1,6 @@
 # Sprite Bible Pieczargotchi
 
-Data: 2026-05-09
+Data: 2026-07-12
 
 Ten dokument opisuje praktyczne zasady przygotowywania i utrzymywania sprite'ów dla aktualnej paczki zasobów Pieczargotchi. Punktem odniesienia są:
 
@@ -8,7 +8,7 @@ Ten dokument opisuje praktyczne zasady przygotowywania i utrzymywania sprite'ów
 - bieżąca struktura `assets/stages/`
 - bieżąca struktura `assets/activities/`
 
-To nie jest wishlist. To jest instrukcja robocza dla obecnych i kolejnych arkuszy animacji czas działania.
+To nie jest wishlist. To jest instrukcja robocza dla obecnych i kolejnych arkuszy animacji runtime. Aktualny kontrakt rozdziela logiczną klatkę 512x512 od fizycznego, ciasno przyciętego PNG.
 
 ## 1. Aktualny zakres zasobów
 
@@ -72,7 +72,9 @@ Aktualnie repo zawiera 8 arkuszy animacji aktywności:
 - `spores_sheet.png`
 - `harvest_sheet.png`
 
-Manifest uruchomieniowy używa wariantów `assets/activities/<stage>/...`; pliki głównego poziomu `assets/activities/*.png` zostają tylko mechanizmami zgodności i są raportowane przez walidator jako pliki poza manifestem.
+Manifest uruchomieniowy używa wyłącznie wariantów `assets/activities/<stage>/...`. Dawne kopie głównego poziomu `assets/activities/*.png` oraz udawane warianty `instrument_*_sheet.png` nie należą do paczki runtime.
+
+Polish 0.1.50 utrzymuje pełny cel ruchu `8/8` dla aktywności. W szczególności `spore/feed_sheet.png` i `spore/instrument_sheet.png` mają osiem widocznie różnych klatek, a nie powieloną pozę rozciągniętą przez timing. Ten sam release odświeża siedem rodzin fidget/cursor (`idle_fidget`, `idle_fidget_sway`, `idle_fidget_shift`, `watch_cursor_left`, `watch_cursor_right`, `watch_cursor_up_left`, `watch_cursor_up_right`) dla wszystkich pięciu etapów, czyli 35 sheetów i 280 logicznych klatek.
 
 ### Efekty pomocnicze
 
@@ -86,22 +88,32 @@ Aktualnie repo zawiera 5 arkuszy animacji efektów pomocniczych ładowanych prze
 
 Efekty są walidowane razem z arkuszami animacji i ładowane przez manifest uruchomieniowy jako warstwy `effect.*`.
 
+### Arena
+
+Arena ma osobną, body-only paczkę, niezależną od stage sheetów sceny opieki:
+
+- `assets/battle/arena_background.png` - wspólna plansza `512x512`;
+- `assets/battle/player_legendary_sheet.png` - gracz `playerLegendary`;
+- `assets/battle/opponents/sproutling_sheet.png` - `visualId: sproutling`;
+- `assets/battle/opponents/windcap_sheet.png` - `visualId: windcap`;
+- `assets/battle/opponents/eldercap_sheet.png` - `visualId: eldercap`.
+
+Każdy arkusz postaci areny ma cztery fizyczne klatki `256x256` w kolejności `idle`, `attack`, `guard`, `hurt`, czyli cały PNG ma `1024x256`. Nie wolno podstawiać stage sheetu z trawą ani zmieniać `visualId` bez migracji istniejącego aktywnego zapisu walki.
+
 ## 2. Format techniczny
 
 Te zasady są obowiązkowe dla wszystkich nowych arkuszy animacji.
 
-- Każda klatka czas działania ma rozmiar `512x512`.
-- Każdy arkusz animacji jest układany poziomo.
-- Większość arkuszy animacji w paczce używa `4` klatek, czyli rozmiaru `2048x512`.
-- Dopracowane aktywności używają kontraktu `8` klatek, czyli rozmiaru `4096x512`; ruch akcji ma być w sprite'cie PNG, a renderer nie dokłada dodatkowego body-motion poza stanówym overlayem i efektami pomocniczymi.
-- `idle_fidget_sheet.png`, `idle_fidget_sway_sheet.png`, `idle_fidget_shift_sheet.png`, `idle_look_left_sheet.png`, `idle_look_right_sheet.png`, `watch_cursor_*_sheet.png` i `follow_cursor_*_sheet.png` używają `8` klatek, czyli rozmiaru `4096x512`.
-- `ponder_sheet.png`, `ponder_up_sheet.png`, `ponder_side_sheet.png`, `ponder_breath_sheet.png`, `watch_butterfly_sheet.png` i `watch_crawler_sheet.png` używają `10` klatek, czyli rozmiaru `5120x512`.
-- `watch_firefly_sheet.png` używa `12` klatek, czyli rozmiaru `6144x512`.
-- `rain_sheet.png` jest celowym wyjątkiem: używa `16` klatek, czyli rozmiaru `8192x512`, żeby pokazać narastanie kropli, spływanie po kapeluszu, oderwanie i rozbicie o ziemię.
-- Format pliku: `PNG RGBA` z przezroczystym tłem.
-- czas działania zakłada, że sprite jest już poprawnie wycentrowany. Renderer nie ma korygować pozycji offsetami per klatka.
+- Logiczna klatka sceny ma układ współrzędnych `512x512`, ale fizyczny PNG przechowuje tylko wspólny alpha-union potrzebny dla danego sheetu.
+- `SpriteLayout.gs` jest generowanym źródłem prawdy dla `frameWidth`, `frameHeight`, `drawX`, `drawY`, `pivotX`, `pivotY`, `storedFrameCount`, `frameSequence` i `bakedGrass`.
+- `frameCount` pozostaje liczbą klatek logicznych. `storedFrameCount` może być mniejszy, gdy identyczne klatki są deduplikowane, a `frameSequence` mapuje każdą klatkę logiczną na właściwą klatkę fizyczną.
+- Renderer odtwarza tight crop w oryginalnym miejscu przez `drawX`/`drawY`; nie skaluje go do pełnych `512x512` i nie centruje ponownie.
+- Większość sekwencji ma logiczne `4` klatki; aktywności i krótkie reakcje używają `8`, warianty `ponder` oraz część ambientu `10`, `watch_firefly` `12`, a `rain` `16`.
+- Format pliku to `PNG RGBA`; każdy piksel z `alpha=0` musi mieć także `RGB=0`, a magentowy matte nie może zostać na krawędziach.
+- Stage, activity, easter-egg i effect sheety są body-only (`bakedGrass: false`). Trawa nie może wrócić do ich fizycznych klatek.
+- Arena jest świadomym wyjątkiem rozmiarowym: cztery klatki `256x256`, bez `SpriteLayout.gs`, z kontraktem opisanym wyżej.
 
-Wniosek praktyczny: jeśli nowy plik nie ma liczby klatek zgodnej z `AnimationConfig.gs`, to najpierw trzeba wyjaśnić zmianę kontraktu i zaktualizować manifest, a nie liczyć, że klient to "łyknie".
+Wniosek praktyczny: liczba klatek logicznych musi zgadzać się z `AnimationConfig.gs`, a fizyczny rozmiar PNG z wygenerowanym `SpriteLayout.gs`. Po przebudowie pełnych 512x512 sheetów zawsze uruchamiamy optimizer; nie poprawiamy metadata ręcznie.
 
 ## 3. Styl i paleta
 
@@ -111,7 +123,7 @@ Aktualne zasoby trzymają spójny kierunek wizualny. Nowe prace powinny go konty
 
 - Pixel art z miękkim modelowaniem bryły, bez fotorealizmu.
 - Silna czytelność sylwetki już z pierwszej klatki.
-- Jedna postać na środku kadru, osadzona w gęstej kępie trawy lub mchu.
+- Jedna postać w stabilnym logicznym kadrze; wspólna trawa sceny osadza ją w podłożu dopiero podczas renderowania.
 - Mimika jest prosta: oczy, usta, policzki i kąt kapelusza robią większość ekspresji.
 - Ruch jest mały i kontrolowany. Idle ma wyglądać jak oddech, mrugnięcie albo lekki puls, a nie jak ciągłe skakanie.
 - Efekt "legendary" ma być subtelny: drobne błyski i bogatsza forma, bez odchodzenia od tego samego bohatera.
@@ -141,8 +153,8 @@ Najważniejsza zasada produkcyjna: postać ma być stabilna między klatkami.
 
 ### Kotwice wizualne
 
-- Środek postaci trzymamy blisko środka pola `512x512`.
-- Linia "ziemi" lub dolna masa trawy powinna siedzieć na podobnej wysokości we wszystkich klatkach danego sheetu.
+- Środek postaci trzymamy blisko środka logicznego pola `512x512`; tight crop nie zmienia tej współrzędnej.
+- Dolna kotwica ciała powinna siedzieć na podobnej wysokości we wszystkich klatkach danego sheetu. Nie używamy masy trawy jako części sprite'a.
 - Największa masa kapelusza nie może w jednej klatce odpływać w lewo lub w prawo względem reszty sekwencji.
 - Oczy, usta i twarz mogą się zmieniać, ale rdzeń sylwetki ma pozostać stabilny.
 
@@ -156,14 +168,14 @@ Najważniejsza zasada produkcyjna: postać ma być stabilna między klatkami.
 
 Każdy etap musi wyglądać jak ta sama Pieczargotchi, tylko w innym wieku i statusie.
 
-Nie skalujemy całej sceny między etapami. Trawa/mech jest wspólną kotwicą wizualną, a różnice wzrostu muszą wynikać z samej sylwetki Pieczarki: zarodnika, małej pieczarki, młodej pieczarki, dorosłej pieczarki i legendarnej pieczarki z pelerynką.
+Nie skalujemy całej sceny między etapami. Trawa/mech jest wspólną warstwą sceny i kotwicą wizualną, a różnice wzrostu muszą wynikać z samej sylwetki Pieczarki: zarodnika, małej pieczarki, młodej pieczarki, dorosłej pieczarki i legendarnej pieczarki z pelerynką.
 
 ### `spore`
 
 - start gry przy `growth: 0`,
 - mały kremowy zalążek pieczarki w mchu: krótki trzonek, mini kapelusz typu button/pin; bez listka, czupryny i jajowatej bryły,
 - kapelusz zarodka musi być częścią wygenerowanego sprite'a, bez osobnej nakładki w builderze,
-- ten sam pas trawy co w pozostałych etapach,
+- ta sama stage-aware polana i warstwa trawy sceny co w pozostałych etapach,
 - prostsza sylwetka i najmniej detalu,
 - ekspresja bardziej delikatna niż u starszych etapów.
 - aktywności zarodnika mają być spokojniejsze niż u starszych etapów: mikrodrift, brak szybkiego naprzemiennego skakania lewo/prawo i brak długich jasnych poziomych pasów w rekwizytach.
@@ -188,7 +200,7 @@ Nie skalujemy całej sceny między etapami. Trawa/mech jest wspólną kotwicą w
 - punkt odniesienia: `assets/awake.png`,
 - stabilna, spokojna obecność,
 - lepsza czytelność reakcji i stanów,
-- ta sama baza trawy, bez dodatkowego skalowania całej sceny.
+- ta sama wspólna warstwa trawy, bez dodatkowego skalowania całej sceny.
 
 ### `legendary`
 
@@ -260,18 +272,20 @@ Aktywności są osobne dla etapu. Ten sam typ akcji musi mieć osobny arkusz ani
 | `assets/activities/<stage>/clean_sheet.png` | reakcja na czyszczenie |
 | `assets/activities/<stage>/play_sheet.png` | zabawa i ruch |
 | `assets/activities/<stage>/instrument_sheet.png` | kontakt z instrumentem lub słuchanie |
-| `assets/activities/<stage>/instrument_bell_sheet.png` | wariant instrumentu: dzwonki/kalimba |
-| `assets/activities/<stage>/instrument_flute_sheet.png` | wariant instrumentu: flet/syntezator |
-| `assets/activities/<stage>/instrument_drum_sheet.png` | wariant instrumentu: bębenki/rytm |
-| `assets/activities/<stage>/instrument_rare_sheet.png` | rzadki instrument etapu, zapisywany w odkryciach |
+| klucz `instrument_bell` | wybór dzwonków/kalimby; obecnie aliasuje używany arkusz `instrument_sheet.png` |
+| klucz `instrument_flute` | wybór fletu/syntezatora; obecnie aliasuje używany arkusz `instrument_sheet.png` |
+| klucz `instrument_drum` | wybór bębenków/rytmu; obecnie aliasuje używany arkusz `instrument_sheet.png` |
+| klucz `instrument_rare` | rzadkie odkrycie; obecnie aliasuje używany arkusz `instrument_sheet.png` |
 | `assets/activities/<stage>/sing_sheet.png` | śpiew, wokal, nutki |
 | `assets/activities/<stage>/spores_sheet.png` | emisja zarodników |
 | `assets/activities/<stage>/harvest_sheet.png` | plon, zbiór lub dojrzałość |
 
 ### Zasady dla aktywności
 
+Warianty instrumentów mają odrębne klucze gameplay/logów, ale nie udają odrębnej grafiki. Dopóki nie powstanie prawdziwy, ręcznie zweryfikowany art, manifest kieruje wszystkie cztery klucze na etapowy `instrument_sheet.png`; osobnych `instrument_*_sheet.png` nie przechowujemy w paczce aplikacji.
+
 - Aktywność dalej pokazuje tę samą postać i ten sam etap, a nie osobny minigame sprite.
-- Aktywność jest sprite-first: podstawowy gęst, mimika i rekwizyt należą do `8` klatek PNG dla danego etapu, zamiast do canvasowego retuszu postaci.
+- Aktywność jest sprite-first: podstawowy gest, mimika i rekwizyt należą do `8` klatek logicznych dla danego etapu, zamiast do canvasowego retuszu postaci. Tight/dedup PNG może fizycznie przechowywać mniej klatek.
 - Rekwizyty i efekty są dodatkiem, nie nowym środkiem ciężkości.
 - `hydrate` nie skaluje całego cutoutu razem z wodą. Postać jest składana w rozmiarze etapu, a lekka mgiełka kropli jest nakładana nad nią jako osobna warstwa.
 - `clean` nie ma bake'ować trwałej brudnej warstwy na postaci. Niska `cleanliness` pozostaje wyborem renderera jako dirt cue / stan `dirty`, a aktywność `clean` pokazuje czyszczenie i połysk.
@@ -298,11 +312,11 @@ Efekty mogą mieć większy dryf niż postać, bo są ruchem cząstek. Nadal mus
 
 Reguła produkcyjna dla immersji:
 
-- PNG/generator obrazów: sylwetka Pieczarki, oczy, usta, kapelusz, akcesoria dotykające postaci, parasolka/liść/osłona, duże reakcje mimiczne i osobne dla etapu stany.
+- PNG/generator obrazów: body-only sylwetka Pieczarki, oczy, usta, kapelusz, akcesoria dotykające postaci, parasolka/liść/osłona, duże reakcje mimiczne i osobne dla etapu stany.
 - Canvas: opady, wiatr, ruch trawy, gwiazdy, promienie, mokrość, śnieg na ziemi, cursor ripple, szelest, motyle, świetliki, żuki i małe cząstki.
 - czas działania nie maluje nowej mimiki po głównym PNG. Jeśli reakcja wymaga twarzy, dostaje własny arkusz animacji w `assets/stages/<stage>/`.
 - `feed`, `instrument` i `sing` są sprite-owned: renderer nie może dorysowywać im dodatkowych ust, instrumentów ani muzycznych rekwizytów na canvasie.
-- Trawa foreground rośnie proceduralnie z ziemi pod Pieczarką i może częściowo przykrywać dolną część postaci, ale nie może wyglądać jak element wyrastający z kapelusza albo twarzy. Dekoracje podłoża muszą być rysowane nad trawą albo na osobnym meblu, żeby zakupione przedmioty nie ginęły w zaroślach.
+- `assets/environment/grass_patch.png` oraz lekka trawa proceduralna są jedynym wspólnym systemem zieleni sceny. Stage-aware clearing utrzymuje twarz i korpus czytelne; dekoracje są osadzane przed lekkim foreground occluderem, żeby nie wyglądały jak naklejone ani nie ginęły w zaroślach.
 
 ## 10. Rytm animacji
 
@@ -311,11 +325,13 @@ Plan implementacyjny mówi o manifeście z liczbą klatek, timingiem, pętlą i 
 - `idle`, `sleep`, `tired`, `dry`, `hungry`, `dirty`, `sick`:
   wolniejszy rytm i mała amplituda ruchu.
 - `wake`, `happy`, `clean`, `feed`, `hydrate`, `play`, `sing`, `spores`, `harvest`:
-  szybsza czytelna reakcja wejścia, potem powrót do spokoju. Aktywności mają `8` klatek, więc timing powinien wykorzystać dodatkowe klatki na gęst i wyciszenie, nie na przypadkowy drift.
+  szybsza czytelna reakcja wejścia, potem powrót do spokoju. Aktywności mają `8` klatek logicznych, więc timing powinien wykorzystać dodatkowe pozy na gest i wyciszenie, nie na przypadkowy drift; deduplikacja fizyczna nie zmienia timingu.
 - `critical`:
   najmocniejsza czytelność, ale nie migotanie powodujące chaos.
 - warianty `idle_fidget`, warianty `ponder`, reakcje kursora, `watch_butterfly`, `watch_firefly`, `watch_crawler`:
   dłuższy oddech sceny i małe przesunięcia ciała, bez skakania po baseline albo zmiany bohatera w inny wariant graficzny.
+- reakcje kursora:
+  kierunek oczu i przechył muszą zgadzać się z nazwą sheetu; nie wolno zastępować ruchu luźnymi pikselami, plusami ani sztucznym śladem obok sylwetki.
 
 Jeżeli arkusz animacji ma tylko 4 klatki, różnicę rytmu osiągamy timingiem i intensywnością pozy, nie dokładaniem losowych mikro-ruchów.
 
@@ -326,17 +342,19 @@ Nowy arkusz animacji nie powinien trafiać do czas działania bez tej listy kont
 ### Walidacja techniczna
 
 - plik jest w `PNG RGBA`,
-- rozmiar całego sheetu zgadza się z manifestem czas działania (`frameCount * 512` na `512`),
-- liczba klatek zgadza się z `AnimationConfig.gs` i szerokością pliku,
-- dopracowane aktywności osobne dla etapu mają `8` klatek (`4096x512`) i osobny plik dla każdego etapu,
+- fizyczny rozmiar sheetu zgadza się z `frameWidth * storedFrameCount` na `frameHeight` w manifeście i `SpriteLayout.gs`,
+- `frameCount` zgadza się z `AnimationConfig.gs`, a `frameSequence` pokrywa każdą klatkę logiczną poprawnym indeksem fizycznym,
+- dopracowane aktywności osobne dla etapu mają `8` klatek logicznych i osobny plik dla każdego etapu,
 - tło jest przezroczyste,
+- piksele `alpha=0` mają wyzerowane kanały RGB, a krawędź nie ma chroma spill,
+- `bakedGrass` pozostaje `false` dla stage, activity, easter-egg i effect sheetów,
 - nazwa pliku trzyma obowiązujący wzorzec,
 - plik trafia do właściwego katalogu: `assets/stages/<stage>/`, `assets/activities/<stage>/` albo `assets/effects/`.
 
 ### Walidacja wizualna
 
 - środek masy sprite'a nie pływa między klatkami,
-- dolna baza trawy/mchu nie skacze pionowo,
+- dolna kotwica ciała nie skacze pionowo, a wspólna trawa sceny nie jest zapisana w sprite'cie,
 - oczy, usta i dodatki nie zmieniają stylu między klatkami,
 - czytelność działa na pełnym sheetcie i na pojedynczej klatce,
 - stan można odróżnić bez podpisu tekstowego.
@@ -349,15 +367,33 @@ Nowy arkusz animacji nie powinien trafiać do czas działania bez tej listy kont
 - aktywność albo potrzeba jest zrozumiała bez tutoriala,
 - etap wzrostu jest rozpoznawalny, ale nadal należy do tej samej rodziny postaci.
 
+### Minimalny gate techniczny
+
+```sh
+python3 scripts/optimize-runtime-sprite-atlases.py --check
+python3 scripts/generate-battle-assets.py --check
+node scripts/test-animation-render-contracts.mjs
+node scripts/test-battle-visual-contracts.mjs
+node scripts/test-grass-wind-motion.mjs
+node scripts/validate-assets.mjs
+python3 scripts/audit-sprite-frame-quality.py
+python3 scripts/audit-sprite-chroma.py --strict
+python3 scripts/audit-activity-sprite-motion.py
+python3 scripts/audit-glint-sprites.py
+```
+
+`audit-sprite-frame-quality.py` może raportować advisory findings, ale błędy generatora, layoutu, manifestu, chroma, alpha albo body-only są blockerami. Przed wydaniem dochodzi pełne `npm run qa` oraz browser capture sceny opieki, pogody, aktywności i areny; sam test Node nie potwierdza kompozycji wizualnej.
+
 ## 12. Co robić przy nowych arkuszach animacji
 
 ### Gdy dodajesz nowy arkusz animacji do istniejącego etapu
 
-1. Zacznij od duplikatu najbliższego stylistycznie arkusza animacji z tego samego etapu.
-2. Zachowaj ten sam canvas, marginesy i środek masy.
+1. Zacznij od źródłowego wycinka lub pełnego 512x512 arkusza najbliższej stylistycznie animacji z tego samego etapu; nie edytuj tight PNG jak zwykłego pełnego sheetu.
+2. Zachowaj ten sam logiczny canvas, baseline i środek masy.
 3. Zmień najpierw ekspresję i detal reakcji, dopiero potem dodatki.
 4. Sprawdź sekwencję klatka po klatce obok `idle_sheet.png`.
 5. Upewnij się, że nowy stan nie wygląda jak przemalowany `happy` albo `sick`.
+6. Przebuduj cały źródłowy zestaw, uruchom `scripts/optimize-runtime-sprite-atlases.py`, a potem sprawdź wygenerowany wpis w `SpriteLayout.gs`.
 
 ### Gdy dodajesz nowy arkusz animacji aktywności
 
@@ -365,7 +401,7 @@ Nowy arkusz animacji nie powinien trafiać do czas działania bez tej listy kont
 2. Najpierw ustal, czy akcja potrzebuje rekwizytu, efektu czy tylko zmiany mimiki.
 3. Ogranicz liczbę ruchomych elementów do minimum potrzebnego dla czytelności.
 4. Zadbaj, żeby rekwizyt nie wypychał postaci z centrum.
-5. Zostaw miejsce na późniejszy manifest: nazwa, liczba klatek, timing, pętla, priorytet, akcja wyzwalająca.
+5. Zaktualizuj manifest: nazwa, liczba klatek logicznych, timing, pętla, priorytet i akcja wyzwalająca; fizyczny layout wygeneruje optimizer.
 
 ### Gdy dodajesz nowy typ stanu do wszystkich etapów
 
@@ -375,30 +411,31 @@ Nowy arkusz animacji nie powinien trafiać do czas działania bez tej listy kont
 4. Dopiero po zatwierdzeniu kierunku przenieś stan na resztę etapów.
 5. Nie wprowadzaj nowego nazewnictwa równolegle do starego bez świadomej zmiany kontraktu.
 
-## 12. Minimalne zasady spójności między arkuszami animacji
+## 13. Minimalne zasady spójności między arkuszami animacji
 
 - Ten sam etap powinien mieć ten sam język oczu, ust, policzków i cienia.
-- Trawa/mech nie może być w jednym pliku miękka i malarska, a w drugim ostra i geometryczna.
+- Sprite'y nie zawierają własnej trawy/mchu; cała paczka korzysta ze wspólnego podłoża i foreground occludera sceny.
 - Połysk kapelusza musi siedzieć w tej samej rodzinie światła.
 - `legendary` może dodać błysk, ale `spore` nie może przez to wyglądać jak inny system zasobów.
 - Aktywności nie mogą zrywać z bazową perspektywą i skalą sceny.
 
-## 13. Sygnały, że arkusz animacji trzeba poprawić
+## 14. Sygnały, że arkusz animacji trzeba poprawić
 
 - postać "teleportuje się" między klatkami,
-- dolna krawędź zieleni faluje przypadkiem zamiast animacyjnie,
+- dolna kotwica ciała faluje przypadkiem albo w PNG wróciła baked grass,
 - rekwizyt zasłania twarz,
 - stan jest czytelny tylko po kolorze,
 - `critical` wygląda tylko jak bardziej czerwony `sick`,
 - `wake` i `happy` są nie do odróżnienia,
 - etap wzrostu traci podobieństwo do pozostałych etapów.
 
-## 14. Krótka definicja jakości
+## 15. Krótka definicja jakości
 
 Dobry arkusz animacji Pieczargotchi:
 
 - wygląda jak część tej samej paczki,
-- mieści się w rozmiarze opisanym przez manifest czas działania,
-- jest wycentrowany bez ręcznych offsetów w czas działania,
+- mieści się w fizycznym rozmiarze opisanym przez manifest i `SpriteLayout.gs`,
+- wraca przez `drawX`/`drawY` do poprawnej pozycji na logicznym canvasie,
+- nie zawiera własnej warstwy trawy,
 - komunikuje stan albo aktywność bez podpisu,
 - nie robi bałaganu większego niż korzyść z animacji.

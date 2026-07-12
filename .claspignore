@@ -1,0 +1,5 @@
+# Apps Script deployment is an allowlist. Keep browser/build/tooling files out.
+**/**
+!*.gs
+!*.html
+!appsscript.json

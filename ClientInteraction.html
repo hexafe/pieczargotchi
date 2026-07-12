@@ -86,7 +86,7 @@
       finishPointerGesture(event, true);
     });
     runtime.canvas.addEventListener('pointerleave', function() {
-      runtime.input.lastMoveAt = getRuntimeNow();
+      runtime.input.lastMoveAt = getInteractionNow();
       runtime.input.inside = false;
       runtime.input.speed = 0;
       finishPointerGesture(null, true);
@@ -95,7 +95,7 @@
 
   function updatePointerState(event, inside, isDown) {
     const point = getCanvasPointerPoint(event);
-    const now = getRuntimeNow();
+    const now = getInteractionNow();
     const previousX = Number(runtime.input.x);
     const previousY = Number(runtime.input.y);
     const previousAt = Number(runtime.input.lastMoveAt) || now;
@@ -138,7 +138,7 @@
       return;
     }
 
-    const now = getRuntimeNow();
+    const now = getInteractionNow();
     runtime.input.isDown = false;
     runtime.input.pointerId = null;
     runtime.input.lastDragX = null;
@@ -445,6 +445,10 @@
   }
 
   function maybeRecordGrassInteractionDiscovery(point, now) {
+    if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
+      return null;
+    }
+    const worldNow = getRuntimeNow();
     if (!runtime.state || isRuntimeImmersionBlocked(now)) {
       return null;
     }
@@ -456,7 +460,7 @@
 
     const dateKey = typeof getLocalDateKey === 'function'
       ? getLocalDateKey()
-      : new Date(now).toISOString().slice(0, 10);
+      : new Date(worldNow).toISOString().slice(0, 10);
     if (runtime.worldInteractions && runtime.worldInteractions.grassDiscoveryDateKey === dateKey) {
       return null;
     }
@@ -465,14 +469,14 @@
       runtime.state,
       getCurrentWeatherScene(),
       Object.assign({}, runtime.input || {}, { x: point.x, y: point.y }),
-      now,
+      worldNow,
       rules
     );
     if (!selection || !selection.id) {
       return null;
     }
 
-    const result = window.PieczargotchiCore.recordEnvironmentDiscovery(runtime.state, selection.id, now, {
+    const result = window.PieczargotchiCore.recordEnvironmentDiscovery(runtime.state, selection.id, worldNow, {
       scene: typeof getCurrentWeatherScene === 'function' ? getCurrentWeatherScene() : null,
       grassInteraction: {
         x: Math.round(point.x),
@@ -486,9 +490,9 @@
 
     runtime.worldInteractions.grassDiscoveryDateKey = dateKey;
     if (result.newlyDiscovered) {
-      addLog(runtime.state, result.message, now);
+      addLog(runtime.state, result.message, worldNow);
     }
-    saveState(runtime.state);
+    persistRuntimeState(runtime.state);
     renderUi();
     return {
       id: selection.id,
@@ -549,7 +553,7 @@
     }
 
     runtime.worldInteractions.effects = (runtime.worldInteractions.effects || []).concat(Object.assign({
-      startedAt: getRuntimeNow(),
+      startedAt: getInteractionNow(),
       duration: 1000,
       x: 256,
       y: 420,
@@ -565,25 +569,27 @@
     const count = now - Number(target.lastAt || 0) <= 10000 ? Math.min(12, Number(target.count || 0) + 1) : 1;
     const expression = typeof getCelestialMoodExpression === 'function'
       ? getCelestialMoodExpression(count)
-      : (count >= 9 ? 'angry' : (count >= 6 ? 'annoyed' : (count >= 3 ? 'blink' : 'neutral')));
-    const duration = expression === 'angry' ? 2600 : (expression === 'annoyed' ? 1800 : (expression === 'blink' ? 850 : 1));
+      : (count >= 9 ? 'angry' : (count >= 6 ? 'annoyed' : 'blink'));
+    const duration = expression === 'angry'
+      ? 2600
+      : expression === 'annoyed'
+        ? 1800
+        : Math.min(850, 360 + count * 160);
     runtime.celestialMood[kind] = {
       count: count,
       lastAt: now,
       until: now + duration,
       expression: expression
     };
-    if (expression !== 'neutral') {
-      addWorldInteractionEffect({
-        type: 'celestialMood',
-        kind: kind,
-        x: Number(runtime.input.x) || 256,
-        y: Number(runtime.input.y) || 96,
-        startedAt: now,
-        duration: duration,
-        visible: false
-      });
-    }
+    addWorldInteractionEffect({
+      type: 'celestialMood',
+      kind: kind,
+      x: Number(runtime.input.x) || 256,
+      y: Number(runtime.input.y) || 96,
+      startedAt: now,
+      duration: duration,
+      visible: false
+    });
   }
 
   function getCanvasPointerPoint(event) {
@@ -675,8 +681,9 @@
         ? runtime.immersion.cooldowns
         : {}
     });
+    const selectionState = Object.assign({}, runtime.state, { currentActivity: null });
     return window.PieczargotchiCore.selectImmersionReaction(
-      runtime.state,
+      selectionState,
       getCurrentWeatherScene(),
       input,
       wallNow,
@@ -715,10 +722,38 @@
   }
 
   function activateImmersionCandidate(candidate, wallNow) {
+    const durationMs = getImmersionSeamAlignedDurationMs(candidate);
     return Object.assign({}, candidate, {
+      requestedDurationMs: Math.max(300, Number(candidate && candidate.durationMs) || 1200),
+      durationMs: durationMs,
       startedAt: wallNow,
-      until: wallNow + candidate.durationMs
+      until: wallNow + durationMs
     });
+  }
+
+  function getImmersionSeamAlignedDurationMs(candidate) {
+    const requested = Math.max(300, Number(candidate && candidate.durationMs) || 1200);
+    const stage = runtime && runtime.state && runtime.state.stage ? runtime.state.stage : 'spore';
+    const state = candidate && candidate.state ? String(candidate.state) : '';
+    const animation = state && animationsByKey && typeof animationsByKey.get === 'function'
+      ? animationsByKey.get(stage + '.' + state)
+      : null;
+    const durations = animation && Array.isArray(animation.frameDurationsMs)
+      ? animation.frameDurationsMs
+      : [];
+    const frameCount = Math.max(0, Number(animation && animation.frameCount) || 0);
+    if (!animation || !durations.length || durations.length !== frameCount) {
+      return requested;
+    }
+
+    const cycleMs = durations.reduce(function(total, duration) {
+      return total + Math.max(1, Number(duration) || 1);
+    }, 0);
+    if (!Number.isFinite(cycleMs) || cycleMs <= 0) {
+      return requested;
+    }
+
+    return cycleMs * Math.max(1, Math.ceil(requested / cycleMs));
   }
 
   function rememberImmersionVariant(candidate) {
@@ -755,7 +790,7 @@
     if (runtime.state.mode === 'sleeping') {
       return true;
     }
-    if (getActiveActivity(runtime.state, wallNow)) {
+    if (getActiveActivity(runtime.state, getRuntimeNow())) {
       return true;
     }
     return Boolean(getStrongestNeed(runtime.state));
@@ -794,8 +829,8 @@
     const duration = Math.max(1, Number(active.durationMs) || 1);
     const startedAt = Number(active.startedAt || now);
     const rawNow = Number(now);
-    const frameNow = Number.isFinite(rawNow) && rawNow + 60000 < startedAt && typeof getRuntimeNow === 'function'
-      ? getRuntimeNow()
+    const frameNow = Number.isFinite(rawNow) && rawNow + 60000 < startedAt && typeof getInteractionNow === 'function'
+      ? getInteractionNow()
       : rawNow;
     return Math.max(0, Math.min(1, (frameNow - startedAt) / duration));
   }
@@ -852,11 +887,12 @@
       return;
     }
 
+    const interactionNow = typeof getInteractionNow === 'function' ? getInteractionNow() : wallNow;
     const live = [];
     const drawn = [];
     runtime.worldInteractions.effects.forEach(function(effect) {
       const duration = Math.max(1, Number(effect.duration) || 1000);
-      const progress = Math.max(0, Math.min(1, (wallNow - Number(effect.startedAt || wallNow)) / duration));
+      const progress = Math.max(0, Math.min(1, (interactionNow - Number(effect.startedAt || interactionNow)) / duration));
       if (progress >= 1) {
         return;
       }
@@ -888,7 +924,7 @@
       }
     });
     runtime.worldInteractions.effects = live;
-    recordWorldInteractionDiagnostics(live, drawn, wallNow);
+    recordWorldInteractionDiagnostics(live, drawn, interactionNow);
   }
 
   function drawFrogJumpEffect(ctx, now, effect, progress) {
@@ -1029,6 +1065,7 @@
   }
 
   function getWorldInteractionInfluence(kind, x, y, now) {
+    const wallNow = typeof getInteractionNow === 'function' ? getInteractionNow() : Number(now) || Date.now();
     const effects = runtime.worldInteractions && Array.isArray(runtime.worldInteractions.effects)
       ? runtime.worldInteractions.effects
       : [];
@@ -1038,7 +1075,7 @@
         return;
       }
       const duration = Math.max(1, Number(effect.duration) || 1000);
-      const progress = Math.max(0, Math.min(1, (now - Number(effect.startedAt || now)) / duration));
+      const progress = Math.max(0, Math.min(1, (wallNow - Number(effect.startedAt || wallNow)) / duration));
       if (progress >= 1) {
         return;
       }
@@ -1080,20 +1117,27 @@
     const drawn = Array.isArray(drawnEffects) ? drawnEffects : [];
     runtime.motionDiagnostics.interactions = {
       activeEffects: effects.map(function(effect) {
+        const duration = Math.max(1, Number(effect.duration) || 1000);
+        const progress = Math.max(0, Math.min(1, (wallNow - Number(effect.startedAt || wallNow)) / duration));
         return {
           type: effect.type,
           kind: effect.kind,
           x: Math.round(Number(effect.x) || 0),
           y: Math.round(Number(effect.y) || 0),
-          ageMs: Math.max(0, Math.round(wallNow - Number(effect.startedAt || wallNow)))
+          ageMs: Math.max(0, Math.round(wallNow - Number(effect.startedAt || wallNow))),
+          progress: Number(progress.toFixed(3)),
+          alpha: Number(getEffectFadeAlpha(progress).toFixed(3))
         };
       }),
       drawnEffects: drawn.map(function(effect) {
+        const duration = Math.max(1, Number(effect.duration) || 1000);
+        const progress = Math.max(0, Math.min(1, (wallNow - Number(effect.startedAt || wallNow)) / duration));
         return {
           type: effect.type,
           kind: effect.kind,
           x: Math.round(Number(effect.x) || 0),
-          y: Math.round(Number(effect.y) || 0)
+          y: Math.round(Number(effect.y) || 0),
+          alpha: Number(getEffectFadeAlpha(progress).toFixed(3))
         };
       }),
       grassBrushDistance: Math.round(Number(runtime.input && runtime.input.grassBrushDistance) || 0),

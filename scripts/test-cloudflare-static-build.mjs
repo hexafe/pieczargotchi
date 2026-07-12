@@ -34,6 +34,7 @@ test('Cloudflare static HTML cache-busts mutable script bundles', () => {
   assertScriptVersion('config', configJs);
   assertScriptVersion('core', coreJs);
   assertScriptVersion('client', clientJs);
+  assert(!indexHtml.includes('?bundle='), 'Cloudflare HTML must replace every versioned Apps Script bundle endpoint');
 });
 
 test('Cloudflare static asset manifest cache-busts runtime assets', () => {
@@ -58,8 +59,52 @@ test('Cloudflare static asset manifest cache-busts runtime assets', () => {
     assert(indexHtml.includes(`assets/${fileName}?v=${version}`), `${fileName} should be preloaded with a versioned URL`);
   });
   assert(clientJs.includes('function getStaticAssetUrl('), 'static client should append asset versions at runtime');
+  assert(clientJs.includes('function getTrustedAssetBaseUrl('), 'client should validate the optional Apps Script HTTPS asset base');
+  assert(clientJs.includes('config.assetVersion'), 'client should cache-bust Apps Script assets with the visible version');
+  assert(clientJs.includes('return !getTrustedAssetBaseUrl(config.assetBaseUrl)'), 'public asset hosting should bypass unnecessary Drive RPCs');
   assert(clientJs.includes('function addStaticAssetCandidate('), 'client should preserve a static asset fallback after data URL lookups');
   assert(clientJs.includes('addStaticAssetCandidate(candidates, asset);'), 'client should try static assets after missing Drive data URLs');
+  assert(distConfig.assetBaseUrl === '', 'Cloudflare build should keep asset URLs same-origin');
+  assert(distConfig.runtime && distConfig.runtime.assetMode === 'critical', 'production dist must keep lazy critical asset loading');
+});
+
+test('production Cloudflare build rejects eager full asset mode', () => {
+  const previousMode = process.env.PIECZARGOTCHI_CLOUDFLARE_ASSET_MODE;
+  process.env.PIECZARGOTCHI_CLOUDFLARE_ASSET_MODE = 'full';
+  let rejected = false;
+  try {
+    buildCloudflareStaticArtifacts();
+  } catch (error) {
+    rejected = String(error && error.message || error).includes('critical');
+  } finally {
+    restoreEnv('PIECZARGOTCHI_CLOUDFLARE_ASSET_MODE', previousMode);
+  }
+  assert(rejected, 'production dist should reject eager full asset loading');
+});
+
+test('Cloudflare dist contains only runtime-manifest assets', () => {
+  const manifestFiles = new Set(collectStaticAssetFiles());
+  for (const legacyFile of ['awake.png', 'sleeping_sheet.png', 'activities/hydrate_sheet.png']) {
+    assert(!manifestFiles.has(legacyFile), `${legacyFile} should not be part of the runtime manifest`);
+    assert(!existsSync(path.join(distDir, 'assets', legacyFile)), `dist must not copy unmanifested compatibility asset ${legacyFile}`);
+  }
+});
+
+test('debug Cloudflare builds require an explicit local-only opt-in', () => {
+  const previousDebug = process.env.PIECZARGOTCHI_CLOUDFLARE_DEBUG;
+  const previousAllow = process.env.PIECZARGOTCHI_ALLOW_DEBUG_BUILD;
+  process.env.PIECZARGOTCHI_CLOUDFLARE_DEBUG = '1';
+  delete process.env.PIECZARGOTCHI_ALLOW_DEBUG_BUILD;
+  let rejected = false;
+  try {
+    buildCloudflareStaticArtifacts();
+  } catch (error) {
+    rejected = String(error && error.message || error).includes('dist-debug');
+  } finally {
+    restoreEnv('PIECZARGOTCHI_CLOUDFLARE_DEBUG', previousDebug);
+    restoreEnv('PIECZARGOTCHI_ALLOW_DEBUG_BUILD', previousAllow);
+  }
+  assert(rejected, 'debug build should fail without explicit local-only opt-in');
 });
 
 test('loading and journal paths avoid procedural mushroom fallbacks during normal asset waits', () => {
@@ -282,6 +327,14 @@ function readDistText(fileName) {
 
 function getFileVersion(filePath) {
   return createHash('sha256').update(readFileSync(filePath)).digest('hex').slice(0, 12);
+}
+
+function restoreEnv(name, value) {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
 }
 
 function test(name, fn) {

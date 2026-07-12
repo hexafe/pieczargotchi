@@ -11,6 +11,7 @@ const warnings = [];
 const requiredSourceFiles = [
   'Code.gs',
   'Config.gs',
+  'SpriteLayout.gs',
   'AnimationConfig.gs',
   'AssetService.gs',
   'StateModel.gs',
@@ -137,8 +138,10 @@ function main() {
   checkHtmlIncludes();
   checkAppsScriptLoadOrderSafety();
   checkStaticConfig();
+  checkVisibleBuildVersion();
   checkLocalPreviewConfig();
   checkAssetFallbackContract();
+  checkCaptureToolingContracts();
   checkClaspLocalOnlyContract();
   checkTrackedSecretLeaks();
   report();
@@ -187,6 +190,11 @@ function checkHtmlIncludes() {
   }
   if (!indexHtml.includes('?bundle=config') || !indexHtml.includes('?bundle=core') || !indexHtml.includes('?bundle=client')) {
     fail('Index.html must load config, ClientCore, and Client through Apps Script bundle endpoints.');
+  }
+  for (const bundleName of ['config', 'core', 'client']) {
+    if (!indexHtml.includes(`?bundle=${bundleName}&amp;v=<?= PIECZARGOTCHI_APP_VERSION ?>`)) {
+      fail(`Index.html must cache-bust the Apps Script ${bundleName} bundle with PIECZARGOTCHI_APP_VERSION.`);
+    }
   }
   if (!indexHtml.includes('__pieczargotchiBootSeen') || !indexHtml.includes('Awaryjny watchdog sceny')) {
     fail('Index.html is missing the Apps Script startup watchdog fallback.');
@@ -290,8 +298,8 @@ function checkStaticConfig() {
   if (config.storageKey !== 'pieczargotchi_state_v2') {
     fail(`Unexpected storage key: ${config.storageKey}`);
   }
-  if (config.stateVersion !== 16) {
-    fail(`Unexpected state version: ${config.stateVersion}`);
+  if (!Number.isInteger(config.stateVersion) || config.stateVersion < 1) {
+    fail(`State version must be a positive integer, got ${config.stateVersion}`);
   }
   if (!config.runtime || config.runtime.debugEnabled !== false) {
     fail('Production runtime debugEnabled must be false.');
@@ -304,6 +312,16 @@ function checkStaticConfig() {
   }
   if (!readText('Config.gs').includes('PIECZARGOTCHI_DRIVE_ASSETS_ENABLED = false')) {
     fail('Public Config.gs must keep PIECZARGOTCHI_DRIVE_ASSETS_ENABLED disabled unless Drive OAuth scopes are deliberately restored.');
+  }
+  if (config.assetBaseUrl && !/^https:\/\//i.test(config.assetBaseUrl)) {
+    fail(`Public assetBaseUrl must use HTTPS, got ${JSON.stringify(config.assetBaseUrl)}`);
+  }
+  if (config.assetVersion !== config.appVersion) {
+    fail('Apps Script assetVersion must match the visible appVersion.');
+  }
+  if (!readText('Config.gs').includes('getAssetBaseUrlPropertyName_()')
+    || !readText('Config.gs').includes('PIECZARGOTCHI_ASSET_BASE_URL_PROPERTY_PREFIX')) {
+    fail('Apps Script public asset hosting must use a release-specific Script Property key.');
   }
 
   const assets = Array.isArray(config.assets) ? config.assets : [];
@@ -377,6 +395,7 @@ function checkLocalPreviewConfig() {
 
   const files = [
     'Config.gs',
+    'SpriteLayout.gs',
     'AnimationConfig.gs',
     'StateModel.gs',
     'MinigamesConfig.gs',
@@ -448,8 +467,10 @@ function checkGameplayLoopIteration2Config(config) {
     return;
   }
 
-  if (config.stateVersion !== 16 || config.state.version !== config.stateVersion || state.version !== config.stateVersion) {
-    fail('Named first-run flow requires state version 16 across static config and default state.');
+  if (!Number.isInteger(config.stateVersion)
+    || config.state.version !== config.stateVersion
+    || state.version !== config.stateVersion) {
+    fail('State version must stay consistent across static config, state metadata, and default state.');
   }
 
   if (state.mushroomName !== '') {
@@ -457,6 +478,22 @@ function checkGameplayLoopIteration2Config(config) {
   }
   if (!state.flags || state.flags.nameConfirmed !== false) {
     fail('Default state should include flags.nameConfirmed=false.');
+  }
+  if (!Number.isInteger(state.saveRevision) || state.saveRevision !== 0 || state.saveWriterId !== null) {
+    fail('Default state should include an unclaimed revision-zero persistence identity.');
+  }
+  if (!state.recovery
+    || !state.recovery.careActions
+    || !['hydrate', 'feed', 'clean'].every((actionId) => state.recovery.careActions[actionId] === null)) {
+    fail('Default recovery state must track hydrate, feed, and clean evidence separately.');
+  }
+  if (!state.weatherCare || state.weatherCare.sceneKey !== null || state.weatherCare.appliedMs !== 0) {
+    fail('Default state is missing the weather effect budget checkpoint.');
+  }
+  const requiredRecoveryCare = config.rules && config.rules.recovery && config.rules.recovery.requiredCareActionIds;
+  if (!Array.isArray(requiredRecoveryCare)
+    || ['hydrate', 'feed', 'clean'].some((actionId) => !requiredRecoveryCare.includes(actionId))) {
+    fail('Recovery rules must require hydrate, feed, and clean before completion.');
   }
 
   const index = readText('Index.html');
@@ -528,6 +565,12 @@ function checkAssetFallbackContract() {
     || !runtime.includes('addStaticAssetCandidate(candidates, asset);')) {
     fail('ClientRuntime.html no longer tries local assets as a browser fallback candidate.');
   }
+  if (!runtime.includes('function getTrustedAssetBaseUrl(value)')
+    || !runtime.includes('config.assetBaseUrl')
+    || !runtime.includes('config.assetVersion')
+    || !runtime.includes('return !getTrustedAssetBaseUrl(config.assetBaseUrl)')) {
+    fail('ClientRuntime.html no longer supports the versioned HTTPS asset base required by Apps Script.');
+  }
   if (!runtime.includes('Aktywne grafiki zapasowe')) {
     fail('ClientRuntime.html no longer reports fallback graphics status.');
   }
@@ -540,6 +583,40 @@ function checkAssetFallbackContract() {
   if (!assetService.includes('getAssetDriveFileIdsFromFolder_')) {
     fail('AssetService.gs no longer supports Drive folder asset lookup.');
   }
+  if (!assetService.includes('config.assetBaseUrl') || !assetService.includes('? {}')) {
+    fail('Apps Script config should not inline Drive asset records when a public asset base is configured.');
+  }
+  if (/function\s+(fileToDataUrl|getAssetDataUrls|getConfiguredAssetDriveFolderId|getRuntimeAssetManifest)\s*\(/.test(readText('Config.gs') + '\n' + readText('AnimationConfig.gs') + '\n' + assetService)) {
+    fail('Drive bulk/arbitrary-ID helpers must stay private with an underscore suffix.');
+  }
+}
+
+function checkCaptureToolingContracts() {
+  const appCapture = readText('scripts/capture-app-render.mjs');
+  const weatherMatrix = readText('scripts/capture-weather-matrix.mjs');
+  const devServer = readText('dev-server.mjs');
+  const browserSmoke = readText('scripts/test-browser-smoke.mjs');
+  const serverSecurity = readText('scripts/test-dev-server-security.mjs');
+  const lifeMotion = readText('scripts/capture-life-motion.mjs');
+
+  if (!appCapture.includes("'--remote-debugging-port=0'")
+    || !appCapture.includes('DevToolsActivePort')
+    || !appCapture.includes('process.pid')) {
+    fail('Browser capture must use Chromium OS-assigned DevTools ports and collision-safe temp profiles.');
+  }
+  if (!devServer.includes('server.address()') || !devServer.includes('boundPort')) {
+    fail('dev-server.mjs must report the actual OS-assigned port when started with port 0.');
+  }
+  if (!browserSmoke.includes("['dev-server.mjs', '0']")
+    || !serverSecurity.includes("['dev-server.mjs', '0']")
+    || !lifeMotion.includes("['dev-server.mjs', '0']")
+    || !lifeMotion.includes('serverOutput.match(/http:')) {
+    fail('Browser/dev-server capture tools must use an OS-assigned port and parse the reported preview URL.');
+  }
+  if (!weatherMatrix.includes('function parseWarsawTimestamp(localIso)')
+    || /Date\.parse\(['"]\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}['"]\)/.test(weatherMatrix)) {
+    fail('Weather matrix timestamps must include a deterministic Europe/Warsaw offset.');
+  }
 }
 
 function checkClaspLocalOnlyContract() {
@@ -548,7 +625,24 @@ function checkClaspLocalOnlyContract() {
     fail('.gitignore must keep .clasp.json local-only.');
   }
 
+  if (!existsSync(resolveRoot('.claspignore'))) {
+    fail('.claspignore is required so clasp cannot upload dist/browser tooling as Apps Script code.');
+  } else {
+    const claspIgnore = readText('.claspignore').split(/\r?\n/).map((line) => line.trim());
+    for (const requiredPattern of ['**/**', '!*.gs', '!*.html', '!appsscript.json']) {
+      if (!claspIgnore.includes(requiredPattern)) {
+        fail(`.claspignore is missing required Apps Script allowlist pattern: ${requiredPattern}`);
+      }
+    }
+    if (claspIgnore.some((line) => line === '!*.js' || line === '!dist/**' || line === '!scripts/**')) {
+      fail('.claspignore must not allow browser JavaScript, dist, or tooling directories.');
+    }
+  }
+
   const tracked = gitLsFiles();
+  if (!tracked) {
+    return;
+  }
   if (tracked.includes('.clasp.json')) {
     fail('.clasp.json is tracked; remove it from Git before deployment work.');
   }
@@ -566,7 +660,10 @@ function checkClaspLocalOnlyContract() {
 }
 
 function checkTrackedSecretLeaks() {
-  const tracked = gitLsFiles();
+  const visibleFiles = gitVisibleFiles();
+  if (!visibleFiles) {
+    return;
+  }
   const suspectPatterns = [
     { name: 'Google Drive URL', pattern: /https:\/\/drive\.google\.com\/[^\s)"]+/ },
     { name: 'Apps Script URL', pattern: /https:\/\/script\.google\.com\/[^\s)"]+/ },
@@ -574,7 +671,7 @@ function checkTrackedSecretLeaks() {
     { name: 'Google API key shape', pattern: /AIza[0-9A-Za-z_-]{20,}/ }
   ];
 
-  for (const fileName of tracked) {
+  for (const fileName of visibleFiles) {
     if (!isTextFile(fileName) || !existsSync(resolveRoot(fileName))) {
       continue;
     }
@@ -584,6 +681,72 @@ function checkTrackedSecretLeaks() {
         fail(`Potential secret or private deployment value in ${fileName}: ${item.name}`);
       }
     }
+  }
+}
+
+function checkVisibleBuildVersion() {
+  const packageJson = readJson('package.json');
+  const configText = readText('Config.gs');
+  const configVersionMatch = configText.match(/PIECZARGOTCHI_APP_VERSION\s*=\s*['"]([^'"]+)['"]/);
+  const packageVersion = packageJson && String(packageJson.version || '').trim();
+  const configVersion = configVersionMatch ? configVersionMatch[1].trim() : '';
+
+  if (!packageVersion || !configVersion) {
+    fail('Visible build version is missing from package.json or Config.gs.');
+    return;
+  }
+  if (packageVersion !== configVersion) {
+    fail(`Visible build versions differ: package.json=${packageVersion}, Config.gs=${configVersion}.`);
+    return;
+  }
+
+  const workingChanges = gitNameList(['diff', '--name-only']);
+  const stagedChanges = gitNameList(['diff', '--cached', '--name-only']);
+  const untrackedChanges = gitNameList(['ls-files', '--others', '--exclude-standard']);
+  const workingProjectChanges = [...new Set([
+    ...(workingChanges || []),
+    ...(stagedChanges || []),
+    ...(untrackedChanges || [])
+  ])]
+    .filter(isVersionRelevantChange);
+  if (workingProjectChanges.length) {
+    const headPackage = gitShowFile('HEAD:package.json');
+    const headVersion = readPackageVersionFromText(headPackage);
+    if (headVersion && headVersion === packageVersion) {
+      fail(`Tracked project changes require a visible build bump (${workingProjectChanges.slice(0, 6).join(', ')}).`);
+    }
+  }
+
+  if (!gitRevisionExists('HEAD^')) {
+    if (gitIsShallowRepository()) {
+      warn('Git history is shallow and HEAD^ is unavailable; skipped the previous-commit build-version check. Fetch at least one parent with `git fetch --deepen=1` before release verification.');
+    } else {
+      warn('HEAD has no parent commit; skipped the previous-commit build-version check for this initial commit.');
+    }
+    return;
+  }
+
+  const committedChanges = gitNameList(['diff', '--name-only', 'HEAD^', 'HEAD']);
+  const committedProjectChanges = (committedChanges || []).filter(isVersionRelevantChange);
+  if (committedProjectChanges.length) {
+    const previousVersion = readPackageVersionFromText(gitShowFile('HEAD^:package.json'));
+    if (previousVersion && previousVersion === packageVersion) {
+      fail('The current commit changes tracked project files without bumping the visible build version.');
+    }
+  }
+}
+
+function isVersionRelevantChange(fileName) {
+  return Boolean(fileName)
+    && fileName !== 'Config.gs'
+    && fileName !== 'package.json';
+}
+
+function readPackageVersionFromText(text) {
+  try {
+    return String(JSON.parse(text || '{}').version || '').trim();
+  } catch (_error) {
+    return '';
   }
 }
 
@@ -668,20 +831,64 @@ function readJson(fileName) {
 }
 
 function gitLsFiles() {
+  return gitNameList(['ls-files']);
+}
+
+function gitVisibleFiles() {
+  return gitNameList(['ls-files', '--cached', '--others', '--exclude-standard']);
+}
+
+function gitNameList(args) {
   try {
-    return execFileSync('git', ['ls-files'], {
+    return execFileSync('git', args, {
       cwd: rootDir,
       encoding: 'utf8'
     }).split(/\r?\n/).filter(Boolean);
   } catch (error) {
-    warn(`Could not inspect tracked files with git ls-files: ${error.message}`);
-    return [];
+    fail(`Could not inspect repository with git ${args.join(' ')}: ${error.message}`);
+    return null;
+  }
+}
+
+function gitShowFile(spec) {
+  try {
+    return execFileSync('git', ['show', spec], {
+      cwd: rootDir,
+      encoding: 'utf8'
+    });
+  } catch (error) {
+    fail(`Could not inspect repository with git show ${spec}: ${error.message}`);
+    return '';
+  }
+}
+
+function gitRevisionExists(spec) {
+  try {
+    execFileSync('git', ['rev-parse', '--verify', '--quiet', spec], {
+      cwd: rootDir,
+      stdio: 'ignore'
+    });
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
+function gitIsShallowRepository() {
+  try {
+    return execFileSync('git', ['rev-parse', '--is-shallow-repository'], {
+      cwd: rootDir,
+      encoding: 'utf8'
+    }).trim() === 'true';
+  } catch (_error) {
+    return false;
   }
 }
 
 function isTextFile(fileName) {
   return /\.(gs|html|mjs|js|json|md|yml|yaml|sh|ps1|txt|gitignore)$/i.test(fileName)
-    || fileName === '.gitignore';
+    || fileName === '.gitignore'
+    || fileName === '.claspignore';
 }
 
 function report() {

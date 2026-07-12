@@ -14,6 +14,11 @@ const context = {
   Array,
   parseInt,
   console,
+  runtime: {
+    frameNow: 0,
+    debug: { enabled: false, weather: 'auto' },
+    sceneWeatherPaletteTransition: null
+  },
   getRuntimeDate: () => new Date(2026, 5, 21, 12, 0, 0)
 };
 vm.createContext(context);
@@ -78,6 +83,63 @@ test('dusk exposes a partial night factor for smooth star fade-in', () => {
   });
   assert(palette.nightFactor > 0.45 && palette.nightFactor < 0.8, `expected partial night factor, got ${palette.nightFactor}`);
   assert(palette.blueHourFactor > 0.55, `expected blue-hour factor, got ${palette.blueHourFactor}`);
+});
+
+test('weather condition changes blend over 1200 ms instead of snapping', () => {
+  context.runtime.sceneWeatherPaletteTransition = null;
+  context.getRuntimeDate = () => new Date(2026, 5, 21, 12, 0, 0);
+  context.runtime.frameNow = 100;
+  const clear = context.getScenePalette({
+    condition: 'clear',
+    isDay: true,
+    dayPhase: 'noon',
+    cloudDensity: 0
+  });
+  const storm = {
+    condition: 'storm',
+    isDay: true,
+    dayPhase: 'noon',
+    cloudDensity: 0.92,
+    rainIntensity: 0.86,
+    stormIntensity: 0.82
+  };
+
+  context.runtime.frameNow = 200;
+  const started = context.getScenePalette(storm);
+  context.runtime.frameNow = 800;
+  const midpoint = context.getScenePalette(storm);
+  context.runtime.frameNow = 1400;
+  const finished = context.getScenePalette(storm);
+
+  assert(colorDistance(clear.skyTop, started.skyTop) === 0, 'weather transition should begin from the visible clear palette');
+  assert(colorDistance(clear.skyTop, midpoint.skyTop) > 10, 'weather transition should visibly progress by its midpoint');
+  assert(colorDistance(midpoint.skyTop, finished.skyTop) > 10, 'weather transition should keep progressing until 1200 ms');
+});
+
+test('ambient grade darkens raster subjects at night and leaves emissive passes outside the grade', () => {
+  const day = context.getSceneAmbientGradeProfile({ condition: 'clear', isDay: true }, { nightFactor: 0 });
+  const night = context.getSceneAmbientGradeProfile({ condition: 'clear', isDay: false }, { nightFactor: 1 });
+  const snow = context.getSceneAmbientGradeProfile({ condition: 'snow', isDay: true, snowIntensity: 0.7 }, { nightFactor: 0 });
+
+  assert(day.alpha === 0, `clear daylight should not tint the subject, alpha=${day.alpha}`);
+  assert(night.alpha >= 0.27 && night.compositeOperation === 'multiply', `night should apply a restrained multiply grade, alpha=${night.alpha}`);
+  assert(night.x === 0 && night.y === 0 && night.width === 512 && night.height === 512, 'night grade must cover the entire scene without a horizontal seam');
+  assert(night.emissiveBypass === true, 'emissive effects should be rendered after and bypass the ambient grade');
+  assert(snow.compositeOperation === 'source-atop' && snow.alpha > 0.05, 'snow should softly cool raster subjects without blurring pixel art');
+});
+
+test('immediate palette shares snapshot colors without mutating the live weather transition', () => {
+  context.runtime.sceneWeatherPaletteTransition = null;
+  const snapshot = context.getScenePaletteImmediate({
+    condition: 'rain',
+    isDay: false,
+    dayPhase: 'night',
+    rainIntensity: 0.7,
+    visualDate: new Date(2026, 5, 21, 23, 0, 0).toISOString()
+  });
+
+  assert(snapshot.nightFactor > 0.9, `snapshot palette should preserve night lighting, factor=${snapshot.nightFactor}`);
+  assert(context.runtime.sceneWeatherPaletteTransition === null, 'snapshot palette must not enter the live transition cache');
 });
 
 function test(name, callback) {

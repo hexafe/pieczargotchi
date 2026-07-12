@@ -5,6 +5,15 @@ import { tmpdir } from 'node:os';
 const appUrl = process.argv[2] || 'http://127.0.0.1:8092/';
 const outputPrefix = process.argv[3] || path.join(tmpdir(), 'pieczargotchi-weather-matrix');
 
+function parseWarsawTimestamp(localIso) {
+  const value = String(localIso || '');
+  if (!/^2026-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(value)) {
+    throw new Error(`Weather matrix requires an explicit 2026 Warsaw local timestamp, got ${JSON.stringify(localIso)}`);
+  }
+  const summerTime = value >= '2026-03-29T02:00:00' && value < '2026-10-25T03:00:00';
+  return Date.parse(value + (summerTime ? '+02:00' : '+01:00'));
+}
+
 const scenarios = [
   {
     id: 'clear-noon-cloud0-wind0',
@@ -12,7 +21,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
       PIECZARGOTCHI_DEBUG_CLOUD: '0',
       PIECZARGOTCHI_DEBUG_WIND: '0',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T12:00:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-06-21T12:00:00')
     }
   },
   {
@@ -21,7 +30,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
       PIECZARGOTCHI_DEBUG_CLOUD: '4',
       PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T03:52:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-06-21T03:52:00')
     }
   },
   {
@@ -30,7 +39,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
       PIECZARGOTCHI_DEBUG_CLOUD: '8',
       PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T04:42:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-06-21T04:42:00')
     }
   },
   {
@@ -39,7 +48,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
       PIECZARGOTCHI_DEBUG_CLOUD: '12',
       PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T05:50:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-06-21T05:50:00')
     }
   },
   {
@@ -49,7 +58,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_CLOUD: '100',
       PIECZARGOTCHI_DEBUG_WIND: '40',
       PIECZARGOTCHI_DEBUG_WIND_DIRECTION: '90',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T20:00:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-06-21T20:00:00')
     }
   },
   {
@@ -62,7 +71,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_CLOUD_HIGH: '82',
       PIECZARGOTCHI_DEBUG_WIND: '24',
       PIECZARGOTCHI_DEBUG_WIND_DIRECTION: '255',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T16:20:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-06-21T16:20:00')
     }
   },
   {
@@ -75,7 +84,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_CLOUD_HIGH: '18',
       PIECZARGOTCHI_DEBUG_WIND: '18',
       PIECZARGOTCHI_DEBUG_WIND_DIRECTION: '105',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T14:15:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-06-21T14:15:00')
     }
   },
   {
@@ -88,7 +97,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_CLOUD_HIGH: '12',
       PIECZARGOTCHI_DEBUG_WIND: '9',
       PIECZARGOTCHI_DEBUG_WIND_DIRECTION: '270',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T13:05:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-06-21T13:05:00')
     }
   },
   {
@@ -101,7 +110,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_CLOUD_HIGH: '22',
       PIECZARGOTCHI_DEBUG_WIND: '11',
       PIECZARGOTCHI_DEBUG_WIND_DIRECTION: '80',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-10-08T09:10:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-10-08T09:10:00')
     }
   },
   {
@@ -110,7 +119,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
       PIECZARGOTCHI_DEBUG_CLOUD: '16',
       PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T20:05:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-06-21T20:05:00')
     }
   },
   {
@@ -119,7 +128,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
       PIECZARGOTCHI_DEBUG_CLOUD: '10',
       PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T21:04:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-06-21T21:04:00')
     }
   },
   {
@@ -128,7 +137,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_WEATHER: 'clear',
       PIECZARGOTCHI_DEBUG_CLOUD: '4',
       PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T22:10:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-06-21T22:10:00')
     }
   },
   {
@@ -142,7 +151,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_DEW_POINT: '8.6',
       PIECZARGOTCHI_DEBUG_SURFACE_WETNESS: '0.72',
       PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T06:10:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-06-21T06:10:00')
     }
   },
   {
@@ -156,7 +165,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_DEW_POINT: '-3.5',
       PIECZARGOTCHI_DEBUG_SURFACE_WETNESS: '0.65',
       PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-01-18T07:10:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-01-18T07:10:00')
     }
   },
   {
@@ -172,7 +181,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_DEW_POINT: '6.8',
       PIECZARGOTCHI_DEBUG_VISIBILITY: '700',
       PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-10-08T07:00:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-10-08T07:00:00')
     }
   },
   {
@@ -185,7 +194,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_CLOUD_HIGH: '84',
       PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
       PIECZARGOTCHI_DEBUG_MOON_PHASE: 'full',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-11-22T23:30:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-11-22T23:30:00')
     }
   },
   {
@@ -198,7 +207,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_TEMPERATURE: '23',
       PIECZARGOTCHI_DEBUG_SURFACE_WETNESS: '0.96',
       PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-09-12T09:20:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-09-12T09:20:00')
     }
   },
   {
@@ -211,7 +220,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_TEMPERATURE: '35',
       PIECZARGOTCHI_DEBUG_SURFACE_WETNESS: '0.01',
       PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-07-20T13:30:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-07-20T13:30:00')
     }
   },
   {
@@ -222,7 +231,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_CLOUD: '85',
       PIECZARGOTCHI_DEBUG_WIND: '38',
       PIECZARGOTCHI_DEBUG_WIND_DIRECTION: '270',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-09-12T15:00:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-09-12T15:00:00')
     }
   },
   {
@@ -237,7 +246,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_DEW_POINT: '9.4',
       PIECZARGOTCHI_DEBUG_VISIBILITY: '5200',
       PIECZARGOTCHI_DEBUG_SURFACE_WETNESS: '0.46',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-09-12T07:20:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-09-12T07:20:00')
     }
   },
   {
@@ -251,7 +260,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_HUMIDITY: '96',
       PIECZARGOTCHI_DEBUG_VISIBILITY: '1800',
       PIECZARGOTCHI_DEBUG_SURFACE_WETNESS: '1',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-09-12T16:30:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-09-12T16:30:00')
     }
   },
   {
@@ -263,7 +272,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_HUMIDITY: '88',
       PIECZARGOTCHI_DEBUG_TEMPERATURE: '17',
       PIECZARGOTCHI_DEBUG_SURFACE_WETNESS: '0.74',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-09-12T18:10:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-09-12T18:10:00')
     }
   },
   {
@@ -275,7 +284,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_WIND: '10',
       PIECZARGOTCHI_DEBUG_HUMIDITY: '84',
       PIECZARGOTCHI_DEBUG_VISIBILITY: '8200',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-09-12T17:40:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-09-12T17:40:00')
     }
   },
   {
@@ -287,7 +296,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_HUMIDITY: '88',
       PIECZARGOTCHI_DEBUG_SURFACE_WETNESS: '0.72',
       PIECZARGOTCHI_DEBUG_RAINBOW: 'force',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-09-12T18:05:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-09-12T18:05:00')
     }
   },
   {
@@ -300,7 +309,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_HUMIDITY: '90',
       PIECZARGOTCHI_DEBUG_VISIBILITY: '9000',
       PIECZARGOTCHI_DEBUG_RAINBOW: 'force',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-09-12T17:55:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-09-12T17:55:00')
     }
   },
   {
@@ -311,7 +320,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_CLOUD: '30',
       PIECZARGOTCHI_DEBUG_WIND: '8',
       PIECZARGOTCHI_DEBUG_HUMIDITY: '84',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T12:30:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-06-21T12:30:00')
     }
   },
   {
@@ -322,7 +331,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_CLOUD: '100',
       PIECZARGOTCHI_DEBUG_WIND: '100',
       PIECZARGOTCHI_DEBUG_WIND_DIRECTION: '180',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-07-20T23:00:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-07-20T23:00:00')
     }
   },
   {
@@ -333,7 +342,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_CLOUD: '100',
       PIECZARGOTCHI_DEBUG_WIND: '62',
       PIECZARGOTCHI_DEBUG_HUMIDITY: '94',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-09-12T17:50:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-09-12T17:50:00')
     }
   },
   {
@@ -349,7 +358,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_VISIBILITY: '9800',
       PIECZARGOTCHI_DEBUG_RAINBOW: 'red',
       PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-09-12T18:10:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-09-12T18:10:00')
     }
   },
   {
@@ -365,7 +374,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_VISIBILITY: '10200',
       PIECZARGOTCHI_DEBUG_RAINBOW: 'redDouble',
       PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-09-12T18:02:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-09-12T18:02:00')
     }
   },
   {
@@ -378,7 +387,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_CLOUD_HIGH: '62',
       PIECZARGOTCHI_DEBUG_VISIBILITY: '12000',
       PIECZARGOTCHI_DEBUG_PHENOMENON: 'cloudIridescence',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T15:40:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-06-21T15:40:00')
     }
   },
   {
@@ -393,7 +402,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_VISIBILITY: '11000',
       PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
       PIECZARGOTCHI_DEBUG_PHENOMENON: 'sunDog',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-01-18T15:25:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-01-18T15:25:00')
     }
   },
   {
@@ -409,7 +418,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_VISIBILITY: '9000',
       PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
       PIECZARGOTCHI_DEBUG_PHENOMENON: 'lightPillar',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-01-18T07:05:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-01-18T07:05:00')
     }
   },
   {
@@ -421,7 +430,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_WIND: '14',
       PIECZARGOTCHI_DEBUG_LOCATION: 'tromso',
       PIECZARGOTCHI_DEBUG_MOON_PHASE: 'full',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-01-18T23:30:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-01-18T23:30:00')
     }
   },
   {
@@ -436,7 +445,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_SNOW_DEPTH: '0.08',
       PIECZARGOTCHI_DEBUG_SNOW_COVER: '0.88',
       PIECZARGOTCHI_DEBUG_LOCATION: 'tromso',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-01-19T15:40:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-01-19T15:40:00')
     }
   },
   {
@@ -449,7 +458,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_SNOW_DEPTH: '0.03',
       PIECZARGOTCHI_DEBUG_SNOW_COVER: '0.28',
       PIECZARGOTCHI_DEBUG_SURFACE_WETNESS: '0.52',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-02-08T11:30:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-02-08T11:30:00')
     }
   },
   {
@@ -458,7 +467,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_WEATHER: 'fog',
       PIECZARGOTCHI_DEBUG_CLOUD: '90',
       PIECZARGOTCHI_DEBUG_WIND: '4',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-10-08T06:30:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-10-08T06:30:00')
     }
   },
   {
@@ -471,7 +480,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_TEMPERATURE: '7',
       PIECZARGOTCHI_DEBUG_DEW_POINT: '6.4',
       PIECZARGOTCHI_DEBUG_VISIBILITY: '700',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-10-08T06:05:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-10-08T06:05:00')
     }
   },
   {
@@ -483,7 +492,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_PRESSURE: '1032',
       PIECZARGOTCHI_DEBUG_HUMIDITY: '46',
       PIECZARGOTCHI_DEBUG_TEMPERATURE: '19',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T13:30:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-06-21T13:30:00')
     }
   },
   {
@@ -494,7 +503,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_LOCATION: 'equator',
       PIECZARGOTCHI_DEBUG_MOON_PHASE: 'new',
       PIECZARGOTCHI_DEBUG_CONSTELLATION: 'orion',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-12-05T23:00:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-12-05T23:00:00')
     }
   },
   {
@@ -505,7 +514,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
       PIECZARGOTCHI_DEBUG_MOON_PHASE: 'new',
       PIECZARGOTCHI_DEBUG_SKY_EFFECT: 'perseids',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-08-12T23:15:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-08-12T23:15:00')
     }
   },
   {
@@ -516,7 +525,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_LOCATION: 'tromso',
       PIECZARGOTCHI_DEBUG_MOON_PHASE: 'crescent',
       PIECZARGOTCHI_DEBUG_SKY_EFFECT: 'aurora',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-01-18T23:40:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-01-18T23:40:00')
     }
   },
   {
@@ -529,7 +538,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_CLOUD_HIGH: '8',
       PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
       PIECZARGOTCHI_DEBUG_SKY_EFFECT: 'noctilucentClouds',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-06-21T22:05:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-06-21T22:05:00')
     }
   },
   {
@@ -542,7 +551,7 @@ const scenarios = [
       PIECZARGOTCHI_DEBUG_LOCATION: 'katowice',
       PIECZARGOTCHI_DEBUG_MOON_PHASE: 'crescent',
       PIECZARGOTCHI_DEBUG_CONSTELLATION: 'cygnus',
-      PIECZARGOTCHI_DEBUG_FIXED_AT: Date.parse('2026-08-15T22:30:00')
+      PIECZARGOTCHI_DEBUG_FIXED_AT: parseWarsawTimestamp('2026-08-15T22:30:00')
     }
   }
 ];

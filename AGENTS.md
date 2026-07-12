@@ -39,11 +39,22 @@ For Cloudflare deployment, use `npm run build` before `npx wrangler deploy`; `np
 
 Every tracked project change must bump the visible build number in both `PIECZARGOTCHI_APP_VERSION` and `package.json` so local, Cloudflare, and Apps Script builds can be identified.
 
-## Agent Workflow
+## Agent Orchestration and Model Budget
 
-Use subagents for broad audits, parallel research, or clearly separable implementation slices. Pick the task-appropriate/optimal model for each subtask: use stronger models for architecture, cross-file reasoning, risky migrations, and visual/debug investigations; use smaller or faster models for narrow searches, inventory work, simple validation, and isolated mechanical edits.
+The root agent owns scope, decomposition, architecture decisions, integration, risk review, and final verification. When the coordinator is GPT-5.6 with Ultra reasoning, or the strongest equivalent available, reserve that expensive reasoning for those duties and genuinely difficult implementation. Complete small, local, or obvious changes directly; being the coordinator is not a reason to delegate every edit.
 
-Keep delegated tasks concrete, bounded, and non-overlapping. Prefer read-only explorer subagents for codebase discovery and worker subagents only when the write scope is explicit. The main agent owns sequencing, integration, final review, and validation. Do not spawn subagents for simple single-file edits or for immediate blocking work that is faster and safer to do locally.
+Delegate only when independent work can run in parallel, a noisy investigation can be isolated from the root context, or specialist review is worth more than the coordination and token cost. Stay single-agent for one-file edits, straightforward searches, formatting, mechanical updates, immediate blockers, tightly sequential work, or anything the root can implement and verify in one short pass. Every subagent consumes a separate model and tool budget, so do not duplicate repository scans, test suites, or reviews without a concrete risk-based reason.
+
+Use the cheapest model and reasoning level that can reliably complete each assignment:
+
+- use a fast, low-cost read-only model, such as the current Terra-class model at low or medium reasoning, for file discovery, symbol maps, inventories, large-file scans, log/test-output triage, documentation lookup, and repetitive validation;
+- use a coding-capable model at medium reasoning for isolated implementation with clear acceptance criteria and focused tests; raise to high only for non-trivial cross-file logic or difficult debugging;
+- use the strongest model at high, xhigh, or Ultra only for ambiguous architecture, save migrations, concurrency or security boundaries, hard root-cause analysis, complex visual/runtime investigations, and high-risk final review;
+- never spend Ultra reasoning on a narrow search, simple validation, formatting, a one-line fix, or an otherwise mechanical task. If exact model selection is unavailable, describe the required capability and cost profile in the assignment instead of delaying the work.
+
+Start broad audits with two or three non-overlapping read-only workstreams, for example server/state rules, client/runtime behavior, and rendering/assets/deployment QA. Expand only when another surface is truly independent. Keep delegation depth at one by default, reuse an idle worker for follow-up work, and do not let workers recursively fan out unless the root explicitly decides that the extra cost is justified.
+
+Give every subagent a bounded goal, explicit read/write scope, acceptance criteria, relevant focused checks, and a required output format. Parallel writers must own disjoint files; prefer read-only exploration when ownership would overlap. A handoff must distill evidence rather than dump raw logs and must report findings, changed files or `none`, tests and results, remaining risks, and recommended next action. The root reviews all findings and patches against the live tree, resolves conflicts, and runs the final canonical gate once after integration.
 
 Every repository change must include a visible build-number bump. Update `PIECZARGOTCHI_APP_VERSION` in `Config.gs` and `version` in `package.json` together so Apps Script, Cloudflare config, and the in-app build badge show the same new version. Do not rely only on automatic content hashes; after the bump, rebuild or run the Cloudflare static test when the change is intended for deployment.
 

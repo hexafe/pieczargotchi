@@ -99,12 +99,129 @@
   ];
 
   function getScenePalette(scene) {
+    return transitionSceneWeatherPalette(getScenePaletteImmediate(scene), scene || {});
+  }
+
+  function getScenePaletteImmediate(scene) {
     const source = scene || {};
     const phase = source.dayPhase || (source.isDay ? 'noon' : 'night');
     const tone = source.dayTone || 'neutral';
     const lighting = getSceneLightingProfile(source, getScenePaletteDate(source));
     const base = getLightingPalette(lighting, phase, tone);
     return applyWeatherPalette(base, source);
+  }
+
+  function transitionSceneWeatherPalette(target, scene) {
+    if (typeof runtime === 'undefined' || !runtime) {
+      return target;
+    }
+    if (runtime.debug && runtime.debug.enabled && runtime.debug.weather && runtime.debug.weather !== 'auto') {
+      runtime.sceneWeatherPaletteTransition = null;
+      return target;
+    }
+
+    const now = Number(runtime.frameNow);
+    if (!Number.isFinite(now)) {
+      return target;
+    }
+    const signature = getSceneWeatherPaletteSignature(scene);
+    const previous = runtime.sceneWeatherPaletteTransition;
+    if (!previous) {
+      runtime.sceneWeatherPaletteTransition = {
+        signature: signature,
+        startedAt: now,
+        fromPalette: null,
+        currentPalette: target
+      };
+      return target;
+    }
+
+    if (previous.signature !== signature) {
+      previous.signature = signature;
+      previous.startedAt = now;
+      previous.fromPalette = previous.currentPalette || target;
+    }
+
+    if (!previous.fromPalette) {
+      previous.currentPalette = target;
+      return target;
+    }
+
+    const progress = smoothScenePaletteStep(clampScenePaletteValue((now - previous.startedAt) / 1200, 0, 1, 0));
+    const result = blendScenePaletteColors(previous.fromPalette, target, progress);
+    previous.currentPalette = result;
+    if (progress >= 0.999) {
+      previous.fromPalette = null;
+      previous.currentPalette = target;
+      return target;
+    }
+    return result;
+  }
+
+  function getSceneWeatherPaletteSignature(scene) {
+    return scene && scene.condition ? String(scene.condition) : 'clear';
+  }
+
+  function blendScenePaletteColors(from, to, progress) {
+    const result = Object.assign({}, to);
+    scenePaletteColorFields.forEach(function(field) {
+      if (from && from[field] && to && to[field]) {
+        result[field] = blendSceneColor(from[field], to[field], progress);
+      }
+    });
+    return result;
+  }
+
+  function getSceneAmbientGradeProfile(scene, palette) {
+    const source = scene || {};
+    const colors = palette || {};
+    const condition = source.condition || 'clear';
+    const nightFactor = clampScenePaletteValue(Number(colors.nightFactor), 0, 1, source.isDay === false ? 1 : 0);
+    const weatherStrength = condition === 'storm'
+      ? 0.15 + clampScenePaletteValue(Number(source.stormIntensity), 0, 1, 0) * 0.08
+      : condition === 'rain'
+        ? 0.08 + clampScenePaletteValue(Number(source.rainIntensity), 0, 1, 0) * 0.06
+        : condition === 'fog'
+          ? 0.07
+          : condition === 'cloudy'
+            ? 0.035
+            : 0;
+    if (nightFactor <= 0.02 && weatherStrength <= 0.005 && condition !== 'snow') {
+      return {
+        alpha: 0,
+        color: '#ffffff',
+        compositeOperation: 'multiply',
+        x: 0,
+        y: 0,
+        width: 512,
+        height: 512,
+        emissiveBypass: true
+      };
+    }
+
+    if (condition === 'snow' && nightFactor <= 0.12) {
+      return {
+        alpha: 0.055 + clampScenePaletteValue(Number(source.snowIntensity), 0, 1, 0) * 0.025,
+        color: '#e5eee2',
+        compositeOperation: 'source-atop',
+        x: 0,
+        y: 0,
+        width: 512,
+        height: 512,
+        emissiveBypass: true
+      };
+    }
+
+    return {
+      alpha: clampScenePaletteValue(nightFactor * 0.28 + weatherStrength * (1 - nightFactor * 0.35), 0, 0.36, 0),
+      color: condition === 'storm' ? '#53616d' : condition === 'rain' ? '#597077' : '#465570',
+      compositeOperation: 'multiply',
+      x: 0,
+      y: 0,
+      width: 512,
+      height: 512,
+      emissiveBypass: true
+    };
   }
 
   function getDayPhasePalette(phase, tone) {

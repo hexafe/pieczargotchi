@@ -9,7 +9,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$MinimumNodeMajor = 18
+$MinimumNodeMajor = 22
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RootDir = (Resolve-Path (Join-Path $ScriptDir '..')).Path
 
@@ -96,11 +96,17 @@ function Test-RequiredFiles {
     'ClientCore.html',
     'ClientCoreWeather.html',
     'ClientCoreLife.html',
+    'ClientCoreSky.html',
+    'ClientCorePhenomena.html',
+    'ClientCoreCalendar.html',
     'ClientCoreCare.html',
     'ClientCoreBattle.html',
     'ClientCoreShared.html',
     'ClientCoreImmersion.html',
     'ClientCoreProgression.html',
+    'ClientCoreGameplay.html',
+    'ClientCoreLongLoop.html',
+    'ClientCoreLegendaryGames.html',
     'ClientCoreMinigames.html',
     'ClientCoreExports.html',
     'ClientBoot.html',
@@ -111,7 +117,11 @@ function Test-RequiredFiles {
     'ClientActions.html',
     'ClientMinigameDewCatch.html',
     'ClientMinigameSporePop.html',
+    'ClientMinigameCompostSort.html',
+    'ClientMinigameRhythmHum.html',
+    'ClientLegendaryGames.html',
     'ClientBackup.html',
+    'ClientJournalPopover.html',
     'ClientUi.html',
     'ClientBattleScene.html',
     'ClientInteraction.html',
@@ -120,6 +130,8 @@ function Test-RequiredFiles {
     'ClientScenePalette.html',
     'ClientSceneCelestial.html',
     'ClientSceneRainbow.html',
+    'ClientScenePhenomena.html',
+    'ClientSceneCalendar.html',
     'ClientSceneWeather.html',
     'ClientSceneWeatherClouds.html',
     'ClientSceneWeatherPrecip.html',

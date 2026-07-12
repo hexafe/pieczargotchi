@@ -1,6 +1,7 @@
   function drawStageBackground(ctx, now) {
-    const scene = getCurrentWeatherScene();
-    const palette = getScenePalette(scene);
+    const frameScene = getSceneFrameSnapshot(now);
+    const scene = frameScene.scene;
+    const palette = frameScene.palette;
 
     if (typeof beginAmbientLifeDiagnostics === 'function') {
       beginAmbientLifeDiagnostics(now);
@@ -12,7 +13,136 @@
     drawCloudLayer(ctx, scene, palette, now);
     drawAmbientPhenomenaCloudOptics(ctx, scene, palette, now);
     drawWeatherLayer(ctx, scene, now);
-    drawLowGround(ctx, palette, now, scene);
+    drawLowGround(ctx, palette, now, scene, frameScene);
     drawAmbientPhenomenaGround(ctx, scene, palette, now);
     drawAmbientLifeBackground(ctx, palette, now, scene);
+  }
+
+  function getSceneFrameSnapshot(now) {
+    const frameNow = Number(now) || 0;
+    const cached = runtime && runtime.sceneFrameSnapshot;
+    if (cached && cached.frameNow === frameNow) {
+      return cached;
+    }
+
+    const scene = getCurrentWeatherScene();
+    const quality = getSceneRenderQuality(frameNow);
+    const snapshot = {
+      frameNow: frameNow,
+      scene: scene,
+      palette: getScenePalette(scene),
+      surface: typeof getWeatherSurfaceState === 'function'
+        ? getWeatherSurfaceState(scene, frameNow)
+        : null,
+      quality: quality,
+      decorationsDrawn: false,
+      decorationsBaseDrawn: false,
+      ambientCompositeDrawn: false
+    };
+    if (runtime) {
+      runtime.sceneFrameSnapshot = snapshot;
+    }
+    return snapshot;
+  }
+
+  function getSceneRenderQuality(now) {
+    const profiles = {
+      high: { tier: 'high', grassScale: 1, precipitationScale: 1 },
+      balanced: { tier: 'balanced', grassScale: 0.78, precipitationScale: 0.82 },
+      low: { tier: 'low', grassScale: 0.52, precipitationScale: 0.62 },
+      reduced: { tier: 'reduced', grassScale: 0.32, precipitationScale: 0.46 }
+    };
+    if (!runtime) {
+      return profiles.high;
+    }
+    if (runtime.reducedMotion) {
+      return profiles.reduced;
+    }
+
+    const debugTier = runtime.debug && ['high', 'balanced', 'low'].includes(runtime.debug.sceneQuality)
+      ? runtime.debug.sceneQuality
+      : '';
+    if (debugTier) {
+      return profiles[debugTier];
+    }
+
+    const state = runtime.sceneRenderQuality || {
+      tier: getInitialSceneQualityTier(),
+      lastFrameAt: null,
+      slowFrames: 0,
+      fastFrames: 0
+    };
+    const frameNow = Number(now) || 0;
+    if (state.lastFrameAt !== null && frameNow > state.lastFrameAt) {
+      const delta = Math.min(80, frameNow - state.lastFrameAt);
+      if (delta > 27) {
+        state.slowFrames += 1;
+        state.fastFrames = Math.max(0, state.fastFrames - 3);
+      } else if (delta < 20) {
+        state.fastFrames += 1;
+        state.slowFrames = Math.max(0, state.slowFrames - 2);
+      } else {
+        state.slowFrames = Math.max(0, state.slowFrames - 1);
+        state.fastFrames = Math.max(0, state.fastFrames - 1);
+      }
+    }
+    state.lastFrameAt = frameNow;
+
+    if (state.slowFrames >= 36) {
+      state.tier = state.tier === 'high' ? 'balanced' : 'low';
+      state.slowFrames = 0;
+      state.fastFrames = 0;
+    } else if (state.fastFrames >= 240) {
+      state.tier = state.tier === 'low' ? 'balanced' : 'high';
+      state.slowFrames = 0;
+      state.fastFrames = 0;
+    }
+    runtime.sceneRenderQuality = state;
+    return profiles[state.tier] || profiles.balanced;
+  }
+
+  function getInitialSceneQualityTier() {
+    const memory = typeof navigator !== 'undefined' ? Number(navigator.deviceMemory) : 0;
+    const cores = typeof navigator !== 'undefined' ? Number(navigator.hardwareConcurrency) : 0;
+    if ((memory > 0 && memory <= 4) || (cores > 0 && cores <= 4)) {
+      return 'low';
+    }
+    return 'balanced';
+  }
+
+  function drawSceneAmbientGrade(ctx, scene, palette) {
+    const grade = typeof getSceneAmbientGradeProfile === 'function'
+      ? getSceneAmbientGradeProfile(scene, palette)
+      : null;
+    if (!grade || grade.alpha <= 0.005) {
+      return;
+    }
+
+    ctx.save();
+    ctx.globalCompositeOperation = grade.compositeOperation;
+    ctx.globalAlpha = grade.alpha;
+    ctx.fillStyle = grade.color;
+    const size = typeof canvasSize === 'number' && canvasSize > 0 ? canvasSize : 512;
+    ctx.fillRect(0, 0, size, size);
+    ctx.restore();
+  }
+
+  function drawSceneAmbientComposite(ctx, now) {
+    const frameScene = getSceneFrameSnapshot(now);
+    if (frameScene.ambientCompositeDrawn) {
+      return false;
+    }
+
+    drawSceneAmbientGrade(ctx, frameScene.scene, frameScene.palette);
+    frameScene.ambientCompositeDrawn = true;
+    if (typeof drawCelestialEmissiveLayer === 'function') {
+      drawCelestialEmissiveLayer(ctx, frameScene.scene, frameScene.palette, now);
+    }
+    if (typeof drawAmbientLifeEmissive === 'function') {
+      drawAmbientLifeEmissive(ctx, now);
+    }
+    if (typeof drawSceneEmissiveForeground === 'function') {
+      drawSceneEmissiveForeground(ctx, now, frameScene);
+    }
+    return true;
   }

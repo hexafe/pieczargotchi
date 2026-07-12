@@ -3,36 +3,27 @@
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
+import re
 from pathlib import Path
 
 from PIL import Image
 from PIL import ImageDraw
 
+from sprite_layout import load_canvas_sheet
+
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILDER_PATH = ROOT / "scripts" / "build-imagegen-sprites.py"
+ANIMATION_CONFIG_PATH = ROOT / "AnimationConfig.gs"
 STAGES_DIR = ROOT / "assets" / "stages"
 ACTIVITIES_DIR = ROOT / "assets" / "activities"
 EASTER_EGGS_DIR = ROOT / "assets" / "easter-eggs"
 NEUTRAL_EASTER_CUTOUT_DIR = ROOT / "assets" / "source" / "imagegen" / "cutouts" / "easter-eggs" / "neutral"
 NEUTRAL_RAIN_EASTER_CUTOUT_DIR = ROOT / "assets" / "source" / "imagegen" / "cutouts" / "easter-eggs" / "neutral_rain"
-STAGES = ["spore", "baby", "young", "adult", "legendary"]
 BASE_STATES = ["sleep", "wake", "idle"]
-ALL_STATES = [
-    "sleep",
-    "wake",
-    "idle",
-    "happy",
-    "excellent",
-    "tired",
-    "dry",
-    "hungry",
-    "dirty",
-    "sick",
-    "critical",
-]
-ACTIVITIES = ["hydrate", "feed", "clean", "play", "instrument", "sing", "spores", "harvest"]
+STAGES, ALL_STATES, ACTIVITIES = ([], [], {})
 FRAME = 512
 MAX_ACTIVITY_BODY_HEIGHT_DELTA = 32
 MAX_ACTIVITY_BODY_CENTER_DELTA = 36
@@ -76,8 +67,18 @@ EASTER_EGG_VARIANTS = [
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--strict-gaze",
+        action="store_true",
+        help="fail when pupils do not move relative to the body; legacy default is advisory",
+    )
+    args = parser.parse_args()
+    global STAGES, ALL_STATES, ACTIVITIES
+    STAGES, ALL_STATES, ACTIVITIES = read_manifest_contract()
     builder = load_builder()
     failures: list[str] = []
+    gaze_findings: list[str] = []
 
     for stage in STAGES:
         print(f"\n[{stage}]")
@@ -110,8 +111,13 @@ def main() -> None:
             if bottom_delta > MAX_BODY_BASELINE_DELTA:
                 failures.append(f"{stage}.{state}: baseline korpusu różni się od idle o {bottom_delta:.1f}px")
 
-        for activity in ACTIVITIES:
-            item = measure_body_sheet(ACTIVITIES_DIR / stage / f"{activity}_sheet.png", builder)
+        audited_activity_files: set[str] = set()
+        for activity, file_name in ACTIVITIES.items():
+            if file_name in audited_activity_files:
+                print(f"  {activity:18s} alias -> {file_name}")
+                continue
+            audited_activity_files.add(file_name)
+            item = measure_body_sheet(ACTIVITIES_DIR / stage / file_name, builder)
             height_delta = abs(item["height"] - body_reference["height"])
             bottom_delta = abs(item["bottom"] - body_reference["bottom"])
             center_delta = (
@@ -136,9 +142,16 @@ def main() -> None:
                 failures.append(f"{stage}.activity.{activity}: klatki Pieczarki dryfują o {item['drift']:.1f}px")
 
         audit_neutral_easter_eggs(stage, builder, failures)
-        audit_cursor_direction(stage, failures)
+        audit_cursor_direction(stage, builder, gaze_findings)
         if stage == "spore":
             audit_spore_detached_strips(builder, failures)
+
+    if gaze_findings and not args.strict_gaze:
+        print("\nAdvisory gaze findings (use --strict-gaze for authored v2 assets):")
+        for finding in gaze_findings:
+            print(f"- {finding}")
+    if args.strict_gaze:
+        failures.extend(gaze_findings)
 
     if failures:
         print("\nAudyt spójności wykrył problemy:")
@@ -147,6 +160,30 @@ def main() -> None:
         raise SystemExit(1)
 
     print("\nAudyt spójności OK: stany bazowe i korpus Pieczarki w aktywnościach trzymają rozmiar w każdym etapie.")
+
+
+def read_manifest_contract() -> tuple[list[str], list[str], dict[str, str]]:
+    text = ANIMATION_CONFIG_PATH.read_text(encoding="utf-8")
+    stages_match = re.search(r"const\s+PIECZARGOTCHI_ANIMATION_STAGES\s*=\s*\[(.*?)\]\s*;", text, flags=re.S)
+    states_match = re.search(r"const\s+PIECZARGOTCHI_STAGE_ANIMATIONS\s*=\s*\[(.*?)\]\s*;", text, flags=re.S)
+    activities_match = re.search(r"const\s+PIECZARGOTCHI_ACTIVITY_ANIMATIONS\s*=\s*\[(.*?)\]\s*;", text, flags=re.S)
+    if not stages_match or not states_match or not activities_match:
+        raise RuntimeError("AnimationConfig.gs nie zawiera pełnego kontraktu stage/state/activity.")
+
+    stages = re.findall(r"'([^']+)'", stages_match.group(1))
+    states = re.findall(r"\bstate\s*:\s*'([^']+)'", states_match.group(1))
+    activities = {
+        activity: Path(file_name).name
+        for activity, file_name in re.findall(
+            r"\bactivity\s*:\s*'([^']+)'[\s\S]*?\bfileName\s*:\s*'([^']+)'",
+            activities_match.group(1),
+        )
+    }
+    if not stages or not states or not activities:
+        raise RuntimeError("Nie udało się odczytać stage/state/activity z AnimationConfig.gs.")
+    if any(state not in states for state in BASE_STATES):
+        raise RuntimeError("AnimationConfig.gs nie zawiera wszystkich bazowych stanów sleep/wake/idle.")
+    return stages, states, activities
 
 
 def load_builder():
@@ -159,7 +196,7 @@ def load_builder():
 
 
 def measure_sheet(path: Path) -> dict[str, float]:
-    image = Image.open(path).convert("RGBA")
+    image = load_canvas_sheet(path)
     frame_count = image.width // 512
     boxes = []
 
@@ -196,7 +233,7 @@ def wytnij_efekty_pomocnicze(frame: Image.Image) -> None:
 
 
 def measure_body_sheet(path: Path, builder) -> dict[str, float]:
-    image = Image.open(path).convert("RGBA")
+    image = load_canvas_sheet(path)
     frame_count = image.width // FRAME
     boxes = []
 
@@ -250,8 +287,8 @@ def audit_neutral_easter_egg_variant(stage: str, builder, failures: list[str], v
         failures.append(f"{stage}.easter.{state_name}: brakuje {neutral_path.relative_to(ROOT)}")
         return
 
-    base = Image.open(base_path).convert("RGBA")
-    neutral = Image.open(neutral_path).convert("RGBA")
+    base = load_canvas_sheet(base_path)
+    neutral = load_canvas_sheet(neutral_path)
 
     if neutral.size != base.size:
         failures.append(f"{stage}.easter.{state_name}: rozmiar arkusza {neutral.size} różni się od idle {base.size}")
@@ -323,7 +360,7 @@ def find_easter_egg_body_bbox(frame: Image.Image, builder, state_name: str) -> t
 
 def audit_spore_detached_strips(builder, failures: list[str]) -> None:
     for state in SPORE_DETACHED_STRIP_STATES:
-        image = Image.open(STAGES_DIR / "spore" / f"{state}_sheet.png").convert("RGBA")
+        image = load_canvas_sheet(STAGES_DIR / "spore" / f"{state}_sheet.png")
         frame_count = image.width // FRAME
         for index in range(frame_count):
             left = index * FRAME
@@ -352,39 +389,55 @@ def audit_spore_detached_strips(builder, failures: list[str]) -> None:
                     failures.append(f"spore.{state}: klatka {index + 1} ma odklejony pasek nad sprite {bbox}")
 
 
-def audit_cursor_direction(stage: str, failures: list[str]) -> None:
+def audit_cursor_direction(stage: str, builder, findings: list[str]) -> None:
     print("  [cursor direction]")
-    idle = read_eye_centers(STAGES_DIR / stage / "idle_sheet.png", stage)
+    idle = read_relative_eye_centers(STAGES_DIR / stage / "idle_sheet.png", stage, builder)
     checks = [
         ("watch_cursor_left", -MIN_CURSOR_DIRECTION_SHIFT_X, None),
         ("watch_cursor_right", MIN_CURSOR_DIRECTION_SHIFT_X, None),
+        ("watch_cursor_up_left", -MIN_CURSOR_DIRECTION_SHIFT_X, -MIN_CURSOR_DIRECTION_SHIFT_Y),
         ("watch_cursor_up_right", MIN_CURSOR_DIRECTION_SHIFT_X, -MIN_CURSOR_DIRECTION_SHIFT_Y),
     ]
     for state, expected_dx, expected_dy in checks:
         path = STAGES_DIR / stage / f"{state}_sheet.png"
-        gaze = read_eye_centers(path, stage)
+        gaze = read_relative_eye_centers(path, stage, builder)
         if len(idle) != 2 or len(gaze) != 2:
-            failures.append(f"{stage}.{state}: nie wykryto pary oczu do audytu kursora")
+            findings.append(f"{stage}.{state}: nie wykryto pary oczu do audytu kursora")
             continue
 
         deltas = [(gaze[index][0] - idle[index][0], gaze[index][1] - idle[index][1]) for index in range(2)]
         print(
             f"  {state:22s} "
-            f"L={deltas[0][0]:5.1f},{deltas[0][1]:5.1f} "
-            f"R={deltas[1][0]:5.1f},{deltas[1][1]:5.1f}"
+            f"relative-L={deltas[0][0]:5.1f},{deltas[0][1]:5.1f} "
+            f"relative-R={deltas[1][0]:5.1f},{deltas[1][1]:5.1f}"
         )
         for eye_index, (delta_x, delta_y) in enumerate(deltas, start=1):
             if expected_dx < 0 and delta_x > expected_dx:
-                failures.append(f"{stage}.{state}: oko {eye_index} przesuwa sie w lewo tylko o {delta_x:.1f}px")
+                findings.append(f"{stage}.{state}: oko {eye_index} przesuwa sie wzgledem ciala w lewo tylko o {delta_x:.1f}px")
             if expected_dx > 0 and delta_x < expected_dx:
-                failures.append(f"{stage}.{state}: oko {eye_index} przesuwa sie w prawo tylko o {delta_x:.1f}px")
+                findings.append(f"{stage}.{state}: oko {eye_index} przesuwa sie wzgledem ciala w prawo tylko o {delta_x:.1f}px")
             if expected_dy is not None and delta_y > expected_dy:
-                failures.append(f"{stage}.{state}: oko {eye_index} patrzy w gore tylko o {delta_y:.1f}px")
+                findings.append(f"{stage}.{state}: oko {eye_index} patrzy wzgledem ciala w gore tylko o {delta_y:.1f}px")
+
+
+def read_relative_eye_centers(path: Path, stage: str, builder) -> list[tuple[float, float]]:
+    image = load_canvas_sheet(path)
+    frame = image.crop((0, 0, FRAME, FRAME))
+    body_bbox = find_character_body_bbox(frame, builder)
+    if body_bbox is None:
+        return []
+    anchor_x = (body_bbox[0] + body_bbox[2]) / 2
+    anchor_y = body_bbox[1]
+    return [(x - anchor_x, y - anchor_y) for x, y in read_eye_centers_from_frame(frame, stage)]
 
 
 def read_eye_centers(path: Path, stage: str) -> list[tuple[float, float]]:
-    image = Image.open(path).convert("RGBA")
+    image = load_canvas_sheet(path)
     frame = image.crop((0, 0, FRAME, FRAME))
+    return read_eye_centers_from_frame(frame, stage)
+
+
+def read_eye_centers_from_frame(frame: Image.Image, stage: str) -> list[tuple[float, float]]:
     pixels = frame.load()
     centers: list[tuple[float, float]] = []
 

@@ -431,7 +431,94 @@ test('corrupted save shape falls back to a normal migration target', () => {
   assert(migrated.battle && migrated.battle.rewards.wins === 0, 'expected normalized battle rewards');
 });
 
-test('v2 saves migrate to v16 progression history, discoveries, evolution, minigames, decorations, daily rhythm, journal, return recap, relationship, naming gate, calendar, long loop, legendary games, and journal snapshots', () => {
+test('future saves stay untouched and persistence refuses to downgrade them', () => {
+  const future = {
+    version: 18,
+    saveRevision: 7,
+    stats: { health: 93 },
+    futureOnly: { nested: ['preserve-me'] }
+  };
+  const snapshot = JSON.stringify(future);
+  const migrated = core.migrateStateVersion(future, 17);
+  const prepared = core.prepareStatePersistenceWrite(future, future, 17, 'test-tab');
+
+  assert(JSON.stringify(migrated) === snapshot, 'future migration must preserve every field');
+  assert(!prepared.ok && prepared.reason === 'futureVersion', 'future save write should be blocked');
+  assert(JSON.stringify(future) === snapshot, 'future source must remain byte-equivalent after checks');
+});
+
+test('v17 migration reconciles legacy coins, revisions, and invalid sessions', () => {
+  const now = Date.parse('2026-05-17T12:00:00.000Z');
+  const migrated = core.migrateStateVersion({
+    version: 16,
+    coins: 10,
+    inventory: { spores: 0 },
+    stats: { health: 80 },
+    minigames: { active: { id: 'removedMinigame', score: 4 } },
+    recovery: {
+      active: true,
+      until: 'not-a-date',
+      lastCareAt: '2099-01-01T00:00:00.000Z'
+    },
+    discoveries: {
+      instruments: {
+        bell: { id: 'bell', label: 'Dzwonek', firstSeenAt: '1970-01-01T00:00:01.820Z' }
+      }
+    },
+    journal: {
+      entries: [{ id: 'legacy-clock', at: '1970-01-01T00:00:01.820Z', title: 'Odkrycie' }]
+    }
+  }, 17, { minigames: { dewCatch: { id: 'dewCatch' } } }, now);
+
+  assert(migrated.version === 17, `expected v17, got ${migrated.version}`);
+  assert(migrated.inventory.spores === 10 && migrated.coins === 10, 'legacy coins should migrate to canonical spores');
+  assert(migrated.saveRevision === 0, 'legacy save should start at revision zero');
+  assert(migrated.minigames.active === null, 'unknown minigame should be quarantined');
+  assert(migrated.minigames.quarantined.id === 'removedMinigame', 'quarantine should retain the unknown id');
+  assert(!migrated.recovery.active && migrated.recovery.reason === 'invalidTimestamp', 'invalid recovery should be safely deactivated');
+  assert(migrated.recovery.lastCareAt === null, 'future care timestamp should be rejected');
+  assert(Date.parse(migrated.discoveries.instruments.bell.firstSeenAt) === now, '1970 discovery timestamp should migrate to wall time');
+  assert(Date.parse(migrated.journal.entries[0].at) === now, '1970 journal timestamp should migrate to wall time');
+});
+
+test('active recovery without a valid start timestamp is safely invalidated', () => {
+  const now = Date.parse('2026-05-17T12:00:00.000Z');
+  const migrated = core.migrateStateVersion({
+    version: 16,
+    stats: { health: 20 },
+    recovery: {
+      active: true,
+      startedAt: null,
+      until: new Date(now + 3600000).toISOString()
+    }
+  }, 17, getRecoveryTestRules(), now);
+
+  assert(!migrated.recovery.active, 'recovery without startedAt must not become an unwinnable active recovery');
+  assert(migrated.recovery.reason === 'invalidTimestamp', 'invalid recovery should retain a diagnostic reason');
+});
+
+test('persistence compare-before-write detects stale revisions and increments current writes', () => {
+  const current = { version: 17, saveRevision: 4, stats: { health: 90 } };
+  const stored = { version: 17, saveRevision: 5, stats: { health: 91 } };
+  const conflict = core.prepareStatePersistenceWrite(current, stored, 17, 'tab-a');
+  const prepared = core.prepareStatePersistenceWrite(stored, stored, 17, 'tab-b');
+
+  assert(!conflict.ok && conflict.reason === 'conflict', 'stale write should be rejected');
+  assert(conflict.storedRevision === 5, 'conflict should report the external revision');
+  assert(prepared.ok && prepared.revision === 6, 'current write should increment revision');
+  assert(prepared.state.saveWriterId === 'tab-b', 'write should identify its tab');
+  assert(current.saveRevision === 4, 'prepare helper must not mutate the source');
+});
+
+test('persistence rejects equal revisions produced by different writers', () => {
+  const source = { version: 17, saveRevision: 5, saveWriterId: 'tab-a', stats: { health: 80 } };
+  const stored = { version: 17, saveRevision: 5, saveWriterId: 'tab-b', stats: { health: 90 } };
+  const result = core.prepareStatePersistenceWrite(source, stored, 17, 'tab-a');
+
+  assert(!result.ok && result.reason === 'conflict', 'same revision from another writer must be treated as a split-brain conflict');
+});
+
+test('v2 saves migrate to v17 progression history, discoveries, evolution, minigames, decorations, daily rhythm, journal, return recap, relationship, naming gate, calendar, long loop, legendary games, and journal snapshots', () => {
   const migrated = core.migrateStateVersion({
     version: 2,
     stage: 'adult',
@@ -917,7 +1004,7 @@ test('recovery starts at zero health and blocks play while allowing moss-bed car
   assert(core.getAnimationIntent(started.state, {}, now).state === 'critical', 'recovery at very low health should use critical animation');
 });
 
-test('moss-bed recovery extends without fresh care and completes after recent care with stable needs', () => {
+test('moss-bed recovery requires hydrate, feed, and clean during the current recovery', () => {
   const now = Date.parse('2026-05-17T12:00:00.000Z');
   const rules = getRecoveryTestRules();
   const started = core.updateRecoveryState({
@@ -933,15 +1020,36 @@ test('moss-bed recovery extends without fresh care and completes after recent ca
   assert(extended.events[0].type === 'recoveryExtended', 'expected extension event');
   assert(extended.state.recovery.missedCare === 1, 'expected one missed recovery care mark');
 
-  const cared = core.recordRecoveryCare({
+  let cared = {
     ...extended.state,
     stats: { ...extended.state.stats, hydration: 44, nutrients: 42, cleanliness: 41 }
-  }, 'clean', rules, until + 60_000).state;
+  };
+  ['hydrate', 'feed', 'clean'].forEach((actionId, index) => {
+    const careAt = until + (index + 1) * 60_000;
+    cared = core.recordRecoveryCare(cared, actionId, rules, careAt).state;
+    cared = core.normalizeProgressionState(cared, rules, null, careAt);
+  });
   const completed = core.updateRecoveryState(cared, rules, Date.parse(cared.recovery.until) + 1);
 
-  assert(!completed.state.recovery.active, 'recovery should complete after recent care and stable needs');
+  assert(!completed.state.recovery.active, 'recovery should complete after all required care and stable needs');
   assert(completed.state.stats.health === 28, `expected completion health, got ${completed.state.stats.health}`);
   assert(completed.events[0].type === 'recoveryComplete', 'expected completion event');
+});
+
+test('moss rest alone does not satisfy required recovery care', () => {
+  const now = Date.parse('2026-05-17T12:00:00.000Z');
+  const rules = getRecoveryTestRules();
+  const started = core.updateRecoveryState({
+    mode: 'awake',
+    stats: { health: 0, hydration: 50, nutrients: 50, cleanliness: 50, energy: 30, happiness: 50 },
+    patch: { quality: 70, mycelium: 0, harvests: 0, careStreak: 0 },
+    recovery: {}
+  }, rules, now).state;
+  const rested = core.recordRecoveryCare(started, 'mossRest', rules, now + 60_000).state;
+  const result = core.updateRecoveryState(rested, rules, Date.parse(rested.recovery.until) + 1);
+
+  assert(result.state.recovery.active, 'moss rest should not replace hydrate, feed, and clean');
+  assert(result.events[0].type === 'recoveryExtended', 'missing required care should extend recovery');
 });
 
 test('moss-bed recovery reaches game over after too many missed care windows', () => {
@@ -958,6 +1066,10 @@ test('moss-bed recovery reaches game over after too many missed care windows', (
     minigames: { active: { id: 'dewCatch' } },
     battle: { mode: 'active', activeBattle: { mode: 'active' } }
   }, rules, now).state;
+
+  assert(started.minigames.active === null, 'recovery should stop an active minigame immediately');
+  assert(started.battle.activeBattle === null, 'recovery should stop an active battle immediately');
+  assert(!started.attention.activeNeed, 'recovery should clear active attention deadlines');
 
   let current = started;
   for (let miss = 0; miss < 3; miss += 1) {
@@ -1141,6 +1253,205 @@ test('care time segmentation applies quiet-night decay separately from daytime d
 
   assert(Math.abs(quietHours - 8.5) < 0.001, `expected 8.5 quiet hours, got ${quietHours}`);
   assert(Math.abs(sleepHours - 1.5) < 0.001, `expected 1.5 regular sleep hours, got ${sleepHours}`);
+});
+
+test('elapsed care reduction is invariant between one batch and minute ticks', () => {
+  const rules = getElapsedReducerTestRules();
+  const start = new Date(2026, 4, 16, 8, 0).getTime();
+  const end = start + 24 * 3600000;
+  const initial = getElapsedReducerTestState(start);
+  const batched = core.reduceElapsedCareState(initial, rules, start, end).state;
+  let ticked = initial;
+  for (let cursor = start; cursor < end; cursor += 60000) {
+    ticked = core.reduceElapsedCareState(ticked, rules, cursor, cursor + 60000).state;
+  }
+
+  ['hydration', 'nutrients', 'energy', 'happiness', 'cleanliness', 'health', 'growth'].forEach((stat) => {
+    assert(
+      Math.abs(batched.stats[stat] - ticked.stats[stat]) < 1e-7,
+      `expected batch invariant ${stat}, got ${batched.stats[stat]} vs ${ticked.stats[stat]}`
+    );
+  });
+  assert(batched.gameOver.active === ticked.gameOver.active, 'expected batch invariant game-over state');
+  assert(batched.recovery.active === ticked.recovery.active, 'expected batch invariant recovery state');
+  assert(batched.history.attention.missed === ticked.history.attention.missed, 'expected batch invariant attention history');
+  assert(batched.history.dailyGrowth.dateKey === ticked.history.dailyGrowth.dateKey, 'expected midnight growth bucket parity');
+  assert(Math.abs(batched.history.statSamples.weightedHealth - ticked.history.statSamples.weightedHealth) < 1e-4, 'expected weighted health parity');
+  assert(batched.stats.health > 20, `one normal day should remain survivable, got health ${batched.stats.health}`);
+});
+
+test('elapsed care reduction applies current weather only within the global offline weather cap', () => {
+  const rules = getElapsedReducerTestRules();
+  rules.decayPerHour = {
+    awake: {}, sleeping: {}, quietAwake: {}, quietSleeping: {}
+  };
+  rules.healthPerHour = { poorConditions: 0, goodConditions: 0 };
+  rules.growthPerHour = { awakeHealthy: 0, sleepingHealthy: 0, quietDrowsyHealthy: 0 };
+  rules.patchPerHour = { cleanHealthy: 0, neglected: 0 };
+  rules.weatherBalance = {
+    maxElapsedHours: 2,
+    rainHydrationPerHour: 8,
+    stormHydrationPerHour: 5,
+    snowHydrationPerHour: 1.5,
+    highHumidityHydrationPerHour: 0,
+    windDryingPerHour: 0,
+    heatDryingPerHour: 0
+  };
+  const end = new Date(2026, 4, 17, 8, 0).getTime();
+  const initial = getElapsedReducerTestState(end - 24 * 3600000);
+  initial.stats.hydration = 50;
+  initial.stats.happiness = 100;
+  const rain = { condition: 'rain', rain: 7, precipitation: 7, rainIntensity: 1, humidity: 60, windLevel: 0, temperature: 16 };
+  const fullDay = core.reduceElapsedCareState(initial, rules, end - 24 * 3600000, end, { weatherScene: rain }).state;
+  const twoHours = core.reduceElapsedCareState(initial, rules, end - 2 * 3600000, end, { weatherScene: rain }).state;
+
+  assert(Math.abs(fullDay.stats.hydration - twoHours.stats.hydration) < 1e-7, `24h weather should equal capped 2h weather, got ${fullDay.stats.hydration} vs ${twoHours.stats.hydration}`);
+});
+
+test('small weather effects are identical for one batch and minute ticks', () => {
+  const rules = getElapsedReducerTestRules();
+  rules.decayPerHour = { awake: {}, sleeping: {}, quietAwake: {}, quietSleeping: {} };
+  rules.healthPerHour = { poorConditions: 0, goodConditions: 0 };
+  rules.growthPerHour = { awakeHealthy: 0, sleepingHealthy: 0, quietDrowsyHealthy: 0 };
+  rules.patchPerHour = { cleanHealthy: 0, neglected: 0 };
+  rules.weatherBalance = {
+    maxElapsedHours: 2,
+    rainHydrationPerHour: 0,
+    stormHydrationPerHour: 0,
+    snowHydrationPerHour: 0,
+    highHumidityHydrationPerHour: 1.2,
+    windDryingPerHour: 0,
+    heatDryingPerHour: 0
+  };
+  const start = Date.parse('2026-05-17T08:00:00.000Z');
+  const end = start + 3 * 3600000;
+  const initial = getElapsedReducerTestState(start);
+  Object.assign(initial.stats, {
+    hydration: 50,
+    nutrients: 100,
+    energy: 100,
+    happiness: 100,
+    cleanliness: 100,
+    health: 100
+  });
+  const scene = {
+    updatedAt: '2026-05-17T08:00:00.000Z',
+    condition: 'clear',
+    humidity: 79.3,
+    windLevel: 0,
+    temperature: 18
+  };
+  const expectedDelta = ((scene.humidity - 78) / 22) * rules.weatherBalance.highHumidityHydrationPerHour * 2;
+  const batched = core.reduceElapsedCareState(initial, rules, start, end, { weatherScene: scene }).state;
+  let ticked = initial;
+  for (let cursor = start; cursor < end; cursor += 60000) {
+    ticked = core.reduceElapsedCareState(ticked, rules, cursor, cursor + 60000, { weatherScene: scene }).state;
+  }
+
+  assert(Math.abs((batched.stats.hydration - 50) - expectedDelta) < 1e-8, `expected precise low weather delta ${expectedDelta}, got ${batched.stats.hydration - 50}`);
+  assert(Math.abs(batched.stats.hydration - ticked.stats.hydration) < 1e-8, `weather batch/tick mismatch: ${batched.stats.hydration} vs ${ticked.stats.hydration}`);
+  assert(batched.weatherCare.appliedMs === 2 * 3600000, 'batch should consume only the configured weather budget');
+  assert(ticked.weatherCare.appliedMs === 2 * 3600000, 'minute ticks should share the same weather budget');
+});
+
+test('24h elapsed reduction stays bounded for a history-heavy save', () => {
+  const rules = getElapsedReducerTestRules();
+  const start = new Date(2026, 4, 16, 8, 0).getTime();
+  const initial = getElapsedReducerTestState(start);
+  initial.relationship = {
+    entries: Array.from({ length: 400 }, (_, index) => ({
+      id: `entry-${index}`,
+      at: new Date(start - index * 60000).toISOString(),
+      title: `Wpis ${index}`,
+      body: 'Historia spokojnej opieki nad grzybnią.'
+    }))
+  };
+  initial.journal = { entries: initial.relationship.entries.slice() };
+  const benchmarkStartedAt = Date.now();
+  const result = core.reduceElapsedCareState(initial, rules, start, start + 24 * 3600000);
+  const durationMs = Date.now() - benchmarkStartedAt;
+
+  assert(durationMs < 2000, `24h reduction should stay below 2s, took ${durationMs}ms`);
+  assert(result.events.length < 80, `protected/no-op events should not accumulate, got ${result.events.length}`);
+});
+
+test('recovery deadline started at night waits through quiet hours and morning grace', () => {
+  const rules = Object.assign({}, getRecoveryTestRules(), {
+    careRhythm: {
+      quietStartMinute: 22 * 60 + 30,
+      quietEndMinute: 7 * 60,
+      morningGraceMs: 45 * 60000,
+      offlineCapHours: 24
+    }
+  });
+  const start = new Date(2026, 4, 16, 21, 0).getTime();
+  const graceEnd = new Date(2026, 4, 17, 7, 45).getTime();
+  const started = core.updateRecoveryState({
+    mode: 'awake',
+    stats: { health: 0, hydration: 50, nutrients: 50, cleanliness: 50, energy: 20, happiness: 50 },
+    patch: { quality: 70, mycelium: 0, harvests: 0, careStreak: 0 },
+    recovery: {}
+  }, rules, start).state;
+
+  assert(Date.parse(started.recovery.until) === graceEnd, `expected recovery deadline at morning grace end, got ${started.recovery.until}`);
+  const protectedState = core.updateRecoveryState(started, rules, new Date(2026, 4, 17, 7, 30).getTime()).state;
+  assert(protectedState.recovery.missedCare === 0, 'quiet recovery should not count a missed care window');
+});
+
+test('recovery deadline crossing into quiet hours is protected at the boundary', () => {
+  const rules = Object.assign({}, getRecoveryTestRules(), {
+    careRhythm: {
+      quietStartMinute: 22 * 60 + 30,
+      quietEndMinute: 7 * 60,
+      morningGraceMs: 45 * 60000,
+      offlineCapHours: 24
+    }
+  });
+  const startedAt = new Date(2026, 4, 16, 18, 0).getTime();
+  const oldDeadline = new Date(2026, 4, 16, 22, 29, 30).getTime();
+  const boundary = new Date(2026, 4, 16, 22, 30).getTime();
+  const graceEnd = new Date(2026, 4, 17, 7, 45).getTime();
+  const result = core.updateRecoveryState({
+    mode: 'sleeping',
+    stats: { health: 8, hydration: 50, nutrients: 50, cleanliness: 50, energy: 30, happiness: 50 },
+    patch: { quality: 70, mycelium: 0, harvests: 0, careStreak: 0 },
+    recovery: {
+      active: true,
+      startedAt: new Date(startedAt).toISOString(),
+      until: new Date(oldDeadline).toISOString(),
+      missedCare: 0
+    }
+  }, rules, boundary);
+
+  assert(Date.parse(result.state.recovery.until) === graceEnd, 'boundary should shift the recovery deadline through morning grace');
+  assert(result.state.recovery.missedCare === 0, 'boundary protection must not count a missed recovery window');
+  assert(result.events[0].type === 'recoveryProtected', 'expected explicit recovery protection event');
+});
+
+test('elapsed reduction stays batch invariant when recovery changes awake decay to sleep', () => {
+  const rules = getElapsedReducerTestRules();
+  const start = new Date(2026, 4, 16, 20, 0).getTime();
+  const end = new Date(2026, 4, 17, 8, 0).getTime();
+  const initial = getElapsedReducerTestState(start);
+  Object.assign(initial.stats, {
+    health: 0,
+    hydration: 50,
+    nutrients: 50,
+    cleanliness: 50,
+    happiness: 50,
+    energy: 20
+  });
+  const batched = core.reduceElapsedCareState(initial, rules, start, end).state;
+  let ticked = initial;
+  for (let cursor = start; cursor < end; cursor += 60000) {
+    ticked = core.reduceElapsedCareState(ticked, rules, cursor, cursor + 60000).state;
+  }
+
+  assert(batched.mode === 'sleeping' && ticked.mode === 'sleeping', 'recovery should switch both paths to sleeping');
+  assert(batched.recovery.missedCare === ticked.recovery.missedCare, 'recovery misses should be batch invariant');
+  ['hydration', 'nutrients', 'energy', 'health'].forEach((stat) => {
+    assert(Math.abs(batched.stats[stat] - ticked.stats[stat]) < 1e-7, `recovery ${stat} should match batch and ticks`);
+  });
 });
 
 test('animation intent keeps activity and wake above sleep, need above happy, then idle', () => {
@@ -1647,6 +1958,8 @@ test('battle start stores seed and care snapshot without mutating care stats', (
   assert(started.ok, `expected battle start: ${started.reason}`);
   assert(JSON.stringify(state.stats) === beforeStats, 'input care stats should not mutate');
   assert(started.state.battle.activeBattle.seed === 777, 'expected stored seed');
+  assert(started.state.battle.activeBattle.player.visualId === 'playerLegendary', 'player should use the body-only legendary arena sheet');
+  assert(started.state.battle.activeBattle.opponent.visualId === 'sproutling', 'first opponent should keep its configured visual identity');
   started.state.stats.hydration = 1;
   assert(started.state.battle.activeBattle.careSnapshot.hydration === 80, 'care snapshot should stay stable');
 });
@@ -1694,15 +2007,17 @@ test('battle status effects slow the next turn and self effects recover stamina'
 test('battle victory and defeat rewards do not touch care stats', () => {
   const rules = getBattleTestRules();
   const base = getLegendaryBattleState({ inventory: { spores: 0 }, coins: 0 });
+  const now = Date.parse('2026-05-13T12:00:00.000Z');
+  const activeBattle = core.startBattle(base, rules, now, 555).state.battle.activeBattle;
   const careStats = JSON.stringify(base.stats);
   const victory = core.applyBattleOutcomeRewards({
     ...base,
     battle: {
       ...base.battle,
       mode: 'victory',
-      activeBattle: { mode: 'victory', rewarded: false }
+      activeBattle: { ...activeBattle, mode: 'victory', rewarded: false }
     }
-  }, rules, Date.now());
+  }, rules, now);
 
   assert(victory.ok, 'expected victory rewards');
   assert(victory.state.battle.rewards.wins === 1, 'expected win increment');
@@ -1715,13 +2030,39 @@ test('battle victory and defeat rewards do not touch care stats', () => {
     battle: {
       ...base.battle,
       mode: 'defeat',
-      activeBattle: { mode: 'defeat', rewarded: false }
+      activeBattle: { ...activeBattle, mode: 'defeat', rewarded: false }
     }
-  }, rules, Date.now());
+  }, rules, now);
   assert(defeat.ok, 'expected defeat accounting');
   assert(defeat.state.battle.rewards.losses === 1, 'expected loss increment');
   assert(defeat.state.inventory.spores === 0, 'defeat should not grant spores');
   assert(JSON.stringify(defeat.state.stats) === careStats, 'defeat should not change care stats');
+
+  const nextBattle = core.startBattle(victory.state, rules, now + 1, 556);
+  assert(nextBattle.ok, 'a rewarded terminal battle should not block the next fight');
+  assert(nextBattle.state.battle.activeBattle.id !== activeBattle.id, 'the next fight should get a fresh session');
+  assert(nextBattle.state.battle.rewards.wins === 1, 'starting another fight must preserve the previous result');
+
+  const trainableDefeat = {
+    ...defeat.state,
+    inventory: { ...defeat.state.inventory, spores: 5 },
+    coins: 5
+  };
+  const trained = core.trainBattleStat(trainableDefeat, 'strength', rules, now + 2);
+  assert(trained.ok, 'a rewarded terminal battle should not block later training');
+  assert(trained.state.battle.activeBattle === null, 'training should archive the completed fight');
+
+  const unrewardedTerminal = {
+    ...base,
+    battle: {
+      ...base.battle,
+      mode: 'victory',
+      activeBattle: { ...activeBattle, mode: 'victory', rewarded: false }
+    }
+  };
+  const recoveredStart = core.startBattle(unrewardedTerminal, rules, now + 3, 557);
+  assert(recoveredStart.ok, 'a terminal fight restored before reward persistence should recover on next start');
+  assert(recoveredStart.state.battle.rewards.wins === 1, 'recovered terminal reward should be granted exactly once');
 });
 
 test('active battle save data normalizes back into a resumable fight', () => {
@@ -1736,6 +2077,40 @@ test('active battle save data normalizes back into a resumable fight', () => {
   assert(normalized.activeBattle.player.hp > 0, 'expected player combatant to survive normalization');
   assert(normalized.activeBattle.opponent.hp > 0, 'expected opponent combatant to survive normalization');
   assert(normalized.activeBattle.seed === 42, 'expected seed to survive normalization');
+  assert(normalized.activeBattle.player.visualId === 'playerLegendary', 'player visual identity should survive normalization');
+  assert(normalized.activeBattle.opponent.visualId === 'sproutling', 'opponent visual identity should survive normalization');
+
+  const legacyOpponent = JSON.parse(JSON.stringify(activeBattle));
+  delete legacyOpponent.opponent.visualId;
+  legacyOpponent.opponent.name = 'Wiatrokapelusz';
+  const migrated = core.normalizeBattleState({ mode: 'choosingMove', activeBattle: legacyOpponent });
+  assert(migrated.activeBattle.opponent.visualId === 'windcap', 'legacy opponent names should migrate to a stable visualId');
+});
+
+test('v18 migration preserves a v17 active battle and adds stable visual identities', () => {
+  const now = Date.parse('2026-07-11T10:00:00.000Z');
+  const rules = getBattleTestRules();
+  const activeBattle = core.startBattle(getLegendaryBattleState(), rules, now, 88).state.battle.activeBattle;
+  delete activeBattle.player.visualId;
+  delete activeBattle.opponent.visualId;
+  activeBattle.opponent.name = 'Wiatrokapelusz';
+
+  const migrated = core.migrateStateVersion({
+    version: 17,
+    stage: 'legendary',
+    stats: { health: 90 },
+    inventory: { spores: 3 },
+    battle: {
+      mode: 'choosingMove',
+      activeBattle: activeBattle,
+      rewards: { wins: 2, losses: 1, trophies: 2 }
+    }
+  }, 18, rules, now);
+
+  assert(migrated.version === 18, `expected state v18, got ${migrated.version}`);
+  assert(migrated.battle.activeBattle.player.visualId === 'playerLegendary', 'v18 should restore the player visualId');
+  assert(migrated.battle.activeBattle.opponent.visualId === 'windcap', 'v18 should infer the legacy opponent visualId');
+  assert(migrated.inventory.spores === 3 && migrated.battle.rewards.wins === 2, 'v18 migration must preserve unrelated progress');
 });
 
 test('battle turn resolution is deterministic for a fixed seed', () => {
@@ -1783,7 +2158,7 @@ test('minigame completion grants bounded rewards and records play history', () =
     stats: { hydration: 50, happiness: 50 },
     inventory: { spores: 0 },
     history: {},
-    minigames: {}
+    minigames: { active: session }
   }, session, rules, now + 20000);
 
   assert(result.ok, 'expected minigame finish success');
@@ -1795,6 +2170,7 @@ test('minigame completion grants bounded rewards and records play history', () =
   assert(result.state.minigames.lastResult.targetScore === 26, 'expected configured mastery target in last result');
   assert(result.state.minigames.lastResult.tier === 'near', `expected near tier, got ${result.state.minigames.lastResult.tier}`);
   assert(result.state.minigames.lastResult.newBest, 'expected first scored run to become a new best');
+  assert(result.state.legendaryGames.daily.dateKey === '2026-05-16', 'minigame normalization should use the supplied gameplay clock');
 });
 
 test('spore pop grants bounded happiness and spores without hydration', () => {
@@ -1823,7 +2199,7 @@ test('spore pop grants bounded happiness and spores without hydration', () => {
     inventory: { spores: 1 },
     coins: 1,
     history: {},
-    minigames: {}
+    minigames: { active: session }
   }, session, rules, now + 18000);
 
   assert(result.ok, 'expected spore pop finish success');
@@ -1832,6 +2208,41 @@ test('spore pop grants bounded happiness and spores without hydration', () => {
   assert(result.state.inventory.spores === 5, `expected capped spore reward, got ${result.state.inventory.spores}`);
   assert(result.state.history.minigames.sporePop.plays === 1, 'expected spore pop history');
   assert(result.state.minigames.lastResult.id === 'sporePop', 'expected spore pop last result');
+});
+
+test('terminal and stale minigame sessions cannot grant core rewards', () => {
+  const rules = {
+    minigames: {
+      dewCatch: {
+        id: 'dewCatch',
+        label: 'Łapanie rosy',
+        durationMs: 20000,
+        rewards: { hydrationBase: 4, hydrationPerCatch: 2, hydrationMax: 18 }
+      }
+    }
+  };
+  const now = Date.parse('2026-05-16T12:00:00.000Z');
+  const session = core.createMinigameSession('dewCatch', rules, now, 123).session;
+  session.runtimeToken = 'session-current';
+  session.score = 20;
+  const base = {
+    stats: { hydration: 50, happiness: 50 },
+    inventory: { spores: 0 },
+    history: {},
+    minigames: { active: { ...session } }
+  };
+  const terminal = core.finishMinigame({
+    ...base,
+    gameOver: { active: true, reason: 'recoveryNeglected' }
+  }, session, rules, now + 20000);
+  const stale = core.finishMinigame(base, {
+    ...session,
+    runtimeToken: 'session-stale'
+  }, rules, now + 20000);
+
+  assert(!terminal.ok && terminal.state.stats.hydration === 50, 'game over must reject rewards without changing care stats');
+  assert(!terminal.state.history.minigames.dewCatch, 'terminal session must not record a play');
+  assert(!stale.ok && stale.state.stats.hydration === 50, 'stale token must not grant rewards');
 });
 
 test('new habitat minigames grant bounded substrate and rhythm rewards', () => {
@@ -1870,7 +2281,7 @@ test('new habitat minigames grant bounded substrate and rhythm rewards', () => {
     stats: { nutrients: 50, cleanliness: 60, happiness: 50 },
     inventory: { spores: 0, substrate: 0 },
     history: {},
-    minigames: {}
+    minigames: { active: compostSession }
   }, compostSession, rules, now + 22000);
 
   const rhythmSession = core.createMinigameSession('rhythmHum', rules, now, 790).session;
@@ -1879,7 +2290,7 @@ test('new habitat minigames grant bounded substrate and rhythm rewards', () => {
     stats: { happiness: 50, energy: 60 },
     inventory: { spores: 0 },
     history: {},
-    minigames: {}
+    minigames: { active: rhythmSession }
   }, rhythmSession, rules, now + 18000);
 
   assert(compost.ok, 'expected compost sort finish success');
@@ -1938,6 +2349,30 @@ test('evolution variant reacts to care history and legendary threshold', () => {
   assert(core.getEvolutionTrait('dewcap', rules).favoriteAction === 'hydrate', 'expected dewcap trait metadata');
 });
 
+test('evolution health averages are time-weighted instead of tick-count weighted', () => {
+  const base = {
+    mode: 'awake',
+    stats: { hydration: 60, nutrients: 60, energy: 60, happiness: 70, cleanliness: 60, health: 0 },
+    history: {},
+    careMistakes: {},
+    patch: { quality: 72 }
+  };
+  let batched = core.recordElapsedHistory(base, 2 * 3600000);
+  batched.stats.health = 100;
+  batched = core.recordElapsedHistory(batched, 3600000);
+
+  let ticked = base;
+  for (let minute = 0; minute < 180; minute += 1) {
+    ticked.stats.health = minute < 120 ? 0 : 100;
+    ticked = core.recordElapsedHistory(ticked, 60000);
+  }
+
+  const batchedVariant = core.getEvolutionVariant(batched.history, batched, {});
+  const tickedVariant = core.getEvolutionVariant(ticked.history, ticked, {});
+  assert(batchedVariant.variant === 'ghostcap', `expected weighted low-health path, got ${batchedVariant.variant}`);
+  assert(tickedVariant.variant === batchedVariant.variant, 'batch and minute samples should choose the same evolution');
+});
+
 test('decoration purchase spends spores, records ownership, and boosts happiness', () => {
   const result = core.buyDecoration({
     stats: { happiness: 60 },
@@ -1956,11 +2391,14 @@ test('decoration purchase spends spores, records ownership, and boosts happiness
   assert(result.state.decorations.owned.includes('mossBell'), 'expected owned decoration');
   assert(result.state.decorations.active.includes('mossBell'), 'expected active decoration');
   assert(result.state.stats.happiness === 63, `expected happiness bonus, got ${result.state.stats.happiness}`);
+  assert(result.state.legendaryGames.daily.dateKey === '2026-05-16', 'decoration normalization should use the supplied gameplay clock');
 });
 
 test('state export and import preserve save shape while rejecting invalid files', () => {
   const envelope = core.buildStateExportEnvelope({
     version: 8,
+    mushroomName: 'Puszek',
+    stage: 'young',
     stats: { hydration: 70 },
     history: { actionsPerformed: { hydrate: 1 } }
   }, Date.parse('2026-05-16T12:00:00.000Z'));
@@ -1971,7 +2409,51 @@ test('state export and import preserve save shape while rejecting invalid files'
   assert(imported.state.version === 9, 'expected imported state migrated to v9');
   assert(imported.state.history.actionsPerformed.hydrate === 1, 'expected imported history');
   assert(imported.state.discoveries.environment, 'expected imported state to include environment discoveries');
+  assert(imported.metadata.sourceVersion === 8, 'expected import preview to preserve the source version');
+  assert(imported.metadata.name === 'Puszek' && imported.metadata.stage === 'young', 'expected import preview identity metadata');
+  assert(imported.metadata.exportedAt === '2026-05-16T12:00:00.000Z', 'expected import preview export timestamp');
   assert(!rejected.ok, 'expected invalid import rejection');
+});
+
+test('state import clamps cooldowns and inventory while quarantining malformed sessions and logs', () => {
+  const now = Date.parse('2026-05-16T12:00:00.000Z');
+  const rules = {
+    maxLogEntries: 8,
+    minigames: {
+      dewCatch: { id: 'dewCatch', label: 'Łapanie rosy', durationMs: 20000 }
+    }
+  };
+  const imported = core.importStateEnvelope(JSON.stringify({
+    version: 16,
+    stats: { health: 80 },
+    inventory: { spores: 1e99, water: -10 },
+    cooldowns: { hydrate: 1e99, broken: null },
+    minigames: {
+      active: {
+        id: 'dewCatch',
+        startedAt: now,
+        until: now + 30 * 86400000,
+        score: 1e99
+      }
+    },
+    battle: {
+      mode: 'victory',
+      activeBattle: { mode: 'victory', rewarded: false },
+      log: [null, { at: 'bad-date', text: 'Bezpieczny wpis' }]
+    },
+    log: [null, { at: 'bad-date', text: 'Zachowany wpis' }]
+  }), 17, rules, now);
+
+  assert(imported.ok, `expected hardened import success: ${imported.reason}`);
+  assert(imported.state.inventory.spores === 999999 && imported.state.inventory.water === 0, 'inventory should be bounded');
+  assert(imported.state.cooldowns.hydrate === now + 7 * 86400000, 'far-future cooldown should be capped');
+  assert(!Object.prototype.hasOwnProperty.call(imported.state.cooldowns, 'broken'), 'invalid cooldown should be dropped');
+  assert(imported.state.minigames.active === null, 'malformed minigame session should be deactivated');
+  assert(imported.state.minigames.quarantined.reason === 'invalidMinigameSession', 'malformed minigame should retain a diagnostic');
+  assert(imported.state.battle.activeBattle === null, 'malformed battle session should be deactivated');
+  assert(imported.state.battle.quarantined.reason === 'invalidBattleSession', 'malformed battle should retain a diagnostic');
+  assert(imported.state.log.length === 1 && imported.state.log[0].text === 'Zachowany wpis', 'main log should drop malformed entries');
+  assert(imported.state.battle.log.length === 1 && imported.state.battle.log[0].text === 'Bezpieczny wpis', 'battle log should drop malformed entries');
 });
 
 test('ambient life is strongest in warm clear summer daylight', () => {
@@ -3049,6 +3531,89 @@ function getLegendaryBattleState(overrides = {}) {
     inventory: { spores: 5, ...(overrides.inventory || {}) },
     coins: overrides.coins ?? 5,
     battle
+  };
+}
+
+function getElapsedReducerTestRules() {
+  return {
+    statBounds: { min: 0, max: 100 },
+    stageThresholds: [
+      { id: 'spore', growth: 0 },
+      { id: 'baby', growth: 8 },
+      { id: 'young', growth: 28 },
+      { id: 'adult', growth: 62 },
+      { id: 'legendary', growth: 100 }
+    ],
+    decayPerHour: {
+      awake: { hydration: -3.8, nutrients: -3.1, energy: -4.2, happiness: -2.4, cleanliness: -1.35 },
+      sleeping: { hydration: -1.2, nutrients: -1, energy: 8.5, happiness: -0.45, cleanliness: -0.45 },
+      quietSleeping: { hydration: -0.6, nutrients: -0.5, energy: 8, happiness: -0.2, cleanliness: -0.25 },
+      quietAwake: { hydration: -1, nutrients: -0.8, energy: 3, happiness: -0.4, cleanliness: -0.35 }
+    },
+    healthPerHour: { poorConditions: -4, goodConditions: 2 },
+    growthPerHour: { awakeHealthy: 0.6, sleepingHealthy: 0.18, quietDrowsyHealthy: 0.08 },
+    patchPerHour: { cleanHealthy: 0.9, neglected: -3 },
+    careRhythm: {
+      quietStartMinute: 22 * 60 + 30,
+      quietEndMinute: 7 * 60,
+      morningGraceMs: 45 * 60000,
+      offlineCapHours: 24,
+      dailyGrowthCap: 8.5
+    },
+    attention: {
+      mildThreshold: 40,
+      criticalThreshold: 20,
+      deadlineMs: 90 * 60000,
+      criticalDeadlineMs: 35 * 60000,
+      repeatedMistakeCooldownMs: 3 * 60 * 60000,
+      penalties: {
+        mild: { health: -2, happiness: -1, patchQuality: -2 },
+        critical: { health: -6, happiness: -4, patchQuality: -5 }
+      }
+    },
+    needDefinitions: {
+      hydration: { category: 'physical', actionId: 'hydrate' },
+      nutrients: { category: 'physical', actionId: 'feed' },
+      happiness: { category: 'mental', actionId: 'play' },
+      cleanliness: { category: 'environment', actionId: 'clean' },
+      energy: { category: 'rest', actionId: 'sleepWake' },
+      health: { category: 'physical', actionId: 'hydrate' }
+    },
+    recovery: getRecoveryTestRules().recovery,
+    evolution: { legendaryGrowth: 100 },
+    minigames: { dewCatch: { id: 'dewCatch' } }
+  };
+}
+
+function getElapsedReducerTestState(now) {
+  return {
+    version: 17,
+    createdAt: new Date(now - 86400000).toISOString(),
+    lastUpdatedAt: new Date(now).toISOString(),
+    mode: 'awake',
+    stage: 'spore',
+    stats: { hydration: 70, nutrients: 70, energy: 80, happiness: 60, cleanliness: 80, health: 100, growth: 0 },
+    inventory: { spores: 0 },
+    history: {
+      actionsPerformed: {},
+      modeMs: { awake: 0, sleeping: 0 },
+      statSamples: {},
+      attention: { handled: 0, missed: 0 },
+      dailyGrowth: { dateKey: null, earned: 0 },
+      minigames: {}
+    },
+    patch: { quality: 72, mycelium: 0, harvests: 0, careStreak: 0 },
+    attention: {},
+    recovery: {},
+    gameOver: {},
+    careMistakes: {},
+    evolution: {},
+    minigames: { active: null, lastResult: null },
+    battle: {},
+    flags: {},
+    decorations: {},
+    discoveries: {},
+    cooldowns: {}
   };
 }
 

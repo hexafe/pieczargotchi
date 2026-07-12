@@ -1,12 +1,28 @@
   function startTimers() {
     window.setInterval(function() {
+      if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
+        renderUi();
+        return;
+      }
       runtime.state = applyElapsedTime(runtime.state, getRuntimeNow());
-      saveState(runtime.state);
+      if (typeof reconcileExclusiveRuntimeSession === 'function') {
+        reconcileExclusiveRuntimeSession(getRuntimeNow());
+      }
+      persistRuntimeState(runtime.state);
       renderUi();
     }, rules.tickMs || 60000);
 
     window.setInterval(function() {
-      cleanupActivity(getRuntimeNow());
+      if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
+        renderActionStates();
+        renderMessage();
+        return;
+      }
+      const now = getRuntimeNow();
+      if (typeof refreshOwnedBattleSessionLease === 'function') {
+        refreshOwnedBattleSessionLease(getExclusiveOwnershipNow());
+      }
+      cleanupActivity(now);
       renderActionStates();
       renderMessage();
     }, rules.cooldownTickMs || 1000);
@@ -23,18 +39,95 @@
     }
 
     runtime.renderStarted = true;
+    runtime.reducedMotion = Boolean(
+      window.matchMedia
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    );
 
-    function render(now) {
+    function render(frameNow) {
+      runtime.renderAnimationFrame = 0;
+      if (document.hidden) {
+        return;
+      }
+      if (!shouldRenderRuntimeFrame(frameNow)) {
+        scheduleRuntimeRender();
+        return;
+      }
       try {
-        drawFrame(now);
+        const wasRecovering = Boolean(runtime.renderError);
+        drawFrame(frameNow);
         runtime.renderError = null;
+        if (wasRecovering && typeof renderRuntimeAlert === 'function') {
+          renderRuntimeAlert();
+        }
       } catch (error) {
         handleRenderError(error);
       }
-      window.requestAnimationFrame(render);
+      scheduleRuntimeRender();
     }
 
-    window.requestAnimationFrame(render);
+    function scheduleRuntimeRender() {
+      if (!document.hidden && !runtime.renderAnimationFrame) {
+        runtime.renderAnimationFrame = window.requestAnimationFrame(render);
+      }
+    }
+
+    if (!runtime.renderVisibilityBound) {
+      runtime.renderVisibilityBound = true;
+      document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+          if (runtime.renderAnimationFrame) {
+            window.cancelAnimationFrame(runtime.renderAnimationFrame);
+            runtime.renderAnimationFrame = 0;
+          }
+          return;
+        }
+        runtime.lastRenderedFrameAt = null;
+        scheduleRuntimeRender();
+        if (typeof reconcileExclusiveRuntimeSession === 'function') {
+          reconcileExclusiveRuntimeSession(getRuntimeNow());
+        }
+      });
+    }
+
+    scheduleRuntimeRender();
+  }
+
+  function shouldRenderRuntimeFrame(frameNow) {
+    const now = Number(frameNow);
+    if (!Number.isFinite(now)) {
+      return false;
+    }
+
+    const interval = getRuntimeMainSceneFrameIntervalMs();
+    const last = runtime.lastRenderedFrameAt;
+    if (
+      interval > 0
+      && last !== null
+      && typeof last !== 'undefined'
+      && Number.isFinite(Number(last))
+      && now - Number(last) < interval
+    ) {
+      return false;
+    }
+
+    runtime.lastRenderedFrameAt = now;
+    return true;
+  }
+
+  function getRuntimeMainSceneFrameIntervalMs() {
+    if (runtime.reducedMotion) {
+      return 500;
+    }
+
+    const stateMinigame = runtime.state && runtime.state.minigames
+      ? runtime.state.minigames.active
+      : null;
+    if (runtime.minigame || stateMinigame) {
+      return 125;
+    }
+
+    return 0;
   }
 
   function handleRenderError(error) {
@@ -48,6 +141,9 @@
 
     runtime.assetStatus = 'Awaryjny render sceny';
     renderAssetStatus();
+    if (typeof renderRuntimeAlert === 'function') {
+      renderRuntimeAlert();
+    }
     drawEmergencyCanvasFallback('Render awaryjny');
   }
 
@@ -154,9 +250,7 @@
       return runtime.initialAssetPromise;
     }
 
-    runtime.initialAssetPromise = Promise.all(manifest.map(function(asset) {
-      return loadAsset(asset);
-    })).then(function() {
+    runtime.initialAssetPromise = loadAssetBatch(manifest, 6).then(function() {
       const loadedCount = manifest.filter(function(asset) {
         return Boolean(runtime.assets[asset.key]);
       }).length;
@@ -177,6 +271,23 @@
     return runtime.initialAssetPromise;
   }
 
+  function loadAssetBatch(manifest, concurrency) {
+    const queue = Array.isArray(manifest) ? manifest : [];
+    const workerCount = Math.max(1, Math.min(queue.length || 1, Number(concurrency) || 1));
+    let nextIndex = 0;
+
+    function runWorker() {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= queue.length) {
+        return Promise.resolve();
+      }
+      return loadAsset(queue[index]).then(runWorker);
+    }
+
+    return Promise.all(Array.from({ length: workerCount }, runWorker));
+  }
+
   function getInitialAssetManifest() {
     if (runtimeOptions.assetMode !== 'critical') {
       return assetManifest;
@@ -192,17 +303,19 @@
       return Promise.resolve(null);
     }
     if (runtime.assets[key]) {
+      touchRuntimeAsset(key);
       return Promise.resolve(runtime.assets[key]);
     }
     if (runtime.assetPromises[key]) {
       return runtime.assetPromises[key];
     }
-    if (runtime.assetFailures[key]) {
-      return Promise.resolve(null);
-    }
-
     const asset = assetsByKey.get(key);
     if (!asset) {
+      return Promise.resolve(null);
+    }
+    const identity = getRuntimeAssetIdentity(asset);
+    const failure = runtime.assetFileFailures[identity];
+    if (failure && Number(failure.retryAt) > getInteractionNow()) {
       return Promise.resolve(null);
     }
 
@@ -212,19 +325,230 @@
   }
 
   function loadAsset(asset) {
+    const identity = getRuntimeAssetIdentity(asset);
+    if (runtime.assetFiles[identity]) {
+      assignRuntimeAssetAliases(identity, runtime.assetFiles[identity]);
+      touchRuntimeAsset(asset.key);
+      return Promise.resolve(runtime.assetFiles[identity]);
+    }
+    if (runtime.assetFilePromises[identity]) {
+      const aliasPromise = runtime.assetFilePromises[identity].then(function(image) {
+        if (image) {
+          assignRuntimeAssetAliases(identity, image);
+          touchRuntimeAsset(asset.key);
+        }
+        return image;
+      }).finally(function() {
+        delete runtime.assetPromises[asset.key];
+      });
+      runtime.assetPromises[asset.key] = aliasPromise;
+      return aliasPromise;
+    }
+
+    const previousFailure = runtime.assetFileFailures[identity] || {};
     const promise = getAssetImageCandidates(asset).then(loadImageFromCandidates).then(decodeLoadedImage).then(function(image) {
-      runtime.assets[asset.key] = image;
-      runtime.assetLoadedAt[asset.key] = getRenderClockNow();
-      delete runtime.assetFailures[asset.key];
+      runtime.assetFiles[identity] = image;
+      assignRuntimeAssetAliases(identity, image);
+      touchRuntimeAsset(asset.key);
+      delete runtime.assetFileFailures[identity];
+      getRuntimeAssetAliasKeys(identity).forEach(function(key) {
+        delete runtime.assetFailures[key];
+      });
+      enforceRuntimeAssetCacheLimit();
+      return image;
     }).catch(function() {
-      runtime.assets[asset.key] = null;
-      delete runtime.assetLoadedAt[asset.key];
-      runtime.assetFailures[asset.key] = true;
+      const attempts = Math.max(0, Number(previousFailure.attempts) || 0) + 1;
+      const failure = {
+        attempts: attempts,
+        retryAt: getInteractionNow() + Math.min(60000, 1000 * Math.pow(2, attempts - 1))
+      };
+      runtime.assetFileFailures[identity] = failure;
+      getRuntimeAssetAliasKeys(identity).forEach(function(key) {
+        runtime.assets[key] = null;
+        delete runtime.assetLoadedAt[key];
+        if (runtime.assetFirstLoadedAt) {
+          delete runtime.assetFirstLoadedAt[key];
+        }
+        if (runtime.assetLastTouchedAt) {
+          delete runtime.assetLastTouchedAt[key];
+        }
+        runtime.assetFailures[key] = failure;
+      });
+      return null;
     }).finally(function() {
-      delete runtime.assetPromises[asset.key];
+      delete runtime.assetFilePromises[identity];
+      getRuntimeAssetAliasKeys(identity).forEach(function(key) {
+        delete runtime.assetPromises[key];
+      });
     });
+    runtime.assetFilePromises[identity] = promise;
     runtime.assetPromises[asset.key] = promise;
     return promise;
+  }
+
+  function getRuntimeAssetIdentity(assetOrKey) {
+    const asset = typeof assetOrKey === 'string' ? assetsByKey.get(assetOrKey) : assetOrKey;
+    if (!asset) {
+      return '';
+    }
+    if (asset.hasFileId) {
+      return 'key:' + String(asset.key || '');
+    }
+    return 'file:' + String(asset.fileName || asset.key || '').replace(/\\/g, '/').replace(/^assets\//, '');
+  }
+
+  function getRuntimeAssetAliasKeys(identity) {
+    const keys = [];
+    assetsByKey.forEach(function(asset, key) {
+      if (getRuntimeAssetIdentity(asset) === identity) {
+        keys.push(key);
+      }
+    });
+    return keys;
+  }
+
+  function assignRuntimeAssetAliases(identity, image) {
+    getRuntimeAssetAliasKeys(identity).forEach(function(key) {
+      runtime.assets[key] = image;
+    });
+  }
+
+  function touchRuntimeAsset(key) {
+    if (key) {
+      const touchedAt = getRenderClockNow();
+      runtime.assetLoadedAt = runtime.assetLoadedAt || {};
+      runtime.assetFileLoadedAt = runtime.assetFileLoadedAt || {};
+      runtime.assetFirstLoadedAt = runtime.assetFirstLoadedAt || {};
+      runtime.assetLastTouchedAt = runtime.assetLastTouchedAt || {};
+      runtime.assetFileLastTouchedAt = runtime.assetFileLastTouchedAt || {};
+      const existingFirstLoadedAt = Number(runtime.assetFirstLoadedAt[key] || runtime.assetLoadedAt[key]);
+      const firstLoadedAt = Number.isFinite(existingFirstLoadedAt) && existingFirstLoadedAt > 0
+        ? existingFirstLoadedAt
+        : touchedAt;
+      runtime.assetFirstLoadedAt[key] = firstLoadedAt;
+      runtime.assetLoadedAt[key] = firstLoadedAt;
+      runtime.assetLastTouchedAt[key] = touchedAt;
+      const identity = getRuntimeAssetIdentity(key);
+      if (identity) {
+        const existingFileLoadedAt = Number(runtime.assetFileLoadedAt[identity]);
+        if (!Number.isFinite(existingFileLoadedAt) || existingFileLoadedAt <= 0) {
+          runtime.assetFileLoadedAt[identity] = touchedAt;
+        }
+        runtime.assetFileLastTouchedAt[identity] = touchedAt;
+      }
+    }
+  }
+
+  function isRuntimeAssetFailureCoolingDown(key) {
+    const identity = getRuntimeAssetIdentity(key);
+    const failure = identity && runtime.assetFileFailures && runtime.assetFileFailures[identity];
+    return Boolean(failure && Number(failure.retryAt) > getInteractionNow());
+  }
+
+  function enforceRuntimeAssetCacheLimit() {
+    const limit = Math.max(8, Number(runtimeOptions.assetCacheLimit) || 32);
+    const byteBudget = getRuntimeAssetCacheByteBudget();
+    let decodedBytes = getRuntimeAssetCacheDecodedBytes();
+    const evictable = Object.keys(runtime.assetFiles).filter(function(identity) {
+      return runtime.assetFiles[identity] && !isRuntimeAssetIdentityProtected(identity);
+    });
+    runtime.assetFileLastTouchedAt = runtime.assetFileLastTouchedAt || {};
+    evictable.sort(function(left, right) {
+      const leftTouchedAt = Number(runtime.assetFileLastTouchedAt[left] || runtime.assetFileLoadedAt[left]) || 0;
+      const rightTouchedAt = Number(runtime.assetFileLastTouchedAt[right] || runtime.assetFileLoadedAt[right]) || 0;
+      return leftTouchedAt - rightTouchedAt;
+    });
+
+    while (evictable.length && (evictable.length > limit || decodedBytes > byteBudget)) {
+      const identity = evictable.shift();
+      decodedBytes -= getRuntimeAssetDecodedBytes(runtime.assetFiles[identity]);
+      evictRuntimeAssetIdentity(identity);
+    }
+
+    runtime.assetCacheDiagnostics = {
+      decodedBytes: Math.max(0, decodedBytes),
+      byteBudget: byteBudget,
+      fileCount: Object.keys(runtime.assetFiles).filter(function(identity) {
+        return Boolean(runtime.assetFiles[identity]);
+      }).length
+    };
+  }
+
+  function getRuntimeAssetCacheByteBudget() {
+    const configuredBytes = Number(runtimeOptions.assetCacheDecodedBytes);
+    if (Number.isFinite(configuredBytes) && configuredBytes > 0) {
+      return Math.max(16 * 1024 * 1024, Math.floor(configuredBytes));
+    }
+
+    const configuredMiB = Number(runtimeOptions.assetCacheBudgetMiB);
+    if (Number.isFinite(configuredMiB) && configuredMiB > 0) {
+      return Math.max(16, configuredMiB) * 1024 * 1024;
+    }
+
+    const deviceMemory = typeof navigator !== 'undefined' ? Number(navigator.deviceMemory) : NaN;
+    const reportsMobile = typeof navigator !== 'undefined'
+      && navigator.userAgentData
+      && navigator.userAgentData.mobile === true;
+    const narrowViewport = typeof window !== 'undefined'
+      && typeof window.matchMedia === 'function'
+      && window.matchMedia('(max-width: 720px)').matches;
+    if (reportsMobile || narrowViewport || (Number.isFinite(deviceMemory) && deviceMemory <= 4)) {
+      return 64 * 1024 * 1024;
+    }
+    if (Number.isFinite(deviceMemory) && deviceMemory >= 8) {
+      return 128 * 1024 * 1024;
+    }
+    return 96 * 1024 * 1024;
+  }
+
+  function getRuntimeAssetCacheDecodedBytes() {
+    return Object.keys(runtime.assetFiles).reduce(function(total, identity) {
+      return total + getRuntimeAssetDecodedBytes(runtime.assetFiles[identity]);
+    }, 0);
+  }
+
+  function getRuntimeAssetDecodedBytes(image) {
+    if (!image) {
+      return 0;
+    }
+    const width = Math.max(0, Number(image.naturalWidth || image.width) || 0);
+    const height = Math.max(0, Number(image.naturalHeight || image.height) || 0);
+    return Math.floor(width * height * 4);
+  }
+
+  function evictRuntimeAssetIdentity(identity) {
+    delete runtime.assetFiles[identity];
+    delete runtime.assetFileLoadedAt[identity];
+    if (runtime.assetFileLastTouchedAt) {
+      delete runtime.assetFileLastTouchedAt[identity];
+    }
+    getRuntimeAssetAliasKeys(identity).forEach(function(key) {
+      delete runtime.assets[key];
+      delete runtime.assetLoadedAt[key];
+      if (runtime.assetFirstLoadedAt) {
+        delete runtime.assetFirstLoadedAt[key];
+      }
+      if (runtime.assetLastTouchedAt) {
+        delete runtime.assetLastTouchedAt[key];
+      }
+    });
+  }
+
+  function isRuntimeAssetIdentityProtected(identity) {
+    return getRuntimeAssetAliasKeys(identity).some(isRuntimeAssetProtected);
+  }
+
+  function isRuntimeAssetProtected(key) {
+    const asset = assetsByKey.get(key);
+    if (asset && (asset.required || asset.kind === 'environment')) {
+      return true;
+    }
+    if (key === runtime.currentAnimationKey) {
+      return true;
+    }
+    return (runtime.effects || []).some(function(effect) {
+      return effect && effect.assetKey === key;
+    });
   }
 
   function warmUpCurrentStageAssets() {
@@ -275,6 +599,20 @@
     return Date.now();
   }
 
+  function getInteractionNow() {
+    const frameClock = getRenderClockNow();
+    const origin = runtime.interactionClockOrigin;
+    if (
+      origin === null
+      || typeof origin === 'undefined'
+      || origin === ''
+      || !Number.isFinite(Number(origin))
+    ) {
+      runtime.interactionClockOrigin = Date.now() - frameClock;
+    }
+    return Number(runtime.interactionClockOrigin) + frameClock;
+  }
+
   function getAssetImageCandidates(asset) {
     const assetData = config.assetData && config.assetData[asset.key];
     const candidates = [];
@@ -309,9 +647,31 @@
   function getStaticAssetUrl(fileName) {
     const normalizedFileName = String(fileName || '').replace(/^assets\//, '');
     const versions = config.assetVersions || {};
-    const version = versions[normalizedFileName];
-    const url = 'assets/' + normalizedFileName;
+    const version = versions[normalizedFileName] || config.assetVersion;
+    const baseUrl = getTrustedAssetBaseUrl(config.assetBaseUrl);
+    const safePath = normalizedFileName.split('/').map(function(segment) {
+      return encodeURIComponent(segment);
+    }).join('/');
+    const url = baseUrl ? baseUrl + safePath : 'assets/' + safePath;
     return version ? url + '?v=' + encodeURIComponent(version) : url;
+  }
+
+  function getTrustedAssetBaseUrl(value) {
+    const raw = String(value || '').trim();
+    if (!raw || !/^https:\/\//i.test(raw)) {
+      return '';
+    }
+    try {
+      const parsed = new URL(raw);
+      if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
+        return '';
+      }
+      parsed.hash = '';
+      parsed.search = '';
+      return parsed.toString().replace(/\/+$/, '') + '/';
+    } catch (error) {
+      return '';
+    }
   }
 
   function loadImageFromCandidates(candidates) {
@@ -361,7 +721,8 @@
   }
 
   function canFetchAssetDataUrl() {
-    return typeof google !== 'undefined'
+    return !getTrustedAssetBaseUrl(config.assetBaseUrl)
+      && typeof google !== 'undefined'
       && google.script
       && google.script.run
       && typeof google.script.run.withSuccessHandler === 'function'

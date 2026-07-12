@@ -4,6 +4,9 @@ import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const appVersion = JSON.parse(readFileSync(path.join(rootDir, 'package.json'), 'utf8')).version;
+const assetBasePropertyName = 'PIECZARGOTCHI_ASSET_BASE_URL_'
+  + appVersion.replace(/[^0-9A-Za-z]+/g, '_');
 
 const context = createAssetServiceContext({
   folderIdSource: 'constant',
@@ -11,7 +14,7 @@ const context = createAssetServiceContext({
 });
 
 test('Drive folder lookup resolves manifest paths and keeps manual overrides', () => {
-  const assetData = context.getAssetDataUrls();
+  const assetData = context.getAssetDataUrls_(context.getRuntimeAssetManifest_().map((asset) => asset.key));
 
   assert(assetData['spore.idle'].status === 'loaded', 'spore idle should load from recursive Drive folder path');
   assert(assetData['spore.idle'].source === 'folder', `expected folder source, got ${assetData['spore.idle'].source}`);
@@ -35,16 +38,16 @@ test('Drive folder lookup can use local-only Apps Script property', () => {
     manualGrassId: 'manual-grass'
   });
   const staticConfig = propertyContext.getStaticAppConfig();
-  const assetData = propertyContext.getAssetDataUrls();
+  const assetData = propertyContext.getAssetDataUrls_(propertyContext.getRuntimeAssetManifest_().map((asset) => asset.key));
 
   assert(staticConfig.assetDriveFolderConfigured === true, 'script property folder should mark asset folder mode configured');
-  assert(propertyContext.getConfiguredAssetDriveFolderId() === 'root-folder', 'script property should provide the folder ID');
+  assert(propertyContext.getConfiguredAssetDriveFolderId_() === 'root-folder', 'script property should provide the folder ID');
   assert(assetData['spore.idle'].status === 'loaded', 'spore idle should load from script property Drive folder');
   assert(assetData['spore.idle'].source === 'folder', `expected folder source, got ${assetData['spore.idle'].source}`);
 });
 
 test('critical initial asset data keeps the first Apps Script payload small', () => {
-  const initialAssetData = context.getInitialAssetDataUrls_(context.getRuntimeAssetManifest(), { assetMode: 'critical' });
+  const initialAssetData = context.getInitialAssetDataUrls_(context.getRuntimeAssetManifest_(), { assetMode: 'critical' });
   const keys = Object.keys(initialAssetData);
 
   assert(initialAssetData['spore.idle'].status === 'loaded', 'critical payload should include required spore idle');
@@ -64,6 +67,85 @@ test('single asset data lookup supports lazy client loading', () => {
   assert(unknown.status === 'missingFileId', 'unknown lazy lookup should return a missing record');
 });
 
+test('only the whitelisted single-key endpoint stays public', () => {
+  assert(typeof context.getAssetDataUrl === 'function', 'single-key asset endpoint should stay public');
+  assert(typeof context.getAssetDataUrls === 'undefined', 'bulk asset endpoint must not be public');
+  assert(typeof context.fileToDataUrl === 'undefined', 'arbitrary Drive file endpoint must not be public');
+  assert(typeof context.getConfiguredAssetDriveFolderId === 'undefined', 'Drive folder ID helper must not be public');
+  assert(typeof context.getRuntimeAssetManifest === 'undefined', 'raw asset manifest with Drive IDs must not be public');
+  assert(JSON.stringify(context.getRuntimeAssetManifest_()).includes('manual-grass'), 'private manifest should still support server-side manual overrides');
+});
+
+test('public asset config supports a versioned HTTPS base without exposing Drive IDs', () => {
+  const publicContext = createAssetServiceContext({
+    folderIdSource: 'scriptProperty',
+    manualGrassId: 'manual-grass',
+    assetBaseUrl: `https://cdn.example.test/pieczargotchi/releases/${appVersion}/assets`
+  });
+  const config = publicContext.getStaticAppConfig();
+
+  assert(config.assetBaseUrl === `https://cdn.example.test/pieczargotchi/releases/${appVersion}/assets/`, `unexpected asset base URL: ${config.assetBaseUrl}`);
+  assert(config.assetVersion === config.appVersion, 'asset base should be cache-busted with the visible app version');
+  assert(!JSON.stringify(config).includes('root-folder'), 'public config must not expose the Drive folder ID');
+  assert(!JSON.stringify(config).includes('manual-grass'), 'public config must not expose per-file Drive IDs');
+  assert(publicContext.getAssetBaseUrlPropertyName_() === assetBasePropertyName, 'asset host property should be pinned to this app release');
+});
+
+test('a later generic asset property cannot retarget an older Apps Script release', () => {
+  const legacyContext = createAssetServiceContext({
+    folderIdSource: 'scriptProperty',
+    manualGrassId: '',
+    legacyAssetBaseUrl: 'https://cdn.example.test/releases/9.9.9/assets/'
+  });
+  assert(legacyContext.getStaticAppConfig().assetBaseUrl === '', 'generic shared property must not affect a version-pinned deployment');
+});
+
+test('public asset base rejects insecure, mutable, or credential-bearing URLs', () => {
+  for (const value of [
+    `http://cdn.example.test/releases/${appVersion}/assets/`,
+    `https://user:secret@cdn.example.test/releases/${appVersion}/assets/`,
+    `https://cdn.example.test/releases/${appVersion}/assets/?token=secret`,
+    'https://cdn.example.test/assets/'
+  ]) {
+    let rejected = false;
+    try {
+      context.normalizeAssetBaseUrl_(value);
+    } catch (_error) {
+      rejected = true;
+    }
+    assert(rejected, `asset base should reject ${value}`);
+  }
+});
+
+test('Drive provider errors never expose private IDs to anonymous clients', () => {
+  const folderContext = createAssetServiceContext({
+    folderIdSource: 'constant',
+    manualGrassId: ''
+  });
+  folderContext.DriveApp = {
+    getFolderById() {
+      throw new Error('provider failure for PRIVATE-FOLDER-ID');
+    }
+  };
+  const folderResponse = folderContext.getAssetDataUrl('spore.idle');
+  assert(!JSON.stringify(folderResponse).includes('PRIVATE-FOLDER-ID'), 'folder provider details must stay server-side');
+
+  const fileContext = createAssetServiceContext({
+    folderIdSource: 'constant',
+    manualGrassId: 'manual-grass'
+  });
+  const originalDrive = fileContext.DriveApp;
+  fileContext.DriveApp = {
+    getFolderById: originalDrive.getFolderById,
+    getFileById() {
+      throw new Error('provider failure for PRIVATE-FILE-ID');
+    }
+  };
+  const fileResponse = fileContext.getAssetDataUrl('environment.grassPatch');
+  assert(fileResponse.status === 'error', 'private provider failure should become a stable public error');
+  assert(!JSON.stringify(fileResponse).includes('PRIVATE-FILE-ID'), 'file provider details must stay server-side');
+});
+
 function createAssetServiceContext(options) {
   const testContext = {
     console,
@@ -81,7 +163,16 @@ function createAssetServiceContext(options) {
       getScriptProperties() {
         return {
           getProperty(name) {
-            return name === 'PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID' ? 'root-folder' : '';
+            if (name === 'PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID') {
+              return 'root-folder';
+            }
+            if (name === 'PIECZARGOTCHI_ASSET_BASE_URL') {
+              return options.legacyAssetBaseUrl || '';
+            }
+            if (name === assetBasePropertyName) {
+              return options.assetBaseUrl || '';
+            }
+            return '';
           }
         };
       }
@@ -90,7 +181,7 @@ function createAssetServiceContext(options) {
 
   vm.createContext(testContext);
 
-  for (const fileName of ['Config.gs', 'AnimationConfig.gs', 'AssetService.gs']) {
+  for (const fileName of ['Config.gs', 'SpriteLayout.gs', 'AnimationConfig.gs', 'AssetService.gs']) {
     vm.runInContext(readText(fileName, options), testContext, { filename: fileName });
   }
 

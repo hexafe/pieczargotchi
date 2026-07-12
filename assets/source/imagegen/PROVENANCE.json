@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-07-12",
+  "collections": [
+    {
+      "id": "legacy-imagegen-atlases",
+      "paths": [
+        "raw/*_atlas.png",
+        "generated/spore_*"
+      ],
+      "origin": "built-in image generator",
+      "model": "legacy source - exact model unavailable",
+      "createdAt": "legacy source - exact date unavailable",
+      "promptReference": "docs/IMAGEGEN_ASSET_PIPELINE.md",
+      "manualCorrections": "Chroma extraction, scale normalization, alignment and deterministic pixel overlays are performed by scripts/build-imagegen-sprites.py."
+    },
+    {
+      "id": "runtime-sprite-v2",
+      "paths": [
+        "../../stages/**/*.png",
+        "../../activities/**/*.png",
+        "../../easter-eggs/**/*.png",
+        "../../effects/**/*.png",
+        "../../environment/grass_patch.png"
+      ],
+      "origin": "deterministic rebuild from curated source cutouts",
+      "model": "none",
+      "createdAt": "2026-07-11",
+      "builder": "scripts/build-imagegen-sprites.py",
+      "focusedArtPass": "scripts/generate-immersion-assets.py --ui-art-pass",
+      "postprocess": "scripts/optimize-runtime-sprite-atlases.py",
+      "manualCorrections": "none in generated outputs"
+    },
+    {
+      "id": "battle-body-only-v1",
+      "paths": [
+        "../../battle/*.png",
+        "../../battle/opponents/*.png"
+      ],
+      "origin": "deterministic derivative of curated idle cutouts",
+      "model": "none",
+      "createdAt": "2026-07-11",
+      "builder": "scripts/generate-battle-assets.py",
+      "sourcePaths": [
+        "cutouts/states/idle/young.png",
+        "cutouts/states/idle/adult.png",
+        "cutouts/states/idle/legendary.png"
+      ],
+      "manualCorrections": "none in generated outputs"
+    }
+  ]
+}

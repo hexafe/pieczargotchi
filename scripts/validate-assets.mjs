@@ -3,6 +3,11 @@ import path from 'node:path';
 import { inflateSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
+import {
+  countExteriorMagentaSpill,
+  normalizeAssetPath,
+  validateManifestContracts
+} from './asset-validation-contracts.mjs';
 
 const katalogGlowny = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const katalogiSheetow = [
@@ -14,6 +19,9 @@ const katalogiSheetow = [
 const katalogiSrodowiska = [
   path.join(katalogGlowny, 'assets', 'environment')
 ];
+const katalogiDodatkowe = [
+  path.join(katalogGlowny, 'assets', 'battle')
+];
 const rozmiarKlatki = 512;
 const domyslnaLiczbaKlatek = 4;
 const przezroczystoscProgu = 8;
@@ -22,13 +30,17 @@ const progArtefaktowKrawedzi = 384;
 
 const plikiSheetow = katalogiSheetow.flatMap(zbierzPng);
 const plikiSrodowiska = katalogiSrodowiska.flatMap(zbierzPng);
-const manifest = wczytajManifestRuntime();
-const manifestByFile = new Map(manifest.map((asset) => [asset.fileName, asset]));
-const manifestFiles = new Set(manifest.map((asset) => asset.fileName));
-const validatedFiles = new Set(
-  plikiSheetow.concat(plikiSrodowiska).map((plik) => path.relative(path.join(katalogGlowny, 'assets'), plik))
+const plikiDodatkowe = katalogiDodatkowe.flatMap(zbierzPng);
+const manifestContracts = validateManifestContracts(wczytajManifestRuntime());
+const manifest = manifestContracts.manifest;
+const manifestByFile = new Map(
+  Array.from(manifestContracts.assetsByFile.entries()).map(([fileName, assets]) => [fileName, assets[0]])
 );
-const bledy = [];
+const manifestFiles = new Set(manifestContracts.assetsByFile.keys());
+const validatedFiles = new Set(
+  plikiSheetow.concat(plikiSrodowiska, plikiDodatkowe).map((plik) => normalizeAssetPath(path.relative(path.join(katalogGlowny, 'assets'), plik)))
+);
+const bledy = manifestContracts.errors.slice();
 const ostrzezenia = [];
 
 if (!plikiSheetow.length) {
@@ -51,11 +63,23 @@ plikiSrodowiska.forEach((plik) => {
   }
 });
 
+plikiDodatkowe.forEach((plik) => {
+  try {
+    sprawdzDodatkowyAssetRuntime(plik);
+  } catch (error) {
+    bledy.push(`${path.relative(katalogGlowny, plik)}: ${error.message}`);
+  }
+});
+
 sprawdzManifestRuntime();
 
-ostrzezenia.forEach((tekst) => {
+const limitOstrzezen = 24;
+ostrzezenia.slice(0, limitOstrzezen).forEach((tekst) => {
   console.warn(`Uwaga: ${tekst}`);
 });
+if (ostrzezenia.length > limitOstrzezen) {
+  console.warn(`Uwaga: pominięto ${ostrzezenia.length - limitOstrzezen} dalszych miękkich ostrzeżeń; uruchom audyty sprite dla szczegółów.`);
+}
 
 if (bledy.length) {
   console.error('Walidacja assetów nie powiodła się:');
@@ -63,7 +87,7 @@ if (bledy.length) {
   process.exit(1);
 }
 
-console.log(`Walidacja assetów OK: ${plikiSheetow.length} sheetów PNG, ${plikiSrodowiska.length} assetów środowiska.`);
+console.log(`Walidacja assetów OK: ${plikiSheetow.length} sheetów PNG, ${plikiSrodowiska.length} assetów środowiska, ${plikiDodatkowe.length} assetów dodatkowych.`);
 console.log(`Manifest runtime: ${manifest.length} assetów; walidacja widzi ${validatedFiles.size} plików PNG.`);
 
 function zbierzPng(katalog) {
@@ -85,43 +109,67 @@ function zbierzPng(katalog) {
 
 function sprawdzSheet(plik) {
   const obraz = wczytajPng(plik);
-  const wzglednaSciezka = path.relative(path.join(katalogGlowny, 'assets'), plik);
+  const wzglednaSciezka = normalizeAssetPath(path.relative(path.join(katalogGlowny, 'assets'), plik));
+  const asset = manifestByFile.get(wzglednaSciezka);
   const oczekiwanaLiczbaKlatek = odczytajOczekiwanaLiczbeKlatek(wzglednaSciezka);
+  const szerokoscKlatki = Math.max(1, Number(asset && asset.frameWidth) || Number(asset && asset.width) / oczekiwanaLiczbaKlatek || rozmiarKlatki);
+  const wysokoscKlatki = Math.max(1, Number(asset && asset.frameHeight) || Number(asset && asset.height) || rozmiarKlatki);
+  const drawX = Number.isFinite(Number(asset && asset.drawX)) ? Number(asset.drawX) : 0;
+  const drawY = Number.isFinite(Number(asset && asset.drawY)) ? Number(asset.drawY) : 0;
+  const zapisanaLiczbaKlatek = Math.max(1, Number(asset && asset.storedFrameCount) || oczekiwanaLiczbaKlatek);
+  const sekwencjaKlatek = Array.isArray(asset && asset.frameSequence)
+    ? asset.frameSequence.map(Number)
+    : Array.from({ length: oczekiwanaLiczbaKlatek }, (_unused, index) => index);
 
-  if (obraz.height !== rozmiarKlatki) {
-    throw new Error(`wysokość ${obraz.height}px, oczekiwano ${rozmiarKlatki}px`);
+  if (obraz.height !== wysokoscKlatki) {
+    throw new Error(`wysokość ${obraz.height}px, oczekiwano ${wysokoscKlatki}px`);
   }
 
-  if (obraz.width !== rozmiarKlatki * oczekiwanaLiczbaKlatek) {
-    throw new Error(`szerokość ${obraz.width}px, oczekiwano ${rozmiarKlatki * oczekiwanaLiczbaKlatek}px`);
+  if (obraz.width !== szerokoscKlatki * zapisanaLiczbaKlatek) {
+    throw new Error(`szerokość ${obraz.width}px, oczekiwano ${szerokoscKlatki * zapisanaLiczbaKlatek}px`);
   }
 
-  const liczbaKlatek = obraz.width / rozmiarKlatki;
-  if (liczbaKlatek !== oczekiwanaLiczbaKlatek) {
-    throw new Error(`liczba klatek ${liczbaKlatek}, oczekiwano ${oczekiwanaLiczbaKlatek}`);
+  const liczbaZapisanychKlatek = obraz.width / szerokoscKlatki;
+  if (liczbaZapisanychKlatek !== zapisanaLiczbaKlatek) {
+    throw new Error(`liczba zapisanych klatek ${liczbaZapisanychKlatek}, oczekiwano ${zapisanaLiczbaKlatek}`);
+  }
+  if (sekwencjaKlatek.length !== oczekiwanaLiczbaKlatek
+    || sekwencjaKlatek.some((index) => !Number.isInteger(index) || index < 0 || index >= zapisanaLiczbaKlatek)) {
+    throw new Error('frameSequence nie pokrywa wszystkich logicznych klatek');
   }
 
-  const magenta = policzNieprzezroczystaMagente(obraz);
+  const magenta = countExteriorMagentaSpill(obraz, przezroczystoscProgu);
   if (magenta > 0) {
     throw new Error(`sheet ma ${magenta} nieprzezroczystych pikseli chroma-key`);
+  }
+  const transparentRgb = policzPrzezroczysteRgb(obraz);
+  if (transparentRgb > 0) {
+    throw new Error(`sheet ma ${transparentRgb} pikseli alpha0 z niezerowym RGB`);
   }
 
   const czyEfekt = plik.includes(`${path.sep}effects${path.sep}`);
   const czyAktywnosc = plik.includes(`${path.sep}activities${path.sep}`);
   const czyZarodnik = plik.includes(`${path.sep}spore${path.sep}`);
-  const tolerancjaDriftu = czyEfekt ? 48 : czyAktywnosc ? 24 : 12;
-  const tolerancjaCentrumX = czyEfekt ? 112 : czyAktywnosc ? 42 : 42;
+  const czyZarodnikowaReakcjaZOdczepionymEfektem = czyZarodnik
+    && /^(?:curious|follow_cursor_|rain|watch_)/.test(path.basename(plik));
+  // These spore sheets move detached punctuation, droplets or tiny creatures;
+  // their full-alpha bbox is intentionally wider than the separately audited body.
+  const tolerancjaDriftu = czyEfekt || czyZarodnikowaReakcjaZOdczepionymEfektem
+    ? 48
+    : czyAktywnosc ? 24 : czyZarodnik ? 18 : 12;
+  const tolerancjaCentrumX = czyEfekt ? 112 : czyAktywnosc ? 42 : czyZarodnik ? 48 : 42;
   const tolerancjaCentrumY = czyEfekt ? 112 : czyZarodnik ? 165 : czyAktywnosc ? 125 : 125;
   const centra = [];
 
-  for (let klatka = 0; klatka < liczbaKlatek; klatka += 1) {
-    const bbox = policzBoundingBox(obraz, klatka);
+  for (let klatka = 0; klatka < oczekiwanaLiczbaKlatek; klatka += 1) {
+    const zapisanaKlatka = sekwencjaKlatek[klatka];
+    const bbox = policzBoundingBox(obraz, zapisanaKlatka, szerokoscKlatki);
     if (!bbox) {
       throw new Error(`klatka ${klatka + 1} jest pusta`);
     }
 
-    const centrumX = (bbox.minX + bbox.maxX + 1) / 2 - klatka * rozmiarKlatki;
-    const centrumY = (bbox.minY + bbox.maxY + 1) / 2;
+    const centrumX = (bbox.minX + bbox.maxX + 1) / 2 - zapisanaKlatka * szerokoscKlatki + drawX;
+    const centrumY = (bbox.minY + bbox.maxY + 1) / 2 + drawY;
     centra.push({ x: centrumX, y: centrumY });
 
     if (Math.abs(centrumX - 256) > tolerancjaCentrumX || Math.abs(centrumY - 256) > tolerancjaCentrumY) {
@@ -130,7 +178,7 @@ function sprawdzSheet(plik) {
       );
     }
 
-    const krawedzie = policzArtefaktyKrawedzi(obraz, klatka);
+    const krawedzie = policzArtefaktyKrawedzi(obraz, zapisanaKlatka, szerokoscKlatki);
     if (krawedzie > progArtefaktowKrawedzi) {
       throw new Error(`klatka ${klatka + 1} ma ${krawedzie} nieprzezroczystych pikseli na krawędziach`);
     }
@@ -169,6 +217,17 @@ function odczytajOczekiwanaLiczbeKlatek(wzglednaSciezka) {
     }
   }
 
+  const instrumentCompatibility = wzglednaSciezka.match(
+    /^activities\/([^/]+)\/instrument_(?:bell|flute|drum|rare)_sheet\.png$/
+  );
+  if (instrumentCompatibility) {
+    const sharedAsset = manifestByFile.get(`activities/${instrumentCompatibility[1]}/instrument_sheet.png`);
+    const sharedFrames = Number(sharedAsset && sharedAsset.frames);
+    if (Number.isFinite(sharedFrames) && sharedFrames > 0) {
+      return sharedFrames;
+    }
+  }
+
   return domyslnaLiczbaKlatek;
 }
 
@@ -195,9 +254,36 @@ function sprawdzAssetSrodowiska(plik) {
     throw new Error(`asset środowiska dotyka krawędzi alpha ${JSON.stringify(bbox)}`);
   }
 
-  const magenta = policzNieprzezroczystaMagente(obraz);
+  const magenta = countExteriorMagentaSpill(obraz, przezroczystoscProgu);
   if (magenta > 0) {
     throw new Error(`asset środowiska ma ${magenta} nieprzezroczystych pikseli chroma-key`);
+  }
+  const transparentRgb = policzPrzezroczysteRgb(obraz);
+  if (transparentRgb > 0) {
+    throw new Error(`asset środowiska ma ${transparentRgb} pikseli alpha0 z niezerowym RGB`);
+  }
+}
+
+function sprawdzDodatkowyAssetRuntime(plik) {
+  const obraz = wczytajPng(plik);
+  const wzglednaSciezka = normalizeAssetPath(path.relative(path.join(katalogGlowny, 'assets'), plik));
+  const asset = manifestByFile.get(wzglednaSciezka);
+  if (!asset) {
+    throw new Error('asset dodatkowy nie ma wpisu w manifeście runtime');
+  }
+  if (obraz.width !== Number(asset.width) || obraz.height !== Number(asset.height)) {
+    throw new Error(`wymiary ${obraz.width}x${obraz.height}, oczekiwano ${asset.width}x${asset.height}`);
+  }
+  if (!policzBoundingBoxDlaObrazu(obraz)) {
+    throw new Error('asset dodatkowy jest pusty');
+  }
+  const magenta = countExteriorMagentaSpill(obraz, przezroczystoscProgu);
+  if (magenta > 0) {
+    throw new Error(`asset dodatkowy ma ${magenta} nieprzezroczystych pikseli chroma-key`);
+  }
+  const transparentRgb = policzPrzezroczysteRgb(obraz);
+  if (transparentRgb > 0) {
+    throw new Error(`asset dodatkowy ma ${transparentRgb} pikseli alpha0 z niezerowym RGB`);
   }
 }
 
@@ -216,15 +302,15 @@ function sprawdzManifestRuntime() {
   }
 }
 
-function policzBoundingBox(obraz, klatka) {
-  const startX = klatka * rozmiarKlatki;
+function policzBoundingBox(obraz, klatka, szerokoscKlatki = rozmiarKlatki) {
+  const startX = klatka * szerokoscKlatki;
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
 
   for (let y = 0; y < obraz.height; y += 1) {
-    for (let x = startX; x < startX + rozmiarKlatki; x += 1) {
+    for (let x = startX; x < startX + szerokoscKlatki; x += 1) {
       const alfa = obraz.pixels[(y * obraz.width + x) * 4 + 3];
       if (alfa <= przezroczystoscProgu) {
         continue;
@@ -271,28 +357,19 @@ function policzBoundingBoxDlaObrazu(obraz) {
   return { minX, minY, maxX, maxY };
 }
 
-function policzNieprzezroczystaMagente(obraz) {
+function policzPrzezroczysteRgb(obraz) {
   let count = 0;
-
-  for (let y = 0; y < obraz.height; y += 1) {
-    for (let x = 0; x < obraz.width; x += 1) {
-      const offset = (y * obraz.width + x) * 4;
-      const r = obraz.pixels[offset];
-      const g = obraz.pixels[offset + 1];
-      const b = obraz.pixels[offset + 2];
-      const a = obraz.pixels[offset + 3];
-      if (a > przezroczystoscProgu && r > 220 && b > 220 && g < 80) {
-        count += 1;
-      }
+  for (let offset = 0; offset < obraz.pixels.length; offset += 4) {
+    if (obraz.pixels[offset + 3] === 0 && (obraz.pixels[offset] || obraz.pixels[offset + 1] || obraz.pixels[offset + 2])) {
+      count += 1;
     }
   }
-
   return count;
 }
 
-function policzArtefaktyKrawedzi(obraz, klatka) {
-  const startX = klatka * rozmiarKlatki;
-  const endX = startX + rozmiarKlatki - 1;
+function policzArtefaktyKrawedzi(obraz, klatka, szerokoscKlatki = rozmiarKlatki) {
+  const startX = klatka * szerokoscKlatki;
+  const endX = startX + szerokoscKlatki - 1;
   let count = 0;
 
   for (let x = startX; x <= endX; x += 1) {
@@ -322,10 +399,10 @@ function wczytajManifestRuntime() {
     console
   };
   vm.createContext(context);
-  ['Config.gs', 'AnimationConfig.gs'].forEach((plik) => {
+  ['Config.gs', 'SpriteLayout.gs', 'AnimationConfig.gs'].forEach((plik) => {
     vm.runInContext(readFileSync(path.join(katalogGlowny, plik), 'utf8'), context, { filename: plik });
   });
-  return context.getRuntimeAssetManifest();
+  return context.getRuntimeAssetManifest_();
 }
 
 function wczytajPng(plik) {

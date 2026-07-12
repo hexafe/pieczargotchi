@@ -19,8 +19,15 @@
       spores: buildSporePopSpores(session),
       bursts: [],
       floaters: [],
+      keyboardTargetIndex: 0,
+      keyHandler: handleSporePopKeydown,
       animationFrame: 0
     };
+    canvas.tabIndex = 0;
+    canvas.setAttribute('role', 'application');
+    canvas.setAttribute('aria-label', 'Pękanie zarodników. Strzałkami wybierz widoczny zarodnik, Enterem lub spacją go pęknij.');
+    focusMinigameCanvas(canvas);
+    window.addEventListener('keydown', runtime.minigame.keyHandler, { passive: false });
     ctx.imageSmoothingEnabled = false;
     renderSporePopFrame();
   }
@@ -39,7 +46,10 @@
 
     const ctx = runtime.minigame.ctx;
     const canvas = dom.sporePopCanvas;
-    const progress = (now - Number(session.startedAt)) / Math.max(1, Number(session.until) - Number(session.startedAt));
+    const durationMs = Math.max(1, Number(session.until) - Number(session.startedAt));
+    const progress = (now - Number(session.startedAt)) / durationMs;
+    const config = rules.minigames && rules.minigames.sporePop ? rules.minigames.sporePop : {};
+    const telegraphFraction = Math.max(0.01, Math.min(0.4, (Number(config.telegraphMs) || 520) / durationMs));
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawSporePopBackground(ctx, canvas.width, canvas.height, now, progress);
     runtime.minigame.spores.forEach(function(spore) {
@@ -50,7 +60,10 @@
       const position = getSporePopPosition(spore, progress, canvas.width, canvas.height);
       if (position.visible) {
         drawSporePopTarget(ctx, position.x, position.y, spore, position, spore.phase + now / 310);
-      } else if (position.raw >= -0.18 && position.raw < 0) {
+        if (spore.id === runtime.minigame.keyboardTargetId) {
+          drawMinigameKeyboardFocus(ctx, position.x, position.y, spore.size + 8);
+        }
+      } else if (position.raw >= -telegraphFraction && position.raw < 0) {
         drawSporePopTelegraph(ctx, position.x, position.y, spore, position, now);
       }
     });
@@ -58,7 +71,7 @@
     drawMinigameFloaters(ctx, now);
 
     updateMinigameHud(now);
-    runtime.minigame.animationFrame = window.requestAnimationFrame(renderSporePopFrame);
+    runtime.minigame.animationFrame = scheduleMinigameAnimationFrame(renderSporePopFrame);
   }
 
   function handleSporePopPointer(event) {
@@ -68,6 +81,7 @@
 
     event.preventDefault();
     const canvas = dom.sporePopCanvas;
+    focusMinigameCanvas(canvas);
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / Math.max(1, rect.width);
     const scaleY = canvas.height / Math.max(1, rect.height);
@@ -83,7 +97,7 @@
 
       const position = getSporePopPosition(spore, progress, canvas.width, canvas.height);
       const config = rules.minigames && rules.minigames.sporePop ? rules.minigames.sporePop : {};
-      const radius = spore.size + 10 + (Number(config.forgivenessMs) ? 2 : 0);
+      const radius = spore.size + 10 + getMinigamePointerForgivenessPx(config);
       return position.visible && Math.abs(position.x - x) <= radius && Math.abs(position.y - y) <= radius;
     });
 
@@ -103,6 +117,50 @@
       return;
     }
 
+    scoreSporePopTarget(popped, x, y, now);
+  }
+
+  function handleSporePopKeydown(event) {
+    if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.repeat || !runtime.minigame || runtime.minigame.session.id !== 'sporePop') {
+      return;
+    }
+    const keys = ['ArrowLeft', 'Left', 'ArrowRight', 'Right', 'Enter', ' '];
+    if (keys.indexOf(event.key) === -1) {
+      return;
+    }
+    event.preventDefault();
+    const now = getRuntimeNow();
+    const targets = getVisibleSporePopTargets(now);
+    if (!targets.length) {
+      return;
+    }
+    const direction = event.key === 'ArrowLeft' || event.key === 'Left' ? -1 : event.key === 'ArrowRight' || event.key === 'Right' ? 1 : 0;
+    if (direction) {
+      runtime.minigame.keyboardTargetIndex = positiveModulo((Number(runtime.minigame.keyboardTargetIndex) || 0) + direction, targets.length);
+    }
+    const selected = targets[Math.min(targets.length - 1, Number(runtime.minigame.keyboardTargetIndex) || 0)];
+    runtime.minigame.keyboardTargetId = selected.spore.id;
+    if (!direction) {
+      scoreSporePopTarget(selected.spore, selected.position.x, selected.position.y, now);
+    }
+  }
+
+  function getVisibleSporePopTargets(now) {
+    const canvas = dom.sporePopCanvas;
+    const session = runtime.minigame.session;
+    const progress = (now - Number(session.startedAt)) / Math.max(1, Number(session.until) - Number(session.startedAt));
+    return runtime.minigame.spores.map(function(spore) {
+      return { spore: spore, position: getSporePopPosition(spore, progress, canvas.width, canvas.height) };
+    }).filter(function(item) {
+      return item.position.visible && session.caught.indexOf(item.spore.id) === -1;
+    });
+  }
+
+  function scoreSporePopTarget(popped, x, y, now) {
+    if (!popped || !runtime.minigame || runtime.minigame.session.caught.indexOf(popped.id) !== -1) {
+      return;
+    }
+    const session = runtime.minigame.session;
     session.caught.push(popped.id);
     session.score += Number(popped.points) || 1;
     session.combo = (Number(session.combo) || 0) + 1;
@@ -123,6 +181,16 @@
     triggerEffect('spores');
     syncSporePopActiveSession(true);
     updateMinigameHud(now);
+  }
+
+  function drawMinigameKeyboardFocus(ctx, x, y, radius) {
+    const size = Math.max(8, Number(radius) || 12);
+    ctx.save();
+    ctx.globalAlpha = 0.88;
+    ctx.strokeStyle = '#fff3b8';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(Math.round(x - size), Math.round(y - size), Math.round(size * 2), Math.round(size * 2));
+    ctx.restore();
   }
 
   function buildSporePopSpores(session) {
@@ -304,7 +372,7 @@
       bestCombo: session.bestCombo
     });
     if (shouldSave) {
-      saveState(runtime.state);
+      scheduleMinigameRuntimePersist();
     }
   }
 

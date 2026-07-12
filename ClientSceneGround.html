@@ -1,10 +1,13 @@
-  function drawLowGround(ctx, palette, now, scene) {
+  function drawLowGround(ctx, palette, now, scene, frameScene) {
     const groundTop = 428;
     const patchTop = 390;
-    const surface = typeof getWeatherSurfaceState === 'function'
+    const surface = frameScene && frameScene.surface
+      ? frameScene.surface
+      : typeof getWeatherSurfaceState === 'function'
       ? getWeatherSurfaceState(scene, now)
       : { wetness: 0, snowCover: scene && scene.condition === 'snow' ? scene.snowIntensity || 0.25 : 0 };
     const grassField = getGrassFieldState(scene, now, surface);
+    const rasterReady = Boolean(runtime.assets && runtime.assets['environment.grassPatch']);
 
     ctx.fillStyle = palette.ground;
     ctx.fillRect(0, patchTop, 512, 512 - patchTop);
@@ -12,31 +15,34 @@
     ctx.fillRect(0, groundTop, 512, 10);
     drawGeneratedGrassPatch(ctx, palette, scene, patchTop, surface, now, grassField);
     drawGroundWetness(ctx, palette, now, scene, surface, groundTop);
-    drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
-      count: 170,
-      seedBase: 8111,
-      baseYMin: 412,
-      baseYMax: 448,
-      heightMin: 22,
-      heightMax: 64,
-      alpha: 0.82,
-      width: 3,
-      front: false,
-      field: grassField
-    });
-    drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
-      count: 86,
-      seedBase: 11807,
-      baseYMin: 430,
-      baseYMax: 466,
-      heightMin: 16,
-      heightMax: 46,
-      alpha: 0.58,
-      width: 2,
-      front: false,
-      field: grassField
-    });
-    drawGrassBottomEdgeFill(ctx, palette, now, scene, grassField, false);
+    if (rasterReady) {
+      drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
+        count: 18,
+        seedBase: 8111,
+        baseYMin: 416,
+        baseYMax: 450,
+        heightMin: 18,
+        heightMax: 48,
+        alpha: 0.42,
+        width: 2,
+        front: false,
+        xBands: [[-8, 174], [338, 520]],
+        field: grassField
+      });
+      drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
+        count: 10,
+        seedBase: 11807,
+        baseYMin: 438,
+        baseYMax: 472,
+        heightMin: 12,
+        heightMax: 32,
+        alpha: 0.34,
+        width: 2,
+        front: false,
+        field: grassField
+      });
+      drawGrassBottomEdgeFill(ctx, palette, now, scene, grassField, false, 0.48);
+    }
 
     if (grassField.snowCover > 0.04) {
       drawSnowGroundCover(ctx, scene, now, groundTop, grassField.snowCover);
@@ -112,9 +118,9 @@
       tipWhip: tipWhip,
       gustTravel: gustTravel,
       heightScale: heightScale,
-      bottomFillCount: condition === 'snow' || snowCover > 0.18 ? 108 : 148,
-      edgeFillCount: condition === 'snow' || snowCover > 0.18 ? 104 : 138,
-      localReactions: getGrassLocalReactions(now)
+      bottomFillCount: condition === 'snow' || snowCover > 0.18 ? 32 : 44,
+      edgeFillCount: condition === 'snow' || snowCover > 0.18 ? 26 : 36,
+      localReactions: getGrassLocalReactions(getGrassInteractionNow(now))
     };
   }
 
@@ -122,6 +128,10 @@
     const current = collectGrassLocalReactions(now, runtime && runtime.motionDiagnostics, true);
     const cached = getCachedGrassLocalReactions(now);
     return mergeGrassLocalReactions(current, cached).slice(0, 7);
+  }
+
+  function getGrassInteractionNow(fallbackNow) {
+    return typeof getInteractionNow === 'function' ? getInteractionNow() : Number(fallbackNow) || Date.now();
   }
 
   function updateGrassLocalReactionSnapshot(now) {
@@ -302,6 +312,9 @@
 
   function drawGeneratedGrassPatch(ctx, palette, scene, patchTop, surface, now, field) {
     const image = runtime.assets['environment.grassPatch'];
+    if (image && typeof touchRuntimeAsset === 'function') {
+      touchRuntimeAsset('environment.grassPatch');
+    }
     const grassField = field || getGrassFieldState(scene, now, surface);
     if (!image) {
       ensureAssetLoaded('environment.grassPatch');
@@ -320,7 +333,10 @@
     const fade = getGrassPatchImageFade(now);
     ctx.save();
     ctx.imageSmoothingEnabled = false;
-    drawGrassPatchToBottom(ctx, image, y, width, height, grassField, now);
+    ctx.globalAlpha = fade;
+    const patchDrawCalls = fade > 0.001
+      ? drawGrassPatchToBottom(ctx, image, y, width, height, grassField, now)
+      : 0;
     ctx.restore();
     if (fade < 0.995) {
       drawFallbackGroundTexture(ctx, palette, patchTop, now, scene, 1 - fade);
@@ -351,6 +367,7 @@
     ctx.restore();
     drawGrassPatchFootBlend(ctx, palette, now, scene, grassField, y, height);
     drawGrassWeatherSheen(ctx, palette, now, grassField, y);
+    grassField.patchDrawCalls = patchDrawCalls;
     recordGrassPatchDiagnostics(true, fade, fade < 0.995, grassField);
   }
 
@@ -358,64 +375,72 @@
     const overscanX = 30;
     const destLeft = -overscanX;
     const destWidth = 512 + overscanX * 2;
-    const destScale = destWidth / Math.max(1, sourceWidth);
-    const movingHeight = Math.min(sourceHeight, Math.max(82, Math.round(sourceHeight * 0.72)));
-    const topOverlap = 18;
-    const staticSourceY = Math.max(0, movingHeight - topOverlap);
-    const staticHeight = sourceHeight - staticSourceY;
-    ctx.drawImage(image, 0, staticSourceY, sourceWidth, staticHeight, destLeft, y + staticSourceY, destWidth, staticHeight);
+    const stage = runtime && runtime.state && runtime.state.stage ? runtime.state.stage : 'spore';
+    const clearance = getStageGrassClearance(stage);
+    const scale = destWidth / Math.max(1, sourceWidth);
+    const bandStops = [
+      0,
+      Math.round(sourceHeight * 0.34),
+      Math.round(sourceHeight * 0.60),
+      Math.round(sourceHeight * 0.79),
+      sourceHeight
+    ];
+    const insetStep = Math.max(10, Math.round((clearance.right - clearance.left) * 0.075));
+    let drawCalls = 0;
 
-    const stripWidth = 16;
-    const sink = Math.round(field.snowLoad * 3 + field.rainPress * 1.5 + field.stormFlattening * 2);
-    const patchSliceHeight = 10;
-    for (let sx = 0; sx < sourceWidth; sx += stripWidth) {
-      const sw = Math.min(stripWidth, sourceWidth - sx);
-      const seed = 6719 + sx * 19;
-      const dw = Math.ceil(sw * destScale) + 1;
-      for (let sy = 0; sy < movingHeight; sy += patchSliceHeight) {
-        const sh = Math.min(patchSliceHeight, movingHeight - sy);
-        const progress = clamp(1 - (sy + sh * 0.5) / Math.max(1, movingHeight), 0, 1, 0);
-        const sliceOffset = getGrassPatchSliceOffset(field, sx + sw * 0.5, progress, seed + sy * 37, true);
-        const rootSink = Math.round(sink * (0.30 + progress * 0.70));
-        ctx.drawImage(
-          image,
-          sx,
-          sy,
-          sw,
-          sh,
-          Math.round(destLeft + sx * destScale + sliceOffset),
-          y + sy + rootSink,
-          dw + 1,
-          sh + 1
-        );
-      }
-    }
+    for (let band = 0; band < bandStops.length - 2; band += 1) {
+      const sourceY = bandStops[band];
+      const bandHeight = bandStops[band + 1] - sourceY;
+      const left = clearance.left + insetStep * band;
+      const right = clearance.right - insetStep * band;
+      const sourceLeft = clamp(Math.round((left - destLeft) / scale), 1, sourceWidth - 2, 1);
+      const sourceRight = clamp(Math.round((right - destLeft) / scale), sourceLeft + 1, sourceWidth - 1, sourceWidth - 1);
 
-    const sliceHeight = Math.min(58, Math.max(28, Math.round(sourceHeight * 0.36)));
-    const sourceY = Math.min(
-      Math.max(0, sourceHeight - sliceHeight - 28),
-      Math.max(0, Math.round(sourceHeight * 0.52))
-    );
-    const overlap = Math.max(6, Math.round(sliceHeight * 0.16));
-    const stride = Math.max(12, sliceHeight - overlap);
-    let drawY = Math.max(430, Math.round(y + sourceHeight - sliceHeight - 8));
-
-    while (drawY < 512) {
-      const drawHeight = Math.min(sliceHeight, 512 - drawY);
-      const lowerSway = Math.round(getGrassPatchSliceOffset(field, drawY * 1.7, 0.10, 9203 + drawY * 13, false));
+      ctx.drawImage(image, 0, sourceY, sourceLeft, bandHeight, destLeft, y + sourceY, left - destLeft + 2, bandHeight);
       ctx.drawImage(
         image,
-        0,
+        sourceRight,
         sourceY,
-        sourceWidth,
-        sliceHeight,
-        destLeft + lowerSway,
-        drawY,
-        destWidth,
-        drawHeight
+        sourceWidth - sourceRight,
+        bandHeight,
+        right - 2,
+        y + sourceY,
+        destLeft + destWidth - right + 2,
+        bandHeight
       );
-      drawY += stride;
+      drawCalls += 2;
     }
+
+    const lowerSourceY = bandStops[bandStops.length - 2];
+    const lowerHeight = sourceHeight - lowerSourceY;
+    const centerSourceLeft = clamp(Math.round((clearance.left - destLeft) / scale), 1, sourceWidth - 2, 1);
+    const centerSourceRight = clamp(Math.round((clearance.right - destLeft) / scale), centerSourceLeft + 1, sourceWidth - 1, sourceWidth - 1);
+    const baseAlpha = Number(ctx.globalAlpha);
+    ctx.save();
+    ctx.globalAlpha = (Number.isFinite(baseAlpha) ? baseAlpha : 1) * 0.30;
+    ctx.drawImage(
+      image,
+      centerSourceLeft,
+      0,
+      centerSourceRight - centerSourceLeft,
+      lowerSourceY,
+      clearance.left,
+      y,
+      clearance.right - clearance.left,
+      lowerSourceY
+    );
+    ctx.restore();
+    ctx.drawImage(image, 0, lowerSourceY, sourceWidth, lowerHeight, destLeft, y + lowerSourceY, destWidth, lowerHeight);
+    return drawCalls + 2;
+  }
+
+  function getGrassRenderQuality() {
+    const quality = runtime && runtime.sceneFrameSnapshot && runtime.sceneFrameSnapshot.quality
+      ? runtime.sceneFrameSnapshot.quality
+      : null;
+    return {
+      grassScale: quality && Number.isFinite(Number(quality.grassScale)) ? Number(quality.grassScale) : 1
+    };
   }
 
   function drawGrassPatchFootBlend(ctx, palette, now, scene, field, patchY, sourceHeight) {
@@ -433,7 +458,7 @@
     ctx.save();
     ctx.globalAlpha = 0.20 * alphaScale;
     ctx.fillStyle = colors[0];
-    for (let index = 0; index < 44; index += 1) {
+    for (let index = 0; index < 12; index += 1) {
       const seed = 72113 + index * 59;
       const x = Math.round(-28 + seededUnit(seed) * 568 + field.patchSway * 0.16);
       const y = Math.round(footTop + seededUnit(seed + 1) * (footBottom - footTop));
@@ -449,26 +474,26 @@
     ctx.restore();
 
     drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
-      count: Math.round(field.bottomFillCount * 0.72),
+      count: Math.round(field.bottomFillCount * 0.28),
       seedBase: 69317,
       baseYMin: 486,
       baseYMax: 540,
       heightMin: 12,
       heightMax: 54,
-      alpha: 0.36 * alphaScale,
+      alpha: 0.24 * alphaScale,
       width: 2,
       front: false,
       xBands: [[-54, 566], [-74, 190], [320, 586], [82, 430]],
       field: field
     });
     drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
-      count: Math.round(field.edgeFillCount * 0.44),
+      count: Math.round(field.edgeFillCount * 0.22),
       seedBase: 71419,
       baseYMin: 472,
       baseYMax: 526,
       heightMin: 20,
       heightMax: 76,
-      alpha: 0.30 * alphaScale,
+      alpha: 0.20 * alphaScale,
       width: 2,
       front: false,
       xBands: [[-56, 96], [416, 568], [54, 174], [338, 482], [184, 332]],
@@ -556,6 +581,7 @@
     }
 
     const grassField = field || getGrassFieldState(getCurrentWeatherScene(), getRenderClockNow(), null);
+    const brushLastAt = Number(runtime.input && runtime.input.grassBrushLastAt) || 0;
     runtime.motionDiagnostics.ground = {
       grassPatchLoaded: Boolean(loaded),
       grassPatchFade: Number(Number(fade).toFixed(3)),
@@ -582,6 +608,10 @@
         heightScale: Number(grassField.heightScale.toFixed(3)),
         bottomFillCount: grassField.bottomFillCount,
         edgeFillCount: grassField.edgeFillCount,
+        patchDrawCalls: Math.max(0, Math.round(Number(grassField.patchDrawCalls) || 0)),
+        qualityTier: runtime.sceneFrameSnapshot && runtime.sceneFrameSnapshot.quality
+          ? runtime.sceneFrameSnapshot.quality.tier
+          : 'high',
         localReactions: grassField.localReactions.length,
         localReactionKinds: grassField.localReactions.map(function(reaction) { return reaction.kind; }),
         maxLocalStrength: Number(grassField.localReactions.reduce(function(max, reaction) {
@@ -589,7 +619,9 @@
         }, 0).toFixed(3)),
         brushActive: grassField.localReactions.some(function(reaction) { return reaction.kind === 'brush'; }),
         brushDistance: Math.round(Number(runtime.input && runtime.input.grassBrushDistance) || 0),
-        brushAgeMs: Math.max(0, Math.round((Number(grassField.now) || 0) - (Number(runtime.input && runtime.input.grassBrushLastAt) || 0))),
+        brushAgeMs: brushLastAt > 0
+          ? Math.max(0, Math.round(getGrassInteractionNow(grassField.now) - brushLastAt))
+          : null,
         brushX: Number.isFinite(Number(runtime.input && runtime.input.grassBrushX)) ? Math.round(Number(runtime.input.grassBrushX)) : null,
         brushY: Number.isFinite(Number(runtime.input && runtime.input.grassBrushY)) ? Math.round(Number(runtime.input.grassBrushY)) : null
       }
@@ -602,6 +634,19 @@
     }
 
     const cover = profile && profile.cover ? profile.cover : null;
+    const qualityScale = getGrassRenderQuality().grassScale;
+    const bladeBudget = profile
+      ? Math.round([
+        profile.primary,
+        profile.secondary,
+        profile.groundline,
+        profile.tall,
+        profile.canopy,
+        profile.cover
+      ].reduce(function(total, layer) {
+        return total + (layer ? Number(layer.count) || 0 : 0);
+      }, 0) * qualityScale)
+      : 0;
     runtime.motionDiagnostics.ground.foreground = {
       localReactions: field.localReactions.length,
       patchSway: Number(field.patchSway.toFixed(2)),
@@ -609,7 +654,8 @@
       coverCount: cover ? cover.count : 0,
       coverAlphaScale: cover ? Number(cover.alphaScale.toFixed(3)) : 0,
       coverBaseYMin: cover ? cover.baseYMin : 0,
-      coverHeightMax: cover ? cover.heightMax : 0
+      coverHeightMax: cover ? cover.heightMax : 0,
+      bladeBudget: bladeBudget
     };
     if (runtime.motionDiagnostics.ground.field) {
       runtime.motionDiagnostics.ground.field.localReactions = Math.max(
@@ -617,7 +663,7 @@
         field.localReactions.length
       );
     }
-    updateGrassLocalReactionSnapshot(field.now);
+    updateGrassLocalReactionSnapshot(getGrassInteractionNow(field.now));
   }
 
   function drawFallbackGroundTexture(ctx, palette, patchTop, now, scene, opacity) {
@@ -646,7 +692,7 @@
     ctx.restore();
 
     drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
-      count: 130,
+      count: 46,
       seedBase: 34211,
       baseYMin: patchTop + 42,
       baseYMax: 506,
@@ -658,7 +704,7 @@
       field: field
     });
     drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
-      count: 72,
+      count: 24,
       seedBase: 36299,
       baseYMin: patchTop + 78,
       baseYMax: 512,
@@ -673,16 +719,36 @@
   }
 
   function drawGroundForeground(ctx, now) {
-    const scene = getCurrentWeatherScene();
-    const palette = getScenePalette(scene);
+    const frameScene = typeof getSceneFrameSnapshot === 'function' ? getSceneFrameSnapshot(now) : null;
+    const scene = frameScene ? frameScene.scene : getCurrentWeatherScene();
+    const palette = frameScene ? frameScene.palette : getScenePalette(scene);
     const condition = scene && scene.condition;
     const stage = getCurrentGroundStage();
     const profile = getGroundForegroundProfile(stage);
-    const surface = typeof getWeatherSurfaceState === 'function'
+    const surface = frameScene && frameScene.surface
+      ? frameScene.surface
+      : typeof getWeatherSurfaceState === 'function'
       ? getWeatherSurfaceState(scene, now)
       : { wetness: 0, snowCover: condition === 'snow' ? scene.snowIntensity || 0.25 : 0 };
     const grassField = getGrassFieldState(scene, now, surface);
     const snowCover = grassField.snowCover;
+    drawPatchDecorations(ctx, palette, now, scene, 'base');
+    if (frameScene) {
+      frameScene.decorationsBaseDrawn = true;
+    }
+    const deferredComposite = Boolean(
+      frameScene
+      && Object.prototype.hasOwnProperty.call(frameScene, 'ambientCompositeDrawn')
+    );
+    if (!deferredComposite) {
+      if (typeof drawSceneAmbientGrade === 'function') {
+        drawSceneAmbientGrade(ctx, scene, palette);
+      }
+      drawPatchDecorations(ctx, palette, now, scene, 'emissive');
+      if (frameScene) {
+        frameScene.decorationsDrawn = true;
+      }
+    }
     if (profile.tall) {
       drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
         count: profile.tall.count,
@@ -765,29 +831,40 @@
       xBands: profile.cover.xBands,
       field: grassField
     });
-    drawGrassContinuityStems(ctx, palette, now, scene, profile.tall, {
-      seedBase: 21203,
-      alpha: (condition === 'snow' || snowCover > 0.12 ? 0.14 : 0.26) * profile.tall.alphaScale,
-      topProgress: 0.82,
-      field: grassField
-    });
-    drawGrassContinuityStems(ctx, palette, now, scene, profile.canopy, {
-      seedBase: 28319,
-      alpha: (condition === 'snow' || snowCover > 0.12 ? 0.12 : 0.22) * profile.canopy.alphaScale,
-      topProgress: 0.78,
-      field: grassField
-    });
-    drawGrassBottomEdgeFill(ctx, palette, now, scene, grassField, true);
+    drawGrassBottomEdgeFill(ctx, palette, now, scene, grassField, true, 0.72);
     recordGrassForegroundDiagnostics(grassField, profile);
   }
 
   function drawPatchDecorationsForeground(ctx, now) {
-    const scene = getCurrentWeatherScene();
-    const palette = getScenePalette(scene);
+    const frameScene = typeof getSceneFrameSnapshot === 'function' ? getSceneFrameSnapshot(now) : null;
+    if (frameScene && Object.prototype.hasOwnProperty.call(frameScene, 'ambientCompositeDrawn')) {
+      return;
+    }
+    if (frameScene && frameScene.decorationsDrawn) {
+      return;
+    }
+    const scene = frameScene ? frameScene.scene : getCurrentWeatherScene();
+    const palette = frameScene ? frameScene.palette : getScenePalette(scene);
     drawPatchDecorations(ctx, palette, now, scene);
+    if (frameScene) {
+      frameScene.decorationsDrawn = true;
+    }
   }
 
-  function drawPatchDecorations(ctx, palette, now, scene) {
+  function drawSceneEmissiveForeground(ctx, now, frameScene) {
+    const snapshot = frameScene || (typeof getSceneFrameSnapshot === 'function' ? getSceneFrameSnapshot(now) : null);
+    if (snapshot && snapshot.decorationsDrawn) {
+      return;
+    }
+    const scene = snapshot ? snapshot.scene : getCurrentWeatherScene();
+    const palette = snapshot ? snapshot.palette : getScenePalette(scene);
+    drawPatchDecorations(ctx, palette, now, scene, 'emissive');
+    if (snapshot) {
+      snapshot.decorationsDrawn = true;
+    }
+  }
+
+  function drawPatchDecorations(ctx, palette, now, scene, pass) {
     const active = runtime.state && runtime.state.decorations && Array.isArray(runtime.state.decorations.active)
       ? runtime.state.decorations.active
       : [];
@@ -801,17 +878,30 @@
       mossBell: { x: furniture.x + 5, y: furniture.y - 48 },
       sporeLantern: { x: furniture.x + 31, y: furniture.y - 36 }
     };
-    drawMushroomDresser(ctx, furniture, now);
-    active.forEach(function(decorationId) {
-      const position = positions[decorationId] || { x: furniture.x, y: furniture.y - 24 };
-      if (decorationId === 'dewStone') {
-        drawDewStoneDecoration(ctx, position.x, position.y, now);
-      } else if (decorationId === 'mossBell') {
-        drawMossBellDecoration(ctx, position.x, position.y, now, scene);
-      } else if (decorationId === 'sporeLantern') {
-        drawSporeLanternDecoration(ctx, position.x, position.y, now);
-      }
-    });
+    const renderPass = pass || 'all';
+    if (renderPass !== 'emissive') {
+      drawMushroomDresser(ctx, furniture, now);
+      active.forEach(function(decorationId) {
+        const position = positions[decorationId] || { x: furniture.x, y: furniture.y - 24 };
+        if (decorationId === 'dewStone') {
+          drawDewStoneDecoration(ctx, position.x, position.y, now);
+        } else if (decorationId === 'mossBell') {
+          drawMossBellDecoration(ctx, position.x, position.y, now, scene);
+        } else if (decorationId === 'sporeLantern') {
+          drawSporeLanternBase(ctx, position.x, position.y);
+        }
+      });
+    }
+    if (renderPass !== 'base') {
+      active.forEach(function(decorationId) {
+        const position = positions[decorationId] || { x: furniture.x, y: furniture.y - 24 };
+        if (decorationId === 'dewStone') {
+          drawDewStoneEmission(ctx, position.x, position.y, now);
+        } else if (decorationId === 'sporeLantern') {
+          drawSporeLanternEmission(ctx, position.x, position.y, now);
+        }
+      });
+    }
   }
 
   function getDecorationFurnitureLayout() {
@@ -864,7 +954,6 @@
   }
 
   function drawDewStoneDecoration(ctx, x, y, now) {
-    const shine = Math.sin(now / 900) * 0.5 + 0.5;
     ctx.save();
     ctx.fillStyle = 'rgba(38, 45, 36, 0.18)';
     ctx.fillRect(x - 14, y + 22, 32, 4);
@@ -877,11 +966,18 @@
     ctx.fillStyle = '#9fd2dc';
     ctx.fillRect(x - 3, y + 5, 11, 5);
     ctx.fillRect(x - 7, y + 11, 5, 3);
-    if (shine > 0.58) {
-      ctx.fillStyle = '#fffdf7';
-      ctx.fillRect(x + 7, y + 3, 3, 3);
-      ctx.fillRect(x + 3, y + 7, 2, 2);
+    ctx.restore();
+  }
+
+  function drawDewStoneEmission(ctx, x, y, now) {
+    const shine = Math.sin(now / 900) * 0.5 + 0.5;
+    if (shine <= 0.58) {
+      return;
     }
+    ctx.save();
+    ctx.fillStyle = '#fffdf7';
+    ctx.fillRect(x + 7, y + 3, 3, 3);
+    ctx.fillRect(x + 3, y + 7, 2, 2);
     ctx.restore();
   }
 
@@ -908,20 +1004,29 @@
     ctx.restore();
   }
 
-  function drawSporeLanternDecoration(ctx, x, y, now) {
-    const pulse = Math.sin(now / 620) * 0.5 + 0.5;
+  function drawSporeLanternBase(ctx, x, y) {
     ctx.save();
-    ctx.globalAlpha = 0.12 + pulse * 0.08;
-    ctx.fillStyle = '#f2c45f';
-    ctx.fillRect(x - 20, y - 11, 40, 26);
-    ctx.fillRect(x - 15, y - 16, 30, 36);
-    ctx.globalAlpha = 1;
     ctx.fillStyle = '#3c2b20';
     ctx.fillRect(x - 6, y - 9, 12, 4);
     ctx.fillRect(x - 12, y - 3, 24, 4);
     ctx.fillRect(x - 9, y + 19, 18, 4);
     ctx.fillRect(x - 13, y - 1, 4, 22);
     ctx.fillRect(x + 9, y - 1, 4, 22);
+    ctx.fillStyle = '#9b7139';
+    ctx.fillRect(x - 8, y + 3, 16, 14);
+    ctx.restore();
+  }
+
+  function drawSporeLanternEmission(ctx, x, y, now) {
+    const pulse = Math.sin(now / 620) * 0.5 + 0.5;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.08 + pulse * 0.08;
+    ctx.fillStyle = '#f2c45f';
+    ctx.fillRect(x - 20, y - 11, 40, 26);
+    ctx.fillRect(x - 15, y - 16, 30, 36);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
     ctx.fillStyle = '#f2c45f';
     ctx.fillRect(x - 8, y + 3, 16, 14);
     ctx.fillStyle = '#fff2a5';
@@ -1096,16 +1201,16 @@
 
   function expandGroundForegroundProfile(profile, stage) {
     return {
-      primary: amplifyGrassLayer(profile.primary, 1.34, 6, 16),
-      secondary: amplifyGrassLayer(profile.secondary, 1.58, 8, 26),
-      groundline: amplifyGrassLayer(profile.groundline, 1.44, 0, 10),
+      primary: amplifyGrassLayer(profile.primary, 0.24, 0, 0, stage, 'primary'),
+      secondary: amplifyGrassLayer(profile.secondary, 0.18, 0, 2, stage, 'secondary'),
+      groundline: amplifyGrassLayer(profile.groundline, 0.28, 0, 0, stage, 'groundline'),
       tall: buildTallGrassProfile(profile, stage),
       canopy: buildCanopyGrassProfile(profile, stage),
       cover: buildCoverGrassProfile(stage)
     };
   }
 
-  function amplifyGrassLayer(layer, countMultiplier, heightMinBonus, heightMaxBonus) {
+  function amplifyGrassLayer(layer, countMultiplier, heightMinBonus, heightMaxBonus, stage, role) {
     return {
       count: Math.round(layer.count * countMultiplier),
       baseYMin: layer.baseYMin,
@@ -1113,20 +1218,20 @@
       heightMin: layer.heightMin + heightMinBonus,
       heightMax: layer.heightMax + heightMaxBonus,
       alphaScale: layer.alphaScale,
-      xBands: layer.xBands
+      xBands: getStageForegroundGrassBands(stage, role, layer.xBands)
     };
   }
 
   function buildTallGrassProfile(profile, stage) {
     const secondary = profile.secondary;
     return {
-      count: Math.round(secondary.count * 0.96),
+      count: Math.max(4, Math.round(secondary.count * 0.18)),
       baseYMin: secondary.baseYMin + 4,
       baseYMax: Math.min(512, secondary.baseYMax + 6),
       heightMin: secondary.heightMin + 16,
       heightMax: secondary.heightMax + 34,
-      alphaScale: secondary.alphaScale * 0.92,
-      xBands: getTallGrassBands(stage)
+      alphaScale: secondary.alphaScale * 0.62,
+      xBands: getStageForegroundGrassBands(stage, 'tall', getTallGrassBands(stage))
     };
   }
 
@@ -1134,14 +1239,33 @@
     const secondary = profile.secondary;
     const stageBoost = stage === 'spore' ? -10 : stage === 'baby' ? -4 : 0;
     return {
-      count: Math.round(secondary.count * 0.72),
+      count: Math.max(3, Math.round(secondary.count * 0.12)),
       baseYMin: Math.min(512, secondary.baseYMin + 24),
       baseYMax: 512,
       heightMin: Math.max(38, secondary.heightMin + 24 + stageBoost),
       heightMax: Math.max(76, secondary.heightMax + 48 + stageBoost),
-      alphaScale: secondary.alphaScale * 0.76,
-      xBands: getCanopyGrassBands(stage)
+      alphaScale: secondary.alphaScale * 0.48,
+      xBands: getStageForegroundGrassBands(stage, 'canopy', getCanopyGrassBands(stage))
     };
+  }
+
+  function getStageForegroundGrassBands(stage, role, fallback) {
+    if (role === 'groundline') {
+      return fallback;
+    }
+    const clearance = getStageGrassClearance(stage);
+    return [[-8, clearance.left], [clearance.right, 520]];
+  }
+
+  function getStageGrassClearance(stage) {
+    const clearances = {
+      spore: { left: 184, right: 328 },
+      baby: { left: 174, right: 338 },
+      young: { left: 148, right: 364 },
+      adult: { left: 120, right: 392 },
+      legendary: { left: 108, right: 404 }
+    };
+    return clearances[stage] || clearances.spore;
   }
 
   function getTallGrassBands(stage) {
@@ -1170,11 +1294,11 @@
 
   function buildCoverGrassProfile(stage) {
     const profiles = {
-      spore: { count: 76, baseYMin: 474, baseYMax: 510, heightMin: 24, heightMax: 58, xBands: [[122, 390], [166, 346], [218, 296]], alphaScale: 0.72 },
-      baby: { count: 82, baseYMin: 486, baseYMax: 512, heightMin: 28, heightMax: 64, xBands: [[122, 390], [166, 346], [218, 296]], alphaScale: 0.7 },
-      young: { count: 86, baseYMin: 494, baseYMax: 512, heightMin: 28, heightMax: 66, xBands: [[118, 394], [166, 346], [218, 298]], alphaScale: 0.68 },
-      adult: { count: 86, baseYMin: 498, baseYMax: 512, heightMin: 26, heightMax: 62, xBands: [[116, 396], [166, 346], [220, 298]], alphaScale: 0.66 },
-      legendary: { count: 86, baseYMin: 498, baseYMax: 512, heightMin: 26, heightMax: 62, xBands: [[116, 396], [166, 346], [220, 298]], alphaScale: 0.66 }
+      spore: { count: 10, baseYMin: 496, baseYMax: 512, heightMin: 10, heightMax: 24, xBands: [[204, 308]], alphaScale: 0.42 },
+      baby: { count: 10, baseYMin: 498, baseYMax: 512, heightMin: 10, heightMax: 24, xBands: [[194, 318]], alphaScale: 0.40 },
+      young: { count: 12, baseYMin: 500, baseYMax: 512, heightMin: 10, heightMax: 22, xBands: [[180, 332]], alphaScale: 0.38 },
+      adult: { count: 12, baseYMin: 502, baseYMax: 512, heightMin: 8, heightMax: 20, xBands: [[158, 354]], alphaScale: 0.36 },
+      legendary: { count: 12, baseYMin: 502, baseYMax: 512, heightMin: 8, heightMax: 20, xBands: [[148, 364]], alphaScale: 0.36 }
     };
     const profile = profiles[stage] || profiles.spore;
 
@@ -1191,10 +1315,10 @@
 
   function drawGrassBottomEdgeFill(ctx, palette, now, scene, field, front, opacity) {
     const alphaScale = clamp(Number(opacity), 0, 1, 1);
-    const bottomAlpha = alphaScale * (front ? 0.58 : 0.36) * (field.condition === 'snow' || field.snowCover > 0.14 ? 0.48 : 1);
-    const edgeAlpha = alphaScale * (front ? 0.52 : 0.32) * (field.condition === 'snow' || field.snowCover > 0.14 ? 0.44 : 1);
+    const bottomAlpha = alphaScale * (front ? 0.46 : 0.28) * (field.condition === 'snow' || field.snowCover > 0.14 ? 0.48 : 1);
+    const edgeAlpha = alphaScale * (front ? 0.40 : 0.24) * (field.condition === 'snow' || field.snowCover > 0.14 ? 0.44 : 1);
     drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
-      count: Math.round(field.bottomFillCount * (front ? 1.22 : 0.86)),
+      count: Math.round(field.bottomFillCount * (front ? 0.48 : 0.30)),
       seedBase: front ? 53981 : 52103,
       baseYMin: front ? 500 : 488,
       baseYMax: front ? 536 : 528,
@@ -1203,11 +1327,13 @@
       alpha: bottomAlpha,
       width: front ? 2 : 2,
       front: front,
-      xBands: [[-58, 570], [-72, 194], [318, 584], [92, 420], [-52, 82], [430, 564]],
+      xBands: front
+        ? [[-58, 188], [324, 570], [-52, 82], [430, 564]]
+        : [[-58, 570], [-72, 194], [318, 584]],
       field: field
     });
     drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
-      count: Math.round(field.edgeFillCount * (front ? 1.22 : 0.82)),
+      count: Math.round(field.edgeFillCount * (front ? 0.42 : 0.28)),
       seedBase: front ? 57931 : 56311,
       baseYMin: front ? 404 : 392,
       baseYMax: front ? 528 : 522,
@@ -1217,19 +1343,6 @@
       width: front ? 2 : 2,
       front: front,
       xBands: [[-72, 84], [428, 584], [-56, 122], [390, 560], [-92, 34], [506, 612]],
-      field: field
-    });
-    drawWindResponsiveGrassBlades(ctx, palette, now, scene, {
-      count: Math.round(field.edgeFillCount * (front ? 0.56 : 0.38)),
-      seedBase: front ? 61717 : 60331,
-      baseYMin: front ? 466 : 452,
-      baseYMax: front ? 544 : 536,
-      heightMin: front ? 20 : 14,
-      heightMax: front ? 68 : 52,
-      alpha: alphaScale * (front ? 0.64 : 0.38) * (field.condition === 'snow' || field.snowCover > 0.14 ? 0.46 : 1),
-      width: 2,
-      front: front,
-      xBands: [[-96, 40], [504, 608], [-72, 74], [470, 584]],
       field: field
     });
     drawGrassBottomThatch(ctx, palette, now, field, front, alphaScale);
@@ -1244,8 +1357,9 @@
       : wet
         ? ['#1d4f2d', '#2d6f35', '#5b9940']
         : ['#1d5229', '#2c7131', '#6aa744'];
-    const count = Math.round(field.bottomFillCount * (front ? 0.86 : 0.48));
-    const alpha = alphaScale * (front ? 0.34 : 0.20) * (isSnow ? 0.52 : 1);
+    const qualityScale = getGrassRenderQuality().grassScale;
+    const count = Math.max(2, Math.round(field.bottomFillCount * (front ? 0.25 : 0.15) * qualityScale));
+    const alpha = alphaScale * (front ? 0.26 : 0.16) * (isSnow ? 0.52 : 1);
 
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -1291,7 +1405,10 @@
     const field = options.field || getGrassFieldState(scene, now, null);
     const wind = field.wind || getDynamicWindState(scene, now);
     const condition = field.condition || (scene && scene.condition);
-    const count = options.count || 32;
+    const requestedCount = Math.max(0, Number(options.count) || 0);
+    const count = requestedCount > 0
+      ? Math.max(1, Math.round(requestedCount * getGrassRenderQuality().grassScale))
+      : 0;
     const baseRange = Math.max(1, options.baseYMax - options.baseYMin);
     const heightRange = Math.max(1, options.heightMax - options.heightMin);
     const swayScale = options.front ? 1.0 : 0.72;

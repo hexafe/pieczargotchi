@@ -29,12 +29,31 @@
   }
 
   function finishMinigameCore(rawState, session, rules, now) {
-    const state = normalizeProgressionState(rawState, rules);
+    const timestamp = Number(now) || Date.now();
+    const state = normalizeProgressionState(rawState, rules, null, timestamp);
     const minigames = rules && rules.minigames ? rules.minigames : {};
     const config = session && minigames[session.id];
-    const timestamp = Number(now) || Date.now();
     if (!config) {
       return { ok: false, reason: 'Nieznana minigra.', state: state };
+    }
+    if (state.gameOver && state.gameOver.active) {
+      return { ok: false, reason: 'Gra jest zakończona.', state: state };
+    }
+    if (state.recovery && state.recovery.active) {
+      return { ok: false, reason: 'Kuracja w mchu blokuje minigry.', state: state };
+    }
+    if (state.battle && state.battle.activeBattle) {
+      return { ok: false, reason: 'Najpierw zakończ walkę.', state: state };
+    }
+    const activeSession = state.minigames && state.minigames.active;
+    const sessionMatches = Boolean(activeSession && session)
+      && String(activeSession.id || '') === String(session.id || '')
+      && Number(activeSession.startedAt) === Number(session.startedAt)
+      && (!activeSession.runtimeToken
+        || !session.runtimeToken
+        || String(activeSession.runtimeToken) === String(session.runtimeToken));
+    if (!sessionMatches) {
+      return { ok: false, reason: 'Ta sesja minigry już wygasła.', state: state };
     }
     if (config.requiresStage && !isGameplayStageAtLeastCore(state.stage, config.requiresStage)) {
       state.minigames = {

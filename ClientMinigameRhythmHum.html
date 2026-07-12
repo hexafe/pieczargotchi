@@ -81,7 +81,7 @@
     drawRhythmHumPulses(ctx, now);
     drawMinigameFloaters(ctx, now);
     updateMinigameHud(now);
-    runtime.minigame.animationFrame = window.requestAnimationFrame(renderRhythmHumFrame);
+    runtime.minigame.animationFrame = scheduleMinigameAnimationFrame(renderRhythmHumFrame);
   }
 
   function handleRhythmHumPointer(event) {
@@ -118,7 +118,14 @@
 
   function handleRhythmHumKeydown(event) {
     const laneId = RHYTHM_HUM_KEY_TO_LANE[event.key];
-    if (!laneId || !runtime.minigame || runtime.minigame.session.id !== 'rhythmHum') {
+    if (!laneId
+      || event.ctrlKey
+      || event.metaKey
+      || event.altKey
+      || event.isComposing
+      || event.repeat
+      || !runtime.minigame
+      || runtime.minigame.session.id !== 'rhythmHum') {
       return;
     }
 
@@ -195,7 +202,7 @@
     updateMinigameHud(now);
   }
 
-  function resolveRhythmHumNote(index, judgment, points, now, inputLaneId, delta, label) {
+  function resolveRhythmHumNote(index, judgment, points, now, inputLaneId, delta, label, shouldSave) {
     const session = runtime.minigame.session;
     const note = runtime.minigame.chart[index];
     const lane = getRhythmHumLane(note ? note.lane : inputLaneId);
@@ -227,7 +234,7 @@
       delta: Number(delta) || 0,
       startedAt: now
     });
-    syncRhythmHumActiveSession(true);
+    syncRhythmHumActiveSession(shouldSave !== false);
     updateMinigameHud(now);
   }
 
@@ -238,7 +245,7 @@
       if (isRhythmHumNoteResolved(index) || now <= Number(note.hitAt) + windows.miss) {
         return;
       }
-      resolveRhythmHumNote(index, 'miss', 0, now, note.lane, now - Number(note.hitAt));
+      resolveRhythmHumNote(index, 'miss', 0, now, note.lane, now - Number(note.hitAt), '', false);
       changed = true;
     });
     if (changed) {
@@ -257,7 +264,7 @@
       rhythmJudgments: session.rhythmJudgments.slice()
     });
     if (shouldSave) {
-      saveState(runtime.state);
+      scheduleMinigameRuntimePersist();
     }
   }
 
@@ -323,11 +330,15 @@
 
   function getRhythmHumWindows() {
     const config = rules.minigames && rules.minigames.rhythmHum ? rules.minigames.rhythmHum : {};
+    const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    const forgiveness = coarse
+      ? Math.max(0, Number(config.mobileForgivenessWindowMs) || Number(config.mobileForgivenessMs) || 0)
+      : 0;
     return {
-      perfect: Math.max(40, Number(config.perfectWindowMs) || 70),
-      good: Math.max(75, Number(config.goodWindowMs) || 125),
-      ok: Math.max(110, Number(config.okWindowMs) || 190),
-      miss: Math.max(150, Number(config.missWindowMs) || 260)
+      perfect: Math.max(40, Number(config.perfectWindowMs) || 70) + forgiveness,
+      good: Math.max(75, Number(config.goodWindowMs) || 125) + forgiveness,
+      ok: Math.max(110, Number(config.okWindowMs) || 190) + forgiveness,
+      miss: Math.max(150, Number(config.missWindowMs) || 260) + forgiveness
     };
   }
 

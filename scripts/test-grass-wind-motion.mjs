@@ -115,6 +115,88 @@ test('grass patch sprite bends tips more than anchored roots', () => {
   assert(Math.abs(eastTip) > Math.abs(eastRoot) * 2.2, `tips should move much more than roots: root=${eastRoot}, tip=${eastTip}`);
 });
 
+test('grass patch uses an eight-draw tapered clearing without per-strip redraws', () => {
+  const field = context.getGrassFieldState({
+    condition: 'clear',
+    windSpeed: 18,
+    windGusts: 28,
+    windLevel: 0.22,
+    gustLevel: 0.12,
+    windDirection: 270,
+    windVector: { x: 1, y: 0 }
+  }, 4200, { wetness: 0.08, snowCover: 0 });
+  const ctx = {
+    drawImages: 0,
+    calls: [],
+    alphas: [],
+    globalAlpha: 1,
+    save() {},
+    restore() {
+      this.globalAlpha = 1;
+    },
+    drawImage(...args) {
+      this.drawImages += 1;
+      this.calls.push(args);
+      this.alphas.push(this.globalAlpha);
+    }
+  };
+  const drawCalls = context.drawGrassPatchToBottom(ctx, {}, 354, 512, 158, field, 4200);
+
+  assert(drawCalls === ctx.drawImages, `reported draw calls should match canvas calls: ${drawCalls} != ${ctx.drawImages}`);
+  assert(drawCalls === 8, `grass raster should stay within an eight-draw budget, got ${drawCalls}`);
+  assert(ctx.calls[0][7] <= 220 && ctx.calls[1][5] >= 320, 'top band should preserve a wide, stage-aware spore corridor');
+  assert(ctx.alphas[6] === 0.3, `center grass should stay subdued behind the mushroom, alpha=${ctx.alphas[6]}`);
+  assert(ctx.calls[7][2] >= 120 && ctx.calls[7][7] >= 570, 'lowest band should reconnect the clearing to a full-width grass base');
+});
+
+test('foreground grass keeps stage-aware face clearance and a small blade budget', () => {
+  for (const stage of ['spore', 'baby', 'young', 'adult', 'legendary']) {
+    const profile = context.getGroundForegroundProfile(stage);
+    const tallLayers = [profile.primary, profile.secondary, profile.tall, profile.canopy];
+    const crossesCenter = tallLayers.some((layer) => layer.xBands.some((band) => band[0] < 256 && band[1] > 256));
+    const bladeBudget = [profile.primary, profile.secondary, profile.groundline, profile.tall, profile.canopy, profile.cover]
+      .reduce((total, layer) => total + layer.count, 0);
+
+    assert(!crossesCenter, `${stage} tall grass should leave the mushroom face corridor clear`);
+    assert(bladeBudget <= 76, `${stage} foreground blade budget should stay compact, got ${bladeBudget}`);
+    assert(profile.cover.heightMax <= 24, `${stage} central occluder should cover only the feet, height=${profile.cover.heightMax}`);
+  }
+});
+
+test('decorations and their emissive pixels render before the light foreground occluder', () => {
+  const operations = [];
+  const originals = {
+    getSceneFrameSnapshot: context.getSceneFrameSnapshot,
+    drawSceneAmbientGrade: context.drawSceneAmbientGrade,
+    drawPatchDecorations: context.drawPatchDecorations,
+    drawWindResponsiveGrassBlades: context.drawWindResponsiveGrassBlades,
+    drawGrassBottomEdgeFill: context.drawGrassBottomEdgeFill,
+    recordGrassForegroundDiagnostics: context.recordGrassForegroundDiagnostics
+  };
+  context.runtime.state = { stage: 'spore', decorations: { active: ['sporeLantern'] } };
+  context.getSceneFrameSnapshot = () => ({
+    scene: { condition: 'clear', windVector: { x: 0, y: 0 } },
+    palette: { blade: '#91ca60', groundLight: '#83b955' },
+    surface: { wetness: 0, snowCover: 0 },
+    quality: { grassScale: 1 },
+    decorationsDrawn: false
+  });
+  context.drawSceneAmbientGrade = () => operations.push('grade');
+  context.drawPatchDecorations = (ctx, palette, now, scene, pass) => operations.push(`decorations-${pass}`);
+  context.drawWindResponsiveGrassBlades = () => operations.push('grass');
+  context.drawGrassBottomEdgeFill = () => operations.push('grass-edge');
+  context.recordGrassForegroundDiagnostics = () => {};
+
+  context.drawGroundForeground({}, 4200);
+
+  assert(operations[0] === 'decorations-base', `decoration bodies should be rooted before ambient lighting, order=${operations.join(' -> ')}`);
+  assert(operations[1] === 'grade', `ambient grade should light the sprite, grass raster, and decoration bodies together, order=${operations.join(' -> ')}`);
+  assert(operations[2] === 'decorations-emissive', `emissive pixels should bypass the ambient grade, order=${operations.join(' -> ')}`);
+  assert(operations.slice(3).every((operation) => operation.startsWith('grass')), `only the light occluder should follow decorations, order=${operations.join(' -> ')}`);
+
+  Object.assign(context, originals);
+});
+
 test('depth wind rolls the grass without becoming a hard lateral shove', () => {
   const crosswind = context.getGrassFieldState({
     condition: 'clear',

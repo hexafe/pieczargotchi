@@ -252,12 +252,12 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
     activity: 'hydrate',
     fileName: 'activities/hydrate_sheet.png',
     frameCount: 8,
-    frameDurationsMs: [70, 80, 90, 100, 130, 150, 180, 240],
+    frameDurationsMs: [81, 92, 104, 115, 150, 173, 208, 277],
     loop: true,
     bodyMotion: false,
     stageOverrides: {
       spore: {
-        frameDurationsMs: [160, 180, 200, 240, 280, 320, 360, 420],
+        frameDurationsMs: [178, 200, 222, 267, 311, 355, 400, 467],
         loop: false
       }
     },
@@ -268,12 +268,12 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
     activity: 'feed',
     fileName: 'activities/feed_sheet.png',
     frameCount: 8,
-    frameDurationsMs: [60, 65, 70, 78, 86, 108, 140, 210],
+    frameDurationsMs: [88, 95, 103, 115, 126, 159, 206, 308],
     loop: true,
     bodyMotion: false,
     stageOverrides: {
       spore: {
-        frameDurationsMs: [150, 170, 200, 230, 270, 320, 390, 480],
+        frameDurationsMs: [163, 185, 217, 250, 293, 347, 424, 521],
         loop: false
       }
     },
@@ -284,12 +284,12 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
     activity: 'clean',
     fileName: 'activities/clean_sheet.png',
     frameCount: 8,
-    frameDurationsMs: [65, 75, 65, 75, 80, 105, 145, 210],
+    frameDurationsMs: [95, 110, 95, 110, 117, 154, 212, 307],
     loop: true,
     bodyMotion: false,
     stageOverrides: {
       spore: {
-        frameDurationsMs: [150, 180, 210, 230, 260, 320, 390, 480],
+        frameDurationsMs: [162, 194, 227, 249, 281, 346, 422, 519],
         loop: false
       }
     },
@@ -300,12 +300,12 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
     activity: 'play',
     fileName: 'activities/play_sheet.png',
     frameCount: 8,
-    frameDurationsMs: [70, 80, 88, 96, 104, 126, 160, 230],
+    frameDurationsMs: [88, 101, 111, 121, 131, 158, 201, 289],
     loop: true,
     bodyMotion: false,
     stageOverrides: {
       spore: {
-        frameDurationsMs: [140, 170, 210, 250, 300, 360, 430, 520],
+        frameDurationsMs: [141, 171, 212, 252, 303, 363, 434, 524],
         loop: false
       }
     },
@@ -316,12 +316,12 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
     activity: 'instrument',
     fileName: 'activities/instrument_sheet.png',
     frameCount: 8,
-    frameDurationsMs: [95, 110, 118, 126, 118, 132, 170, 250],
+    frameDurationsMs: [102, 118, 127, 135, 126, 142, 182, 268],
     loop: true,
     bodyMotion: false,
     stageOverrides: {
       spore: {
-        frameDurationsMs: [160, 180, 210, 240, 280, 340, 400, 500],
+        frameDurationsMs: [166, 187, 218, 249, 291, 353, 416, 520],
         loop: false
       }
     },
@@ -330,14 +330,16 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
   {
     key: 'activity.instrument_bell',
     activity: 'instrument_bell',
-    fileName: 'activities/instrument_bell_sheet.png',
+    // Wariant zachowuje osobny klucz odkrycia, ale korzysta ze wspólnego
+    // sprite-owned arkusza dopóki nie istnieje prawdziwa, odrębna animacja.
+    fileName: 'activities/instrument_sheet.png',
     frameCount: 8,
-    frameDurationsMs: [95, 110, 118, 126, 118, 132, 170, 250],
+    frameDurationsMs: [102, 118, 127, 135, 126, 142, 182, 268],
     loop: true,
     bodyMotion: false,
     stageOverrides: {
       spore: {
-        frameDurationsMs: [160, 180, 210, 240, 280, 340, 400, 500],
+        frameDurationsMs: [166, 187, 218, 249, 291, 353, 416, 520],
         loop: false
       }
     },
@@ -346,14 +348,14 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
   {
     key: 'activity.instrument_flute',
     activity: 'instrument_flute',
-    fileName: 'activities/instrument_flute_sheet.png',
+    fileName: 'activities/instrument_sheet.png',
     frameCount: 8,
-    frameDurationsMs: [95, 110, 118, 126, 118, 132, 170, 250],
+    frameDurationsMs: [102, 118, 127, 135, 126, 142, 182, 268],
     loop: true,
     bodyMotion: false,
     stageOverrides: {
       spore: {
-        frameDurationsMs: [160, 180, 210, 240, 280, 340, 400, 500],
+        frameDurationsMs: [166, 187, 218, 249, 291, 353, 416, 520],
         loop: false
       }
     },
@@ -362,14 +364,14 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
   {
     key: 'activity.instrument_drum',
     activity: 'instrument_drum',
-    fileName: 'activities/instrument_drum_sheet.png',
+    fileName: 'activities/instrument_sheet.png',
     frameCount: 8,
-    frameDurationsMs: [95, 110, 118, 126, 118, 132, 170, 250],
+    frameDurationsMs: [102, 118, 127, 135, 126, 142, 182, 268],
     loop: true,
     bodyMotion: false,
     stageOverrides: {
       spore: {
-        frameDurationsMs: [160, 180, 210, 240, 280, 340, 400, 500],
+        frameDurationsMs: [166, 187, 218, 249, 291, 353, 416, 520],
         loop: false
       }
     },
@@ -378,14 +380,14 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
   {
     key: 'activity.instrument_rare',
     activity: 'instrument_rare',
-    fileName: 'activities/instrument_rare_sheet.png',
+    fileName: 'activities/instrument_sheet.png',
     frameCount: 8,
-    frameDurationsMs: [95, 110, 118, 126, 118, 132, 170, 250],
+    frameDurationsMs: [102, 118, 127, 135, 126, 142, 182, 268],
     loop: true,
     bodyMotion: false,
     stageOverrides: {
       spore: {
-        frameDurationsMs: [160, 180, 210, 240, 280, 340, 400, 500],
+        frameDurationsMs: [166, 187, 218, 249, 291, 353, 416, 520],
         loop: false
       }
     },
@@ -396,12 +398,12 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
     activity: 'sing',
     fileName: 'activities/sing_sheet.png',
     frameCount: 8,
-    frameDurationsMs: [90, 105, 118, 130, 118, 138, 176, 260],
+    frameDurationsMs: [95, 111, 125, 137, 125, 146, 186, 275],
     loop: true,
     bodyMotion: false,
     stageOverrides: {
       spore: {
-        frameDurationsMs: [160, 190, 220, 250, 300, 350, 420, 500],
+        frameDurationsMs: [161, 191, 221, 251, 301, 351, 422, 502],
         loop: false
       }
     },
@@ -412,7 +414,7 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
     activity: 'spores',
     fileName: 'activities/spores_sheet.png',
     frameCount: 8,
-    frameDurationsMs: [90, 105, 130, 155, 170, 190, 230, 320],
+    frameDurationsMs: [78, 91, 112, 134, 147, 164, 198, 276],
     loop: true,
     bodyMotion: false,
     stageOverrides: {
@@ -429,7 +431,7 @@ const PIECZARGOTCHI_ACTIVITY_ANIMATIONS = [
     activity: 'harvest',
     fileName: 'activities/harvest_sheet.png',
     frameCount: 8,
-    frameDurationsMs: [90, 105, 130, 150, 165, 190, 230, 320],
+    frameDurationsMs: [78, 91, 113, 131, 144, 165, 200, 278],
     loop: true,
     bodyMotion: false,
     stageOverrides: {
@@ -466,6 +468,54 @@ const PIECZARGOTCHI_ENVIRONMENT_ASSETS = [
     fileName: 'environment/grass_patch.png',
     height: 158,
     frames: 1,
+    required: false
+  }
+];
+
+const PIECZARGOTCHI_BATTLE_ASSETS = [
+  {
+    key: 'battle.arena.background',
+    kind: 'battleEnvironment',
+    fileName: 'battle/arena_background.png',
+    width: 512,
+    height: 512,
+    frames: 1,
+    required: false
+  },
+  {
+    key: 'battle.player.legendary',
+    kind: 'battleSprite',
+    fileName: 'battle/player_legendary_sheet.png',
+    width: 1024,
+    height: 256,
+    frames: 4,
+    required: false
+  },
+  {
+    key: 'battle.opponent.sproutling',
+    kind: 'battleSprite',
+    fileName: 'battle/opponents/sproutling_sheet.png',
+    width: 1024,
+    height: 256,
+    frames: 4,
+    required: false
+  },
+  {
+    key: 'battle.opponent.windcap',
+    kind: 'battleSprite',
+    fileName: 'battle/opponents/windcap_sheet.png',
+    width: 1024,
+    height: 256,
+    frames: 4,
+    required: false
+  },
+  {
+    key: 'battle.opponent.eldercap',
+    kind: 'battleSprite',
+    fileName: 'battle/opponents/eldercap_sheet.png',
+    width: 1024,
+    height: 256,
+    frames: 4,
     required: false
   }
 ];
@@ -517,7 +567,7 @@ function getAnimationManifest() {
   return entries;
 }
 
-function getRuntimeAssetManifest() {
+function getRuntimeAssetManifest_() {
   const canvasSize = getPieczargotchiAnimationCanvasSize_();
 
   return getAnimationManifest().map(function(animation) {
@@ -526,24 +576,41 @@ function getRuntimeAssetManifest() {
       fileName: animation.fileName,
       fileId: PIECZARGOTCHI_ASSET_FILE_IDS[animation.key] || '',
       required: animation.required,
-      width: animation.frameWidth * animation.frameCount,
+      width: animation.frameWidth * animation.storedFrameCount,
       height: animation.frameHeight,
-      frames: animation.frameCount
+      frames: animation.frameCount,
+      frameWidth: animation.frameWidth,
+      frameHeight: animation.frameHeight,
+      drawX: animation.drawX,
+      drawY: animation.drawY,
+      storedFrameCount: animation.storedFrameCount,
+      frameSequence: animation.frameSequence.slice()
     };
   }).concat(PIECZARGOTCHI_EFFECT_ASSETS.map(function(asset) {
+    const layout = getAnimationSpriteLayout_(asset.fileName, canvasSize, 4);
     return {
       key: asset.key,
       kind: 'effect',
       fileName: asset.fileName,
       fileId: PIECZARGOTCHI_ASSET_FILE_IDS[asset.key] || '',
       required: false,
-      width: canvasSize * 4,
-      height: canvasSize,
-      frames: 4
+      width: layout.frameWidth * layout.storedFrameCount,
+      height: layout.frameHeight,
+      frames: 4,
+      frameWidth: layout.frameWidth,
+      frameHeight: layout.frameHeight,
+      drawX: layout.drawX,
+      drawY: layout.drawY,
+      storedFrameCount: layout.storedFrameCount,
+      frameSequence: layout.frameSequence.slice()
     };
   })).concat(PIECZARGOTCHI_ENVIRONMENT_ASSETS.map(function(asset) {
     return Object.assign({}, asset, {
       width: asset.width || canvasSize,
+      fileId: PIECZARGOTCHI_ASSET_FILE_IDS[asset.key] || ''
+    });
+  })).concat(PIECZARGOTCHI_BATTLE_ASSETS.map(function(asset) {
+    return Object.assign({}, asset, {
       fileId: PIECZARGOTCHI_ASSET_FILE_IDS[asset.key] || ''
     });
   }));
@@ -551,6 +618,8 @@ function getRuntimeAssetManifest() {
 
 function buildStageAnimationEntry(stage, animation) {
   const canvasSize = getPieczargotchiAnimationCanvasSize_();
+  const fileName = 'stages/' + stage + '/' + animation.state + '_sheet.png';
+  const layout = getAnimationSpriteLayout_(fileName, canvasSize, animation.frameCount);
 
   return {
     key: stage + '.' + animation.state,
@@ -558,10 +627,17 @@ function buildStageAnimationEntry(stage, animation) {
     stage: stage,
     state: animation.state,
     need: animation.need || null,
-    fileName: 'stages/' + stage + '/' + animation.state + '_sheet.png',
+    fileName: fileName,
     frameCount: animation.frameCount,
-    frameWidth: canvasSize,
-    frameHeight: canvasSize,
+    frameWidth: layout.frameWidth,
+    frameHeight: layout.frameHeight,
+    drawX: layout.drawX,
+    drawY: layout.drawY,
+    pivotX: layout.pivotX,
+    pivotY: layout.pivotY,
+    bakedGrass: layout.bakedGrass,
+    storedFrameCount: layout.storedFrameCount,
+    frameSequence: layout.frameSequence.slice(),
     frameDurationsMs: animation.frameDurationsMs.slice(),
     loop: animation.loop,
     priority: animation.priority,
@@ -574,6 +650,10 @@ function buildActivityAnimationEntry(stage, animation) {
   const stageOverride = getActivityStageOverride_(stage, animation);
   const frameDurationsMs = stageOverride.frameDurationsMs || animation.frameDurationsMs;
   const loop = typeof stageOverride.loop === 'boolean' ? stageOverride.loop : animation.loop;
+  const activityFileName = String(animation.fileName || ('activities/' + animation.activity + '_sheet.png'))
+    .replace(/^activities\//, '');
+  const fileName = 'activities/' + stage + '/' + activityFileName;
+  const layout = getAnimationSpriteLayout_(fileName, canvasSize, animation.frameCount);
 
   return {
     key: stage + '.activity.' + animation.activity,
@@ -581,10 +661,17 @@ function buildActivityAnimationEntry(stage, animation) {
     stage: stage,
     activity: animation.activity,
     minStage: animation.minStage || null,
-    fileName: 'activities/' + stage + '/' + animation.activity + '_sheet.png',
+    fileName: fileName,
     frameCount: animation.frameCount,
-    frameWidth: canvasSize,
-    frameHeight: canvasSize,
+    frameWidth: layout.frameWidth,
+    frameHeight: layout.frameHeight,
+    drawX: layout.drawX,
+    drawY: layout.drawY,
+    pivotX: layout.pivotX,
+    pivotY: layout.pivotY,
+    bakedGrass: layout.bakedGrass,
+    storedFrameCount: layout.storedFrameCount,
+    frameSequence: layout.frameSequence.slice(),
     frameDurationsMs: frameDurationsMs.slice(),
     loop: loop,
     bodyMotion: animation.bodyMotion !== false,
@@ -603,20 +690,62 @@ function getActivityStageOverride_(stage, animation) {
 
 function buildEasterEggAnimationEntry(stage, animation) {
   const canvasSize = getPieczargotchiAnimationCanvasSize_();
+  const fileName = 'easter-eggs/' + stage + '/' + animation.state + '_sheet.png';
+  const layout = getAnimationSpriteLayout_(fileName, canvasSize, animation.frameCount);
 
   return {
     key: stage + '.easter.' + animation.state,
     kind: 'easterEgg',
     stage: stage,
     state: animation.state,
-    fileName: 'easter-eggs/' + stage + '/' + animation.state + '_sheet.png',
+    fileName: fileName,
     frameCount: animation.frameCount,
-    frameWidth: canvasSize,
-    frameHeight: canvasSize,
+    frameWidth: layout.frameWidth,
+    frameHeight: layout.frameHeight,
+    drawX: layout.drawX,
+    drawY: layout.drawY,
+    pivotX: layout.pivotX,
+    pivotY: layout.pivotY,
+    bakedGrass: layout.bakedGrass,
+    storedFrameCount: layout.storedFrameCount,
+    frameSequence: layout.frameSequence.slice(),
     frameDurationsMs: animation.frameDurationsMs.slice(),
     loop: animation.loop,
     priority: animation.priority,
     required: false
+  };
+}
+
+function getAnimationSpriteLayout_(fileName, canvasSize, expectedFrameCount) {
+  const layouts = typeof PIECZARGOTCHI_SPRITE_LAYOUTS !== 'undefined'
+    && PIECZARGOTCHI_SPRITE_LAYOUTS
+    && typeof PIECZARGOTCHI_SPRITE_LAYOUTS === 'object'
+    ? PIECZARGOTCHI_SPRITE_LAYOUTS
+    : {};
+  const source = layouts[fileName] || {};
+  const frameWidth = Math.max(1, Number(source.frameWidth) || canvasSize);
+  const frameHeight = Math.max(1, Number(source.frameHeight) || canvasSize);
+  const drawX = Number.isFinite(Number(source.drawX)) ? Number(source.drawX) : 0;
+  const drawY = Number.isFinite(Number(source.drawY)) ? Number(source.drawY) : 0;
+  const logicalFrameCount = Math.max(1, Number(source.frameCount) || Number(expectedFrameCount) || 1);
+  const storedFrameCount = Math.max(1, Number(source.storedFrameCount) || logicalFrameCount);
+  const sourceSequence = Array.isArray(source.frameSequence) ? source.frameSequence : [];
+  const frameSequence = Array.from({ length: logicalFrameCount }, function(_unused, index) {
+    const storedIndex = Number(sourceSequence[index]);
+    return Number.isInteger(storedIndex) && storedIndex >= 0 && storedIndex < storedFrameCount
+      ? storedIndex
+      : Math.min(index, storedFrameCount - 1);
+  });
+  return {
+    frameWidth: frameWidth,
+    frameHeight: frameHeight,
+    drawX: drawX,
+    drawY: drawY,
+    pivotX: Number.isFinite(Number(source.pivotX)) ? Number(source.pivotX) : drawX + frameWidth / 2,
+    pivotY: Number.isFinite(Number(source.pivotY)) ? Number(source.pivotY) : drawY + frameHeight,
+    bakedGrass: typeof source.bakedGrass === 'boolean' ? source.bakedGrass : true,
+    storedFrameCount: storedFrameCount,
+    frameSequence: frameSequence
   };
 }
 

@@ -1,5 +1,5 @@
-import { copyFile, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { copyFile, mkdir, rm, writeFile } from 'node:fs/promises';
+import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,7 +7,8 @@ import vm from 'node:vm';
 
 const scriptPath = fileURLToPath(import.meta.url);
 const rootDir = path.dirname(path.dirname(scriptPath));
-const distDir = path.join(rootDir, 'dist');
+const outputDirectoryName = getOutputDirectoryName();
+const distDir = path.join(rootDir, outputDirectoryName);
 const assetOutputDir = path.join(distDir, 'assets');
 
 if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
@@ -31,7 +32,7 @@ async function main() {
 
 function buildCloudflareStaticArtifacts() {
   const config = buildClientConfig();
-  config.assetVersions = buildAssetVersionMap();
+  config.assetVersions = buildAssetVersionMap(config.assets);
   const coreBundle = renderScriptBundle('ClientCore.html');
   const clientBundle = renderScriptBundle('Client.html');
   config.build = buildStaticBuildMetadata(config, coreBundle, clientBundle);
@@ -55,9 +56,9 @@ function buildCloudflareStaticArtifacts() {
 function renderCloudflareHtml(versions, assetVersions) {
   return addCloudflarePreloads(renderTemplate('Index.html')
     .replace(/^\s*<base target="_top">\s*$/m, '')
-    .replace(/<script src="\?bundle=config"><\/script>/g, `<script src="config.js?v=${versions.config}"></script>`)
-    .replace(/<script src="\?bundle=core"><\/script>/g, `<script src="core.js?v=${versions.core}"></script>`)
-    .replace(/<script src="\?bundle=client"><\/script>/g, `<script src="client.js?v=${versions.client}"></script>`), assetVersions);
+    .replace(/<script src="\?bundle=config(?:&amp;v=[^"]+)?"><\/script>/g, `<script src="config.js?v=${versions.config}"></script>`)
+    .replace(/<script src="\?bundle=core(?:&amp;v=[^"]+)?"><\/script>/g, `<script src="core.js?v=${versions.core}"></script>`)
+    .replace(/<script src="\?bundle=client(?:&amp;v=[^"]+)?"><\/script>/g, `<script src="client.js?v=${versions.client}"></script>`), assetVersions);
 }
 
 function addCloudflarePreloads(html, assetVersions) {
@@ -88,6 +89,7 @@ function addCloudflarePreloads(html, assetVersions) {
 function renderTemplate(fileName) {
   return readTextSync(fileName)
     .replace(/<\?=\s*PIECZARGOTCHI_APP_TITLE\s*\?>/g, 'Pieczargotchi')
+    .replace(/<\?=\s*PIECZARGOTCHI_APP_VERSION\s*\?>/g, getPackageVersion() || '0.0.0')
     .replace(/<\?!=\s*include\('([^']+)'\);\s*\?>/g, function(_match, partialName) {
       return renderTemplate(partialName + '.html');
     });
@@ -106,45 +108,25 @@ function getBundleVersion(content) {
   return createHash('sha256').update(String(content || '')).digest('hex').slice(0, 12);
 }
 
-function buildAssetVersionMap() {
+function buildAssetVersionMap(assets) {
   const versions = {};
-  for (const fileName of collectStaticAssetFiles()) {
+  for (const fileName of collectStaticAssetFiles(assets)) {
     versions[fileName] = getFileVersion(path.join(rootDir, 'assets', fileName));
   }
   return versions;
 }
 
-function collectStaticAssetFiles() {
-  const sourceAssetsDir = path.join(rootDir, 'assets');
-  if (!existsSync(sourceAssetsDir)) {
-    return [];
-  }
-
-  const files = [];
-  collectStaticAssetFilesInto(sourceAssetsDir, sourceAssetsDir, files);
-  return files.sort();
+function collectStaticAssetFiles(assets) {
+  const manifest = Array.isArray(assets) ? assets : buildClientConfig().assets;
+  return Array.from(new Set(manifest.map((asset) => normalizeManifestAssetPath(asset.fileName)))).sort();
 }
 
-function collectStaticAssetFilesInto(baseDir, sourceDir, files) {
-  const entries = readdirSync(sourceDir, { withFileTypes: true });
-
-  for (const entry of entries) {
-    if (entry.name === 'source' || entry.name === 'reference') {
-      continue;
-    }
-
-    const sourcePath = path.join(sourceDir, entry.name);
-    if (entry.isDirectory()) {
-      collectStaticAssetFilesInto(baseDir, sourcePath, files);
-      continue;
-    }
-
-    if (!/\.(png|json|webp|jpg|jpeg|gif|svg)$/i.test(entry.name)) {
-      continue;
-    }
-
-    files.push(path.relative(baseDir, sourcePath).split(path.sep).join('/'));
+function normalizeManifestAssetPath(fileName) {
+  const normalized = String(fileName || '').replace(/\\/g, '/').replace(/^assets\//, '').replace(/^\/+/, '');
+  if (!normalized || normalized.split('/').includes('..') || !/\.(png|webp|jpg|jpeg|gif|svg)$/i.test(normalized)) {
+    throw new Error(`Niebezpieczna lub nieobsługiwana ścieżka assetu w manifeście: ${JSON.stringify(fileName)}`);
   }
+  return normalized;
 }
 
 function getFileVersion(filePath) {
@@ -202,6 +184,7 @@ function stripScriptTag(content) {
 }
 
 function buildClientConfig() {
+  assertSafeDebugBuildFlags();
   const context = {
     console,
     Object,
@@ -224,6 +207,7 @@ function buildClientConfig() {
 
   [
     'Config.gs',
+    'SpriteLayout.gs',
     'AnimationConfig.gs',
     'StateModel.gs',
     'MinigamesConfig.gs',
@@ -240,18 +224,52 @@ function buildClientConfig() {
 
   const config = context.getClientConfig();
   const debugEnabled = process.env.PIECZARGOTCHI_CLOUDFLARE_DEBUG === '1';
+  const assetMode = getCloudflareAssetMode();
   config.runtime = {
     ...(config.runtime || {}),
     debugEnabled,
     exposeRuntime: debugEnabled || process.env.PIECZARGOTCHI_CLOUDFLARE_EXPOSE_RUNTIME === '1',
-    assetMode: process.env.PIECZARGOTCHI_CLOUDFLARE_ASSET_MODE || 'critical'
+    assetMode
   };
+  config.assetBaseUrl = '';
   config.assetData = {};
   return config;
 }
 
+function getCloudflareAssetMode() {
+  const mode = String(process.env.PIECZARGOTCHI_CLOUDFLARE_ASSET_MODE || 'critical').trim();
+  if (!['critical', 'full'].includes(mode)) {
+    throw new Error(`Nieobsługiwany tryb assetów Cloudflare: ${JSON.stringify(mode)}`);
+  }
+  if (outputDirectoryName === 'dist' && mode !== 'critical') {
+    throw new Error('Produkcyjny dist musi używać PIECZARGOTCHI_CLOUDFLARE_ASSET_MODE=critical. Tryb full jest dozwolony tylko w dist-debug.');
+  }
+  return mode;
+}
+
+function assertSafeDebugBuildFlags() {
+  const debugRequested = process.env.PIECZARGOTCHI_CLOUDFLARE_DEBUG === '1'
+    || process.env.PIECZARGOTCHI_CLOUDFLARE_EXPOSE_RUNTIME === '1';
+  const debugOutputAllowed = outputDirectoryName === 'dist-debug'
+    && process.env.PIECZARGOTCHI_ALLOW_DEBUG_BUILD === '1';
+  if (debugRequested && !debugOutputAllowed) {
+    throw new Error('Build z debug/exposeRuntime jest dozwolony wyłącznie w osobnym dist-debug przez npm run build:debug.');
+  }
+  if (process.env.PIECZARGOTCHI_PRODUCTION_BUILD === '1' && (debugRequested || outputDirectoryName !== 'dist')) {
+    throw new Error('Produkcyjny build nie może zawierać debug/exposeRuntime ani używać alternatywnego outputu.');
+  }
+}
+
+function getOutputDirectoryName() {
+  const name = String(process.env.PIECZARGOTCHI_BUILD_OUTPUT_DIR || 'dist').trim();
+  if (name !== 'dist' && name !== 'dist-debug') {
+    throw new Error(`Nieobsługiwany katalog build output: ${JSON.stringify(name)}`);
+  }
+  return name;
+}
+
 async function copyRuntimeAssets(assets) {
-  const fileNames = Array.from(new Set(assets.map((asset) => String(asset.fileName || '').trim()).filter(Boolean)));
+  const fileNames = collectStaticAssetFiles(assets);
   const missing = [];
 
   for (const fileName of fileNames) {
@@ -266,44 +284,8 @@ async function copyRuntimeAssets(assets) {
     await copyFile(sourcePath, targetPath);
   }
 
-  await copyAdditionalStaticAssets();
-
   if (missing.length) {
     throw new Error(`Brakuje assetów wymaganych przez manifest: ${missing.join(', ')}`);
-  }
-}
-
-async function copyAdditionalStaticAssets() {
-  const sourceAssetsDir = path.join(rootDir, 'assets');
-  if (!existsSync(sourceAssetsDir)) {
-    return;
-  }
-
-  await copyStaticTree(sourceAssetsDir, assetOutputDir);
-}
-
-async function copyStaticTree(sourceDir, targetDir) {
-  const entries = await readdir(sourceDir, { withFileTypes: true });
-
-  for (const entry of entries) {
-    if (entry.name === 'source' || entry.name === 'reference') {
-      continue;
-    }
-
-    const sourcePath = path.join(sourceDir, entry.name);
-    const targetPath = path.join(targetDir, entry.name);
-
-    if (entry.isDirectory()) {
-      await copyStaticTree(sourcePath, targetPath);
-      continue;
-    }
-
-    if (!/\.(png|json|webp|jpg|jpeg|gif|svg)$/i.test(entry.name)) {
-      continue;
-    }
-
-    await mkdir(path.dirname(targetPath), { recursive: true });
-    await copyFile(sourcePath, targetPath);
   }
 }
 
@@ -312,6 +294,7 @@ function readTextSync(fileName) {
 }
 
 export {
+  main as buildCloudflareStatic,
   buildAssetVersionMap,
   buildCloudflareStaticArtifacts,
   collectStaticAssetFiles,

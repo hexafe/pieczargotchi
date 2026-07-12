@@ -3,14 +3,20 @@
 
 from __future__ import annotations
 
+import argparse
+import importlib.util
 import math
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter
 
+from sprite_layout import load_canvas_frames
+
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "assets"
+RAW_STATES_DIR = ASSETS / "source" / "imagegen" / "raw" / "states"
+BUILDER_PATH = ROOT / "scripts" / "build-imagegen-sprites.py"
 FRAME = 512
 STAGES = ["spore", "baby", "young", "adult", "legendary"]
 REACTIONS = [
@@ -60,15 +66,101 @@ REACTION_FRAME_COUNTS = {
     "watch_crawler": 10,
     "rain": RAIN_FRAME_COUNT,
 }
+UI_ART_PASS_REACTIONS = [
+    "idle_fidget",
+    "idle_fidget_sway",
+    "idle_fidget_shift",
+    "watch_cursor_left",
+    "watch_cursor_right",
+    "watch_cursor_up_left",
+    "watch_cursor_up_right",
+]
+UI_ART_PASS_SPORE_ACTIVITIES = ["feed", "instrument"]
+_ACTIVITY_BUILDER_CONTEXT = None
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--ui-art-pass",
+        action="store_true",
+        help="regenerate only the reviewed fidget/cursor sheets and spore feed/instrument activities",
+    )
+    parser.add_argument("--reaction", action="append", choices=UI_ART_PASS_REACTIONS, help="regenerate only this reviewed reaction")
+    parser.add_argument(
+        "--spore-activity",
+        action="append",
+        choices=UI_ART_PASS_SPORE_ACTIVITIES,
+        help="regenerate only this reviewed spore activity",
+    )
+    args = parser.parse_args()
+    reactions = args.reaction or (UI_ART_PASS_REACTIONS if args.ui_art_pass else [] if args.spore_activity else REACTIONS)
+    authored_context = prepare_authored_state_context() if RAW_STATES_DIR.exists() else None
     for stage in STAGES:
-        for reaction in REACTIONS:
-            frames = load_reaction_frames(stage, reaction)
+        for reaction in reactions:
+            authored_frames = load_authored_reaction_frames(authored_context, stage, reaction)
+            frames = authored_frames if authored_frames is not None else load_reaction_frames(stage, reaction)
             output = ASSETS / "stages" / stage / f"{reaction}_sheet.png"
-            save_sheet(output, [decorate_frame(frame, stage, reaction, index) for index, frame in enumerate(frames)])
+            output_frames = frames if authored_frames is not None else [
+                decorate_frame(frame, stage, reaction, index) for index, frame in enumerate(frames)
+            ]
+            save_sheet(output, output_frames)
+    focused_run = args.ui_art_pass or bool(args.reaction) or bool(args.spore_activity)
+    activities = args.spore_activity or (UI_ART_PASS_SPORE_ACTIVITIES if args.ui_art_pass else [])
+    if focused_run:
+        for activity in activities:
+            generate_spore_activity_art_pass(activity)
+        print("Wygenerowano fokusowy UI art pass: fidget, watch_cursor oraz spore feed/instrument.")
+        return
     print("Wygenerowano sheety reakcji immersyjnych.")
+
+
+def prepare_authored_state_context():
+    spec = importlib.util.spec_from_file_location("pieczargotchi_sprite_builder", BUILDER_PATH)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Nie mozna wczytac buildera: {BUILDER_PATH}")
+    builder = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(builder)
+    grass = builder.przygotuj_warstwe_trawy()
+    return {
+        "builder": builder,
+        "grass": grass,
+        "body_bottom_targets": builder.policz_docelowe_doly_korpusu(grass),
+        "cache": {},
+    }
+
+
+def load_authored_reaction_frames(context, stage: str, reaction: str) -> list[Image.Image] | None:
+    if context is None:
+        return None
+
+    cache = context["cache"]
+    if reaction not in cache:
+        builder = context["builder"]
+        frame_count = REACTION_FRAME_COUNTS.get(reaction, 4)
+        cutouts_by_stage = builder.wczytaj_klatkowe_cutouty_stanu(reaction, frame_count)
+        if not cutouts_by_stage:
+            cache[reaction] = None
+        else:
+            frames_by_stage: dict[str, list[Image.Image]] = {}
+            for authored_stage, cutouts in cutouts_by_stage.items():
+                frames_by_stage[authored_stage] = [
+                    builder.zloz_klatke_z_trawa(
+                        cutout,
+                        context["grass"],
+                        authored_stage,
+                        (0, 0),
+                        None,
+                        context["body_bottom_targets"],
+                        reaction,
+                        frame_index,
+                    )
+                    for frame_index, cutout in enumerate(cutouts)
+                ]
+            cache[reaction] = frames_by_stage
+
+    frames_by_stage = cache[reaction]
+    return frames_by_stage.get(stage) if frames_by_stage is not None else None
 
 
 def load_reaction_frames(stage: str, reaction: str) -> list[Image.Image]:
@@ -83,18 +175,16 @@ def load_reaction_frames(stage: str, reaction: str) -> list[Image.Image]:
         source = ASSETS / "stages" / stage / "idle_sheet.png"
     if not source.exists():
         raise FileNotFoundError(source)
-    sheet = Image.open(source).convert("RGBA")
-    if sheet.height != FRAME or sheet.width % FRAME != 0:
-        raise ValueError(f"{source} ma rozmiar {sheet.size}, oczekiwano klatek 512x512")
-
-    frame_count = sheet.width // FRAME
+    frames = load_canvas_frames(source)
+    frame_count = len(frames)
     if frame_count != 4:
         raise ValueError(f"{source} ma {frame_count} klatek, oczekiwano 4 klatek bazowych")
-
-    frames = [sheet.crop((index * FRAME, 0, (index + 1) * FRAME, FRAME)).copy() for index in range(frame_count)]
     target_frame_count = REACTION_FRAME_COUNTS.get(reaction, frame_count)
     if target_frame_count != frame_count:
-        return [frames[index % frame_count].copy() for index in range(target_frame_count)]
+        if reaction.startswith("watch_cursor_"):
+            return [frames[0].copy() for _index in range(target_frame_count)]
+        source_sequence = [0, 1, 2, 3, 2, 1, 0, 3, 2, 1, 0, 3, 1, 2, 3, 0]
+        return [frames[source_sequence[index] % frame_count].copy() for index in range(target_frame_count)]
 
     return frames
 
@@ -153,15 +243,15 @@ def add_sun(frame: Image.Image, stage: str, index: int) -> Image.Image:
 
 
 def add_idle_fidget(frame: Image.Image, stage: str, index: int) -> Image.Image:
-    offsets = [(0, 0), (0, 0), (0, -1), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0)]
+    offsets = [(0, 2), (-2, 0), (-4, -2), (0, -7), (4, -3), (5, 0), (2, 2), (-1, 0)]
     dx, dy = offsets[index % len(offsets)]
     return move_character_layer(frame, stage, dx, dy)
 
 
 def add_idle_variant(frame: Image.Image, stage: str, reaction: str, index: int) -> Image.Image:
     offsets = {
-        "idle_fidget_sway": [(0, 0), (1, 0), (1, 0), (1, -1), (0, 0), (-1, 0), (-1, 0), (0, 0)],
-        "idle_fidget_shift": [(0, 0), (0, 0), (-1, 0), (-1, 0), (-1, -1), (0, 0), (1, 0), (0, 0)],
+        "idle_fidget_sway": [(-2, 0), (-5, -1), (-7, -3), (-4, -5), (2, -3), (7, -1), (5, 1), (2, 2)],
+        "idle_fidget_shift": [(0, 2), (-3, 0), (-5, -3), (-2, -7), (4, -4), (6, -1), (2, 1), (1, 0)],
         "idle_look_left": [(-1, 0), (-1, 0), (-2, 0), (-2, 0), (-1, 0), (-1, 0), (-1, 0), (-1, 0)],
         "idle_look_right": [(1, 0), (1, 0), (2, 0), (2, 0), (1, 0), (1, 0), (1, 0), (1, 0)],
     }[reaction]
@@ -215,16 +305,16 @@ def add_ponder_variant(frame: Image.Image, stage: str, reaction: str, index: int
 def add_cursor_watch(frame: Image.Image, stage: str, reaction: str, index: int) -> Image.Image:
     plans = {
         "watch_cursor_left": {
-            "offsets": [(-2, 0), (-2, 0), (-2, 0), (-2, -1), (-1, -1), (-1, 0), (-1, 0), (-1, 0)],
+            "offsets": [(-1, 0), (-2, 0), (-4, -1), (-5, -2), (-4, -1), (-3, 0), (-2, 1), (-1, 1)],
         },
         "watch_cursor_right": {
-            "offsets": [(2, 0), (2, 0), (2, 0), (2, -1), (1, -1), (1, 0), (1, 0), (1, 0)],
+            "offsets": [(1, 0), (2, 0), (4, -1), (5, -2), (4, -1), (3, 0), (2, 1), (1, 1)],
         },
         "watch_cursor_up_left": {
-            "offsets": [(-2, -1), (-2, -1), (-2, -2), (-1, -2), (-1, -1), (-1, -1), (-1, 0), (-1, 0)],
+            "offsets": [(-1, -1), (-2, -2), (-4, -4), (-5, -5), (-4, -4), (-3, -2), (-2, -1), (-1, 0)],
         },
         "watch_cursor_up_right": {
-            "offsets": [(2, -1), (2, -1), (2, -2), (1, -2), (1, -1), (1, -1), (1, 0), (1, 0)],
+            "offsets": [(1, -1), (2, -2), (4, -4), (5, -5), (4, -4), (3, -2), (2, -1), (1, 0)],
         },
         "follow_cursor_fast": {
             "offsets": [(0, 0), (1, 0), (2, 0), (1, 0), (-1, 0), (-1, 0), (0, 0), (0, 0)],
@@ -236,12 +326,157 @@ def add_cursor_watch(frame: Image.Image, stage: str, reaction: str, index: int) 
     dx, dy = plans["offsets"][index % len(plans["offsets"])]
     result = move_character_layer(frame, stage, dx, dy)
     draw = ImageDraw.Draw(result)
+    if reaction.startswith("watch_cursor_"):
+        shift_cursor_eyes(result, stage, reaction, dx, dy)
     if reaction == "follow_cursor_fast":
         anchor = bubble_anchor(stage)
         sweep_y = anchor[1] + 86 + (index % 2) * 3
         sweep_x = anchor[0] - 82 + index * 18
         draw.rectangle((sweep_x, sweep_y, sweep_x + 24, sweep_y + 3), fill=(242, 246, 255, 96))
     return result
+
+
+def shift_cursor_eyes(
+    image: Image.Image,
+    stage: str,
+    reaction: str,
+    dx: int,
+    dy: int,
+) -> None:
+    eye_specs = {
+        "spore": [(234, 386, 245, 400), (269, 386, 280, 400)],
+        "baby": [(214, 341, 235, 364), (278, 341, 300, 364)],
+        "young": [(204, 318, 227, 344), (283, 318, 307, 344)],
+        "adult": [(197, 298, 225, 324), (286, 298, 314, 324)],
+        "legendary": [(202, 282, 228, 308), (287, 282, 313, 308)],
+    }
+    gaze_dx = 2 if "right" in reaction else -2
+    gaze_dy = -2 if "up" in reaction else 0
+    pixels = image.load()
+    for raw_left, raw_top, raw_right, raw_bottom in eye_specs[stage]:
+        left = raw_left + dx
+        top = raw_top + dy
+        right = raw_right + dx
+        bottom = raw_bottom + dy
+        face_sample_x = max(0, min(FRAME - 1, left + (right - left) // 2))
+        face_sample_y = max(0, min(FRAME - 1, bottom + 3))
+        face_color = pixels[face_sample_x, face_sample_y]
+        eye_pixels: list[tuple[int, int, tuple[int, int, int, int]]] = []
+        for y in range(top, bottom):
+            for x in range(left, right):
+                red, green, blue, alpha = pixels[x, y]
+                is_dark_eye = alpha > 80 and red < 135 and green < 120 and blue < 115
+                is_white_glint = alpha > 160 and red > 220 and green > 220 and blue > 210
+                if is_dark_eye or is_white_glint:
+                    eye_pixels.append((x, y, pixels[x, y]))
+
+        for x, y, _color in eye_pixels:
+            pixels[x, y] = face_color
+        for x, y, color in eye_pixels:
+            target_x = max(0, min(FRAME - 1, x + gaze_dx))
+            target_y = max(0, min(FRAME - 1, y + gaze_dy))
+            pixels[target_x, target_y] = color
+
+
+def generate_spore_activity_art_pass(activity: str) -> None:
+    path = ASSETS / "activities" / "spore" / f"{activity}_sheet.png"
+    frames = load_clean_spore_activity_frames(activity)
+    if len(frames) != 8:
+        raise ValueError(f"{path} ma {len(frames)} klatek, oczekiwano 8")
+
+    offsets = {
+        "feed": [(0, 1), (-1, 0), (-2, -2), (0, -4), (2, -2), (3, 0), (1, 1), (0, 0)],
+        "instrument": [(0, 1), (-2, 0), (-3, -2), (0, -4), (3, -2), (2, 0), (0, 1), (-1, 0)],
+    }[activity]
+    output_frames: list[Image.Image] = []
+    for index, frame in enumerate(frames):
+        dx, dy = offsets[index]
+        result = move_character_layer(frame.copy(), "spore", dx, dy)
+        draw = ImageDraw.Draw(result)
+        if activity == "feed":
+            draw_spore_feed_story(draw, index)
+        else:
+            draw_spore_instrument_story(draw, index)
+        output_frames.append(result)
+    save_sheet(path, output_frames)
+
+
+def load_clean_spore_activity_frames(activity: str) -> list[Image.Image]:
+    global _ACTIVITY_BUILDER_CONTEXT
+    if _ACTIVITY_BUILDER_CONTEXT is None:
+        spec = importlib.util.spec_from_file_location("pieczargotchi_activity_builder", BUILDER_PATH)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Nie mozna wczytac buildera: {BUILDER_PATH}")
+        builder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(builder)
+        grass = builder.przygotuj_warstwe_trawy()
+        _ACTIVITY_BUILDER_CONTEXT = {
+            "builder": builder,
+            "grass": grass,
+            "body_bottom_targets": builder.policz_docelowe_doly_korpusu(grass),
+        }
+
+    builder = _ACTIVITY_BUILDER_CONTEXT["builder"]
+    grass = _ACTIVITY_BUILDER_CONTEXT["grass"]
+    body_bottom_targets = _ACTIVITY_BUILDER_CONTEXT["body_bottom_targets"]
+    atlas = builder.wczytaj_atlas(activity)
+    cutout = builder.przygotuj_cutouty_etapow(atlas, activity)[0]
+    authored = builder.wczytaj_klatkowe_cutouty_aktywnosci(activity).get("spore")
+    return [
+        builder.zloz_klatke_aktywnosci(
+            authored[index] if authored else cutout,
+            grass,
+            "spore",
+            activity,
+            index,
+            body_bottom_targets,
+        )
+        for index in range(8)
+    ]
+
+
+def draw_spore_feed_story(draw: ImageDraw.ImageDraw, index: int) -> None:
+    paths = [
+        [(319, 378, 4)],
+        [(312, 374, 5), (324, 366, 2)],
+        [(305, 370, 5), (316, 360, 3)],
+        [(298, 369, 4), (310, 358, 3), (320, 370, 2)],
+        [(304, 363, 3), (314, 356, 2), (322, 365, 2)],
+        [(312, 361, 3), (322, 370, 2)],
+        [(319, 370, 2)],
+        [(323, 380, 2)],
+    ]
+    colors = [(154, 86, 42, 235), (234, 177, 76, 230), (109, 62, 38, 210)]
+    for crumb_index, (x, y, size) in enumerate(paths[index]):
+        color = colors[(index + crumb_index) % len(colors)]
+        draw.rectangle((x, y, x + size, y + size), fill=color)
+        if size >= 4:
+            draw.rectangle((x + 1, y, x + size - 1, y + 1), fill=(255, 220, 126, 220))
+
+
+def draw_spore_instrument_story(draw: ImageDraw.ImageDraw, index: int) -> None:
+    note_paths = [
+        [(301, 374, 0)],
+        [(307, 365, 0)],
+        [(314, 354, 1), (302, 370, 0)],
+        [(322, 340, 1), (309, 357, 0)],
+        [(329, 329, 2), (317, 348, 1), (304, 366, 0)],
+        [(324, 337, 1), (312, 354, 0)],
+        [(316, 349, 0)],
+        [(307, 364, 0)],
+    ]
+    colors = [(91, 73, 135, 235), (70, 125, 126, 230), (201, 113, 89, 225)]
+    for note_index, (x, y, variant) in enumerate(note_paths[index]):
+        color = colors[(index + note_index) % len(colors)]
+        draw.rectangle((x, y + 7, x + 4, y + 11), fill=color)
+        draw.rectangle((x + 4, y, x + 6, y + 9), fill=color)
+        flag_width = 5 + variant * 2
+        draw.rectangle((x + 6, y, x + 6 + flag_width, y + 2), fill=color)
+        if variant >= 1:
+            draw.rectangle((x + 8, y + 3, x + 11, y + 4), fill=(255, 224, 153, 190))
+    pulse_color = colors[index % len(colors)]
+    draw.rectangle((330, 329, 333, 331), fill=pulse_color)
+    draw.rectangle((335, 333, 336, 334), fill=(255, 224, 153, 150 + index * 10))
 
 
 def add_watch_butterfly(frame: Image.Image, stage: str, index: int) -> Image.Image:

@@ -8,13 +8,21 @@
     <?!= include('Styles'); ?>
   </head>
   <body>
+    <a class="skip-link" href="#gameMain">Przejdź do sceny i opieki</a>
     <div class="app" data-app>
       <span class="build-badge" data-build-badge hidden aria-label="Wersja aplikacji"></span>
+      <p class="persistence-banner" data-persistence-status role="status" aria-live="polite" hidden></p>
+      <section class="runtime-alert" data-runtime-alert role="alert" aria-live="assertive" aria-atomic="true" hidden>
+        <span data-runtime-alert-text>Wystąpił błąd aplikacji.</span>
+        <button class="ghost-button" type="button" data-runtime-retry>Ponów</button>
+      </section>
+      <p class="sr-live" data-ui-status role="status" aria-live="polite" aria-atomic="true"></p>
+      <p class="sr-live" data-ui-alert role="alert" aria-live="assertive" aria-atomic="true"></p>
 
-      <section class="name-gate" data-name-gate hidden>
+      <section class="name-gate" data-name-gate role="dialog" aria-modal="true" aria-labelledby="nameGateTitle" hidden>
         <form class="name-gate__panel" data-name-form>
           <p class="eyebrow">Pierwszy krok</p>
-          <h2>Jak ma na imię?</h2>
+          <h2 id="nameGateTitle">Jak ma na imię?</h2>
           <label>
             Imię
             <input
@@ -22,10 +30,13 @@
               maxlength="24"
               autocomplete="off"
               data-name-input
+              aria-describedby="nameGateHelp nameGateError"
+              aria-invalid="false"
               required
             >
           </label>
-          <span class="name-gate__error" data-name-error aria-live="polite"></span>
+          <span class="name-gate__help" id="nameGateHelp">Możesz później zmienić imię w Menu.</span>
+          <span class="name-gate__error" id="nameGateError" data-name-error role="alert"></span>
           <button class="ghost-button" type="submit">Zacznij opiekę</button>
         </form>
       </section>
@@ -34,17 +45,19 @@
         <div>
           <h1>Pieczargotchi</h1>
         </div>
-        <div class="topbar__status" aria-live="polite">
-          <div class="view-switch" data-view-switch hidden>
-            <button class="view-switch__button" type="button" data-view-care aria-pressed="true">Opieka</button>
-            <button class="view-switch__button" type="button" data-view-arena aria-pressed="false">Legendy</button>
+        <div class="topbar__status">
+          <div class="view-switch" data-view-switch role="group" aria-label="Tryb gry" hidden>
+            <button class="view-switch__button" type="button" data-view-care data-focus-key="view-care" aria-pressed="true">Opieka</button>
+            <button class="view-switch__button" type="button" data-view-arena data-focus-key="view-legends" aria-pressed="false">Legendy</button>
           </div>
-          <span class="status-pill" data-mode-pill>Śpi</span>
-          <button class="ghost-button" type="button" data-reset-button title="Wyczyść zapis gry">Od nowa</button>
+          <span class="status-pill" data-mode-pill role="status" aria-live="polite" aria-atomic="true">Śpi</span>
+          <button class="ghost-button topbar__menu" type="button" data-settings-open data-focus-key="open-settings" aria-haspopup="dialog">Menu</button>
         </div>
       </header>
 
-      <main class="game-grid">
+      <button class="ghost-button minigame-return" type="button" data-minigame-return hidden>Wróć do aktywnej gry</button>
+
+      <main class="game-grid" id="gameMain" tabindex="-1">
         <section class="stage-panel" aria-label="Scena pieczarki">
           <div class="stage-toolbar">
             <div>
@@ -63,7 +76,7 @@
               id="mushroomCanvas"
               width="512"
               height="512"
-              aria-label="Animowana pikselowa pieczarka"
+              aria-label="Animowana scena pieczarki"
             ></canvas>
           </div>
 
@@ -71,22 +84,60 @@
             <span class="attention-chip" data-attention-chip hidden>Potrzeba</span>
             <strong data-message-title>Odpoczywa</strong>
             <span data-message-body>Grzybnia czeka na imię.</span>
+            <button class="ghost-button game-over-reset" type="button" data-reset-open data-game-over-reset aria-haspopup="dialog" hidden>Od nowa</button>
           </div>
 
           <div class="daily-rhythm-strip" data-daily-rhythm aria-label="Dzisiejszy rytm"></div>
           <div class="daily-plan-strip" data-day-plan aria-label="Plan dnia"></div>
         </section>
 
-        <aside class="side-panel" aria-label="Panel opieki">
-          <section class="panel-block panel-block--status" data-care-panel>
+        <aside class="side-panel" aria-label="Panel gry">
+          <nav class="workspace-tabs" data-care-navigation data-workspace-tabs role="tablist" aria-label="Obszar gry">
+            <button
+              class="workspace-tab"
+              id="workspaceTabCare"
+              type="button"
+              role="tab"
+              data-workspace-tab="care"
+              data-focus-key="workspace-care"
+              aria-controls="workspacePanelCare workspacePanelCareActions workspacePanelCareResources"
+              aria-selected="true"
+              tabindex="0"
+            >Opieka</button>
+            <button
+              class="workspace-tab"
+              id="workspaceTabGames"
+              type="button"
+              role="tab"
+              data-workspace-tab="games"
+              data-focus-key="workspace-games"
+              aria-controls="workspacePanelGames"
+              aria-selected="false"
+              tabindex="-1"
+            >Gry</button>
+            <button
+              class="workspace-tab"
+              id="workspaceTabMycelium"
+              type="button"
+              role="tab"
+              data-workspace-tab="mycelium"
+              data-focus-key="workspace-mycelium"
+              aria-controls="workspacePanelMycelium workspacePanelMyceliumDiscoveries workspacePanelMyceliumDecorations workspacePanelMyceliumHistory workspacePanelMyceliumLog"
+              aria-selected="false"
+              tabindex="-1"
+            >Grzybnia</button>
+          </nav>
+
+          <section class="panel-block panel-block--status" id="workspacePanelCare" data-care-panel data-workspace-panel="care" role="tabpanel" aria-labelledby="workspaceTabCare">
             <div class="block-heading">
               <h2>Status</h2>
               <span data-health-label>100%</span>
             </div>
             <div class="stats-list" data-stats-list></div>
+            <div class="recovery-checklist" data-recovery-checklist role="status" aria-live="polite" aria-atomic="true" hidden></div>
           </section>
 
-          <section class="panel-block panel-block--actions" data-care-panel>
+          <section class="panel-block panel-block--actions" id="workspacePanelCareActions" data-care-panel data-workspace-panel="care" role="tabpanel" aria-labelledby="workspaceTabCare">
             <div class="block-heading">
               <h2>Opieka</h2>
               <span data-cooldown-label>Gotowe</span>
@@ -94,45 +145,46 @@
             <div class="actions-grid" data-actions-grid></div>
           </section>
 
-          <section class="panel-block panel-block--minigames" data-care-panel>
+          <section class="panel-block panel-block--minigames" id="workspacePanelGames" data-care-panel data-workspace-panel="games" role="tabpanel" aria-labelledby="workspaceTabGames">
             <div class="block-heading">
               <h2>Gry</h2>
               <span data-minigame-status>Gotowe</span>
             </div>
             <div class="minigame-opportunities" data-minigame-opportunities></div>
-            <div class="minigame-card">
+            <div class="minigame-card" data-minigame-card="dewCatch">
               <div>
                 <strong>Łapanie rosy</strong>
                 <span data-minigame-last="dewCatch">0 kropli</span>
                 <span class="minigame-mastery" data-minigame-mastery="dewCatch">Rekord 0 · cel 24</span>
               </div>
-              <button class="ghost-button" type="button" data-minigame-start="dewCatch">Start</button>
+              <button class="ghost-button" type="button" data-minigame-start="dewCatch" data-focus-key="minigame-dewCatch">Start</button>
             </div>
-            <div class="minigame-card">
+            <div class="minigame-card" data-minigame-card="sporePop">
               <div>
                 <strong>Pękanie zarodników</strong>
                 <span data-minigame-last="sporePop">0 zarodników</span>
                 <span class="minigame-mastery" data-minigame-mastery="sporePop">Rekord 0 · cel 20</span>
               </div>
-              <button class="ghost-button" type="button" data-minigame-start="sporePop">Start</button>
+              <button class="ghost-button" type="button" data-minigame-start="sporePop" data-focus-key="minigame-sporePop">Start</button>
             </div>
-            <div class="minigame-card">
+            <div class="minigame-card" data-minigame-card="compostSort">
               <div>
                 <strong>Sortowanie kompostu</strong>
                 <span data-minigame-last="compostSort">0 kawałków</span>
                 <span class="minigame-mastery" data-minigame-mastery="compostSort">Rekord 0 · cel 18</span>
               </div>
-              <button class="ghost-button" type="button" data-minigame-start="compostSort">Start</button>
+              <button class="ghost-button" type="button" data-minigame-start="compostSort" data-focus-key="minigame-compostSort">Start</button>
             </div>
-            <div class="minigame-card">
+            <div class="minigame-card" data-minigame-card="rhythmHum">
               <div>
                 <strong>Rytmiczne nucenie</strong>
                 <span data-minigame-last="rhythmHum">0 nut</span>
                 <span class="minigame-mastery" data-minigame-mastery="rhythmHum">Rekord 0 · cel 8</span>
               </div>
-              <button class="ghost-button" type="button" data-minigame-start="rhythmHum">Start</button>
+              <button class="ghost-button" type="button" data-minigame-start="rhythmHum" data-focus-key="minigame-rhythmHum">Start</button>
             </div>
-            <div class="minigame-playfield" data-minigame-playfield hidden>
+            <div class="minigame-playfield" data-minigame-playfield tabindex="-1" aria-describedby="minigameLaunchStatus" hidden>
+              <p class="minigame-launch-status" id="minigameLaunchStatus" data-minigame-launch-status role="status" aria-live="polite" aria-atomic="true"></p>
               <canvas
                 class="dew-catch-canvas"
                 data-dew-catch-canvas
@@ -176,7 +228,7 @@
             </div>
           </section>
 
-          <section class="panel-block panel-block--long-loop" data-care-panel>
+          <section class="panel-block panel-block--long-loop" id="workspacePanelMycelium" data-care-panel data-workspace-panel="mycelium" role="tabpanel" aria-labelledby="workspaceTabMycelium">
             <div class="block-heading">
               <h2>Grzybnia</h2>
               <span data-long-loop-status>0 pamiątek</span>
@@ -184,7 +236,7 @@
             <div class="long-loop-grid" data-long-loop-dashboard></div>
           </section>
 
-          <section class="panel-block panel-block--compact panel-block--resources" data-care-panel>
+          <section class="panel-block panel-block--compact panel-block--resources" id="workspacePanelCareResources" data-care-panel data-workspace-panel="care" role="tabpanel" aria-labelledby="workspaceTabCare">
             <div class="block-heading">
               <h2>Zasoby</h2>
               <span data-coins-label>0 zarodników</span>
@@ -192,7 +244,7 @@
             <div class="inventory-row" data-inventory-row></div>
           </section>
 
-          <section class="panel-block panel-block--discoveries" data-care-panel>
+          <section class="panel-block panel-block--discoveries" id="workspacePanelMyceliumDiscoveries" data-care-panel data-workspace-panel="mycelium" role="tabpanel" aria-labelledby="workspaceTabMycelium">
             <div class="block-heading">
               <h2>Dziennik świata</h2>
               <span data-sky-discovery-count>0/0</span>
@@ -207,7 +259,7 @@
             </div>
           </section>
 
-          <section class="panel-block panel-block--decorations" data-care-panel>
+          <section class="panel-block panel-block--decorations" id="workspacePanelMyceliumDecorations" data-care-panel data-workspace-panel="mycelium" role="tabpanel" aria-labelledby="workspaceTabMycelium">
             <div class="block-heading">
               <h2>Dekoracje</h2>
               <span data-decoration-count>0</span>
@@ -216,7 +268,7 @@
             <div class="decoration-list" data-decoration-list></div>
           </section>
 
-          <section class="panel-block panel-block--history" data-care-panel>
+          <section class="panel-block panel-block--history" id="workspacePanelMyceliumHistory" data-care-panel data-workspace-panel="mycelium" role="tabpanel" aria-labelledby="workspaceTabMycelium">
             <div class="block-heading">
               <h2>Historia</h2>
               <span data-history-score>0 opieki</span>
@@ -226,7 +278,7 @@
             <div class="relationship-list" data-relationship-list></div>
           </section>
 
-          <section class="panel-block panel-block--backup" data-care-panel>
+          <section class="panel-block panel-block--backup" data-settings-section>
             <div class="block-heading">
               <h2>Kopia zapisu</h2>
               <span data-backup-status>Gotowe</span>
@@ -234,6 +286,7 @@
             <div class="backup-actions">
               <button class="ghost-button" type="button" data-export-button>Eksportuj</button>
               <button class="ghost-button" type="button" data-import-button>Importuj</button>
+              <button class="ghost-button" type="button" data-export-corrupt-button hidden>Pobierz uszkodzony zapis</button>
               <input type="file" accept="application/json,.json" data-import-input hidden>
             </div>
           </section>
@@ -244,57 +297,86 @@
               <span data-battle-record>0-0</span>
             </div>
 
-            <div class="legendary-hub" data-legendary-games>
-              <div class="legendary-status-row">
-                <strong>Legendarne gry</strong>
-                <span data-legendary-games-status>0/6 pyłku projektów</span>
+            <nav class="workspace-tabs workspace-tabs--legends" data-legends-tabs role="tablist" aria-label="Obszar legend">
+              <button
+                class="workspace-tab"
+                id="legendsTabArena"
+                type="button"
+                role="tab"
+                data-legends-tab="arena"
+                data-focus-key="legends-arena"
+                aria-controls="legendsPanelArena"
+                aria-selected="true"
+                tabindex="0"
+              >Arena</button>
+              <button
+                class="workspace-tab"
+                id="legendsTabChallenges"
+                type="button"
+                role="tab"
+                data-legends-tab="challenges"
+                data-focus-key="legends-challenges"
+                aria-controls="legendsPanelChallenges"
+                aria-selected="false"
+                tabindex="-1"
+              >Wyzwania</button>
+            </nav>
+
+            <div class="legends-panel" id="legendsPanelArena" data-legends-panel="arena" role="tabpanel" aria-labelledby="legendsTabArena">
+              <div class="arena-command-row">
+                <button class="ghost-button" type="button" data-battle-start data-focus-key="battle-start">Start walki</button>
+                <span data-battle-result role="status" aria-live="polite" aria-atomic="true">Gotowa</span>
               </div>
-              <div class="legendary-game-grid" data-legendary-game-list></div>
-              <div class="legendary-game-playfield" data-legendary-game-playfield hidden>
-                <canvas
-                  class="legendary-game-canvas"
-                  data-legendary-game-canvas
-                  width="300"
-                  height="180"
-                  aria-label="Legendarna minigra pieczarki"
-                  hidden
-                ></canvas>
-                <div class="minigame-hud legendary-game-hud">
-                  <span data-legendary-minigame-score>0 punktów</span>
-                  <span data-legendary-minigame-time>0 s</span>
-                  <span data-legendary-minigame-combo>Czysto</span>
-                  <button class="ghost-button" type="button" data-legendary-minigame-end>Zakończ</button>
-                  <span class="minigame-progress" aria-hidden="true">
-                    <i data-legendary-minigame-progress></i>
-                  </span>
+
+              <div class="battle-moves" data-battle-moves></div>
+              <div class="battle-status" data-battle-status aria-label="Stan walki">
+                <div class="battle-meter-row">
+                  <span data-battle-player-name>Bez imienia</span>
+                  <strong data-battle-player-hp>Zdrowie --</strong>
+                  <strong data-battle-player-stamina>Wytrzymałość --</strong>
+                </div>
+                <div class="battle-meter-row">
+                  <span>Rywal</span>
+                  <strong data-battle-opponent-hp>Zdrowie --</strong>
+                  <strong data-battle-opponent-stamina>Wytrzymałość --</strong>
                 </div>
               </div>
-              <div class="legendary-album" data-legendary-album></div>
+              <div class="battle-training" data-battle-training></div>
+              <ol class="battle-log" data-battle-log aria-live="polite" aria-atomic="true"></ol>
             </div>
 
-            <div class="arena-command-row">
-              <button class="ghost-button" type="button" data-battle-start>Start walki</button>
-              <span data-battle-result>Gotowa</span>
-            </div>
-
-            <div class="battle-moves" data-battle-moves></div>
-            <div class="battle-training" data-battle-training></div>
-            <div class="battle-status" data-battle-status>
-              <div class="battle-meter-row">
-                <span data-battle-player-name>Bez imienia</span>
-                <strong data-battle-player-hp>HP --</strong>
-                <strong data-battle-player-stamina>ST --</strong>
+            <div class="legends-panel" id="legendsPanelChallenges" data-legends-panel="challenges" role="tabpanel" aria-labelledby="legendsTabChallenges" hidden>
+              <div class="legendary-hub" data-legendary-games>
+                <div class="legendary-status-row">
+                  <strong>Legendarne gry</strong>
+                  <span data-legendary-games-status>0/6 pyłku projektów</span>
+                </div>
+                <div class="legendary-game-grid" data-legendary-game-list></div>
+                <div class="legendary-game-playfield" data-legendary-game-playfield tabindex="-1" hidden>
+                  <canvas
+                    class="legendary-game-canvas"
+                    data-legendary-game-canvas
+                    width="300"
+                    height="180"
+                    aria-label="Legendarna minigra pieczarki"
+                    hidden
+                  ></canvas>
+                  <div class="minigame-hud legendary-game-hud">
+                    <span data-legendary-minigame-score>0 punktów</span>
+                    <span data-legendary-minigame-time>0 s</span>
+                    <span data-legendary-minigame-combo>Czysto</span>
+                    <button class="ghost-button" type="button" data-legendary-minigame-end>Zakończ</button>
+                    <span class="minigame-progress" aria-hidden="true">
+                      <i data-legendary-minigame-progress></i>
+                    </span>
+                  </div>
+                </div>
+                <div class="legendary-album" data-legendary-album></div>
               </div>
-              <div class="battle-meter-row">
-                <span>Rywal</span>
-                <strong data-battle-opponent-hp>HP --</strong>
-                <strong data-battle-opponent-stamina>ST --</strong>
-              </div>
             </div>
-            <ol class="battle-log" data-battle-log></ol>
           </section>
 
-          <section class="panel-block panel-block--debug" data-care-panel aria-label="Menu diagnostyczne">
+          <section class="panel-block panel-block--debug" data-settings-section aria-label="Menu diagnostyczne">
             <details data-debug-details>
               <summary>Diagnostyka</summary>
               <div class="debug-controls">
@@ -471,7 +553,7 @@
             </details>
           </section>
 
-          <section class="panel-block panel-block--log" data-care-panel>
+          <section class="panel-block panel-block--log" id="workspacePanelMyceliumLog" data-care-panel data-workspace-panel="mycelium" role="tabpanel" aria-labelledby="workspaceTabMycelium">
             <div class="block-heading">
               <h2>Dziennik</h2>
               <span data-asset-status>Ładowanie grafik</span>
@@ -481,12 +563,64 @@
         </aside>
       </main>
 
+      <dialog class="app-dialog settings-dialog" data-settings-dialog aria-labelledby="settingsDialogTitle">
+        <div class="app-dialog__surface">
+          <header class="app-dialog__header">
+            <div>
+              <p class="eyebrow">Ustawienia lokalne</p>
+              <h2 id="settingsDialogTitle">Menu</h2>
+            </div>
+            <button class="app-dialog__close" type="button" data-settings-close aria-label="Zamknij Menu">×</button>
+          </header>
+
+          <form class="rename-form" data-rename-form novalidate>
+            <label for="renameMushroomInput">Imię pieczarki</label>
+            <div class="rename-form__row">
+              <input id="renameMushroomInput" type="text" maxlength="24" autocomplete="off" data-rename-input aria-describedby="renameMushroomError">
+              <button class="ghost-button" type="submit">Zapisz imię</button>
+            </div>
+            <span class="name-gate__error" id="renameMushroomError" data-rename-error role="alert"></span>
+          </form>
+
+          <div class="settings-dialog__content" data-settings-content></div>
+
+          <section class="settings-danger-zone" aria-labelledby="settingsDangerTitle">
+            <h3 id="settingsDangerTitle">Nowy początek</h3>
+            <p>Reset usuwa lokalny zapis tej pieczarki.</p>
+            <button class="ghost-button" type="button" data-reset-open aria-haspopup="dialog">Od nowa</button>
+          </section>
+        </div>
+      </dialog>
+
+      <dialog class="app-dialog confirmation-dialog" data-reset-dialog aria-labelledby="resetDialogTitle">
+        <div class="app-dialog__surface app-dialog__surface--compact">
+          <p class="eyebrow">Nieodwracalna zmiana</p>
+          <h2 id="resetDialogTitle">Zacząć od nowa?</h2>
+          <p>Obecny lokalny zapis zostanie usunięty. Wyeksportuj kopię, jeśli chcesz zachować tę historię.</p>
+          <div class="app-dialog__actions">
+            <button class="ghost-button" type="button" data-reset-cancel>Anuluj</button>
+            <button class="ghost-button ghost-button--danger" type="button" data-reset-button data-reset-confirm>Usuń zapis</button>
+          </div>
+        </div>
+      </dialog>
+
+      <dialog class="app-dialog confirmation-dialog" data-import-preview aria-labelledby="importPreviewTitle">
+        <div class="app-dialog__surface app-dialog__surface--compact">
+          <p class="eyebrow">Podgląd kopii</p>
+          <h2 id="importPreviewTitle">Zaimportować ten zapis?</h2>
+          <div class="import-preview-summary" data-import-preview-summary role="status" aria-live="polite">Wybierz poprawny plik JSON.</div>
+          <p>Import zastąpi obecny lokalny zapis.</p>
+          <div class="app-dialog__actions">
+            <button class="ghost-button" type="button" data-import-cancel>Anuluj</button>
+            <button class="ghost-button" type="button" data-import-confirm>Importuj zapis</button>
+          </div>
+        </div>
+      </dialog>
+
       <div class="journal-tooltip" data-journal-tooltip role="tooltip" hidden></div>
-      <section
+      <dialog
         class="journal-polaroid"
         data-journal-polaroid
-        role="dialog"
-        aria-modal="false"
         aria-labelledby="journalPolaroidTitle"
         hidden
       >
@@ -506,10 +640,10 @@
           <p class="journal-polaroid__note" data-journal-polaroid-note></p>
         </div>
         <button class="journal-polaroid__close" type="button" data-journal-polaroid-close aria-label="Zamknij pamiątkę">×</button>
-      </section>
+      </dialog>
     </div>
 
-    <script src="?bundle=config"></script>
+    <script src="?bundle=config&amp;v=<?= PIECZARGOTCHI_APP_VERSION ?>"></script>
     <script>
       (function() {
         'use strict';
@@ -568,6 +702,22 @@
             return;
           }
           window.__pieczargotchiBootError = message || window.__pieczargotchiBootError;
+          const alert = document.querySelector('[data-runtime-alert]');
+          const alertText = document.querySelector('[data-runtime-alert-text]');
+          const retry = document.querySelector('[data-runtime-retry]');
+          if (alert) {
+            alert.hidden = false;
+          }
+          if (alertText) {
+            alertText.textContent = 'Aplikacja nie wystartowała: '
+              + (window.__pieczargotchiBootError || 'nieznany błąd klienta');
+          }
+          if (retry && retry.dataset.watchdogBound !== 'true') {
+            retry.dataset.watchdogBound = 'true';
+            retry.addEventListener('click', function() {
+              window.location.reload();
+            });
+          }
           setAssetStatus('Awaryjny watchdog sceny');
           drawWatchdogFallback('Awaryjny start', window.__pieczargotchiBootError || 'Główny renderer nie wystartował.');
         }
@@ -588,7 +738,7 @@
         }, 1800);
       })();
     </script>
-    <script src="?bundle=core"></script>
-    <script src="?bundle=client"></script>
+    <script src="?bundle=core&amp;v=<?= PIECZARGOTCHI_APP_VERSION ?>"></script>
+    <script src="?bundle=client&amp;v=<?= PIECZARGOTCHI_APP_VERSION ?>"></script>
   </body>
 </html>

@@ -1,4 +1,4 @@
-function exportState(state) {
+function exportState_(state) {
   return JSON.stringify({
     kind: 'pieczargotchi-state',
     exportedAt: new Date().toISOString(),
@@ -6,7 +6,7 @@ function exportState(state) {
   }, null, 2);
 }
 
-function importState(json) {
+function importState_(json) {
   const parsed = JSON.parse(json);
   const state = parsed && parsed.kind === 'pieczargotchi-state' ? parsed.state : parsed;
   if (!state || typeof state !== 'object' || !state.stats) {

@@ -1,8 +1,8 @@
 # Imagegenowy Pipeline zasobów
 
-Data: 2026-05-10
+Data: 2026-07-12
 
-Ten pipeline jest teraz kanoniczna ścieżka budowania PNG używane podczas działania. Źródla postaci, stanów, akcji, efektow i środowiska pochodza z wbudowanego generatora obrazow. Lokalne skrypty wykonuja tylko techniczne kroki: usuniecie tla, ciecie atlasow, normalizacje skali, dolozenie stabilnej frontowej trawy do arkuszy animacji postaci oraz przygotowanie osobnego zasobu trawnika sceny.
+Ten pipeline jest kanoniczną ścieżką budowania PNG runtime. Źródła postaci, stanów, akcji, efektów i środowiska pochodzą z wbudowanego generatora obrazów. Lokalne skrypty wykonują deterministyczne kroki: usunięcie tła, despill, cięcie atlasów, normalizację skali i baseline, zbudowanie body-only klatek logicznych, tight crop, deduplikację klatek fizycznych oraz przygotowanie osobnego, wspólnego zasobu trawy sceny.
 
 ## Źródla
 
@@ -11,6 +11,14 @@ Raw atlasy generator obrazów są zapisane w:
 ```text
 assets/source/imagegen/raw/
 ```
+
+Pochodzenie całych kolekcji zapisuje:
+
+```text
+assets/source/imagegen/PROVENANCE.json
+```
+
+Plik rozróżnia legacy atlasy imagegenowe, deterministyczne runtime sprite v2 i body-only battle v1. Nie należy zgadywać brakującego modelu lub daty dla starych źródeł; nieznane pola pozostają jawnie opisane jako legacy.
 
 Imagegenowa baza zarodka, oczyszczona z tla i przycieta do uzycia przez builder:
 
@@ -29,9 +37,9 @@ Wymagane atlasy:
 
 Każdy atlas stanu lub akcji ma jeden rząd pięciu postaci: `spore`, `baby`, `young`, `adult`, `legendary`. Tło atlasu jest płaskim chroma-key `#ff00ff`.
 
-Dla etapu `spore` builder używa `spore_full_generated_atlas.png`: 19 kompletnych, wygenerowanych wariantów zarodka w kolejności stanów i akcji. Builder nie dokleja kapelusza ani nie składa twarzy z osobnych warstw; tylko usuwa chroma-key, skaluje, centruje po ciele i dokłada stabilną trawę czasu działania.
+Dla etapu `spore` builder używa `spore_full_generated_atlas.png`: 19 kompletnych, wygenerowanych wariantów zarodka w kolejności stanów i akcji. Builder nie dokleja kapelusza ani nie składa twarzy z osobnych warstw; usuwa chroma-key, skaluje, centruje po ciele i zapisuje body-only klatkę. Trawa służy wyłącznie jako pomocnicza maska do wyznaczenia poprawnego baseline i nie trafia do sprite'a.
 
-Dopracowane aktywności są sprite-first i mają docelowo `8` klatek per arkusz animacji (`4096x512`). Generator powinien traktować gest, mimikę i rekwizyt jako część PNG dla danego etapu. Canvas/czas działania nie dokłada dodatkowego body-motion do tych arkuszy animacji; zostają tylko stanowe overlaye i efekty pomocnicze z `assets/effects/`.
+Dopracowane aktywności są sprite-first i mają `8` klatek logicznych na arkusz animacji. Pełny etap budowania używa więc układu `4096x512`, ale runtime PNG jest później ciasno przycinany i może przechowywać mniej klatek fizycznych. Generator traktuje gest, mimikę i rekwizyt jako część PNG dla danego etapu. Canvas/runtime nie dokłada dodatkowego body-motion poza kontraktem animacji i efektami pomocniczymi z `assets/effects/`.
 
 Etap `spore` ma łagodniejszy plan ruchu niż starsze etapy: mikroprzesunięcia, mniejszy squash/stretch i one-shot timing z holdem ostatniej klatki w czasie działania. Zarodnik nie może wykonywać szybkiego naprzemiennego ruchu lewo/prawo tylko dlatego, że dorosła Pieczarka znosi większą amplitudę.
 
@@ -48,7 +56,7 @@ assets/source/imagegen/raw/neutral_rain_atlas.png
 assets/source/imagegen/cutouts/easter-eggs/neutral_rain/<stage>.png
 ```
 
-Builder nie rysuje ani nie dokleja miny `:|` do `idle_sheet.png` i nie rysuje parasolki pixel po pixelu. Czas działania `assets/easter-eggs/<stage>/neutral_sheet.png` oraz `assets/easter-eggs/<stage>/neutral_rain_sheet.png` są składane z wyrenderowanych wycinków i wspólnej frontowej trawy. Reakcje immersyjne, które zmieniają mimikę albo rekwizyt postaci, również powinny docelowo powstawać jako pełne PNG arkusze animacji, a nie jako canvasowy retusz twarzy.
+Builder nie rysuje ani nie dokleja miny `:|` do `idle_sheet.png` i nie rysuje parasolki pixel po pixelu. Runtime `assets/easter-eggs/<stage>/neutral_sheet.png` oraz `assets/easter-eggs/<stage>/neutral_rain_sheet.png` są body-only i składane z wyrenderowanych wycinków; wspólna trawa dochodzi dopiero w scenie. Reakcje immersyjne, które zmieniają mimikę albo rekwizyt postaci, również powinny powstawać jako pełne logiczne PNG arkusze animacji, a nie jako canvasowy retusz twarzy.
 
 Trawnik sceny też ma osobne wyrenderowane źródła:
 
@@ -58,7 +66,7 @@ assets/source/imagegen/cutouts/environment/grass_patch.png
 assets/environment/grass_patch.png
 ```
 
-`ClientSceneGround.html` rysuje ten zasób jako wypełnienie podłoża pod Pieczarką. Pojedyncze wyższe źdźbła są rysowane proceduralnie na canvasie, bo muszą reagować na aktualny kierunek, siłę i porywy wiatru.
+`ClientSceneGround.html` rysuje ten zasób jako wspólne wypełnienie podłoża pod Pieczarką, z stage-aware centralną polaną i lekkim foreground occluderem. Pojedyncze wyższe źdźbła są rysowane proceduralnie na canvasie, bo muszą reagować na aktualny kierunek, siłę, śnieg i porywy wiatru. Sprite postaci nie może ponownie zawierać baked grass.
 
 ## Opis Bazowy
 
@@ -79,21 +87,35 @@ Do tego dopisywany jest konkretny stan albo akcja, na przykład `state: WAKE`, `
 
 ## Budowanie Czasu Działania
 
+Pełna kolejność przebudowy jest istotna: builder zapisuje pełne klatki logiczne, a optimizer zastępuje je tight/dedup atlasami i regeneruje metadata.
+
 ```sh
 python3 scripts/build-imagegen-sprites.py
+python3 scripts/generate-immersion-assets.py
+python3 scripts/generate-immersion-assets.py --ui-art-pass
+python3 scripts/optimize-runtime-sprite-atlases.py
+python3 scripts/generate-battle-assets.py
 ```
 
 Skrypt tworzy:
 
 - `assets/stages/<stage>/<state>_sheet.png`
-- `assets/activities/<stage>/<activity>_sheet.png`, dla dopracowanych aktywności w kontrakcie `8` klatek
-- `assets/activities/<stage>/instrument_bell_sheet.png`, `instrument_flute_sheet.png`, `instrument_drum_sheet.png`, `instrument_rare_sheet.png` dla wariantów instrumentu wybieranych przez czas działania
-- kompatybilne mechanizmy zastępcze `assets/activities/<activity>_sheet.png` z wariantu `adult`
+- `assets/activities/<stage>/<activity>_sheet.png`, dla dopracowanych aktywności w kontrakcie `8` klatek logicznych
+- klucze `instrument_bell`, `instrument_flute`, `instrument_drum` i `instrument_rare` aliasowane w manifeście do etapowego `instrument_sheet.png`; osobne PNG wolno podłączyć dopiero po stworzeniu rzeczywiście odmiennego artu
 - `assets/easter-eggs/<stage>/neutral_sheet.png`
 - `assets/easter-eggs/<stage>/neutral_rain_sheet.png`
 - `assets/effects/<effect>_sheet.png`
 - `assets/environment/grass_patch.png`
 - pomocnicze wycinki w `assets/source/imagegen/cutouts/`
+
+`scripts/optimize-runtime-sprite-atlases.py` następnie:
+
+- wyznacza wspólny alpha-union dla wszystkich klatek logicznych danego sheetu;
+- przycina przezroczyste marginesy bez zmiany logicznego położenia;
+- deduplikuje identyczne klatki fizyczne;
+- zapisuje `frameWidth`, `frameHeight`, `drawX`, `drawY`, `storedFrameCount`, `frameSequence` i `bakedGrass: false` w generowanym `SpriteLayout.gs`.
+
+`scripts/generate-battle-assets.py` niezależnie tworzy `assets/battle/arena_background.png` oraz cztery body-only sheety wojowników. Generator jest deterministyczny i korzysta z kuratorowanych wycinków `young`, `adult` i `legendary`; nie wywołuje modelu graficznego podczas lokalnego buildu.
 
 Stan `excellent` jest czyszczony z odklejonych, statycznych gwiazdek z atlasu źródłowego. Builder zachowuje samą postać, a potem dokłada deterministyczne, klatkowane mikro-błyski w gotowym arkuszu. Dzięki temu promienienie Pieczarki jest animowane w PNG, bez canvasowych plusów skaczących wokół postaci.
 
@@ -103,30 +125,40 @@ Reakcje immersyjne (`curious`, warianty bezczynności i zamyślenia, reakcje kur
 python3 scripts/generate-immersion-assets.py
 ```
 
-Stary `scripts/generate-pixel-assets.py` deleguje do tego buildera, jeżeli wykryje `assets/source/imagegen/raw/idle_atlas.png`, a potem odświeża reakcje immersyjne.
+Polish 0.1.50 nie wymagał nowego modelowego bitmapowego źródła. Dla spójności sylwetki i pełnej odtwarzalności `generate-immersion-assets.py --ui-art-pass` przebudowuje 35 sheetów fidget/cursor z kuratorowanych wycinków etapów oraz dokłada finalny, deterministyczny polish `spore/feed` i `spore/instrument` do bazowych klatek odtworzonych przez `build-imagegen-sprites.py`. Generatory są idempotentne: ponowne uruchomienie na tych samych źródłach musi dać te same PNG, po czym optimizer odświeża tight crop, deduplikację i `SpriteLayout.gs`.
+
+Nowy obraz z generatora jest uzasadniony dopiero wtedy, gdy istniejące źródło nie może wyrazić nowej sylwetki, rekwizytu albo czytelnej pozy. Mikroprzesunięcie, kierunek spojrzenia, timing oraz korekta baseline pozostają zadaniem deterministycznego buildera; nie tworzymy dla nich kolejnego nieudokumentowanego raw atlasu.
+
+Stary `scripts/generate-pixel-assets.py` deleguje do tego buildera, jeżeli wykryje `assets/source/imagegen/raw/idle_atlas.png`, a potem odświeża reakcje immersyjne. Po użyciu legacy entrypointu nadal trzeba uruchomić `python3 scripts/generate-immersion-assets.py --ui-art-pass`, a następnie optimizer, ponieważ runtime nie powinien stracić polishu 0.1.50 ani zostać z pełnymi, niededuplicowanymi atlasami.
+
+## Provenance i zmiany źródeł
+
+- Nowy art imagegenowy najpierw trafia do `assets/source/imagegen/raw/` lub kuratorowanego katalogu źródłowego, nigdy bezpośrednio do tight PNG runtime.
+- `assets/source/imagegen/PROVENANCE.json` musi wskazać kolekcję, origin, model lub jawne `unknown`, datę, builder, postprocess i ręczne korekty.
+- Deterministyczne pochodne nie deklarują modelu: wskazują builder i konkretne source paths.
+- Nie edytujemy ręcznie `SpriteLayout.gs`; metadata musi dać się odtworzyć z PNG przez optimizer.
+- Nie podmieniamy istniejącego wydanego katalogu assetów. Aktualna paczka docelowa należy do wersji `0.1.50`.
 
 ## Walidacja
 
 ```sh
-python3 -m py_compile scripts/build-imagegen-sprites.py scripts/generate-pixel-assets.py scripts/generate-immersion-assets.py
+python3 -m py_compile scripts/build-imagegen-sprites.py scripts/generate-pixel-assets.py scripts/generate-immersion-assets.py scripts/generate-battle-assets.py scripts/optimize-runtime-sprite-atlases.py scripts/sprite_layout.py
 python3 scripts/build-imagegen-sprites.py
+python3 scripts/generate-immersion-assets.py
+python3 scripts/generate-immersion-assets.py --ui-art-pass
+python3 scripts/optimize-runtime-sprite-atlases.py
+python3 scripts/generate-battle-assets.py
+python3 scripts/optimize-runtime-sprite-atlases.py --check
+python3 scripts/generate-battle-assets.py --check
+node scripts/test-animation-render-contracts.mjs
+node scripts/test-battle-visual-contracts.mjs
+node scripts/test-grass-wind-motion.mjs
 node scripts/validate-assets.mjs
 python3 scripts/audit-activity-sprite-motion.py
-python3 scripts/generate-instrument-variant-assets.py
 python3 scripts/audit-glint-sprites.py
 python3 scripts/audit-sprite-consistency.py
-PIECZARGOTCHI_CAPTURE_STAGES=1 PIECZARGOTCHI_CAPTURE_ACTIVITIES=1 node scripts/capture-app-render.mjs http://127.0.0.1:8092/ /tmp/pieczargotchi-imagegen-final
-PIECZARGOTCHI_CAPTURE_VIEWPORT=1 PIECZARGOTCHI_CAPTURE_STAGES=1 PIECZARGOTCHI_CAPTURE_ACTIVITIES=1 PIECZARGOTCHI_CAPTURE_IMMERSION=1 node scripts/capture-app-render.mjs http://127.0.0.1:8092/ /tmp/pieczargotchi-ui-final
+python3 scripts/audit-sprite-frame-quality.py
+python3 scripts/audit-sprite-chroma.py --strict
 ```
 
-Ostatnia walidacja:
-
-- `253` arkusze animacji PNG i `1` asset środowiska przechodza `validate-assets`,
-- manifest czas działania laduje `246` zasobów: stage, activity, easter egg, effect i environment; poza manifestem zostaja swiadomie walidowane tylko mechanizmy zastępcze `assets/activities/*.png`,
-- stany bazowe, aktywności, neutralne easter eggi i nowe reakcje kursora trzymaja rozmiar/baseline w każdym etapie,
-- dopracowane aktywności są sprawdzane jako `8`-klatkowe, osobne dla etapu arkusze animacji z gęstem w PNG, nie jako 4-klatkowy idle z canvasowym efektem,
-- `spore` activity timing jest one-shot/hold w zakresie ludzkiego okna aktywności, a audyt lapie zbyt duzy drift i cienkie jasne poziome pasy typu "laser",
-- `clean` zachowuje split: activity arkusz animacji czysci, a brud niskiej `cleanliness` pozostaje overlayem/stanem renderera,
-- `spore/sleep` zachowuje split: PNG pokazuje spiace cialo, a `zZz` i zarodniki nie są wklejone w arkusz animacji snu,
-- lokalny capture potwierdza osobne animacje akcji i reakcje immersyjne, w tym `watch_cursor_*`, `follow_cursor_*`, warianty `idle_fidget` oraz warianty `ponder`,
-- viewport/canvas capture potwierdza czytelny render bez checkerboardu w obszarze canvasu.
+To jest gate kontraktowy, nie dowód kompozycji sceny. Po nim uruchom pełne `npm run qa` i browser capture dla wszystkich etapów, aktywności, immersji, pogody oraz areny na desktopie i mobile. Nie opisuj wydania jako zielonego, jeżeli `--check`, `validate-assets`, strict chroma albo capture nie zakończyły się sukcesem.
