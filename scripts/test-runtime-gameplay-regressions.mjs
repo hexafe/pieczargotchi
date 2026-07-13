@@ -708,6 +708,7 @@ test('action-state render labels read-only and foreign-session mutation blocks w
     isRuntimeMutationBlocked: () => true,
     isRuntimeReadOnly: () => readOnly,
     hasNamedMushroom: () => true,
+    getExclusiveGameplaySessionForUi: () => null,
     updateMobileActionTrayState: () => {}
   });
   renderActionStates();
@@ -738,6 +739,525 @@ test('persistence conflicts are reconciled after the current minigame callback u
   assert(typeof scheduled === 'function' && runtime.persistenceConflictTimer === 77, 'expected exactly one deferred reconciliation');
   scheduled();
   assert(resolved === 1 && runtime.persistenceConflictTimer === null, 'expected deferred conflict reconciliation to run once');
+});
+
+test('active and pending exclusive sessions block every non-session mutation without persistence', () => {
+  const actionsSource = readFileSync(path.join(rootDir, 'ClientActions.html'), 'utf8');
+  const bootSource = readFileSync(path.join(rootDir, 'ClientBoot.html'), 'utf8');
+  const scenarios = [
+    { label: 'active battle', battle: { id: 'battle-active', mode: 'active' } },
+    { label: 'pending battle', pending: { kind: 'battle', phase: 'turn', id: 'battle-pending' } },
+    { label: 'active minigame', minigame: { id: 'dewCatch', startedAt: 100, until: 1000, runtimeToken: 'minigame-active' } },
+    { label: 'pending minigame', pending: { kind: 'minigame', phase: 'start', id: 'sporePop', runtimeToken: 'minigame-pending' } }
+  ];
+
+  scenarios.forEach((scenario) => {
+    const state = makeProgressionState();
+    state.battle.activeBattle = scenario.battle || null;
+    state.minigames.active = scenario.minigame || null;
+    const runtime = { state, pendingExclusiveStart: scenario.pending || null, viewMode: 'care' };
+    const before = JSON.stringify(state);
+    let persistCalls = 0;
+    let messageCalls = 0;
+    const getExclusiveGameplaySession = evaluateFunction(actionsSource, 'getExclusiveGameplaySession', { runtime });
+    const guardNonSessionMutation = evaluateFunction(actionsSource, 'guardNonSessionMutation', {
+      getExclusiveGameplaySession,
+      runtime,
+      setTransientMessage: () => {
+        messageCalls += 1;
+        runtime.state.currentActivity = { type: 'notice', label: 'blocked' };
+      },
+      renderUi: () => {}
+    });
+    const common = {
+      runtime,
+      guardNonSessionMutation,
+      isRuntimeMutationBlocked: () => false,
+      renderPersistenceStatus: () => {},
+      persistRuntimeState: () => { persistCalls += 1; }
+    };
+    const calls = [
+      [evaluateFunction(actionsSource, 'handleAction', Object.assign({}, common, {
+        actionsById: new Map([['hydrate', { id: 'hydrate', label: 'Zraszanie' }]])
+      })), ['hydrate', 'test']],
+      [evaluateFunction(actionsSource, 'handleDailyRhythmSelect', common), ['calm']],
+      [evaluateFunction(actionsSource, 'handleBattleTrain', common), ['strength']],
+      [evaluateFunction(actionsSource, 'handleDecorationBuy', common), ['fern']],
+      [evaluateFunction(actionsSource, 'handleHabitatVisitorGreet', common), ['visitor']],
+      [evaluateFunction(actionsSource, 'handleSporeExpeditionStart', common), ['nearby']],
+      [evaluateFunction(actionsSource, 'handleSporeExpeditionClaim', common), []],
+      [evaluateFunction(bootSource, 'performGameReset', common), []]
+    ];
+    calls.forEach(([handler, args]) => handler(...args));
+
+    assert(JSON.stringify(state) === before, `${scenario.label} must keep state byte-equivalent`);
+    assert(persistCalls === 0, `${scenario.label} must perform zero persistence writes`);
+    assert(messageCalls === calls.length, `${scenario.label} must explain every blocked operation`);
+
+    const canRunAction = evaluateFunction(actionsSource, 'canRunAction', {
+      window: { PieczargotchiCore: {} },
+      runtime,
+      hasNamedMushroom: () => true,
+      guardNonSessionMutation,
+      getExclusiveGameplaySession
+    });
+    const availability = canRunAction({ id: 'hydrate' }, 200);
+    assert(!availability.ok, `${scenario.label} must disable care action availability`);
+  });
+
+  const terminalRuntime = { state: makeProgressionState(), pendingExclusiveStart: null };
+  terminalRuntime.state.battle.activeBattle = { id: 'done', mode: 'victory' };
+  const getTerminal = evaluateFunction(actionsSource, 'getExclusiveGameplaySession', { runtime: terminalRuntime });
+  assert(getTerminal() === null, 'terminal battle results must not remain exclusive');
+
+  const runtimeMessageState = makeProgressionState();
+  runtimeMessageState.battle.activeBattle = { id: 'battle-message', mode: 'active' };
+  const runtimeMessage = { state: runtimeMessageState, pendingExclusiveStart: null };
+  const runtimeMessageBefore = JSON.stringify(runtimeMessageState);
+  const getRuntimeMessageSession = evaluateFunction(actionsSource, 'getExclusiveGameplaySession', { runtime: runtimeMessage });
+  let runtimeMessageCalls = 0;
+  const runtimeOnlyGuard = evaluateFunction(actionsSource, 'guardNonSessionMutation', {
+    runtime: runtimeMessage,
+    getExclusiveGameplaySession: getRuntimeMessageSession,
+    setNonSessionGuardUiMessage: () => { runtimeMessageCalls += 1; },
+    setTransientMessage: () => { throw new Error('save-backed transient fallback must not run'); },
+    renderUi: () => {}
+  });
+  assert(runtimeOnlyGuard('Arena') && runtimeMessageCalls === 1, 'available UI seam must receive the block message');
+  assert(JSON.stringify(runtimeMessageState) === runtimeMessageBefore, 'runtime-only guard message must not touch save state');
+});
+
+test('modal and exclusive-session guards prevent global care shortcuts', () => {
+  const bootSource = readFileSync(path.join(rootDir, 'ClientBoot.html'), 'utf8');
+  const guardSource = readFileSync(path.join(rootDir, 'ClientInputGuards.html'), 'utf8');
+  const runtime = { ui: { activeModal: 'settings' } };
+  const dom = { nameGate: { hidden: true } };
+  const modalDocument = { querySelector: () => null };
+  const isUiInputModalActive = evaluateFunction(guardSource, 'isUiInputModalActive', { runtime, dom, document: modalDocument });
+  assert(isUiInputModalActive(), 'runtime modal must block global input');
+  runtime.ui.activeModal = null;
+  dom.nameGate.hidden = false;
+  assert(isUiInputModalActive(), 'visible name gate must block global input');
+  dom.nameGate.hidden = true;
+
+  let keydown = null;
+  let actionCalls = 0;
+  let exclusive = null;
+  let modalOpen = true;
+  const bindKeyboardShortcuts = evaluateFunction(bootSource, 'bindKeyboardShortcuts', {
+    document: { addEventListener: (_type, handler) => { keydown = handler; } },
+    actions: [{ id: 'hydrate', shortcut: 'N' }],
+    shouldIgnoreShortcut: () => false,
+    isUiInputModalActive: () => modalOpen,
+    getExclusiveGameplaySession: () => exclusive,
+    handleAction: () => { actionCalls += 1; },
+    flashActionButton: () => {}
+  });
+  bindKeyboardShortcuts();
+  const event = () => ({
+    key: 'n', target: { tagName: 'BUTTON' }, defaultPrevented: false,
+    ctrlKey: false, metaKey: false, altKey: false, isComposing: false, repeat: false,
+    preventDefault() {}
+  });
+  keydown(event());
+  modalOpen = false;
+  exclusive = { kind: 'battle', phase: 'active', id: 'battle' };
+  keydown(event());
+  exclusive = null;
+  keydown(event());
+  assert(actionCalls === 1, 'care shortcut must run only with no modal and no exclusive session');
+});
+
+test('exclusive navigation keeps battle and pending minigame in their required workspaces', () => {
+  const actionsSource = readFileSync(path.join(rootDir, 'ClientActions.html'), 'utf8');
+  const dewSource = readFileSync(path.join(rootDir, 'ClientMinigameDewCatch.html'), 'utf8');
+  const uiSource = readFileSync(path.join(rootDir, 'ClientUi.html'), 'utf8');
+
+  const battleRuntime = { state: makeProgressionState(), pendingExclusiveStart: null, viewMode: 'care' };
+  battleRuntime.state.battle.activeBattle = { id: 'battle', mode: 'active' };
+  const getBattle = evaluateFunction(actionsSource, 'getExclusiveGameplaySession', { runtime: battleRuntime });
+  const guardBattle = evaluateFunction(actionsSource, 'guardNonSessionMutation', {
+    runtime: battleRuntime,
+    getExclusiveGameplaySession: getBattle,
+    setTransientMessage: () => {},
+    renderUi: () => {}
+  });
+  const setBattleView = evaluateFunction(actionsSource, 'setViewMode', {
+    runtime: battleRuntime,
+    getExclusiveGameplaySession: getBattle,
+    guardNonSessionMutation: guardBattle,
+    isArenaUnlockedForRuntime: () => true,
+    isLegendaryMinigameRuntimeId: () => false
+  });
+  setBattleView('care');
+  assert(battleRuntime.viewMode === 'arena', 'active battle must force Arena view');
+
+  const pendingRuntime = {
+    state: makeProgressionState(),
+    pendingExclusiveStart: { kind: 'minigame', phase: 'start', id: 'sporePop', legendary: false },
+    viewMode: 'arena',
+    ui: {}
+  };
+  const getPending = evaluateFunction(actionsSource, 'getExclusiveGameplaySession', { runtime: pendingRuntime });
+  const guardPending = evaluateFunction(actionsSource, 'guardNonSessionMutation', {
+    runtime: pendingRuntime,
+    getExclusiveGameplaySession: getPending,
+    setTransientMessage: () => {},
+    renderUi: () => {}
+  });
+  let returnedToMinigame = 0;
+  const setPendingView = evaluateFunction(actionsSource, 'setViewMode', {
+    runtime: pendingRuntime,
+    getExclusiveGameplaySession: getPending,
+    guardNonSessionMutation: guardPending,
+    isArenaUnlockedForRuntime: () => true,
+    isLegendaryMinigameRuntimeId: () => false,
+    returnToActiveMinigame: () => { returnedToMinigame += 1; }
+  });
+  setPendingView('arena');
+  assert(pendingRuntime.viewMode === 'care' && returnedToMinigame === 1, 'pending ordinary minigame must force Games view');
+
+  const pendingStateBefore = JSON.stringify(pendingRuntime.state);
+  let prevented = 0;
+  let stopped = 0;
+  let persistCalls = 0;
+  let guardRenderCalls = 0;
+  const realSetTransientMessage = evaluateFunction(uiSource, 'setTransientMessage', {
+    runtime: pendingRuntime,
+    getRuntimeNow: () => 500,
+    formatMushroomText: (value) => String(value || '')
+  });
+  const navigationMutationGuard = evaluateFunction(actionsSource, 'guardNonSessionMutation', {
+    runtime: pendingRuntime,
+    getExclusiveGameplaySession: getPending,
+    setTransientMessage: realSetTransientMessage,
+    persistRuntimeState: () => { persistCalls += 1; },
+    renderUi: () => { guardRenderCalls += 1; }
+  });
+  const showNavigationGuard = evaluateFunction(dewSource, 'showActiveMinigameNavigationGuard', {
+    guardNonSessionMutation: navigationMutationGuard
+  });
+  const isNavigationAllowed = evaluateFunction(dewSource, 'isMinigameNavigationTargetAllowed', {
+    isLegendaryMinigameRuntimeId: () => false
+  });
+  const navigationContext = {
+    getExclusiveGameplaySession: getPending,
+    isMinigameNavigationTargetAllowed: isNavigationAllowed,
+    showActiveMinigameNavigationGuard: showNavigationGuard,
+    returnToActiveMinigame: () => { returnedToMinigame += 1; }
+  };
+  const guardNavigation = evaluateFunction(dewSource, 'guardActiveMinigameNavigation', navigationContext);
+  const guardNavigationKeydown = evaluateFunction(dewSource, 'guardActiveMinigameNavigationKeydown', navigationContext);
+  const blockedTarget = { dataset: { workspaceTab: 'care' } };
+  const allowedTarget = { dataset: { workspaceTab: 'games' } };
+  const navigationEvent = (target, key) => ({
+    key,
+    target: { closest: () => target },
+    preventDefault: () => { prevented += 1; },
+    stopImmediatePropagation: () => { stopped += 1; }
+  });
+  guardNavigation(navigationEvent(allowedTarget));
+  guardNavigationKeydown(navigationEvent(allowedTarget, 'ArrowRight'));
+  assert(prevented === 0 && stopped === 0, 'current minigame tab must remain available to click and keyboard navigation');
+
+  guardNavigation(navigationEvent(blockedTarget));
+  guardNavigationKeydown(navigationEvent(blockedTarget, 'ArrowRight'));
+  assert(prevented === 2 && stopped === 2, 'pending minigame must block unrelated click and keyboard navigation');
+  assert(guardRenderCalls === 2 && returnedToMinigame === 3, 'each blocked navigation must explain and return to the minigame');
+  assert(JSON.stringify(pendingRuntime.state) === pendingStateBefore, 'pending navigation guard must leave CAS source state byte-equivalent');
+  assert(persistCalls === 0, 'pending navigation guard must perform zero persistence writes');
+});
+
+test('minigame keyboard handlers require the focused canvas and ignore form controls and dialogs', () => {
+  const sources = {
+    dew: readFileSync(path.join(rootDir, 'ClientMinigameDewCatch.html'), 'utf8'),
+    spore: readFileSync(path.join(rootDir, 'ClientMinigameSporePop.html'), 'utf8'),
+    compost: readFileSync(path.join(rootDir, 'ClientMinigameCompostSort.html'), 'utf8'),
+    rhythm: readFileSync(path.join(rootDir, 'ClientMinigameRhythmHum.html'), 'utf8'),
+    legendary: readFileSync(path.join(rootDir, 'ClientLegendaryGames.html'), 'utf8')
+  };
+  let modalOpen = false;
+  const input = { tagName: 'INPUT' };
+  const makeEvent = (key, target) => ({
+    key, target, ctrlKey: false, metaKey: false, altKey: false, isComposing: false, repeat: false,
+    preventDefault() {}
+  });
+  const shouldHandleMinigameKeydown = (event, canvas) => !modalOpen && event.target === canvas;
+  const common = {
+    getRuntimeNow: () => 150,
+    shouldHandleMinigameKeydown,
+    isCurrentMinigameInputAllowed: () => true
+  };
+
+  const dewCanvas = { width: 240 };
+  const dewRuntime = { minigame: { session: { id: 'dewCatch' }, bucket: { x: 10, targetX: 10, width: 40 } } };
+  const dew = evaluateFunction(sources.dew, 'handleDewCatchKeydown', Object.assign({}, common, {
+    runtime: dewRuntime,
+    dom: { dewCatchCanvas: dewCanvas },
+    clampDewBucketX: (value) => value
+  }));
+  dew(makeEvent('ArrowRight', input));
+  modalOpen = true;
+  dew(makeEvent('ArrowRight', dewCanvas));
+  modalOpen = false;
+  dew(makeEvent('ArrowRight', dewCanvas));
+  assert(dewRuntime.minigame.bucket.targetX === 36, 'dew input must run exactly once on its focused canvas');
+
+  const sporeCanvas = {};
+  const sporeRuntime = { minigame: { session: { id: 'sporePop' }, keyboardTargetIndex: 0 } };
+  let sporeScores = 0;
+  const spore = evaluateFunction(sources.spore, 'handleSporePopKeydown', Object.assign({}, common, {
+    runtime: sporeRuntime,
+    dom: { sporePopCanvas: sporeCanvas },
+    getVisibleSporePopTargets: () => [{ spore: { id: 'spore' }, position: { x: 1, y: 2 } }],
+    positiveModulo: (value) => value,
+    scoreSporePopTarget: () => { sporeScores += 1; }
+  }));
+  spore(makeEvent('Enter', input));
+  modalOpen = true;
+  spore(makeEvent('Enter', sporeCanvas));
+  modalOpen = false;
+  spore(makeEvent('Enter', sporeCanvas));
+  assert(sporeScores === 1, 'spore input must ignore forms and dialogs');
+
+  const compostCanvas = {};
+  const compostRuntime = { minigame: { session: { id: 'compostSort' }, keyboardPieceIndex: 0 } };
+  let compostScores = 0;
+  const compost = evaluateFunction(sources.compost, 'handleCompostSortKeydown', Object.assign({}, common, {
+    runtime: compostRuntime,
+    dom: { compostSortCanvas: compostCanvas },
+    getVisibleKeyboardCompostPieces: () => [{ piece: { id: 'leaf' }, position: { x: 1, y: 2 } }],
+    positiveModulo: (value) => value,
+    finishCompostSortDrag: () => { compostScores += 1; }
+  }));
+  compost(makeEvent('c', input));
+  modalOpen = true;
+  compost(makeEvent('c', compostCanvas));
+  modalOpen = false;
+  compost(makeEvent('c', compostCanvas));
+  assert(compostScores === 1, 'compost input must ignore forms and dialogs');
+
+  const rhythmCanvas = {};
+  const rhythmRuntime = { minigame: { session: { id: 'rhythmHum' } } };
+  let rhythmScores = 0;
+  const rhythm = evaluateFunction(sources.rhythm, 'handleRhythmHumKeydown', Object.assign({}, common, {
+    runtime: rhythmRuntime,
+    dom: { rhythmHumCanvas: rhythmCanvas },
+    RHYTHM_HUM_KEY_TO_LANE: { ArrowLeft: 'left' },
+    scoreRhythmHumLane: () => { rhythmScores += 1; }
+  }));
+  rhythm(makeEvent('ArrowLeft', input));
+  modalOpen = true;
+  rhythm(makeEvent('ArrowLeft', rhythmCanvas));
+  modalOpen = false;
+  rhythm(makeEvent('ArrowLeft', rhythmCanvas));
+  assert(rhythmScores === 1, 'rhythm input must ignore forms and dialogs');
+
+  const legendaryCanvas = {};
+  const legendaryRuntime = { minigame: { session: { id: 'memoryGarden' } } };
+  let legendaryScores = 0;
+  const legendary = evaluateFunction(sources.legendary, 'handleLegendaryGameKeydown', Object.assign({}, common, {
+    runtime: legendaryRuntime,
+    dom: { legendaryGameCanvas: legendaryCanvas },
+    isLegendaryMinigameRuntimeId: () => true,
+    getNextLegendaryTarget: () => ({ id: 'memory' }),
+    scoreLegendaryGameTarget: () => { legendaryScores += 1; },
+    registerLegendaryGameMiss: () => {},
+    positiveModulo: (value) => value
+  }));
+  legendary(makeEvent('Enter', input));
+  modalOpen = true;
+  legendary(makeEvent('Enter', legendaryCanvas));
+  modalOpen = false;
+  legendary(makeEvent('Enter', legendaryCanvas));
+  assert(legendaryScores === 1, 'legendary input must ignore forms and dialogs');
+});
+
+test('minigame input expires at the exact deadline while pointer cancel only clears local drag', () => {
+  const guardSource = readFileSync(path.join(rootDir, 'ClientInputGuards.html'), 'utf8');
+  const dewSource = readFileSync(path.join(rootDir, 'ClientMinigameDewCatch.html'), 'utf8');
+  const sporeSource = readFileSync(path.join(rootDir, 'ClientMinigameSporePop.html'), 'utf8');
+  const compostSource = readFileSync(path.join(rootDir, 'ClientMinigameCompostSort.html'), 'utf8');
+  const session = { id: 'sporePop', startedAt: 100, until: 200, runtimeToken: 'token' };
+  const runtime = {
+    state: { minigames: { active: Object.assign({}, session) } },
+    minigame: { session: Object.assign({}, session), score: 0 },
+    exclusiveSession: { kind: 'minigame', id: 'sporePop', token: 'token' },
+    ui: { activeModal: null }
+  };
+  const modalDom = { nameGate: { hidden: true } };
+  const modalDocument = { querySelector: () => null };
+  const isUiInputModalActive = evaluateFunction(guardSource, 'isUiInputModalActive', {
+    runtime,
+    dom: modalDom,
+    document: modalDocument
+  });
+  const getMinigameLaunchPhase = evaluateFunction(dewSource, 'getMinigameLaunchPhase', {});
+  const isCurrentMinigameInputAllowed = evaluateFunction(guardSource, 'isCurrentMinigameInputAllowed', {
+    runtime,
+    getRuntimeNow: () => 200,
+    getMinigameLaunchPhase,
+    isUiInputModalActive,
+    isForeignExclusiveSessionActive: () => false,
+    doesRuntimeMinigameSessionMatch: (left, right) => Boolean(right
+      && left.id === right.id
+      && left.startedAt === right.startedAt
+      && left.runtimeToken === right.runtimeToken)
+  });
+  assert(isCurrentMinigameInputAllowed(runtime.minigame.session, 199), 'owned running session input must remain available before deadline');
+  assert(!isCurrentMinigameInputAllowed(runtime.minigame.session, 200), 'input must expire at now === until');
+  runtime.exclusiveSession.token = 'stale-token';
+  assert(!isCurrentMinigameInputAllowed(runtime.minigame.session, 199), 'stale runtime token must reject input');
+  runtime.exclusiveSession.token = 'token';
+
+  const canvas = {};
+  let modalOpen = false;
+  const document = { activeElement: canvas };
+  const shouldHandleMinigameKeydown = evaluateFunction(guardSource, 'shouldHandleMinigameKeydown', {
+    document,
+    getRuntimeNow: () => 199,
+    isCurrentMinigameInputAllowed,
+    isUiInputModalActive: () => modalOpen
+  });
+  assert(!shouldHandleMinigameKeydown({ target: { tagName: 'INPUT' } }, canvas, runtime.minigame.session), 'form target must reject minigame keyboard input');
+  modalOpen = true;
+  assert(!shouldHandleMinigameKeydown({ target: canvas }, canvas, runtime.minigame.session), 'open dialog must reject minigame keyboard input');
+  modalOpen = false;
+  assert(shouldHandleMinigameKeydown({ target: canvas }, canvas, runtime.minigame.session), 'focused canvas must accept owned running input');
+
+  let prevented = false;
+  const pointer = evaluateFunction(sporeSource, 'handleSporePopPointer', {
+    runtime,
+    dom: { sporePopCanvas: {} },
+    getRuntimeNow: () => 200,
+    isCurrentMinigameInputAllowed
+  });
+  const before = JSON.stringify(runtime.minigame.session);
+  pointer({ preventDefault: () => { prevented = true; } });
+  assert(JSON.stringify(runtime.minigame.session) === before && !prevented, 'deadline pointer must not score or consume input');
+
+  const compostSession = { id: 'compostSort', score: 7 };
+  const compostRuntime = { minigame: { session: compostSession, dragging: { id: 'leaf' } } };
+  const cancel = evaluateFunction(compostSource, 'handleCompostSortPointer', {
+    runtime: compostRuntime,
+    dom: { compostSortCanvas: {} }
+  });
+  cancel({ type: 'pointercancel' });
+  assert(compostRuntime.minigame.dragging === null && compostSession.score === 7, 'pointercancel must clear drag without changing score');
+});
+
+test('modal and name gate block minigame pointers while captured compost drag still cleans up', () => {
+  const guardSource = readFileSync(path.join(rootDir, 'ClientInputGuards.html'), 'utf8');
+  const actionsSource = readFileSync(path.join(rootDir, 'ClientActions.html'), 'utf8');
+  const dewSource = readFileSync(path.join(rootDir, 'ClientMinigameDewCatch.html'), 'utf8');
+  const compostSource = readFileSync(path.join(rootDir, 'ClientMinigameCompostSort.html'), 'utf8');
+  const dewSession = { id: 'dewCatch', startedAt: 100, until: 300, runtimeToken: 'dew-token', score: 4 };
+  const runtime = {
+    state: { minigames: { active: Object.assign({}, dewSession) } },
+    minigame: {
+      session: Object.assign({}, dewSession),
+      bucket: { x: 40, targetX: 40, width: 20 }
+    },
+    exclusiveSession: { kind: 'minigame', id: 'dewCatch', token: 'dew-token' },
+    ui: { activeModal: 'settings' }
+  };
+  const dom = {
+    nameGate: { hidden: true },
+    dewCatchCanvas: {
+      width: 240,
+      getBoundingClientRect: () => ({ left: 0, width: 240 })
+    }
+  };
+  const document = { querySelector: () => null };
+  const isUiInputModalActive = evaluateFunction(guardSource, 'isUiInputModalActive', { runtime, dom, document });
+  const getMinigameLaunchPhase = evaluateFunction(dewSource, 'getMinigameLaunchPhase', {});
+  const doesRuntimeMinigameSessionMatch = evaluateFunction(actionsSource, 'doesRuntimeMinigameSessionMatch', {});
+  const isCurrentMinigameInputAllowed = evaluateFunction(guardSource, 'isCurrentMinigameInputAllowed', {
+    runtime,
+    getRuntimeNow: () => 150,
+    getMinigameLaunchPhase,
+    isUiInputModalActive,
+    isForeignExclusiveSessionActive: () => false,
+    doesRuntimeMinigameSessionMatch
+  });
+  let prevented = 0;
+  let focused = 0;
+  const dewPointer = evaluateFunction(dewSource, 'handleDewCatchPointer', {
+    runtime,
+    dom,
+    getRuntimeNow: () => 150,
+    isCurrentMinigameInputAllowed,
+    focusMinigameCanvas: () => { focused += 1; },
+    clampDewBucketX: (value) => value
+  });
+  const pointerEvent = {
+    type: 'pointermove',
+    clientX: 180,
+    preventDefault: () => { prevented += 1; }
+  };
+  dewPointer(pointerEvent);
+  assert(runtime.minigame.bucket.targetX === 40 && runtime.minigame.session.score === 4, 'dialog must block dew pointer movement and scoring');
+
+  runtime.ui.activeModal = null;
+  dom.nameGate.hidden = false;
+  dewPointer(pointerEvent);
+  assert(runtime.minigame.bucket.targetX === 40 && focused === 0 && prevented === 0, 'name gate must also block dew pointer input');
+
+  const compostSession = { id: 'compostSort', startedAt: 100, until: 300, runtimeToken: 'compost-token', score: 9 };
+  runtime.state.minigames.active = Object.assign({}, compostSession);
+  runtime.minigame = {
+    session: Object.assign({}, compostSession),
+    dragging: { id: 'leaf', x: 10, y: 10 }
+  };
+  runtime.exclusiveSession = { kind: 'minigame', id: 'compostSort', token: 'compost-token' };
+  runtime.ui.activeModal = 'settings';
+  dom.nameGate.hidden = true;
+  dom.compostSortCanvas = {};
+  const compostPointer = evaluateFunction(compostSource, 'handleCompostSortPointer', {
+    runtime,
+    dom,
+    getRuntimeNow: () => 150,
+    isCurrentMinigameInputAllowed
+  });
+  compostPointer({
+    type: 'pointerup',
+    preventDefault: () => { prevented += 1; }
+  });
+  assert(runtime.minigame.dragging === null, 'captured pointerup behind a modal must clear local compost drag');
+  assert(runtime.minigame.session.score === 9 && prevented === 0, 'modal pointerup must not score or consume gameplay input');
+});
+
+test('battle moves remain valid session-local mutations', () => {
+  const source = readFileSync(path.join(rootDir, 'ClientActions.html'), 'utf8');
+  const state = makeProgressionState();
+  state.battle.activeBattle = { id: 'battle', mode: 'active', runtimeToken: 'battle-token', turn: 0 };
+  const runtime = { state, pendingExclusiveStart: null, exclusiveSession: { kind: 'battle', id: 'battle' } };
+  let resolveCalls = 0;
+  const handleBattleMove = evaluateFunction(source, 'handleBattleMove', {
+    runtime,
+    window: { PieczargotchiCore: {
+      resolveBattleRound: (active) => {
+        resolveCalls += 1;
+        return Object.assign({}, active, { turn: 1, mode: 'active' });
+      }
+    } },
+    rules: { battle: { moveCatalog: [] } },
+    isRuntimeMutationBlocked: () => false,
+    isMinigameActive: () => false,
+    ensureMushroomNamed: () => true,
+    getRuntimeNow: () => 150,
+    isGameOverForRuntime: () => false,
+    isRecoveryActiveForRuntime: () => false,
+    deepClone: (value) => JSON.parse(JSON.stringify(value)),
+    addBattleLogEntry: () => {},
+    formatBattleEvents: () => '',
+    assignExclusiveSessionOwnership: () => {},
+    getExclusiveOwnershipNow: () => 150,
+    persistExclusiveStartCandidate: (candidate, _base, _pending, callback) => callback({ ok: true }, candidate),
+    renderUi: () => {}
+  });
+  handleBattleMove('strike');
+  assert(resolveCalls === 1 && runtime.state.battle.activeBattle.turn === 1, 'battle move must survive non-session guards');
 });
 
 test('client bundle has no duplicate top-level named helper declarations', () => {

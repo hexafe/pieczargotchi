@@ -77,6 +77,11 @@
       return;
     }
 
+    const session = runtime.minigame.session;
+    const now = getRuntimeNow();
+    if (!isCurrentMinigameInputAllowed(session, now)) {
+      return;
+    }
     event.preventDefault();
     const canvas = dom.legendaryGameCanvas;
     focusMinigameCanvas(canvas);
@@ -85,7 +90,6 @@
     const scaleY = canvas.height / Math.max(1, rect.height);
     const x = (event.clientX - rect.left) * scaleX;
     const y = (event.clientY - rect.top) * scaleY;
-    const now = getRuntimeNow();
     const target = getLegendaryPointerTarget(x, y, now);
     if (!target) {
       registerLegendaryGameMiss(x, y, now);
@@ -113,6 +117,10 @@
     const session = runtime.minigame.session;
     const key = String(event.key || '').toLowerCase();
     const now = getRuntimeNow();
+    if (!shouldHandleMinigameKeydown(event, dom.legendaryGameCanvas, session)
+      || !isCurrentMinigameInputAllowed(session, now)) {
+      return;
+    }
     let target = null;
     if (session.id === 'myceliumLeague') {
       const laneIds = ['strike', 'guard', 'focus'];

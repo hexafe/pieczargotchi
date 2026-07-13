@@ -8,9 +8,12 @@ const indexSource = readFileSync(path.join(rootDir, 'Index.html'), 'utf8');
 const bootSource = readFileSync(path.join(rootDir, 'ClientBoot.html'), 'utf8');
 const actionsSource = readFileSync(path.join(rootDir, 'ClientActions.html'), 'utf8');
 const backupSource = readFileSync(path.join(rootDir, 'ClientBackup.html'), 'utf8');
+const debugSource = readFileSync(path.join(rootDir, 'ClientDebug.html'), 'utf8');
 const dewSource = readFileSync(path.join(rootDir, 'ClientMinigameDewCatch.html'), 'utf8');
 const compostSource = readFileSync(path.join(rootDir, 'ClientMinigameCompostSort.html'), 'utf8');
 const uiSource = readFileSync(path.join(rootDir, 'ClientUi.html'), 'utf8');
+const captureSource = readFileSync(path.join(rootDir, 'scripts/capture-app-render.mjs'), 'utf8');
+const browserSmokeSource = readFileSync(path.join(rootDir, 'scripts/test-browser-smoke.mjs'), 'utf8');
 
 test('mushroom copy substitutes only the explicit name token', () => {
   const runtime = { state: { mushroomName: 'Borowik', flags: { nameConfirmed: true } } };
@@ -238,11 +241,33 @@ test('import replacement happens only after explicit confirmation', () => {
 });
 
 test('view switching and workspace navigation keep an active minigame visible', () => {
-  assert(
-    actionsSource.includes('if (activeMinigame || pendingMinigame)')
-      && actionsSource.includes("isLegendaryMinigameRuntimeId(activeMinigame.id) ? 'arena' : 'care'"),
-    'top-level view guard is missing'
-  );
+  const runtime = { state: {}, viewMode: 'care', pendingExclusiveStart: null };
+  let guarded = 0;
+  let returned = 0;
+  let renders = 0;
+  let exclusive = { kind: 'minigame', phase: 'active', id: 'dewCatch' };
+  const setView = evaluateFunction(actionsSource, 'setViewMode', {
+    runtime,
+    isArenaUnlockedForRuntime: () => true,
+    getExclusiveGameplaySession: () => exclusive,
+    isLegendaryMinigameRuntimeId: (id) => id === 'myceliumLeague',
+    returnToActiveMinigame: () => { returned += 1; return true; },
+    guardNonSessionMutation: () => { guarded += 1; return true; },
+    warmUpBattleAssets: () => {},
+    renderUi: () => { renders += 1; }
+  });
+  setView('arena');
+  assert(runtime.viewMode === 'care' && guarded === 1 && returned === 1, 'care minigame must reject the Arena view');
+
+  exclusive = { kind: 'battle', phase: 'active', id: 'battle-1' };
+  runtime.viewMode = 'arena';
+  setView('care');
+  assert(runtime.viewMode === 'arena' && guarded === 2, 'active battle must reject the Care view');
+
+  exclusive = null;
+  setView('care');
+  assert(runtime.viewMode === 'care' && renders === 1, 'normal navigation must remain available outside an exclusive session');
+
   const allowed = evaluateFunction(dewSource, 'isMinigameNavigationTargetAllowed', {
     isLegendaryMinigameRuntimeId: (id) => id === 'myceliumLeague'
   });
@@ -295,12 +320,15 @@ test('nested dialogs restore focus to their own visible launch points', () => {
     document,
     window,
     ensureSceneFirstUiRuntime,
+    collapseMobileActionTray: () => {},
+    renderExclusiveSessionControls: () => {},
     updateMobileActionTrayState: () => {},
     getRuntimeNow: () => 0
   });
   const close = evaluateFunction(uiSource, 'closeSceneFirstDialog', {
     document,
     ensureSceneFirstUiRuntime,
+    getOpenSceneFirstDialogKind: () => dialogs.find((dialog) => dialog.open) ? 'dialog' : null,
     scheduleAdaptiveActionDockUpdate: () => {}
   });
 
@@ -326,6 +354,233 @@ test('mobile action tray does not reserve space outside the Care workspace', () 
     document: { querySelector: () => null }
   });
   assert(hiddenReason() === 'workspace', 'Games and Mycelium must release the mobile tray inset');
+});
+
+test('exclusive-session settings controls stay focusable and expose a Polish reason', () => {
+  const makeControl = () => ({
+    dataset: {},
+    attributes: new Map(),
+    title: '',
+    setAttribute(name, value) { this.attributes.set(name, String(value)); },
+    getAttribute(name) { return this.attributes.get(name) || null; }
+  });
+  const controls = [makeControl(), makeControl(), makeControl()];
+  let session = { kind: 'battle', phase: 'active', id: 'battle-1' };
+  const render = evaluateFunction(uiSource, 'renderExclusiveSessionControls', {
+    document: { querySelectorAll(selector) {
+      assert(selector.includes('.panel-block--debug .debug-controls input'), 'debug inputs must share the exclusive-session UI contract');
+      assert(selector.includes('.panel-block--debug .debug-controls button'), 'debug buttons must share the exclusive-session UI contract');
+      return controls;
+    } },
+    getExclusiveGameplaySessionForUi: () => session,
+    getExclusiveGameplayUiReason: () => 'Najpierw zakończ walkę na Arenie.'
+  });
+  render();
+  controls.forEach((control) => {
+    assert(control.getAttribute('aria-disabled') === 'true', 'mutating settings control should expose aria-disabled');
+    assert(control.dataset.disabledReason.includes('Arenie'), 'blocked control should expose its reason');
+    assert(!('disabled' in control), 'aria-disabled control should not be removed from keyboard focus order');
+  });
+  session = null;
+  render();
+  controls.forEach((control) => {
+    assert(control.getAttribute('aria-disabled') === 'false', 'session-owned aria-disabled state should be cleared');
+    assert(!control.dataset.disabledReason, 'stale session reason should be removed');
+  });
+});
+
+test('debug mutations stop before save-backed handlers during an exclusive session', () => {
+  const runtime = {
+    state: { saveRevision: 8, stats: { growth: 72 } },
+    debug: { enabled: false }
+  };
+  const before = JSON.stringify(runtime.state);
+  let prevented = false;
+  let stopped = false;
+  let rendered = 0;
+  let exclusiveStateRendered = 0;
+  let persisted = 0;
+  const control = { closest: () => control };
+  const event = {
+    target: control,
+    preventDefault() { prevented = true; },
+    stopImmediatePropagation() { stopped = true; }
+  };
+  const block = evaluateFunction(debugSource, 'blockExclusiveDebugMutation', {
+    dom: { debugPanel: { contains: (target) => target === control } },
+    guardNonSessionMutation: () => true,
+    renderDebugControls: () => { rendered += 1; },
+    renderExclusiveSessionControls: () => { exclusiveStateRendered += 1; }
+  });
+
+  const blocked = block(event);
+  if (!stopped) {
+    runtime.state.stats.growth = 1;
+    persisted += 1;
+  }
+  assert(blocked && prevented && stopped, 'exclusive debug input must be cancelled during capture');
+  assert(rendered === 1, 'blocked debug input must restore its rendered value');
+  assert(exclusiveStateRendered === 1, 'rebuilt dynamic debug controls must regain exclusive-session semantics');
+  assert(JSON.stringify(runtime.state) === before, 'blocked debug input must leave state byte-for-byte unchanged');
+  assert(persisted === 0, 'blocked debug input must not reach persistence');
+});
+
+test('name gate isolates and exactly restores background attributes', () => {
+  const makeNode = (kind, attributes = {}, inert = false) => ({
+    kind,
+    inert,
+    attributes: new Map(Object.entries(attributes)),
+    matches(selector) { return kind === 'live' && selector.includes('[data-ui-status]'); },
+    hasAttribute(name) { return this.attributes.has(name); },
+    getAttribute(name) { return this.attributes.has(name) ? this.attributes.get(name) : null; },
+    setAttribute(name, value) { this.attributes.set(name, String(value)); },
+    removeAttribute(name) { this.attributes.delete(name); }
+  });
+  const header = makeNode('header', { 'aria-hidden': 'false' });
+  const previouslyInert = makeNode('main', { inert: '' }, true);
+  const live = makeNode('live');
+  const ui = { nameGateBackgroundState: null };
+  const sync = evaluateFunction(uiSource, 'syncNameGateBackgroundIsolation', {
+    ensureSceneFirstUiRuntime: () => ui,
+    document: { querySelectorAll: () => [header, previouslyInert, live] },
+    Array
+  });
+  sync(true);
+  assert(header.inert && header.getAttribute('aria-hidden') === 'true', 'background should become inert and hidden');
+  assert(previouslyInert.inert, 'already inert background should stay inert');
+  assert(!live.inert && !live.hasAttribute('aria-hidden'), 'live error/status output must remain exposed');
+  sync(false);
+  assert(!header.inert && header.getAttribute('aria-hidden') === 'false' && !header.hasAttribute('inert'), 'header attributes should be restored exactly');
+  assert(previouslyInert.inert && previouslyInert.hasAttribute('inert'), 'pre-existing inert state should survive restoration');
+});
+
+test('closing the More menu restores focus when its action becomes hidden', () => {
+  const ui = { actionTrayExpanded: true };
+  const active = {};
+  const moreButton = { hidden: false, focusCount: 0, focus() { this.focusCount += 1; } };
+  const overflow = { hidden: false, contains: (node) => node === active };
+  const runtime = { actionTray: { overflow, moreButton } };
+  const collapse = evaluateFunction(uiSource, 'collapseMobileActionTray', {
+    ensureSceneFirstUiRuntime: () => ui,
+    runtime,
+    document: { activeElement: active },
+    updateMobileActionTrayState: () => { overflow.hidden = true; },
+    getRuntimeNow: () => 0
+  });
+  assert(collapse({ restoreFocus: true }), 'expanded More menu should collapse');
+  assert(!ui.actionTrayExpanded && overflow.hidden, 'collapsed state and hidden popup should stay in sync');
+  assert(moreButton.focusCount === 1, 'focus should return to More after hiding a focused overflow action');
+});
+
+test('automatic action-tray hiding restores focus across breakpoint and workspace changes', () => {
+  const firstAction = {
+    disabled: false,
+    hidden: false,
+    focusCount: 0,
+    classList: { contains: () => false },
+    getAttribute: () => 'false',
+    focus() { this.focusCount += 1; }
+  };
+  const selectedView = {
+    disabled: false,
+    hidden: false,
+    focusCount: 0,
+    getAttribute: () => 'false',
+    closest: () => null,
+    focus() { this.focusCount += 1; }
+  };
+  const staleHiddenTab = {
+    disabled: false,
+    hidden: false,
+    getAttribute: () => 'false',
+    closest: () => ({})
+  };
+  const moreButton = {};
+  const overflowAction = {};
+  const overflow = { contains: (node) => node === overflowAction };
+  const primary = { querySelectorAll: () => [firstAction] };
+  const panel = {
+    contains: (node) => node === moreButton || node === overflowAction,
+    querySelectorAll: () => [firstAction]
+  };
+  const restore = evaluateFunction(uiSource, 'restoreFocusAfterAutomaticActionTrayHide', {
+    document: {
+      querySelector(selector) {
+        if (selector === 'dialog[open]') return null;
+        if (selector.includes('[data-view-arena]')) return selectedView;
+        if (selector.includes('[data-workspace-tab]')) return staleHiddenTab;
+        return null;
+      }
+    },
+    Array
+  });
+
+  assert(
+    restore(panel, { moreButton, overflow, primary }, moreButton, false, true, false),
+    'desktop breakpoint should move focus away from the hidden More trigger'
+  );
+  assert(firstAction.focusCount === 1, 'desktop breakpoint should focus the first visible action');
+  assert(
+    restore(panel, { moreButton, overflow, primary }, overflowAction, true, true, true, 'battle'),
+    'hidden mobile tray should move focus to stable navigation'
+  );
+  assert(selectedView.focusCount === 1, 'session-driven view change should focus the visible top-level view');
+});
+
+test('calendar discovery sync is read-only during a pending exclusive session', () => {
+  const initialState = {
+    mushroomName: 'Borowik',
+    flags: { nameConfirmed: true },
+    worldJournal: { calendar: {} },
+    saveRevision: 7
+  };
+  const runtime = { state: structuredClone(initialState) };
+  let calendarReads = 0;
+  let discoveryWrites = 0;
+  let persistenceWrites = 0;
+  const sync = evaluateFunction(uiSource, 'syncCalendarDiscoveries', {
+    runtime,
+    rules: {},
+    window: {
+      PieczargotchiCore: {
+        getCalendarEventsForDate() {
+          calendarReads += 1;
+          return [{ id: 'event-1', active: true }];
+        },
+        recordCalendarDiscovery(state) {
+          discoveryWrites += 1;
+          return { ok: true, newlyDiscovered: true, state };
+        }
+      }
+    },
+    isRuntimeMutationBlocked: () => false,
+    getExclusiveGameplaySessionForUi: () => ({ kind: 'battle', phase: 'pending', id: 'battle-pending' }),
+    hasNamedMushroom: () => true,
+    getRuntimeNow: () => 1000,
+    getRuntimeDate: () => new Date(1000),
+    persistRuntimeState: () => { persistenceWrites += 1; },
+    Boolean,
+    Date
+  });
+
+  const before = JSON.stringify(runtime.state);
+  sync();
+  assert(JSON.stringify(runtime.state) === before, 'pending session must leave the state byte-for-byte unchanged');
+  assert(calendarReads === 0 && discoveryWrites === 0, 'calendar core helpers must not run during a pending session');
+  assert(persistenceWrites === 0, 'pending session must not schedule persistence from render-time calendar sync');
+});
+
+test('browser QA covers responsive journal, real touch cancellation, and world interactions', () => {
+  assert(indexSource.includes('data-minigame-announcement'), 'dedicated minigame status output is missing');
+  assert(uiSource.includes("button.dataset.focusKey = 'legendary-game-' + game.id"), 'legendary start buttons need stable focus keys');
+  assert(captureSource.includes('expectsTiltedPolaroid = viewportWidth > 640'), 'journal tilt assertion must follow the CSS breakpoint');
+  assert(captureSource.includes("type: 'touchCancel'"), 'mobile capture must issue a real touchCancel event');
+  assert(captureSource.includes('qa.beginStorageBusyProbe()'), 'pending-session QA must wrap the real persistence seam');
+  assert(bootSource.includes('installRuntimeQaControls()'), 'runtime QA controls must remain behind exposeRuntime');
+  assert(bootSource.includes('saveStateForRuntime(candidate)'), 'exclusive starts must pass through the instrumented persistence seam');
+  assert(!captureSource.includes("runtime.pendingExclusiveStart = { kind: 'battle', phase: 'pending'"), 'pending-session QA must not inject the pending flag manually');
+  assert(browserSmokeSource.includes("PIECZARGOTCHI_CAPTURE_INTERACTIONS: '1'"), 'canonical browser smoke must enable world interactions');
+  assert(browserSmokeSource.includes('runMobileVisualProbe'), 'canonical browser smoke must include mobile journal and touch coverage');
 });
 
 test('dialog and launch hooks remain optional but discoverable by layout', () => {

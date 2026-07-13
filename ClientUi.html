@@ -23,7 +23,16 @@
       activeModal: null,
       bound: false,
       actionDisableReasons: {},
-      lastAnnouncement: ''
+      lastAnnouncement: '',
+      nameGateBackgroundState: null,
+      nonSessionGuardMessage: null,
+      minigameAnnouncement: {
+        sessionKey: '',
+        sessionId: '',
+        lastScore: 0,
+        lastAnnouncedScore: 0,
+        lastAnnouncedAt: 0
+      }
     }, runtime.ui || {});
     return runtime.ui;
   }
@@ -54,7 +63,13 @@
     const target = Array.from(document.querySelectorAll('[data-focus-key]')).find(function(node) {
       return node.dataset.focusKey === snapshot.key;
     });
-    if (!target || target.disabled || target.hidden || target.closest('[hidden]')) {
+    if (
+      !target
+      || target.disabled
+      || target.hidden
+      || target.closest('[hidden]')
+      || target.closest('.is-mobile-tray-hidden')
+    ) {
       return;
     }
 
@@ -118,6 +133,7 @@
 
     document.addEventListener('click', handleSceneFirstUiClick, true);
     document.addEventListener('keydown', handleSceneFirstUiKeydown, true);
+    document.addEventListener('focusin', handleSceneFirstUiFocusIn, true);
 
     document.querySelectorAll('dialog').forEach(function(dialog) {
       dialog.addEventListener('cancel', function(event) {
@@ -145,7 +161,7 @@
       });
       dialog.addEventListener('close', function() {
         if (runtime.ui) {
-          runtime.ui.activeModal = null;
+          runtime.ui.activeModal = getOpenSceneFirstDialogKind();
         }
         scheduleAdaptiveActionDockUpdate();
       });
@@ -184,9 +200,26 @@
       });
       syncNameValidity();
     }
+
+    const minigameScores = document.querySelectorAll('[data-minigame-score], [data-legendary-minigame-score]');
+    if (minigameScores.length && 'MutationObserver' in window) {
+      ui.minigameScoreObserver = new MutationObserver(function() {
+        syncMinigameAnnouncement();
+      });
+      minigameScores.forEach(function(node) {
+        ui.minigameScoreObserver.observe(node, { childList: true, characterData: true, subtree: true });
+      });
+    }
   }
 
   function handleSceneFirstUiClick(event) {
+    const ui = ensureSceneFirstUiRuntime();
+    const trayPanel = dom.actionsPanel;
+    const clickedInsideTray = Boolean(trayPanel && trayPanel.contains(event.target));
+    if (ui.actionTrayExpanded && !clickedInsideTray) {
+      collapseMobileActionTray({ restoreFocus: false });
+    }
+
     const target = event.target && event.target.closest
       ? event.target.closest('button, [data-workspace-tab], [data-legends-tab]')
       : null;
@@ -197,6 +230,11 @@
     const workspaceTab = target.closest('[data-workspace-tab]');
     if (workspaceTab) {
       event.preventDefault();
+      if (workspaceTab.getAttribute('aria-disabled') === 'true') {
+        event.stopImmediatePropagation();
+        announceUiStatus(workspaceTab.dataset.disabledReason || 'Ta zakładka jest niedostępna podczas aktywnej rozgrywki.', false);
+        return;
+      }
       setWorkspaceTab(workspaceTab.dataset.workspaceTab, true);
       return;
     }
@@ -204,13 +242,17 @@
     const legendsTab = target.closest('[data-legends-tab]');
     if (legendsTab) {
       event.preventDefault();
+      if (legendsTab.getAttribute('aria-disabled') === 'true') {
+        event.stopImmediatePropagation();
+        announceUiStatus(legendsTab.dataset.disabledReason || 'Ta zakładka jest niedostępna podczas aktywnej rozgrywki.', false);
+        return;
+      }
       setLegendsTab(legendsTab.dataset.legendsTab, true);
       return;
     }
 
     if (target.matches('[data-action-more]')) {
       event.preventDefault();
-      const ui = ensureSceneFirstUiRuntime();
       ui.actionTrayExpanded = !ui.actionTrayExpanded;
       updateMobileActionTrayState(getRuntimeNow());
       if (ui.actionTrayExpanded) {
@@ -240,12 +282,24 @@
 
     if (target.matches('[data-reset-open]')) {
       event.preventDefault();
+      if (guardExclusiveUiMutation('Reset zapisu')) {
+        event.stopImmediatePropagation();
+        return;
+      }
       const settingsDialog = document.querySelector('[data-settings-dialog]');
       const returnTarget = settingsDialog && settingsDialog.__pieczargotchiReturnFocus
         ? settingsDialog.__pieczargotchiReturnFocus
         : target;
       closeSceneFirstDialog(settingsDialog, { restoreFocus: false });
       openSceneFirstDialog(document.querySelector('[data-reset-dialog]'), 'reset', returnTarget);
+      return;
+    }
+
+    const blockedControl = target.closest('[aria-disabled="true"][data-disabled-reason]');
+    if (blockedControl) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      announceUiStatus(blockedControl.dataset.disabledReason || 'Ta opcja nie jest teraz dostępna.', false);
       return;
     }
 
@@ -270,10 +324,24 @@
       event.stopPropagation();
       const reason = actionButton.dataset.disabledReason || 'Ta akcja nie jest teraz dostępna.';
       announceUiStatus(reason, false);
+      return;
+    }
+
+    const enabledOverflowAction = target.closest('[data-actions-overflow] .action-button[aria-disabled="false"]');
+    if (enabledOverflowAction) {
+      collapseMobileActionTray({ restoreFocus: true });
     }
   }
 
   function handleSceneFirstUiKeydown(event) {
+    const ui = ensureSceneFirstUiRuntime();
+    if (event.key === 'Escape' && ui.actionTrayExpanded) {
+      event.preventDefault();
+      event.stopPropagation();
+      collapseMobileActionTray({ restoreFocus: true });
+      return;
+    }
+
     const tab = event.target && event.target.closest
       ? event.target.closest('[data-workspace-tab], [data-legends-tab]')
       : null;
@@ -283,7 +351,7 @@
 
     const selector = tab.matches('[data-workspace-tab]') ? '[data-workspace-tab]' : '[data-legends-tab]';
     const tabs = Array.from(tab.parentNode.querySelectorAll(selector)).filter(function(item) {
-      return !item.hidden && !item.disabled;
+      return !item.hidden && !item.disabled && item.getAttribute('aria-disabled') !== 'true';
     });
     if (!tabs.length) {
       return;
@@ -307,11 +375,48 @@
     next.focus({ preventScroll: true });
   }
 
+  function handleSceneFirstUiFocusIn(event) {
+    const ui = ensureSceneFirstUiRuntime();
+    if (!ui.actionTrayExpanded || !dom.actionsPanel || dom.actionsPanel.contains(event.target)) {
+      return;
+    }
+    collapseMobileActionTray({ restoreFocus: false });
+  }
+
+  function collapseMobileActionTray(options) {
+    const ui = ensureSceneFirstUiRuntime();
+    const tray = runtime.actionTray;
+    if (!ui.actionTrayExpanded && (!tray || !tray.overflow || tray.overflow.hidden)) {
+      return false;
+    }
+
+    const settings = options || {};
+    const focusedInOverflow = Boolean(
+      tray
+      && tray.overflow
+      && document.activeElement
+      && tray.overflow.contains(document.activeElement)
+    );
+    ui.actionTrayExpanded = false;
+    updateMobileActionTrayState(getRuntimeNow());
+    if (
+      settings.restoreFocus !== false
+      && focusedInOverflow
+      && tray
+      && tray.moreButton
+      && !tray.moreButton.hidden
+    ) {
+      tray.moreButton.focus({ preventScroll: true });
+    }
+    return true;
+  }
+
   function openSceneFirstDialog(dialog, kind, trigger) {
     if (!dialog) {
       return;
     }
     const ui = ensureSceneFirstUiRuntime();
+    collapseMobileActionTray({ restoreFocus: false });
     dialog.__pieczargotchiReturnFocus = trigger || document.activeElement;
     dialog.hidden = false;
     dialog.removeAttribute('aria-hidden');
@@ -326,8 +431,13 @@
         dialog.setAttribute('open', '');
       }
     }
-    ui.activeModal = kind || dialog.getAttribute('data-dialog') || 'dialog';
+    const activeModalKind = kind || dialog.getAttribute('data-dialog') || 'dialog';
+    ui.activeModal = activeModalKind;
+    if (activeModalKind === 'settings') {
+      renderExclusiveSessionControls();
+    }
     updateMobileActionTrayState(getRuntimeNow());
+    ensureSceneFirstUiRuntime().activeModal = activeModalKind;
     const focusTarget = dialog.querySelector('[autofocus], input:not([type="hidden"]), button:not([disabled])');
     if (focusTarget) {
       window.setTimeout(function() {
@@ -354,7 +464,7 @@
     if (dialog.matches('[data-journal-polaroid]')) {
       dialog.hidden = true;
     }
-    ui.activeModal = document.querySelector('dialog[open]') ? 'dialog' : null;
+    ui.activeModal = getOpenSceneFirstDialogKind();
     const returnFocus = dialog.__pieczargotchiReturnFocus;
     dialog.__pieczargotchiReturnFocus = null;
     if (settings.restoreFocus !== false && returnFocus && returnFocus.isConnected && typeof returnFocus.focus === 'function') {
@@ -363,10 +473,30 @@
     scheduleAdaptiveActionDockUpdate();
   }
 
+  function getOpenSceneFirstDialogKind() {
+    const dialog = document.querySelector('dialog[open]');
+    if (!dialog) {
+      return null;
+    }
+    if (dialog.matches('[data-settings-dialog]')) {
+      return 'settings';
+    }
+    if (dialog.matches('[data-reset-dialog]')) {
+      return 'reset';
+    }
+    if (dialog.matches('[data-import-preview]')) {
+      return 'import';
+    }
+    if (dialog.matches('[data-journal-polaroid]')) {
+      return 'journal';
+    }
+    return dialog.dataset.dialog || 'dialog';
+  }
+
   function setWorkspaceTab(tabId, announce) {
     const ui = ensureSceneFirstUiRuntime();
     ui.workspaceTab = ['care', 'games', 'mycelium'].indexOf(tabId) !== -1 ? tabId : 'care';
-    ui.actionTrayExpanded = false;
+    collapseMobileActionTray({ restoreFocus: false });
     renderWorkspaceNavigation();
     updateMobileActionTrayState(getRuntimeNow());
     if (announce) {
@@ -377,6 +507,7 @@
 
   function setLegendsTab(tabId, announce) {
     const ui = ensureSceneFirstUiRuntime();
+    collapseMobileActionTray({ restoreFocus: false });
     ui.legendsTab = tabId === 'challenges' ? 'challenges' : 'arena';
     renderWorkspaceNavigation();
     if (announce) {
@@ -388,18 +519,22 @@
     const ui = ensureSceneFirstUiRuntime();
     const activeMinigame = runtime.state && runtime.state.minigames && runtime.state.minigames.active;
     const activeBattle = runtime.state && runtime.state.battle && runtime.state.battle.activeBattle;
+    const exclusiveSession = getExclusiveGameplaySessionForUi();
     const legendaryMinigame = activeMinigame
       && typeof isLegendaryMinigameRuntimeId === 'function'
       && isLegendaryMinigameRuntimeId(activeMinigame.id);
+    const requiredMinigameView = exclusiveSession && exclusiveSession.kind === 'minigame'
+      ? getExclusiveMinigameViewForUi(exclusiveSession)
+      : '';
 
-    if (runtime.viewMode === 'care' && activeMinigame && !legendaryMinigame) {
+    if (requiredMinigameView === 'care') {
       ui.workspaceTab = 'games';
     } else if (runtime.state && runtime.state.recovery && runtime.state.recovery.active) {
       ui.workspaceTab = 'care';
     }
-    if (runtime.viewMode === 'arena' && activeBattle && ['victory', 'defeat'].indexOf(activeBattle.mode) === -1) {
+    if (exclusiveSession && exclusiveSession.kind === 'battle') {
       ui.legendsTab = 'arena';
-    } else if (runtime.viewMode === 'arena' && legendaryMinigame) {
+    } else if (requiredMinigameView === 'arena' || (runtime.viewMode === 'arena' && legendaryMinigame)) {
       ui.legendsTab = 'challenges';
     }
 
@@ -410,8 +545,14 @@
     }
     document.querySelectorAll('[data-workspace-tab]').forEach(function(tab) {
       const selected = careMode && tab.dataset.workspaceTab === ui.workspaceTab;
+      const blockedBySession = Boolean(exclusiveSession
+        && (exclusiveSession.kind === 'battle' || tab.dataset.workspaceTab !== 'games'));
+      const reason = blockedBySession ? getExclusiveGameplayUiReason(exclusiveSession) : '';
       tab.setAttribute('aria-selected', selected ? 'true' : 'false');
-      tab.tabIndex = selected ? 0 : -1;
+      tab.setAttribute('aria-disabled', blockedBySession ? 'true' : 'false');
+      tab.dataset.disabledReason = reason;
+      tab.title = reason;
+      tab.tabIndex = selected && !blockedBySession ? 0 : -1;
     });
     document.querySelectorAll('[data-workspace-panel]').forEach(function(panel) {
       panel.hidden = !careMode || panel.dataset.workspacePanel !== ui.workspaceTab;
@@ -419,15 +560,21 @@
 
     document.querySelectorAll('[data-legends-tab]').forEach(function(tab) {
       const selected = !careMode && tab.dataset.legendsTab === ui.legendsTab;
-      const blockedByBattle = Boolean(!careMode
-        && activeBattle
-        && ['victory', 'defeat'].indexOf(activeBattle.mode) === -1
+      const blockedByBattle = Boolean(exclusiveSession
+        && exclusiveSession.kind === 'battle'
         && tab.dataset.legendsTab === 'challenges');
+      const blockedByLegendaryMinigame = Boolean(exclusiveSession
+        && exclusiveSession.kind === 'minigame'
+        && requiredMinigameView === 'arena'
+        && tab.dataset.legendsTab !== 'challenges');
+      const blockedBySession = blockedByBattle || blockedByLegendaryMinigame;
+      const reason = blockedBySession ? getExclusiveGameplayUiReason(exclusiveSession) : '';
       tab.setAttribute('aria-selected', selected ? 'true' : 'false');
-      tab.setAttribute('aria-disabled', blockedByBattle ? 'true' : 'false');
-      tab.disabled = blockedByBattle;
-      tab.title = blockedByBattle ? 'Wyzwania będą dostępne po zakończeniu walki.' : '';
-      tab.tabIndex = selected ? 0 : -1;
+      tab.setAttribute('aria-disabled', blockedBySession ? 'true' : 'false');
+      tab.dataset.disabledReason = reason;
+      tab.disabled = false;
+      tab.title = reason;
+      tab.tabIndex = selected && !blockedBySession ? 0 : -1;
     });
     document.querySelectorAll('[data-legends-panel]').forEach(function(panel) {
       panel.hidden = careMode || panel.dataset.legendsPanel !== ui.legendsTab;
@@ -472,26 +619,253 @@
       renderRuntimeAlert();
     }
     renderDebugControls();
+    renderExclusiveSessionControls();
     renderWorkspaceNavigation();
     updateMobileActionTrayState(getRuntimeNow());
     assignStableUiFocusKeys();
     restoreStableUiFocus(focusSnapshot);
+    syncMinigameAnnouncement();
     scheduleAdaptiveActionDockUpdate();
+  }
+
+  function getExclusiveGameplaySessionForUi() {
+    let session = null;
+    if (typeof getExclusiveGameplaySession === 'function') {
+      session = getExclusiveGameplaySession();
+    }
+    if (typeof session === 'string') {
+      session = { kind: session };
+    }
+    if (session && (session.kind === 'battle' || session.kind === 'minigame')) {
+      return {
+        kind: session.kind,
+        phase: session.phase === 'pending' ? 'pending' : 'active',
+        id: session.id || '',
+        legendary: Boolean(session.legendary)
+      };
+    }
+
+    const pending = runtime.pendingExclusiveStart;
+    if (pending && (pending.kind === 'battle' || pending.kind === 'minigame')) {
+      return {
+        kind: pending.kind,
+        phase: 'pending',
+        id: pending.id || pending.minigameId || '',
+        legendary: Boolean(pending.legendary)
+      };
+    }
+
+    const battle = runtime.state && runtime.state.battle && runtime.state.battle.activeBattle;
+    if (battle && ['victory', 'defeat'].indexOf(battle.mode) === -1) {
+      return { kind: 'battle', phase: 'active', id: battle.id || '', legendary: true };
+    }
+
+    const minigame = runtime.state && runtime.state.minigames && runtime.state.minigames.active;
+    if (minigame) {
+      return {
+        kind: 'minigame',
+        phase: 'active',
+        id: minigame.id || '',
+        legendary: typeof isLegendaryMinigameRuntimeId === 'function'
+          && isLegendaryMinigameRuntimeId(minigame.id)
+      };
+    }
+    return null;
+  }
+
+  function getExclusiveMinigameViewForUi(session) {
+    if (!session || session.kind !== 'minigame') {
+      return '';
+    }
+    const pending = runtime.pendingExclusiveStart;
+    const legendary = Boolean(session.legendary)
+      || Boolean(pending && pending.kind === 'minigame' && pending.legendary)
+      || Boolean(session.id && typeof isLegendaryMinigameRuntimeId === 'function' && isLegendaryMinigameRuntimeId(session.id));
+    return legendary ? 'arena' : 'care';
+  }
+
+  function getExclusiveGameplayUiReason(session) {
+    if (!session) {
+      return '';
+    }
+    if (session.kind === 'battle') {
+      return session.phase === 'pending'
+        ? 'Poczekaj, aż rozpoczynanie walki zostanie zapisane.'
+        : 'Najpierw zakończ walkę na Arenie.';
+    }
+    return session.phase === 'pending'
+      ? 'Poczekaj, aż rozpoczynanie minigry zostanie zapisane.'
+      : 'Najpierw zakończ minigrę albo wróć do jej planszy.';
+  }
+
+  function guardExclusiveUiMutation(title) {
+    const session = getExclusiveGameplaySessionForUi();
+    if (!session) {
+      return false;
+    }
+    if (typeof guardNonSessionMutation === 'function') {
+      return guardNonSessionMutation(title) !== false;
+    }
+    const reason = getExclusiveGameplayUiReason(session);
+    setTransientMessage(title || 'Aktywna rozgrywka', reason);
+    renderUi();
+    return true;
+  }
+
+  function renderExclusiveSessionControls() {
+    const session = getExclusiveGameplaySessionForUi();
+    const reason = getExclusiveGameplayUiReason(session);
+    const controls = document.querySelectorAll(
+      '[data-reset-open], [data-reset-confirm], [data-import-button], [data-import-confirm], '
+        + '[data-rename-form] button[type="submit"], .panel-block--debug .debug-controls input, '
+        + '.panel-block--debug .debug-controls select, .panel-block--debug .debug-controls button'
+    );
+    controls.forEach(function(control) {
+      if (session) {
+        control.dataset.exclusiveSessionBlocked = 'true';
+        control.dataset.disabledReason = reason;
+        control.setAttribute('aria-disabled', 'true');
+        control.title = reason;
+      } else if (control.dataset.exclusiveSessionBlocked === 'true') {
+        delete control.dataset.exclusiveSessionBlocked;
+        delete control.dataset.disabledReason;
+        control.setAttribute('aria-disabled', 'false');
+        control.title = '';
+      }
+    });
+  }
+
+  function syncNameGateBackgroundIsolation(gated) {
+    const ui = ensureSceneFirstUiRuntime();
+    if (gated) {
+      if (ui.nameGateBackgroundState) {
+        return;
+      }
+      const excludedSelector = [
+        '[data-name-gate]',
+        '[data-ui-status]',
+        '[data-ui-alert]',
+        '[data-minigame-announcement]',
+        '[data-persistence-status]',
+        '[data-runtime-alert]'
+      ].join(', ');
+      const nodes = Array.from(document.querySelectorAll('body > .skip-link, [data-app] > *')).filter(function(node) {
+        return !node.matches(excludedSelector);
+      });
+      ui.nameGateBackgroundState = nodes.map(function(node) {
+        const state = {
+          node: node,
+          inert: Boolean(node.inert),
+          hadInertAttribute: node.hasAttribute('inert'),
+          inertAttribute: node.getAttribute('inert'),
+          hadAriaHidden: node.hasAttribute('aria-hidden'),
+          ariaHidden: node.getAttribute('aria-hidden')
+        };
+        node.inert = true;
+        node.setAttribute('inert', '');
+        node.setAttribute('aria-hidden', 'true');
+        return state;
+      });
+      return;
+    }
+
+    if (!ui.nameGateBackgroundState) {
+      return;
+    }
+    ui.nameGateBackgroundState.forEach(function(state) {
+      const node = state.node;
+      if (!node) {
+        return;
+      }
+      node.inert = state.inert;
+      if (state.hadInertAttribute) {
+        node.setAttribute('inert', state.inertAttribute === null ? '' : state.inertAttribute);
+      } else {
+        node.removeAttribute('inert');
+      }
+      if (state.hadAriaHidden) {
+        node.setAttribute('aria-hidden', state.ariaHidden === null ? '' : state.ariaHidden);
+      } else {
+        node.removeAttribute('aria-hidden');
+      }
+    });
+    ui.nameGateBackgroundState = null;
+  }
+
+  function syncMinigameAnnouncement() {
+    const node = document.querySelector('[data-minigame-announcement]');
+    if (!node || !runtime.state) {
+      return;
+    }
+    const ui = ensureSceneFirstUiRuntime();
+    const tracker = ui.minigameAnnouncement || (ui.minigameAnnouncement = {});
+    const active = runtime.state.minigames && runtime.state.minigames.active;
+    const now = Date.now();
+    if (active) {
+      const sessionKey = [active.id || '', active.runtimeToken || '', active.startedAt || ''].join(':');
+      const score = Number(active.score) || 0;
+      if (tracker.sessionKey !== sessionKey) {
+        tracker.sessionKey = sessionKey;
+        tracker.sessionId = active.id || '';
+        tracker.lastScore = score;
+        tracker.lastAnnouncedScore = score;
+        tracker.lastAnnouncedAt = now;
+        node.textContent = 'Minigra rozpoczęta: ' + (active.label || getMinigameLabelForUi(active.id)) + '.';
+        return;
+      }
+
+      tracker.lastScore = score;
+      const minigameRules = rules.minigames && rules.minigames[active.id] ? rules.minigames[active.id] : {};
+      const threshold = Math.max(2, Math.ceil((Number(minigameRules.targetScore) || 8) / 4));
+      if (
+        Math.abs(score - (Number(tracker.lastAnnouncedScore) || 0)) >= threshold
+        && now - (Number(tracker.lastAnnouncedAt) || 0) >= 1800
+      ) {
+        tracker.lastAnnouncedScore = score;
+        tracker.lastAnnouncedAt = now;
+        node.textContent = 'Wynik minigry: ' + getMinigameScoreLabel(active.id, score) + '.';
+      }
+      return;
+    }
+
+    if (!tracker.sessionKey) {
+      return;
+    }
+    const lastResult = runtime.state.minigames && runtime.state.minigames.lastResult;
+    const resultId = lastResult && lastResult.id ? lastResult.id : tracker.sessionId;
+    const resultScore = lastResult && Number.isFinite(Number(lastResult.score))
+      ? Number(lastResult.score)
+      : Number(tracker.lastScore) || 0;
+    node.textContent = 'Minigra zakończona: ' + getMinigameLabelForUi(resultId) + '. Wynik: '
+      + getMinigameScoreLabel(resultId, resultScore) + '.';
+    tracker.sessionKey = '';
+    tracker.sessionId = '';
+    tracker.lastScore = 0;
+    tracker.lastAnnouncedScore = 0;
+    tracker.lastAnnouncedAt = now;
+  }
+
+  function getMinigameLabelForUi(minigameId) {
+    const definition = rules.minigames && rules.minigames[minigameId] ? rules.minigames[minigameId] : null;
+    return definition && definition.label ? definition.label : 'Wyzwanie';
   }
 
   function renderNameGate() {
     if (!dom.nameGate) {
       document.documentElement.classList.remove('is-name-gated');
       document.body.classList.remove('is-name-gated');
+      syncNameGateBackgroundIsolation(false);
       return;
     }
 
     const named = hasNamedMushroom(runtime.state);
     const mutationBlocked = typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked();
-    dom.nameGate.hidden = named || mutationBlocked;
-    document.documentElement.classList.toggle('is-name-gated', !named && !mutationBlocked);
-    document.body.classList.toggle('is-name-gated', !named && !mutationBlocked);
-    if (!named && !mutationBlocked && dom.nameInput && !dom.nameInput.value) {
+    const gated = !named && !mutationBlocked;
+    dom.nameGate.hidden = !gated;
+    document.documentElement.classList.toggle('is-name-gated', gated);
+    document.body.classList.toggle('is-name-gated', gated);
+    syncNameGateBackgroundIsolation(gated);
+    if (gated && dom.nameInput && !dom.nameInput.value) {
       dom.nameInput.value = normalizeMushroomNameValue(runtime.state && runtime.state.mushroomName);
     }
   }
@@ -500,17 +874,31 @@
     const unlocked = isArenaUnlockedForRuntime();
     const gameOver = isGameOverUiState();
     const unnamed = !hasNamedMushroom(runtime.state);
+    const exclusiveSession = getExclusiveGameplaySessionForUi();
+    const requiredView = exclusiveSession
+      ? exclusiveSession.kind === 'battle' ? 'arena' : getExclusiveMinigameViewForUi(exclusiveSession)
+      : '';
     if (dom.viewSwitch) {
       dom.viewSwitch.hidden = unnamed || !unlocked || gameOver;
     }
 
-    if (unnamed || !unlocked || gameOver) {
+    if (requiredView) {
+      runtime.viewMode = requiredView;
+    } else if (unnamed || !unlocked || gameOver) {
       runtime.viewMode = 'care';
     }
 
     if (dom.viewCare && dom.viewArena) {
+      const reason = exclusiveSession ? getExclusiveGameplayUiReason(exclusiveSession) : '';
       dom.viewCare.setAttribute('aria-pressed', runtime.viewMode === 'care' ? 'true' : 'false');
       dom.viewArena.setAttribute('aria-pressed', runtime.viewMode === 'arena' ? 'true' : 'false');
+      [dom.viewCare, dom.viewArena].forEach(function(button) {
+        const buttonView = button === dom.viewArena ? 'arena' : 'care';
+        const blocked = Boolean(requiredView && buttonView !== requiredView);
+        button.setAttribute('aria-disabled', blocked ? 'true' : 'false');
+        button.dataset.disabledReason = blocked ? reason : '';
+        button.title = blocked ? reason : '';
+      });
     }
 
     if (dom.carePanels) {
@@ -753,6 +1141,7 @@
     const gameOver = isGameOverUiState();
     const readOnly = typeof isRuntimeReadOnly === 'function' && isRuntimeReadOnly();
     const mutationBlocked = typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked();
+    const exclusiveSession = getExclusiveGameplaySessionForUi();
 
     actions.forEach(function(action) {
       const button = runtime.actionButtons.get(action.id);
@@ -765,6 +1154,8 @@
         ? { ok: false, reason: isRuntimeReadOnly()
           ? 'Zapis z nowszej wersji działa tylko w podglądzie.'
           : 'Aktywna rozgrywka trwa w innej karcie.' }
+        : exclusiveSession
+        ? { ok: false, reason: getExclusiveGameplayUiReason(exclusiveSession) }
         : unnamed
         ? { ok: false, reason: 'Najpierw nadaj imię.' }
         : gameOver
@@ -805,9 +1196,16 @@
       ? 'Tylko podgląd'
       : mutationBlocked
       ? 'Aktywne w innej karcie'
+      : exclusiveSession
+      ? exclusiveSession.kind === 'battle' ? 'Trwa walka' : 'Trwa minigra'
       : !hasNamedMushroom(runtime.state)
       ? 'Najpierw imię'
       : soonestRemaining ? 'Za ' + formatRemainingLabel(soonestRemaining) : 'Gotowe';
+    if (exclusiveSession && exclusiveSession.phase === 'pending') {
+      renderViewSwitch();
+      renderWorkspaceNavigation();
+      renderExclusiveSessionControls();
+    }
     updateMobileActionTrayState(now);
   }
 
@@ -908,6 +1306,75 @@
     return '';
   }
 
+  function restoreFocusAfterAutomaticActionTrayHide(
+    panel,
+    tray,
+    focusedElement,
+    isMobile,
+    hasOverflow,
+    trayHidden,
+    hiddenReason
+  ) {
+    if (!focusedElement || !panel || !tray) {
+      return false;
+    }
+
+    const focusedMoreButton = focusedElement === tray.moreButton;
+    const focusedInOverflow = Boolean(tray.overflow && tray.overflow.contains(focusedElement));
+    const focusedInPanel = panel.contains(focusedElement);
+    let target = null;
+
+    if (trayHidden && focusedInPanel) {
+      const openDialog = document.querySelector('dialog[open]');
+      if (openDialog) {
+        target = openDialog.querySelector(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), '
+            + 'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        ) || openDialog;
+      }
+      if (!target) {
+        const candidates = [
+          hiddenReason === 'unnamed' ? document.querySelector('[data-name-input]') : null,
+          hiddenReason === 'game-over' ? document.querySelector('[data-game-over-reset]') : null,
+          document.querySelector('[data-view-arena][aria-pressed="true"]'),
+          document.querySelector('[data-view-care][aria-pressed="true"]'),
+          document.querySelector('[data-legends-tab][aria-selected="true"]'),
+          document.querySelector('[data-workspace-tab][aria-selected="true"]'),
+          document.querySelector('[data-settings-open]'),
+          document.querySelector('#gameMain')
+        ];
+        target = candidates.find(function(candidate) {
+          return candidate
+            && !candidate.disabled
+            && !candidate.hidden
+            && candidate.getAttribute('aria-disabled') !== 'true'
+            && !candidate.closest('[hidden], [inert], .is-mobile-tray-hidden');
+        }) || null;
+      }
+    } else if (
+      (!isMobile && focusedMoreButton)
+      || (isMobile && !hasOverflow && (focusedMoreButton || focusedInOverflow))
+    ) {
+      const scope = isMobile && tray.primary ? tray.primary : panel;
+      target = Array.from(scope.querySelectorAll('.action-button')).find(function(button) {
+        return !button.disabled
+          && !button.hidden
+          && button.getAttribute('aria-disabled') !== 'true'
+          && (!isMobile || !button.classList.contains('is-mobile-context-hidden'));
+      }) || null;
+    }
+
+    if (!target || target === focusedElement || typeof target.focus !== 'function') {
+      return false;
+    }
+    try {
+      target.focus({ preventScroll: true });
+    } catch (error) {
+      target.focus();
+    }
+    return true;
+  }
+
   function updateMobileActionTrayState(now) {
     const panel = dom.actionsPanel;
     const tray = runtime.actionTray;
@@ -916,6 +1383,7 @@
       return;
     }
 
+    const focusedElement = document.activeElement;
     const isMobile = (window.innerWidth || document.documentElement.clientWidth || 0) <= 640;
     const primaryIds = getMobilePrimaryActionIds(Number(now) || getRuntimeNow());
     const primarySet = new Set(primaryIds);
@@ -938,7 +1406,7 @@
       return !button.classList.contains('is-mobile-context-hidden');
     });
     const hasOverflow = overflowButtons.length > 0;
-    if (!hasOverflow) {
+    if (!isMobile || !hasOverflow) {
       ui.actionTrayExpanded = false;
     }
     tray.moreButton.hidden = isMobile ? !hasOverflow : true;
@@ -950,7 +1418,20 @@
     const trayHidden = isMobile && Boolean(hiddenReason);
     tray.hiddenReason = hiddenReason;
     panel.classList.toggle('is-mobile-tray-hidden', trayHidden);
+    restoreFocusAfterAutomaticActionTrayHide(
+      panel,
+      tray,
+      focusedElement,
+      isMobile,
+      hasOverflow,
+      trayHidden,
+      hiddenReason
+    );
     if (!isMobile || trayHidden) {
+      ui.actionTrayExpanded = false;
+      tray.moreButton.setAttribute('aria-expanded', 'false');
+      tray.moreButton.classList.remove('is-expanded');
+      tray.overflow.hidden = isMobile;
       if (!isMobile) {
         panel.classList.remove('is-mobile-tray-hidden');
       }
@@ -978,7 +1459,9 @@
     const panelRect = panel.getBoundingClientRect();
     const overlapsProtectedSurface = [
       document.querySelector('.topbar'),
-      dom.stagePanel,
+      document.querySelector('.stage-toolbar'),
+      dom.canvasWrap,
+      runtime.canvas,
       document.querySelector('.message-panel')
     ].some(function(surface) {
       if (!surface || surface.hidden) {
@@ -1487,6 +1970,7 @@
       button.dataset.focusKey = 'daily-rhythm-' + option.id;
       button.disabled = !hasNamedMushroom(runtime.state)
         || isGameOverUiState()
+        || Boolean(getExclusiveGameplaySessionForUi())
         || Boolean(lockedByChoice)
         || option.selected
         || (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked());
@@ -1779,6 +2263,7 @@
     button.disabled = Boolean(disabled)
       || !hasNamedMushroom(runtime.state)
       || isGameOverUiState()
+      || Boolean(getExclusiveGameplaySessionForUi())
       || (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked());
     button.addEventListener('click', onClick);
     return button;
@@ -1835,6 +2320,7 @@
         : 'Rekord ' + game.bestScore + '/' + game.targetScore;
       button.className = 'ghost-button';
       button.type = 'button';
+      button.dataset.focusKey = 'legendary-game-' + game.id;
       button.textContent = !dashboard.unlocked
         ? 'Zamknięte'
         : game.active
@@ -1977,7 +2463,11 @@
       button.className = 'ghost-button';
       button.type = 'button';
       button.textContent = isOwned ? 'Masz' : 'Kup';
-      button.disabled = !hasNamedMushroom(runtime.state) || isGameOverUiState() || isOwned || availableSpores < Number(item.cost);
+      button.disabled = !hasNamedMushroom(runtime.state)
+        || isGameOverUiState()
+        || Boolean(getExclusiveGameplaySessionForUi())
+        || isOwned
+        || availableSpores < Number(item.cost);
       button.addEventListener('click', function() {
         handleDecorationBuy(item.id);
       });
@@ -2359,6 +2849,7 @@
   function syncCalendarDiscoveries() {
     const core = window.PieczargotchiCore;
     if ((typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked())
+      || Boolean(getExclusiveGameplaySessionForUi())
       || !runtime.state
       || !core
       || typeof core.getCalendarEventsForDate !== 'function'
@@ -2707,6 +3198,19 @@
     }
   }
 
+  function setNonSessionGuardUiMessage(title, body, durationMs) {
+    const ui = ensureSceneFirstUiRuntime();
+    const now = getRuntimeNow();
+    ui.nonSessionGuardMessage = {
+      title: String(title || 'Aktywna rozgrywka'),
+      body: String(body || 'Najpierw zakończ bieżącą rozgrywkę.'),
+      until: now + Math.max(1200, Number(durationMs) || 4200)
+    };
+    if (typeof announceUiStatus === 'function') {
+      announceUiStatus(ui.nonSessionGuardMessage.title + '. ' + ui.nonSessionGuardMessage.body, false);
+    }
+  }
+
   function renderAssetStatus() {
     if (!dom.assetStatus) {
       return;
@@ -2723,6 +3227,15 @@
         title: 'Pierwszy krok',
         body: 'Nadaj imię, żeby grzybnia zaczęła żyć.'
       };
+    }
+
+    const ui = ensureSceneFirstUiRuntime();
+    const guardMessage = ui.nonSessionGuardMessage;
+    if (guardMessage && Number(guardMessage.until) > now) {
+      return { title: guardMessage.title, body: guardMessage.body };
+    }
+    if (guardMessage) {
+      ui.nonSessionGuardMessage = null;
     }
 
     if (runtime.viewMode === 'arena') {

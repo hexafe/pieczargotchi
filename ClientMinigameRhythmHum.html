@@ -89,6 +89,11 @@
       return;
     }
 
+    const session = runtime.minigame.session;
+    const now = getRuntimeNow();
+    if (!isCurrentMinigameInputAllowed(session, now)) {
+      return;
+    }
     event.preventDefault();
     try {
       dom.rhythmHumCanvas.focus({ preventScroll: true });
@@ -96,7 +101,6 @@
       dom.rhythmHumCanvas.focus();
     }
 
-    const now = getRuntimeNow();
     const canvas = dom.rhythmHumCanvas;
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / Math.max(1, rect.width);
@@ -129,8 +133,14 @@
       return;
     }
 
+    const session = runtime.minigame.session;
+    const now = getRuntimeNow();
+    if (!shouldHandleMinigameKeydown(event, dom.rhythmHumCanvas, session)
+      || !isCurrentMinigameInputAllowed(session, now)) {
+      return;
+    }
     event.preventDefault();
-    scoreRhythmHumLane(laneId, getRuntimeNow());
+    scoreRhythmHumLane(laneId, now);
   }
 
   function scoreRhythmHumLane(laneId, now) {

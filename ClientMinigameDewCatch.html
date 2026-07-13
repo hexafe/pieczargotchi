@@ -283,20 +283,26 @@
     const active = runtime.state && runtime.state.minigames
       ? runtime.state.minigames.active
       : null;
-    if (!active) {
+    const pending = runtime.pendingExclusiveStart && runtime.pendingExclusiveStart.kind === 'minigame'
+      ? runtime.pendingExclusiveStart
+      : null;
+    const session = active || pending;
+    if (!session) {
       return false;
     }
-    const legendary = isLegendaryMinigameRuntimeId(active.id);
+    const legendary = Boolean(pending && pending.legendary) || isLegendaryMinigameRuntimeId(session.id);
     runtime.viewMode = legendary ? 'arena' : 'care';
     if (runtime.ui) {
       runtime.ui.workspaceTab = legendary ? runtime.ui.workspaceTab : 'games';
       runtime.ui.legendsTab = legendary ? 'challenges' : runtime.ui.legendsTab;
     }
     renderUi();
-    window.requestAnimationFrame(function() {
-      revealMinigameSurface(active, runtime.minigameLaunch ? runtime.minigameLaunch.phase : 'running', true);
-      focusActiveMinigameSurface(active.id);
-    });
+    if (active) {
+      window.requestAnimationFrame(function() {
+        revealMinigameSurface(active, runtime.minigameLaunch ? runtime.minigameLaunch.phase : 'running', true);
+        focusActiveMinigameSurface(active.id);
+      });
+    }
     return true;
   }
 
@@ -318,18 +324,19 @@
   }
 
   function guardActiveMinigameNavigation(event) {
-    const active = runtime.state && runtime.state.minigames
-      ? runtime.state.minigames.active
-      : null;
+    const exclusive = getExclusiveGameplaySession();
     const target = event.target && event.target.closest
       ? event.target.closest('[data-workspace-tab], [data-legends-tab]')
       : null;
-    if (!active || !target || isMinigameNavigationTargetAllowed(active.id, target)) {
+    if (!exclusive
+      || exclusive.kind !== 'minigame'
+      || !target
+      || isMinigameNavigationTargetAllowed(exclusive.id, target)) {
       return;
     }
     event.preventDefault();
     event.stopImmediatePropagation();
-    setTransientMessage('Aktywna minigra', 'Zakończ rozgrywkę albo wróć do jej planszy.');
+    showActiveMinigameNavigationGuard('Zakończ rozgrywkę albo wróć do jej planszy.');
     returnToActiveMinigame();
   }
 
@@ -337,19 +344,31 @@
     if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(event.key) === -1) {
       return;
     }
-    const active = runtime.state && runtime.state.minigames
-      ? runtime.state.minigames.active
-      : null;
+    const exclusive = getExclusiveGameplaySession();
     const target = event.target && event.target.closest
       ? event.target.closest('[data-workspace-tab], [data-legends-tab]')
       : null;
-    if (!active || !target) {
+    if (!exclusive
+      || exclusive.kind !== 'minigame'
+      || !target
+      || isMinigameNavigationTargetAllowed(exclusive.id, target)) {
       return;
     }
     event.preventDefault();
     event.stopImmediatePropagation();
-    setTransientMessage('Aktywna minigra', 'Zakładki odblokują się po zakończeniu rozgrywki.');
+    showActiveMinigameNavigationGuard('Zakładki odblokują się po zakończeniu rozgrywki.');
     returnToActiveMinigame();
+  }
+
+  function showActiveMinigameNavigationGuard(body) {
+    if (typeof setNonSessionGuardUiMessage === 'function') {
+      setNonSessionGuardUiMessage('Aktywna minigra', body);
+      renderUi();
+      return;
+    }
+    if (typeof guardNonSessionMutation === 'function') {
+      guardNonSessionMutation('Aktywna minigra');
+    }
   }
 
   function isMinigameNavigationTargetAllowed(minigameId, target) {
@@ -572,6 +591,11 @@
     }
 
     const canvas = dom.dewCatchCanvas;
+    const session = runtime.minigame.session;
+    const now = getRuntimeNow();
+    if (!isCurrentMinigameInputAllowed(session, now)) {
+      return;
+    }
     focusMinigameCanvas(canvas);
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / Math.max(1, rect.width);
@@ -601,6 +625,12 @@
         ? 1
         : 0;
     if (!direction) {
+      return;
+    }
+    const session = runtime.minigame.session;
+    const now = getRuntimeNow();
+    if (!shouldHandleMinigameKeydown(event, dom.dewCatchCanvas, session)
+      || !isCurrentMinigameInputAllowed(session, now)) {
       return;
     }
     event.preventDefault();

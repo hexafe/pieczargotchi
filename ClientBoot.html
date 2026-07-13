@@ -317,12 +317,45 @@
     applyRuntimeVisibility();
     if (runtimeOptions.exposeRuntime) {
       window.__pieczargotchiRuntime = runtime;
+      installRuntimeQaControls();
     }
     runtime.debug = loadDebugSettings();
     loadAssets();
     const weatherReady = initWeatherScene();
     finishInit();
     weatherReady.then(renderUi).catch(renderUi);
+  }
+
+  function installRuntimeQaControls() {
+    window.__pieczargotchiQa = {
+      resetExclusiveSession: function(reason) {
+        abortExclusiveRuntimeSession(reason || 'qa');
+        if (runtime.state) {
+          runtime.state.lastUpdatedAt = new Date(getRuntimeNow()).toISOString();
+        }
+        const persisted = runtime.state ? persistRuntimeState(runtime.state) : { ok: false, reason: 'noState' };
+        renderUi();
+        return persisted;
+      },
+      beginStorageBusyProbe: function() {
+        runtime.qaPersistenceProbe = {
+          active: true,
+          forceStorageBusy: true,
+          calls: 0
+        };
+      },
+      releaseStorageBusyProbe: function() {
+        if (runtime.qaPersistenceProbe) {
+          runtime.qaPersistenceProbe.forceStorageBusy = false;
+        }
+      },
+      getPersistenceProbe: function() {
+        return Object.assign({}, runtime.qaPersistenceProbe || {});
+      },
+      clearPersistenceProbe: function() {
+        runtime.qaPersistenceProbe = null;
+      }
+    };
   }
 
   function handleBootError(error) {
@@ -909,7 +942,7 @@
     }
     let result;
     try {
-      result = saveState(state);
+      result = saveStateForRuntime(state);
     } catch (error) {
       result = { ok: false, reason: 'storageUnavailable', mode: 'memory' };
     }
@@ -1047,7 +1080,7 @@
 
       let result;
       try {
-        result = saveState(candidate);
+        result = saveStateForRuntime(candidate);
       } catch (error) {
         result = { ok: false, reason: 'storageUnavailable', mode: 'memory' };
       }
@@ -1596,6 +1629,9 @@
       renderPersistenceStatus();
       return;
     }
+    if (guardNonSessionMutation('Od nowa')) {
+      return;
+    }
     clearResetConfirmation();
     closeResetDialog();
     const previous = deepClone(runtime.state || {});
@@ -1827,7 +1863,7 @@
         || shouldIgnoreShortcut(event.target)) {
         return;
       }
-      if (isMinigameActive()) {
+      if (isUiInputModalActive() || getExclusiveGameplaySession()) {
         return;
       }
 

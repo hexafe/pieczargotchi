@@ -123,3 +123,30 @@ python3 scripts/audit-sprite-chroma.py --strict
 Browser flow wykonuje prawdziwe akcje użytkownika: nadanie imienia, pobudkę, przejście do `Gry`, start rosy, odliczanie, pełny timer, zakończenie rundy i otwarcie `Menu`. Capture Areny dodatkowo wymaga dwóch kolumn ruchów, celu dotykowego `48px`, braku uciętych etykiet oraz poprawnej kolejności statusu i logu.
 
 `dist/` pozostaje artefaktem lokalnym i nie jest commitowany. Build Cloudflare i Apps Script korzystają z tego samego zestawu źródłowych partiali UI.
+
+## Addendum: hardening GUI 0.1.51
+
+Data: 2026-07-13
+
+Wydanie `0.1.51` zachowuje format stanu `18`, klucz `pieczargotchi_state_v2`
+i wszystkie zasoby bitmapowe z checkpointu `0.1.50`. Zmienia wyłącznie kontrakty
+GUI oraz ich automatyczną weryfikację:
+
+- aktywna lub oczekująca walka albo minigra blokuje niepowiązaną nawigację,
+  akcje opieki, rytm dnia, dekoracje, gości, wyprawy, import i reset;
+- skróty opieki oraz wejście minigier nie przechodzą przez modal, bramkę nazwy
+  ani kontrolkę formularza, a wynik nie zmienia się po końcu czasu rundy;
+- na `320x568` pięć głównych akcji pozostaje w przyklejonym trayu, który chroni
+  topbar, toolbar sceny, canvas i komunikat; ten kontrakt zastępuje opisany wyżej
+  fallback całego trayu do przepływu dokumentu;
+- menu `Więcej` zamyka się po akcji, Escape, kliknięciu poza nim, zmianie widoku
+  lub utracie fokusu, przywracając fokus do kontrolki otwierającej;
+- bramka nazwy izoluje tło przez `inert`, wyniki minigier mają kontrolowany live
+  region, a cykliczny render zachowuje fokus legendarnych gier;
+- browser QA obejmuje active i pending battle/minigame, modalne wejście z
+  klawiatury, desktopowy mouse, mobilny touch z anulowaniem, dziennik na obu
+  breakpointach oraz wszystkie 14 kanonicznych viewportów.
+
+Bieżący deploy Apps Script używa właściwości
+`PIECZARGOTCHI_ASSET_BASE_URL_0_1_51` wskazującej niezmienny katalog
+`/releases/0.1.51/assets/`.

@@ -80,14 +80,24 @@
       return;
     }
 
+    if (event.type === 'pointercancel') {
+      runtime.minigame.dragging = null;
+      return;
+    }
+    const session = runtime.minigame.session;
+    const now = getRuntimeNow();
+    if (!isCurrentMinigameInputAllowed(session, now)) {
+      if (event.type === 'pointerup') {
+        runtime.minigame.dragging = null;
+      }
+      return;
+    }
     event.preventDefault();
     const canvas = dom.compostSortCanvas;
     focusMinigameCanvas(canvas);
     const point = getCompostPointerPosition(event);
     const x = point.x;
     const y = point.y;
-    const now = getRuntimeNow();
-    const session = runtime.minigame.session;
     const progress = (now - Number(session.startedAt)) / Math.max(1, Number(session.until) - Number(session.startedAt));
 
     if (event.type === 'pointermove') {
@@ -95,11 +105,6 @@
         runtime.minigame.dragging.x = x;
         runtime.minigame.dragging.y = y;
       }
-      return;
-    }
-
-    if (event.type === 'pointercancel') {
-      runtime.minigame.dragging = null;
       return;
     }
 
@@ -148,8 +153,13 @@
     if (!direction && !bin) {
       return;
     }
-    event.preventDefault();
     const now = getRuntimeNow();
+    const session = runtime.minigame.session;
+    if (!shouldHandleMinigameKeydown(event, dom.compostSortCanvas, session)
+      || !isCurrentMinigameInputAllowed(session, now)) {
+      return;
+    }
+    event.preventDefault();
     const pieces = getVisibleKeyboardCompostPieces(now);
     if (!pieces.length) {
       return;

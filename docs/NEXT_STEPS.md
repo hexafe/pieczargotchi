@@ -1,9 +1,10 @@
 # Pieczargotchi Next Steps
 
-Last updated: 2026-07-12
+Last updated: 2026-07-13
 Last stable checkpoint: `0.1.48` / state v17
 Visual-pipeline checkpoint: `0.1.49` / state v18
-Current scene-first UI release candidate: `0.1.50` / state v18
+Scene-first UI checkpoint: `0.1.50` / state v18
+Current GUI-hardening release candidate: `0.1.51` / state v18
 Primary preview target: Cloudflare static build
 
 This is the current start-here document for the next Pieczargotchi work. Older
@@ -24,9 +25,10 @@ Latest scene-first UI implementation: `docs/UI_SCENE_FIRST_IMPLEMENTATION_2026-0
 Current implementation slice: body-only tight/dedup atlases, generated
 `SpriteLayout.gs`, one shared grass system, stable arena `visualId` art, asset
 provenance, focused visual/runtime contracts, scene-first workspace tabs,
-accessible modal flows, mobile action tray, and deterministic browser/UI gates.
+accessible modal flows, mobile action tray, deterministic browser/UI gates, and
+exclusive-session/input hardening for the `0.1.51` release candidate.
 Recommended next release step: complete the canonical full QA, publish the
-immutable `0.1.50` asset directory, and run the external Apps Script dry run.
+immutable `0.1.51` asset directory, and run the external Apps Script dry run.
 
 ## 1. Current Baseline
 
@@ -548,16 +550,18 @@ Acceptance:
 
 Goal: all growth stages feel alive.
 
-Status: the `0.1.49` / state-v18 visual-pipeline checkpoint is integrated into
-the `0.1.50` scene-first release candidate. Tight-atlas, deterministic battle
+Status: the `0.1.49` / state-v18 visual-pipeline checkpoint was integrated into
+the `0.1.50` scene-first UI checkpoint. Tight-atlas, deterministic battle
 generation, animation-render, battle-visual, grass-motion, strict chroma, full
 asset validation, state/runtime, static-build, browser-smoke, and responsive UI
 contracts have green focused results. The final asset set stores 1,358 of 1,560
 logical frames, reports 539.3 MiB decoded sprite cost, and has 69 advisory frame
 quality findings with zero strict chroma findings. Corrected desktop, mobile,
 night, journal, minigame, and Arena captures replaced the invalid preview
-evidence. The external Apps Script deployment gate still requires a real
-published `/exec` URL and immutable `0.1.50` asset host. See
+evidence. The current `0.1.51` candidate retains those assets while hardening
+GUI session guards, input ownership, mobile actions, and browser QA. The external
+Apps Script deployment gate still requires a real published `/exec` URL and
+immutable `0.1.51` asset host. See
 `docs/VISUAL_ASSET_IMPLEMENTATION_2026-07-11.md` and
 `docs/UI_SCENE_FIRST_IMPLEMENTATION_2026-07-12.md`.
 
@@ -658,6 +662,6 @@ not rely on Node tests alone for layout, sprite layering, polaroids, weather
 balance, or minigame feel.
 
 For the current target, do not start deployment until `Config.gs` and
-`package.json` both report `0.1.50`, `PIECZARGOTCHI_STATE_VERSION` reports `18`,
-the versioned public asset root is `/releases/0.1.50/assets/`, and every blocker
+`package.json` both report `0.1.51`, `PIECZARGOTCHI_STATE_VERSION` reports `18`,
+the versioned public asset root is `/releases/0.1.51/assets/`, and every blocker
 listed in `docs/UI_SCENE_FIRST_IMPLEMENTATION_2026-07-12.md` is closed.

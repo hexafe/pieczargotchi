@@ -44,6 +44,7 @@ let smokePassed = false;
 try {
   await waitForPreview();
   await runCapture();
+  await runMobileVisualProbe();
   await runUiFlowProbe();
   await runExceptionProbe();
   smokePassed = true;
@@ -112,7 +113,9 @@ function runCapture() {
         ...process.env,
         CHROMIUM_BIN: chromiumPath,
         PIECZARGOTCHI_CAPTURE_DELAY_MS: '80',
-        PIECZARGOTCHI_CAPTURE_ALL_MINIGAMES: '1'
+        PIECZARGOTCHI_CAPTURE_ALL_MINIGAMES: '1',
+        PIECZARGOTCHI_CAPTURE_INTERACTIONS: '1',
+        PIECZARGOTCHI_CAPTURE_JOURNAL: '1'
       },
       stdio: 'inherit'
     });
@@ -122,6 +125,37 @@ function runCapture() {
         resolve();
       } else {
         reject(new Error(`Browser capture zakończył się kodem ${code}.`));
+      }
+    });
+  });
+}
+
+function runMobileVisualProbe() {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [
+      'scripts/capture-app-render.mjs',
+      appUrl,
+      path.join(outputDir, 'mobile-visual')
+    ], {
+      cwd: rootDir,
+      env: {
+        ...process.env,
+        CHROMIUM_BIN: chromiumPath,
+        PIECZARGOTCHI_CAPTURE_DELAY_MS: '80',
+        PIECZARGOTCHI_CAPTURE_INTERACTIONS: '1',
+        PIECZARGOTCHI_CAPTURE_JOURNAL: '1',
+        PIECZARGOTCHI_VIEWPORT_WIDTH: '390',
+        PIECZARGOTCHI_VIEWPORT_HEIGHT: '844',
+        PIECZARGOTCHI_EMULATE_MOBILE: '1'
+      },
+      stdio: 'inherit'
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`Mobilny journal/touch probe zakończył się kodem ${code}.`));
       }
     });
   });

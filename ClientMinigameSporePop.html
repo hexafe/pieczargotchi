@@ -79,6 +79,11 @@
       return;
     }
 
+    const session = runtime.minigame.session;
+    const now = getRuntimeNow();
+    if (!isCurrentMinigameInputAllowed(session, now)) {
+      return;
+    }
     event.preventDefault();
     const canvas = dom.sporePopCanvas;
     focusMinigameCanvas(canvas);
@@ -87,8 +92,6 @@
     const scaleY = canvas.height / Math.max(1, rect.height);
     const x = (event.clientX - rect.left) * scaleX;
     const y = (event.clientY - rect.top) * scaleY;
-    const now = getRuntimeNow();
-    const session = runtime.minigame.session;
     const progress = (now - Number(session.startedAt)) / Math.max(1, Number(session.until) - Number(session.startedAt));
     const popped = runtime.minigame.spores.find(function(spore) {
       if (session.caught.indexOf(spore.id) !== -1) {
@@ -128,8 +131,13 @@
     if (keys.indexOf(event.key) === -1) {
       return;
     }
-    event.preventDefault();
     const now = getRuntimeNow();
+    const session = runtime.minigame.session;
+    if (!shouldHandleMinigameKeydown(event, dom.sporePopCanvas, session)
+      || !isCurrentMinigameInputAllowed(session, now)) {
+      return;
+    }
+    event.preventDefault();
     const targets = getVisibleSporePopTargets(now);
     if (!targets.length) {
       return;

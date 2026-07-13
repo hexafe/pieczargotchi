@@ -316,6 +316,9 @@ try {
     deviceScaleFactor: 1,
     mobile: emulateMobile
   });
+  if (emulateMobile) {
+    await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
+  }
 
   await navigate(cdp, appUrl);
   if (captureExceptionProbe) {
@@ -348,6 +351,9 @@ try {
   await captureState(cdp, 'awake');
   if (captureInteractions) {
     await captureInteractionSmoke(cdp);
+    if (emulateMobile) {
+      await captureTouchInteractionSmoke(cdp);
+    }
   }
 
   if (process.env.PIECZARGOTCHI_CAPTURE_STAGES === '1') {
@@ -487,6 +493,32 @@ async function captureRealUiFlow(cdp) {
   await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.booted)`, 6000);
   await waitForExpression(cdp, `Boolean(document.querySelector('[data-name-gate]:not([hidden])'))`, 3000);
 
+  const gate = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const header = document.querySelector('.topbar');
+      const menu = document.querySelector('[data-settings-open]');
+      const live = document.querySelector('[data-ui-alert]');
+      const minigameLive = document.querySelector('[data-minigame-announcement]');
+      menu.focus();
+      return {
+        headerInert: Boolean(header && header.inert),
+        headerAriaHidden: header && header.getAttribute('aria-hidden'),
+        backgroundFocusBlocked: document.activeElement !== menu,
+        liveAriaHidden: live && live.getAttribute('aria-hidden'),
+        minigameLiveAriaHidden: minigameLive && minigameLive.getAttribute('aria-hidden')
+      };
+    })()`,
+    returnByValue: true
+  });
+  const gateInfo = gate.result.value || {};
+  if (!gateInfo.headerInert
+    || gateInfo.headerAriaHidden !== 'true'
+    || !gateInfo.backgroundFocusBlocked
+    || gateInfo.liveAriaHidden !== null
+    || gateInfo.minigameLiveAriaHidden !== null) {
+    throw new Error(`Bramka imienia nie izoluje tła poprawnie: ${JSON.stringify(gateInfo)}`);
+  }
+
   await cdp.send('Runtime.evaluate', {
     expression: `(() => {
       const input = document.querySelector('[data-name-input]');
@@ -499,6 +531,20 @@ async function captureRealUiFlow(cdp) {
     returnByValue: true
   });
   await waitForExpression(cdp, `Boolean(document.querySelector('[data-name-gate][hidden]'))`, 3000);
+  const gateRestored = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const header = document.querySelector('.topbar');
+      return {
+        inert: Boolean(header && header.inert),
+        hasInert: Boolean(header && header.hasAttribute('inert')),
+        hasAriaHidden: Boolean(header && header.hasAttribute('aria-hidden'))
+      };
+    })()`,
+    returnByValue: true
+  });
+  if (gateRestored.result.value.inert || gateRestored.result.value.hasInert || gateRestored.result.value.hasAriaHidden) {
+    throw new Error(`Bramka imienia nie odtworzyła atrybutów tła: ${JSON.stringify(gateRestored.result.value)}`);
+  }
 
   await cdp.send('Runtime.evaluate', {
     expression: `(() => {
@@ -592,38 +638,376 @@ async function captureRealUiFlow(cdp) {
   const screenshotPath = `${outputPrefix}-real-ui-flow-${viewportWidth}x${viewportHeight}.png`;
   writeFileSync(screenshotPath, Buffer.from(screenshot.data, 'base64'));
 
-  await cdp.send('Runtime.evaluate', {
-    expression: `document.querySelector('[data-minigame-end]').click()`,
+  const minigameBeforeModal = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const runtime = window.__pieczargotchiRuntime;
+      return {
+        targetX: runtime.minigame && runtime.minigame.bucket && runtime.minigame.bucket.targetX,
+        score: runtime.minigame && runtime.minigame.session && runtime.minigame.session.score
+      };
+    })()`,
     returnByValue: true
   });
-  await waitForExpression(cdp, `!window.__pieczargotchiRuntime.state.minigames.active`, 4000);
-
   await cdp.send('Runtime.evaluate', {
-    expression: `(() => {
-      document.querySelector('[data-settings-open]').click();
-      return true;
-    })()`,
+    expression: `document.querySelector('[data-settings-open]').click()`,
     returnByValue: true
   });
   await waitForExpression(cdp, `Boolean(document.querySelector('[data-settings-dialog][open]'))`, 2000);
   const modal = await cdp.send('Runtime.evaluate', {
     expression: `(() => {
       const dialog = document.querySelector('[data-settings-dialog]');
+      const reset = dialog.querySelector('[data-reset-open]');
       return {
         open: dialog.open,
         modalActive: window.__pieczargotchiRuntime.ui.activeModal,
-        focusInside: dialog.contains(document.activeElement)
+        focusInside: dialog.contains(document.activeElement),
+        resetBlocked: reset.getAttribute('aria-disabled') === 'true',
+        resetReason: reset.dataset.disabledReason || ''
       };
     })()`,
     returnByValue: true
   });
   const modalInfo = modal.result.value || {};
-  if (!modalInfo.open || modalInfo.modalActive !== 'settings' || !modalInfo.focusInside) {
-    throw new Error(`Menu nie zachowuje natywnej modalności: ${JSON.stringify(modalInfo)}`);
+  if (!modalInfo.open || modalInfo.modalActive !== 'settings' || !modalInfo.focusInside || !modalInfo.resetBlocked || !modalInfo.resetReason) {
+    throw new Error(`Menu nie zachowuje modalności ani blokady resetu: ${JSON.stringify(modalInfo)}`);
+  }
+
+  await dispatchWindowKey(cdp, 'ArrowLeft');
+  await delay(80);
+  await cdp.send('Runtime.evaluate', {
+    expression: `document.querySelector('[data-settings-dialog] [data-reset-open]').click()`,
+    returnByValue: true
+  });
+  const minigameBehindModal = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const runtime = window.__pieczargotchiRuntime;
+      return {
+        targetX: runtime.minigame && runtime.minigame.bucket && runtime.minigame.bucket.targetX,
+        score: runtime.minigame && runtime.minigame.session && runtime.minigame.session.score,
+        settingsOpen: Boolean(document.querySelector('[data-settings-dialog][open]')),
+        resetOpen: Boolean(document.querySelector('[data-reset-dialog][open]')),
+        activeId: runtime.state.minigames.active && runtime.state.minigames.active.id
+      };
+    })()`,
+    returnByValue: true
+  });
+  const minigameBefore = minigameBeforeModal.result.value || {};
+  const minigameBlocked = minigameBehindModal.result.value || {};
+  if (
+    minigameBlocked.targetX !== minigameBefore.targetX
+    || minigameBlocked.score !== minigameBefore.score
+    || !minigameBlocked.settingsOpen
+    || minigameBlocked.resetOpen
+    || minigameBlocked.activeId !== 'dewCatch'
+  ) {
+    throw new Error(`Minigra przyjęła wejście albo reset zza Menu: ${JSON.stringify({ before: minigameBefore, after: minigameBlocked })}`);
+  }
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      document.querySelector('[data-settings-close]').click();
+      const canvas = document.querySelector('[data-dew-catch-canvas]');
+      canvas.focus({ preventScroll: true });
+      return true;
+    })()`,
+    returnByValue: true
+  });
+  await waitForExpression(cdp, `!document.querySelector('[data-settings-dialog][open]')`, 2000);
+  await dispatchWindowKey(cdp, 'ArrowLeft');
+  const minigameRefocused = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const runtime = window.__pieczargotchiRuntime;
+      const canvas = document.querySelector('[data-dew-catch-canvas]');
+      const session = runtime.minigame.session;
+      return {
+        targetX: runtime.minigame.bucket.targetX,
+        focused: document.activeElement === canvas,
+        activeModal: runtime.ui && runtime.ui.activeModal,
+        openDialogs: Array.from(document.querySelectorAll('dialog[open]')).map((dialog) => dialog.className),
+        nameGateHidden: document.querySelector('[data-name-gate]').hidden,
+        now: Date.now(),
+        session: {
+          id: session.id,
+          startedAt: session.startedAt,
+          until: session.until,
+          token: session.runtimeToken
+        },
+        saved: runtime.state.minigames.active ? {
+          id: runtime.state.minigames.active.id,
+          startedAt: runtime.state.minigames.active.startedAt,
+          until: runtime.state.minigames.active.until,
+          token: runtime.state.minigames.active.runtimeToken
+        } : null,
+        exclusive: runtime.exclusiveSession || null,
+        foreign: runtime.foreignExclusiveSession || null,
+        launch: runtime.minigameLaunch || null
+      };
+    })()`,
+    returnByValue: true
+  });
+  const refocusedInfo = minigameRefocused.result.value || {};
+  if (!refocusedInfo.focused || refocusedInfo.targetX === minigameBefore.targetX) {
+    throw new Error(`Minigra nie odzyskała sterowania po zamknięciu Menu: ${JSON.stringify(refocusedInfo)}`);
+  }
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `document.querySelector('[data-minigame-end]').click()`,
+    returnByValue: true
+  });
+  await waitForExpression(cdp, `!window.__pieczargotchiRuntime.state.minigames.active`, 4000);
+
+  await setCaptureGrowth(cdp, 100);
+  const battleLaunch = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      document.querySelector('[data-workspace-tab="care"]').click();
+      const more = document.querySelector('[data-action-more]');
+      more.focus({ preventScroll: true });
+      const focusedMore = document.activeElement === more;
+      document.querySelector('[data-battle-start]').click();
+      return { focusedMore };
+    })()`,
+    returnByValue: true
+  });
+  if (!battleLaunch.result.value || !battleLaunch.result.value.focusedMore) {
+    throw new Error(`Nie udało się ustawić fokusu na mobilnym przycisku Więcej: ${JSON.stringify(battleLaunch.result.value)}`);
+  }
+  await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime.state.battle.activeBattle)`, 3000);
+  await waitForExpression(cdp, `!document.querySelector('[data-arena-panel]').hidden`, 2000);
+  const battleBefore = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const runtime = window.__pieczargotchiRuntime;
+      const config = window.PIECZARGOTCHI_CONFIG;
+      return {
+        hydration: runtime.state.stats.hydration,
+        cooldown: runtime.state.cooldowns.hydrate || null,
+        revision: runtime.state.saveRevision,
+        stored: localStorage.getItem(config.storageKey),
+        careBlocked: document.querySelector('[data-view-care]').getAttribute('aria-disabled') === 'true',
+        focusRestored: document.activeElement === document.querySelector('[data-view-arena]')
+      };
+    })()`,
+    returnByValue: true
+  });
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      document.querySelector('[data-view-care]').click();
+      document.querySelector('#gameMain').focus({ preventScroll: true });
+    })()`,
+    returnByValue: true
+  });
+  await dispatchDomKey(cdp, 'n');
+  await delay(100);
+  const battleAfter = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const runtime = window.__pieczargotchiRuntime;
+      const config = window.PIECZARGOTCHI_CONFIG;
+      return {
+        viewMode: runtime.viewMode,
+        hydration: runtime.state.stats.hydration,
+        cooldown: runtime.state.cooldowns.hydrate || null,
+        revision: runtime.state.saveRevision,
+        stored: localStorage.getItem(config.storageKey),
+        activeBattle: Boolean(runtime.state.battle.activeBattle)
+      };
+    })()`,
+    returnByValue: true
+  });
+  const battleBeforeInfo = battleBefore.result.value || {};
+  const battleAfterInfo = battleAfter.result.value || {};
+  if (
+    !battleBeforeInfo.careBlocked
+    || !battleBeforeInfo.focusRestored
+    || battleAfterInfo.viewMode !== 'arena'
+    || !battleAfterInfo.activeBattle
+    || battleAfterInfo.hydration !== battleBeforeInfo.hydration
+    || battleAfterInfo.cooldown !== battleBeforeInfo.cooldown
+    || battleAfterInfo.revision !== battleBeforeInfo.revision
+    || battleAfterInfo.stored !== battleBeforeInfo.stored
+  ) {
+    throw new Error(`Walka przepuściła Opiekę albo zapis: ${JSON.stringify({ before: battleBeforeInfo, after: battleAfterInfo })}`);
+  }
+
+  const activeDebugGuard = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const runtime = window.__pieczargotchiRuntime;
+      const config = window.PIECZARGOTCHI_CONFIG;
+      document.querySelector('[data-settings-open]').click();
+      const control = document.querySelector('[data-debug-growth]');
+      const before = {
+        state: JSON.stringify(runtime.state),
+        revision: runtime.state.saveRevision,
+        stored: localStorage.getItem(config.storageKey)
+      };
+      control.value = String(Math.max(0, Number(control.value) - 7));
+      const accepted = control.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+      return {
+        ariaDisabled: control.getAttribute('aria-disabled'),
+        cancelled: !accepted,
+        stateSame: JSON.stringify(runtime.state) === before.state,
+        revisionSame: runtime.state.saveRevision === before.revision,
+        storedSame: localStorage.getItem(config.storageKey) === before.stored
+      };
+    })()`,
+    returnByValue: true
+  });
+  const activeDebugGuardInfo = activeDebugGuard.result.value || {};
+  if (
+    activeDebugGuardInfo.ariaDisabled !== 'true'
+    || !activeDebugGuardInfo.cancelled
+    || !activeDebugGuardInfo.stateSame
+    || !activeDebugGuardInfo.revisionSame
+    || !activeDebugGuardInfo.storedSame
+  ) {
+    throw new Error(`Diagnostyka zmieniła stan podczas aktywnej walki: ${JSON.stringify(activeDebugGuardInfo)}`);
+  }
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `document.querySelector('[data-settings-dialog] [data-reset-open]').click()`,
+    returnByValue: true
+  });
+  const activeResetBlocked = await cdp.send('Runtime.evaluate', {
+    expression: `Boolean(document.querySelector('[data-settings-dialog][open]')) && !document.querySelector('[data-reset-dialog][open]')`,
+    returnByValue: true
+  });
+  if (!activeResetBlocked.result.value) {
+    throw new Error('Reset otworzył się podczas aktywnej walki.');
+  }
+
+  const pendingSetup = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      document.querySelector('[data-settings-close]').click();
+      const runtime = window.__pieczargotchiRuntime;
+      const qa = window.__pieczargotchiQa;
+      const config = window.PIECZARGOTCHI_CONFIG;
+      const persisted = qa && qa.resetExclusiveSession('qa');
+      if (qa) {
+        qa.beginStorageBusyProbe();
+      }
+      return {
+        qaAvailable: Boolean(qa),
+        persisted: persisted && persisted.ok,
+        activeBattle: Boolean(runtime.state.battle.activeBattle),
+        pending: Boolean(runtime.pendingExclusiveStart),
+        stored: Boolean(localStorage.getItem(config.storageKey))
+      };
+    })()`,
+    returnByValue: true
+  });
+  const pendingSetupInfo = pendingSetup.result.value || {};
+  if (
+    !pendingSetupInfo.qaAvailable
+    || !pendingSetupInfo.persisted
+    || pendingSetupInfo.activeBattle
+    || pendingSetupInfo.pending
+    || !pendingSetupInfo.stored
+  ) {
+    throw new Error(`Nie udało się przygotować realnego testu pending session: ${JSON.stringify(pendingSetupInfo)}`);
+  }
+
+  const pendingReset = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const runtime = window.__pieczargotchiRuntime;
+      const config = window.PIECZARGOTCHI_CONFIG;
+      document.querySelector('[data-battle-start]').click();
+      const before = {
+        state: JSON.stringify(runtime.state),
+        revision: runtime.state.saveRevision,
+        stored: localStorage.getItem(config.storageKey),
+        saveCalls: window.__pieczargotchiQa.getPersistenceProbe().calls
+      };
+      document.querySelector('[data-settings-open]').click();
+      const debugControl = document.querySelector('[data-debug-growth]');
+      debugControl.value = String(Math.max(0, Number(debugControl.value) - 9));
+      const debugAccepted = debugControl.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+      document.querySelector('[data-settings-dialog] [data-reset-open]').click();
+      return {
+        pending: runtime.pendingExclusiveStart && runtime.pendingExclusiveStart.kind,
+        settingsOpen: Boolean(document.querySelector('[data-settings-dialog][open]')),
+        resetOpen: Boolean(document.querySelector('[data-reset-dialog][open]')),
+        activeBattle: Boolean(runtime.state.battle.activeBattle),
+        debugAriaDisabled: debugControl.getAttribute('aria-disabled'),
+        debugCancelled: !debugAccepted,
+        stateSame: JSON.stringify(runtime.state) === before.state,
+        revisionSame: runtime.state.saveRevision === before.revision,
+        storedSame: localStorage.getItem(config.storageKey) === before.stored,
+        saveCallsBeforeActions: before.saveCalls,
+        saveCallsAfterActions: window.__pieczargotchiQa.getPersistenceProbe().calls
+      };
+    })()`,
+    returnByValue: true
+  });
+  if (pendingReset.exceptionDetails) {
+    throw new Error(`Pending reset probe zgłosił wyjątek: ${JSON.stringify(pendingReset.exceptionDetails)}`);
+  }
+  const pendingResetInfo = pendingReset.result.value || {};
+  if (
+    pendingResetInfo.pending !== 'battle'
+    || !pendingResetInfo.settingsOpen
+    || pendingResetInfo.resetOpen
+    || pendingResetInfo.activeBattle
+    || pendingResetInfo.debugAriaDisabled !== 'true'
+    || !pendingResetInfo.debugCancelled
+    || !pendingResetInfo.stateSame
+    || !pendingResetInfo.revisionSame
+    || !pendingResetInfo.storedSame
+    || pendingResetInfo.saveCallsBeforeActions !== 1
+    || pendingResetInfo.saveCallsAfterActions !== pendingResetInfo.saveCallsBeforeActions
+  ) {
+    throw new Error(`Reset nie został zablokowany podczas pending session: ${JSON.stringify(pendingResetInfo)}`);
+  }
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      document.querySelector('[data-settings-close]').click();
+      window.__pieczargotchiQa.releaseStorageBusyProbe();
+    })()`,
+    returnByValue: true
+  });
+  await waitForExpression(
+    cdp,
+    `Boolean(window.__pieczargotchiRuntime.state.battle.activeBattle) && !window.__pieczargotchiRuntime.pendingExclusiveStart`,
+    3000
+  );
+  const pendingRetry = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const result = {
+        saveCalls: window.__pieczargotchiQa.getPersistenceProbe().calls,
+        activeBattle: Boolean(window.__pieczargotchiRuntime.state.battle.activeBattle),
+        pending: Boolean(window.__pieczargotchiRuntime.pendingExclusiveStart)
+      };
+      window.__pieczargotchiQa.clearPersistenceProbe();
+      return result;
+    })()`,
+    returnByValue: true
+  });
+  const pendingRetryInfo = pendingRetry.result.value || {};
+  if (
+    pendingRetryInfo.saveCalls <= pendingResetInfo.saveCallsAfterActions
+    || !pendingRetryInfo.activeBattle
+    || pendingRetryInfo.pending
+  ) {
+    throw new Error(`Retry realnego pending session nie zakończył startu walki: ${JSON.stringify(pendingRetryInfo)}`);
   }
 
   console.log(`real-ui-flow: ${screenshotPath}`);
-  console.log(`real-ui-flow launch: ${JSON.stringify({ countdown: countdownInfo, running: runningInfo, modal: modalInfo })}`);
+  console.log(`real-ui-flow launch: ${JSON.stringify({
+    gate: gateInfo,
+    countdown: countdownInfo,
+    running: runningInfo,
+    modal: modalInfo,
+    blockedInput: minigameBlocked,
+    refocused: refocusedInfo,
+    debugGuard: activeDebugGuardInfo,
+    pendingBattle: pendingResetInfo,
+    battle: {
+      viewMode: battleAfterInfo.viewMode,
+      hydration: battleAfterInfo.hydration,
+      cooldown: battleAfterInfo.cooldown,
+      revision: battleAfterInfo.revision,
+      activeBattle: battleAfterInfo.activeBattle,
+      focusRestored: battleBeforeInfo.focusRestored
+    }
+  })}`);
 }
 
 async function captureState(cdp, mode) {
@@ -891,6 +1275,116 @@ async function captureInteractionSmoke(cdp) {
   }
   console.log(`interactions: ${filePath}`);
   console.log(`interactions diagnostics: ${JSON.stringify(state)}`);
+}
+
+async function captureTouchInteractionSmoke(cdp) {
+  const setup = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const canvas = document.getElementById('mushroomCanvas');
+      const runtime = window.__pieczargotchiRuntime || {};
+      if (!canvas || !runtime.input) {
+        return { ok: false };
+      }
+      const rect = canvas.getBoundingClientRect();
+      runtime.input.grassBrushDistance = 0;
+      runtime.input.grassBrushLastAt = 0;
+      runtime.input.lastCancelAt = 0;
+      runtime.input.lastUpAt = 0;
+      if (runtime.worldInteractions) {
+        runtime.worldInteractions.effects = [];
+        runtime.worldInteractions.cooldowns = {};
+      }
+      return {
+        ok: true,
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height
+      };
+    })()`,
+    returnByValue: true
+  });
+  const canvas = setup.result.value || {};
+  if (!canvas.ok || canvas.width < 1 || canvas.height < 1) {
+    throw new Error(`Mobilny touch probe nie znalazł sceny: ${JSON.stringify(canvas)}`);
+  }
+
+  const point = (sceneX, sceneY, id) => ({
+    x: canvas.left + sceneX / 512 * canvas.width,
+    y: canvas.top + sceneY / 512 * canvas.height,
+    radiusX: 2,
+    radiusY: 2,
+    force: 1,
+    id
+  });
+  const dragId = 71;
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point(190, 424, dragId)] });
+  for (const sceneX of [230, 275, 325, 370]) {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [point(sceneX, 426, dragId)] });
+    await delay(18);
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await delay(100);
+
+  const drag = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const runtime = window.__pieczargotchiRuntime || {};
+      return {
+        pointerType: runtime.input && runtime.input.pointerType,
+        isDown: runtime.input && runtime.input.isDown,
+        pointerId: runtime.input && runtime.input.pointerId,
+        brushDistance: runtime.input && runtime.input.grassBrushDistance,
+        lastUpAt: runtime.input && runtime.input.lastUpAt,
+        grassEffects: runtime.worldInteractions && Array.isArray(runtime.worldInteractions.effects)
+          ? runtime.worldInteractions.effects.filter((effect) => String(effect.type).includes('grass')).length
+          : 0
+      };
+    })()`,
+    returnByValue: true
+  });
+  const dragInfo = drag.result.value || {};
+  if (
+    dragInfo.pointerType !== 'touch'
+    || dragInfo.isDown
+    || dragInfo.pointerId !== null
+    || Number(dragInfo.brushDistance) < 72
+    || Number(dragInfo.lastUpAt) <= 0
+    || Number(dragInfo.grassEffects) < 1
+  ) {
+    throw new Error(`Prawdziwy mobilny gest touch nie uruchomił reakcji trawy: ${JSON.stringify(dragInfo)}`);
+  }
+
+  const cancelId = 72;
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point(210, 420, cancelId)] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [point(250, 422, cancelId)] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
+  await delay(80);
+  const cancel = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const input = window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.input;
+      return input ? {
+        pointerType: input.pointerType,
+        isDown: input.isDown,
+        pointerId: input.pointerId,
+        lastDragX: input.lastDragX,
+        lastDragY: input.lastDragY,
+        lastCancelAt: input.lastCancelAt
+      } : null;
+    })()`,
+    returnByValue: true
+  });
+  const cancelInfo = cancel.result.value || {};
+  if (
+    cancelInfo.pointerType !== 'touch'
+    || cancelInfo.isDown
+    || cancelInfo.pointerId !== null
+    || cancelInfo.lastDragX !== null
+    || cancelInfo.lastDragY !== null
+    || Number(cancelInfo.lastCancelAt) <= 0
+  ) {
+    throw new Error(`pointercancel nie wyczyścił mobilnego gestu: ${JSON.stringify(cancelInfo)}`);
+  }
+  console.log(`touch interactions diagnostics: ${JSON.stringify({ drag: dragInfo, cancel: cancelInfo })}`);
 }
 
 async function captureArena(cdp) {
@@ -1198,6 +1692,7 @@ async function captureWorldJournal(cdp) {
     returnByValue: true
   });
   const info = diagnostics.result.value || {};
+  const expectsTiltedPolaroid = viewportWidth > 640;
   if (
     !info.ok
     || !info.tooltipVisible
@@ -1207,7 +1702,7 @@ async function captureWorldJournal(cdp) {
     || !info.snapshotStage
     || info.snapshotFallback !== 'false'
     || (info.expectedFrameTier && info.frameTier !== info.expectedFrameTier)
-    || !info.polaroidTilted
+    || (expectsTiltedPolaroid ? !info.polaroidTilted : info.polaroidTilted)
     || !info.canvasSquare
     || !info.polaroidInViewport
     || !info.canvasVisible
@@ -2660,6 +3155,7 @@ async function captureViewport(cdp) {
           labelText: label ? label.textContent : button.textContent.trim(),
           visible: style.display !== 'none' && rect.width > 0 && rect.height > 0,
           hiddenByContext: button.classList.contains('is-mobile-context-hidden'),
+          primary: Boolean(button.closest('[data-actions-primary]')),
           labelClipped: label ? label.scrollWidth > label.clientWidth + 1 || label.scrollHeight > label.clientHeight + 1 : false
         };
       });
@@ -2697,6 +3193,7 @@ async function captureViewport(cdp) {
       return {
         innerWidth,
         innerHeight,
+        documentHeight: document.documentElement.scrollHeight,
         documentWidth: document.documentElement.scrollWidth,
         bodyWidth: document.body.scrollWidth,
         app: rectOf('.app'),
@@ -2781,6 +3278,9 @@ async function captureViewport(cdp) {
   });
   const filePath = `${outputPrefix}-viewport-${viewportWidth}x${viewportHeight}.png`;
   writeFileSync(filePath, Buffer.from(screenshot.data, 'base64'));
+  if (viewportWidth <= 320 && viewportHeight <= 568) {
+    await assertSmallMobileScrollReachability(cdp, info);
+  }
   if (viewportWidth > 640 && viewportHeight <= 700 && !info.actionsDockActive && info.actionsPosition === 'sticky') {
     await assertShortDesktopActionsStayVisibleOnSidePanelScroll(cdp, info);
   }
@@ -2880,6 +3380,19 @@ function assertMobileLayout(info) {
     throw new Error(`Bezpieczny fallback akcji powinien pozostać w przepływie, wykryto ${info.actionsDockPlacement}/${info.actionsPosition}.`);
   }
 
+  if (info.innerWidth <= 320 && info.innerHeight <= 568) {
+    if (!info.actionsDockActive) {
+      throw new Error('Na 320×568 pięć podstawowych akcji musi pozostać w stałej dolnej tacce.');
+    }
+    const visiblePrimary = info.actionButtons.filter((button) => button.visible && button.primary);
+    if (visiblePrimary.length !== 5) {
+      throw new Error(`Na 320×568 oczekiwano pięciu widocznych podstawowych akcji, wykryto ${visiblePrimary.length}.`);
+    }
+    if (info.actions.top < -1 || info.actions.bottom > info.innerHeight + 1) {
+      throw new Error(`Tacka podstawowych akcji nie mieści się w pierwszym ekranie 320×568: ${JSON.stringify(info.actions)}.`);
+    }
+  }
+
   assertAdaptiveDockBounds(info);
 
   const visibleActionButtons = info.actionButtons.filter((button) => button.visible);
@@ -2909,6 +3422,63 @@ function assertMobileLayout(info) {
     if (clippedRows.length) {
       throw new Error(`Ucięte etykiety kalendarza: ${clippedRows.map((row) => row.labelText).join(', ')}`);
     }
+  }
+}
+
+async function assertSmallMobileScrollReachability(cdp, initialInfo) {
+  const beforeTabsTop = initialInfo.workspaceTabs && initialInfo.workspaceTabs.top;
+  const scroll = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const maxScroll = Math.max(0, document.documentElement.scrollHeight - innerHeight);
+      window.scrollTo(0, maxScroll);
+      return { maxScroll };
+    })()`,
+    returnByValue: true
+  });
+  await delay(120);
+  const result = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const rectOf = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right };
+      };
+      const actions = document.querySelector('.panel-block--actions');
+      return {
+        scrollY,
+        maxScroll: Math.max(0, document.documentElement.scrollHeight - innerHeight),
+        tabs: rectOf('[data-workspace-tabs]'),
+        actions: rectOf('.panel-block--actions'),
+        actionsFixed: actions ? getComputedStyle(actions).position === 'fixed' : false,
+        documentHeight: document.documentElement.scrollHeight
+      };
+    })()`,
+    returnByValue: true
+  });
+  await cdp.send('Runtime.evaluate', { expression: 'window.scrollTo(0, 0)' });
+  await delay(60);
+
+  const info = result.result.value || {};
+  const expectedMax = Number(scroll.result.value && scroll.result.value.maxScroll) || 0;
+  if (expectedMax > 1 && Number(info.scrollY) < expectedMax - 2) {
+    throw new Error(`Mały layout mobilny nie dociera do końca dokumentu: ${JSON.stringify(info)}.`);
+  }
+  if (
+    expectedMax > 1
+    && Number.isFinite(Number(beforeTabsTop))
+    && info.tabs
+    && Number(info.tabs.top) >= Number(beforeTabsTop) - 20
+  ) {
+    throw new Error(`Treść workspace nie przesuwa się ponad stałą tackę: ${JSON.stringify(info)}.`);
+  }
+  if (
+    !info.actionsFixed
+    || !info.actions
+    || info.actions.top < -1
+    || info.actions.bottom > viewportHeight + 1
+  ) {
+    throw new Error(`Tacka nie pozostała osiągalna podczas scrollu małego layoutu: ${JSON.stringify(info)}.`);
   }
 }
 
@@ -3635,4 +4205,29 @@ async function getRuntimeWaitDiagnostic(cdp) {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function dispatchDomKey(cdp, key) {
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const target = document.activeElement || document.body;
+      return target.dispatchEvent(new KeyboardEvent('keydown', {
+        key: ${JSON.stringify(key)},
+        bubbles: true,
+        cancelable: true
+      }));
+    })()`,
+    returnByValue: true
+  });
+}
+
+async function dispatchWindowKey(cdp, key) {
+  await cdp.send('Runtime.evaluate', {
+    expression: `window.dispatchEvent(new KeyboardEvent('keydown', {
+      key: ${JSON.stringify(key)},
+      bubbles: true,
+      cancelable: true
+    }))`,
+    returnByValue: true
+  });
 }

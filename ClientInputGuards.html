@@ -1,0 +1,69 @@
+  function isUiInputModalActive() {
+    if (runtime.ui && runtime.ui.activeModal) {
+      return true;
+    }
+    if (typeof dom !== 'undefined' && dom.nameGate && dom.nameGate.hidden === false) {
+      return true;
+    }
+    if (typeof document === 'undefined' || typeof document.querySelector !== 'function') {
+      return false;
+    }
+    return Boolean(document.querySelector('dialog[open], [data-name-gate]:not([hidden])'));
+  }
+
+  function isCurrentMinigameInputAllowed(session, now) {
+    if (!session || !runtime.minigame || !runtime.minigame.session) {
+      return false;
+    }
+    if (isUiInputModalActive()) {
+      return false;
+    }
+    if (typeof isForeignExclusiveSessionActive === 'function' && isForeignExclusiveSessionActive('minigame')) {
+      return false;
+    }
+    const active = runtime.state && runtime.state.minigames
+      ? runtime.state.minigames.active
+      : null;
+    const matches = typeof doesRuntimeMinigameSessionMatch === 'function'
+      ? doesRuntimeMinigameSessionMatch(session, runtime.minigame.session)
+        && doesRuntimeMinigameSessionMatch(session, active)
+      : Boolean(active
+        && String(session.id || '') === String(runtime.minigame.session.id || '')
+        && String(session.id || '') === String(active.id || '')
+        && Number(session.startedAt) === Number(active.startedAt));
+    if (!matches) {
+      return false;
+    }
+    const exclusive = runtime.exclusiveSession;
+    if (exclusive) {
+      const token = String(session.runtimeToken || '');
+      if (exclusive.kind !== 'minigame'
+        || String(exclusive.id || '') !== String(session.id || '')
+        || token && String(exclusive.token || '') !== token) {
+        return false;
+      }
+    }
+    const timestamp = Number.isFinite(Number(now)) ? Number(now) : getRuntimeNow();
+    if (typeof getMinigameLaunchPhase === 'function') {
+      return getMinigameLaunchPhase(session, timestamp) === 'running';
+    }
+    return timestamp >= Number(session.startedAt) && timestamp < Number(session.until);
+  }
+
+  function shouldHandleMinigameKeydown(event, canvas, session) {
+    if (!event || !canvas || !isCurrentMinigameInputAllowed(session, getRuntimeNow()) || isUiInputModalActive()) {
+      return false;
+    }
+    const target = event.target || null;
+    if (target && target !== canvas) {
+      const tagName = target.tagName ? String(target.tagName).toLowerCase() : '';
+      if (['input', 'textarea', 'select', 'button', 'a'].indexOf(tagName) !== -1 || target.isContentEditable) {
+        return false;
+      }
+      if (typeof target.closest === 'function'
+        && target.closest('input, textarea, select, button, a[href], [contenteditable="true"], [role="button"], [role="tab"]')) {
+        return false;
+      }
+    }
+    return typeof document !== 'undefined' && document.activeElement === canvas;
+  }

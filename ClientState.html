@@ -211,10 +211,28 @@
     return { ok: true, revision: prepared.revision, mode: persistenceState.mode };
   }
 
+  function saveStateForRuntime(state, options) {
+    const probe = typeof runtimeOptions !== 'undefined'
+      && runtimeOptions.exposeRuntime
+      && typeof runtime !== 'undefined'
+      && runtime.qaPersistenceProbe
+      && runtime.qaPersistenceProbe.active
+      ? runtime.qaPersistenceProbe
+      : null;
+    if (probe) {
+      probe.calls = Math.max(0, Number(probe.calls) || 0) + 1;
+      if (probe.forceStorageBusy) {
+        persistenceState.reason = 'storageBusy';
+        return { ok: false, reason: 'storageBusy', mode: persistenceState.mode };
+      }
+    }
+    return saveState(state, options);
+  }
+
   function saveReplacementState(state, previousState) {
     const expectedRevision = Math.max(0, Math.floor(Number(previousState && previousState.saveRevision) || 0));
     const expectedWriterId = String(previousState && previousState.saveWriterId || '').slice(0, 80);
-    return saveState(state, {
+    return saveStateForRuntime(state, {
       replace: true,
       expectedRevision: expectedRevision,
       expectedWriterId: expectedWriterId

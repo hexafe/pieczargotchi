@@ -13,6 +13,9 @@
     if (!action) {
       return;
     }
+    if (guardNonSessionMutation(action.label || 'Opieka')) {
+      return;
+    }
     if (!ensureMushroomNamed()) {
       return;
     }
@@ -60,25 +63,18 @@
     const requestedMode = mode === 'arena' && isArenaUnlockedForRuntime()
       ? 'arena'
       : 'care';
-    const activeMinigame = runtime.state && runtime.state.minigames
-      ? runtime.state.minigames.active
-      : null;
-    const pendingMinigame = runtime.pendingExclusiveStart && runtime.pendingExclusiveStart.kind === 'minigame'
-      ? runtime.pendingExclusiveStart
-      : null;
-    if (activeMinigame || pendingMinigame) {
-      const requiredMode = activeMinigame
-        ? isLegendaryMinigameRuntimeId(activeMinigame.id) ? 'arena' : 'care'
-        : pendingMinigame.legendary ? 'arena' : 'care';
+    const exclusive = getExclusiveGameplaySession();
+    if (exclusive) {
+      const pending = exclusive.phase === 'pending' ? runtime.pendingExclusiveStart : null;
+      const legendaryMinigame = exclusive.kind === 'minigame'
+        && (Boolean(pending && pending.legendary) || isLegendaryMinigameRuntimeId(exclusive.id));
+      const requiredMode = exclusive.kind === 'battle' || legendaryMinigame ? 'arena' : 'care';
       if (requestedMode !== requiredMode) {
-        setTransientMessage('Aktywna minigra', 'Najpierw zakończ rozgrywkę albo wróć do jej planszy.');
-        if (typeof returnToActiveMinigame === 'function') {
-          if (!returnToActiveMinigame()) {
-            renderUi();
-          }
-        } else {
-          renderUi();
+        runtime.viewMode = requiredMode;
+        if (exclusive.kind === 'minigame' && typeof returnToActiveMinigame === 'function') {
+          returnToActiveMinigame();
         }
+        guardNonSessionMutation('Nawigacja');
         return;
       }
     }
@@ -92,6 +88,9 @@
   function handleDailyRhythmSelect(rhythmId) {
     if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
       renderPersistenceStatus();
+      return;
+    }
+    if (guardNonSessionMutation('Rytm dnia')) {
       return;
     }
     const core = window.PieczargotchiCore;
@@ -225,10 +224,11 @@
   }
 
   function handleBattleTrain(statId) {
-    if ((typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked())
-      || isMinigameActive()
-      || isBattleSessionActive()) {
+    if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
       renderPersistenceStatus();
+      return;
+    }
+    if (guardNonSessionMutation('Trening')) {
       return;
     }
     const core = window.PieczargotchiCore;
@@ -344,10 +344,13 @@
       };
     }
 
-    if (isMinigameActive()) {
+    if (guardNonSessionMutation('Opieka', { silent: true })) {
+      const exclusive = getExclusiveGameplaySession();
       return {
         ok: false,
-        reason: 'Najpierw zakończ minigrę.'
+        reason: exclusive && exclusive.kind === 'battle'
+          ? 'Najpierw zakończ walkę na arenie.'
+          : 'Najpierw zakończ minigrę.'
       };
     }
 
@@ -696,6 +699,13 @@
   }
 
   function handleDecorationBuy(decorationId) {
+    if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
+      renderPersistenceStatus();
+      return;
+    }
+    if (guardNonSessionMutation('Dekoracje')) {
+      return;
+    }
     const core = window.PieczargotchiCore;
     const now = getRuntimeNow();
     if (!core || !core.buyDecoration) {
@@ -731,6 +741,13 @@
   }
 
   function handleHabitatVisitorGreet(visitorId) {
+    if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
+      renderPersistenceStatus();
+      return;
+    }
+    if (guardNonSessionMutation('Gość')) {
+      return;
+    }
     const core = window.PieczargotchiCore;
     const now = getRuntimeNow();
     if (!core || typeof core.greetHabitatVisitor !== 'function') {
@@ -768,6 +785,13 @@
   }
 
   function handleSporeExpeditionStart(expeditionId) {
+    if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
+      renderPersistenceStatus();
+      return;
+    }
+    if (guardNonSessionMutation('Wyprawa')) {
+      return;
+    }
     const core = window.PieczargotchiCore;
     const now = getRuntimeNow();
     if (!core || typeof core.startSporeExpedition !== 'function') {
@@ -804,6 +828,13 @@
   }
 
   function handleSporeExpeditionClaim() {
+    if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
+      renderPersistenceStatus();
+      return;
+    }
+    if (guardNonSessionMutation('Wyprawa')) {
+      return;
+    }
     const core = window.PieczargotchiCore;
     const now = getRuntimeNow();
     if (!core || typeof core.claimSporeExpedition !== 'function') {
@@ -838,6 +869,74 @@
     runtime.state.lastUpdatedAt = new Date(now).toISOString();
     persistRuntimeState(runtime.state);
     renderUi();
+  }
+
+  function getExclusiveGameplaySession() {
+    const pending = runtime.pendingExclusiveStart;
+    if (pending && (pending.kind === 'battle' || pending.kind === 'minigame')) {
+      return {
+        kind: pending.kind,
+        phase: 'pending',
+        id: String(pending.id || '')
+      };
+    }
+    const activeMinigame = runtime.state && runtime.state.minigames
+      ? runtime.state.minigames.active
+      : null;
+    if (activeMinigame) {
+      return {
+        kind: 'minigame',
+        phase: 'active',
+        id: String(activeMinigame.id || '')
+      };
+    }
+    const activeBattle = runtime.state && runtime.state.battle
+      ? runtime.state.battle.activeBattle
+      : null;
+    if (activeBattle && ['victory', 'defeat'].indexOf(activeBattle.mode) === -1) {
+      return {
+        kind: 'battle',
+        phase: 'active',
+        id: String(activeBattle.id || '')
+      };
+    }
+    return null;
+  }
+
+  function guardNonSessionMutation(title, options) {
+    const exclusive = getExclusiveGameplaySession();
+    if (!exclusive) {
+      return false;
+    }
+    if (!(options && options.silent)) {
+      const reason = exclusive.phase === 'pending'
+        ? 'Poczekaj, aż bieżąca sesja zostanie bezpiecznie zapisana.'
+        : exclusive.kind === 'battle'
+          ? 'Najpierw zakończ walkę na arenie.'
+          : 'Najpierw zakończ minigrę.';
+      if (typeof setNonSessionGuardUiMessage === 'function') {
+        setNonSessionGuardUiMessage(title || 'Aktywna sesja', reason);
+        renderUi();
+        return true;
+      }
+      const stateBeforeMessage = runtime.state;
+      const hadCurrentActivity = Boolean(stateBeforeMessage)
+        && Object.prototype.hasOwnProperty.call(stateBeforeMessage, 'currentActivity');
+      const previousActivity = stateBeforeMessage ? stateBeforeMessage.currentActivity : undefined;
+      try {
+        setTransientMessage(title || 'Aktywna sesja', reason);
+        renderUi();
+      } finally {
+        if (stateBeforeMessage && runtime.state === stateBeforeMessage) {
+          if (hadCurrentActivity) {
+            stateBeforeMessage.currentActivity = previousActivity;
+          } else {
+            delete stateBeforeMessage.currentActivity;
+          }
+        }
+      }
+    }
+    return true;
   }
 
   function isMinigameActive() {

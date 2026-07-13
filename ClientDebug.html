@@ -246,9 +246,35 @@
     }
   }
 
+  function blockExclusiveDebugMutation(event) {
+    const target = event && event.target && event.target.closest
+      ? event.target.closest('.debug-controls input, .debug-controls select, .debug-controls button')
+      : null;
+    if (!target || !dom.debugPanel || !dom.debugPanel.contains(target)) {
+      return false;
+    }
+    if (typeof guardNonSessionMutation !== 'function' || !guardNonSessionMutation('Diagnostyka')) {
+      return false;
+    }
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    renderDebugControls();
+    if (typeof renderExclusiveSessionControls === 'function') {
+      renderExclusiveSessionControls();
+    }
+    return true;
+  }
+
   function bindDebugControls() {
     if (!isDebugAvailable || !dom.debugEnabled) {
       return;
+    }
+
+    if (dom.debugPanel) {
+      ['click', 'input', 'change'].forEach(function(eventName) {
+        dom.debugPanel.addEventListener(eventName, blockExclusiveDebugMutation, true);
+      });
     }
 
     if (dom.debugDetails) {
@@ -516,7 +542,7 @@
     }
 
     if (runtime.state) {
-      saveState(runtime.state);
+      saveStateForRuntime(runtime.state);
     }
 
     saveDebugSettings();

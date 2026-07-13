@@ -3826,11 +3826,11 @@
     .panel-block--actions.is-adaptive-docked {
       position: fixed;
       top: auto !important;
-      right: auto;
+      right: max(8px, env(safe-area-inset-right));
       bottom: calc(8px + env(safe-area-inset-bottom));
       left: max(8px, env(safe-area-inset-left)) !important;
-      width: calc(100vw - 16px) !important;
-      max-width: calc(100vw - 16px);
+      width: auto !important;
+      max-width: none;
       z-index: 72;
       overflow: visible;
     }
