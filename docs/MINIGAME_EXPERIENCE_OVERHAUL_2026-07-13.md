@@ -1,6 +1,6 @@
 # Przebudowa doświadczenia minigier — 2026-07-13
 
-Wersja aplikacji: `0.1.53`
+Wersja aplikacji: `0.1.54`
 Wersja stanu: `20`
 
 ## Umowa z graczem

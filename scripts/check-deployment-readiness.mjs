@@ -604,6 +604,12 @@ function checkCaptureToolingContracts() {
     || !appCapture.includes('process.pid')) {
     fail('Browser capture must use Chromium OS-assigned DevTools ports and collision-safe temp profiles.');
   }
+  if (!appCapture.includes("'--disable-dev-shm-usage'")
+    || !appCapture.includes("browser.stderr.on('data'")
+    || !appCapture.includes('PIECZARGOTCHI_CHROMIUM_START_TIMEOUT_MS')
+    || !appCapture.includes('formatBrowserDiagnostics()')) {
+    fail('Browser capture must tolerate slow CI startup, drain Chromium logs, and preserve launch diagnostics.');
+  }
   if (!devServer.includes('server.address()') || !devServer.includes('boundPort')) {
     fail('dev-server.mjs must report the actual OS-assigned port when started with port 0.');
   }

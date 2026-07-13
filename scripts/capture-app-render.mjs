@@ -12,6 +12,10 @@ const viewportHeight = Number(process.env.PIECZARGOTCHI_VIEWPORT_HEIGHT) || 891;
 const emulateMobile = process.env.PIECZARGOTCHI_EMULATE_MOBILE === '1';
 const captureDelayOverride = Number(process.env.PIECZARGOTCHI_CAPTURE_DELAY_MS);
 const captureDelayMs = Number.isFinite(captureDelayOverride) ? Math.max(0, captureDelayOverride) : 350;
+const chromiumStartupTimeoutMs = Math.max(
+  6000,
+  Number(process.env.PIECZARGOTCHI_CHROMIUM_START_TIMEOUT_MS) || 20000,
+);
 const captureAppsScriptNoAssets = process.env.PIECZARGOTCHI_CAPTURE_APPS_SCRIPT_NO_ASSETS === '1';
 const captureBeforeAssets = process.env.PIECZARGOTCHI_CAPTURE_BEFORE_ASSETS === '1';
 const captureAllMinigames = process.env.PIECZARGOTCHI_CAPTURE_ALL_MINIGAMES === '1';
@@ -251,14 +255,32 @@ function createCaptureSceneOverrides() {
 const browser = spawn(chromiumPath, [
   '--headless=new',
   '--disable-gpu',
+  '--disable-dev-shm-usage',
   '--no-sandbox',
+  '--remote-debugging-address=127.0.0.1',
   '--remote-debugging-port=0',
   `--user-data-dir=${userDataDir}`,
   'about:blank'
 ], {
   stdio: ['ignore', 'pipe', 'pipe']
 });
-const browserClosed = new Promise((resolve) => browser.on('close', resolve));
+let browserStdout = '';
+let browserStderr = '';
+let browserSpawnError = null;
+let browserCloseInfo = null;
+browser.stdout.on('data', (chunk) => {
+  browserStdout = appendBrowserOutput(browserStdout, chunk);
+});
+browser.stderr.on('data', (chunk) => {
+  browserStderr = appendBrowserOutput(browserStderr, chunk);
+});
+browser.on('error', (error) => {
+  browserSpawnError = error;
+});
+const browserClosed = new Promise((resolve) => browser.on('close', (code, signal) => {
+  browserCloseInfo = { code, signal };
+  resolve(browserCloseInfo);
+}));
 
 try {
   const endpoint = await waitForEndpoint();
@@ -3987,8 +4009,14 @@ async function navigate(cdp, url) {
 }
 
 async function waitForEndpoint() {
-  const deadline = Date.now() + 6000;
+  const deadline = Date.now() + chromiumStartupTimeoutMs;
   while (Date.now() < deadline) {
+    if (browserSpawnError) {
+      throw new Error(`Nie udało się uruchomić Chromium.${formatBrowserDiagnostics()}`);
+    }
+    if (browserCloseInfo || browser.exitCode !== null) {
+      throw new Error(`Chromium zakończył działanie przed otwarciem DevTools.${formatBrowserDiagnostics()}`);
+    }
     try {
       const devToolsPortFile = path.join(userDataDir, 'DevToolsActivePort');
       if (!existsSync(devToolsPortFile)) {
@@ -4013,7 +4041,31 @@ async function waitForEndpoint() {
     }
     await delay(100);
   }
-  throw new Error('Nie udało się połączyć z Chromium DevTools.');
+  throw new Error(
+    `Nie udało się połączyć z Chromium DevTools w ${Math.ceil(chromiumStartupTimeoutMs / 1000)} s.`
+      + formatBrowserDiagnostics(),
+  );
+}
+
+function appendBrowserOutput(current, chunk) {
+  return (current + String(chunk || '')).slice(-12000);
+}
+
+function formatBrowserDiagnostics() {
+  const details = [];
+  if (browserSpawnError) {
+    details.push(`spawn=${browserSpawnError.message || browserSpawnError}`);
+  }
+  if (browserCloseInfo) {
+    details.push(`close=${browserCloseInfo.code ?? 'null'}/${browserCloseInfo.signal || 'none'}`);
+  }
+  if (browserStderr.trim()) {
+    details.push(`stderr=${browserStderr.trim().slice(-4000)}`);
+  }
+  if (browserStdout.trim()) {
+    details.push(`stdout=${browserStdout.trim().slice(-2000)}`);
+  }
+  return details.length ? ` ${details.join(' | ')}` : '';
 }
 
 function connectCdp(url) {

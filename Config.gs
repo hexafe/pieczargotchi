@@ -1,5 +1,5 @@
 const PIECZARGOTCHI_APP_TITLE = 'Pieczargotchi';
-const PIECZARGOTCHI_APP_VERSION = '0.1.53';
+const PIECZARGOTCHI_APP_VERSION = '0.1.54';
 const PIECZARGOTCHI_STORAGE_KEY = 'pieczargotchi_state_v2';
 const PIECZARGOTCHI_STATE_VERSION = 20;
 const PIECZARGOTCHI_CANVAS_SIZE = 512;
@@ -16,7 +16,7 @@ const PIECZARGOTCHI_DRIVE_ASSETS_ENABLED = false;
 const PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID = '';
 const PIECZARGOTCHI_ASSET_DRIVE_FOLDER_PROPERTY = 'PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID';
 // Publiczny, niezmienny katalog PNG konkretnego wydania jest preferowany dla
-// Apps Script, np. https://host/releases/0.1.53/assets/. Host musi zachowywać
+// Apps Script, np. https://host/releases/0.1.54/assets/. Host musi zachowywać
 // poprzednie katalogi. Adres można ustawić bez zmiany repo przez Script Properties.
 const PIECZARGOTCHI_ASSET_BASE_URL = '';
 const PIECZARGOTCHI_ASSET_BASE_URL_PROPERTY_PREFIX = 'PIECZARGOTCHI_ASSET_BASE_URL_';
