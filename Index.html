@@ -19,6 +19,7 @@
       <p class="sr-live" data-ui-status role="status" aria-live="polite" aria-atomic="true"></p>
       <p class="sr-live" data-ui-alert role="alert" aria-live="assertive" aria-atomic="true"></p>
       <p class="sr-live" data-minigame-announcement role="status" aria-live="polite" aria-atomic="true"></p>
+      <p class="sr-live" data-minigame-semantic-live role="status" aria-live="polite" aria-atomic="true"></p>
 
       <section class="name-gate" data-name-gate role="dialog" aria-modal="true" aria-labelledby="nameGateTitle" hidden>
         <form class="name-gate__panel" data-name-form>
@@ -155,43 +156,57 @@
             <div class="minigame-card" data-minigame-card="dewCatch">
               <div>
                 <strong>Łapanie rosy</strong>
+                <span class="minigame-brief" data-minigame-brief="dewCatch">20 s · Strzałki lub wskaźnik · Łap krople i omijaj liście.</span>
                 <span data-minigame-last="dewCatch">0 kropli</span>
-                <span class="minigame-mastery" data-minigame-mastery="dewCatch">Rekord 0 · cel 24</span>
+                <span class="minigame-mastery" data-minigame-mastery="dewCatch">Rekord 0 · cel rundy 18</span>
               </div>
-              <button class="ghost-button" type="button" data-minigame-start="dewCatch" data-focus-key="minigame-dewCatch">Start</button>
+              <button class="ghost-button" type="button" data-minigame-start="dewCatch" data-minigame-mode="reward" data-focus-key="minigame-dewCatch">Start</button>
             </div>
             <div class="minigame-card" data-minigame-card="sporePop">
               <div>
                 <strong>Pękanie zarodników</strong>
+                <span class="minigame-brief" data-minigame-brief="sporePop">18 s · Strzałki i Enter lub dotyk · Pękaj rozświetlone zarodniki.</span>
                 <span data-minigame-last="sporePop">0 zarodników</span>
-                <span class="minigame-mastery" data-minigame-mastery="sporePop">Rekord 0 · cel 20</span>
+                <span class="minigame-mastery" data-minigame-mastery="sporePop">Rekord 0 · cel rundy 18</span>
               </div>
-              <button class="ghost-button" type="button" data-minigame-start="sporePop" data-focus-key="minigame-sporePop">Start</button>
+              <button class="ghost-button" type="button" data-minigame-start="sporePop" data-minigame-mode="reward" data-focus-key="minigame-sporePop">Start</button>
             </div>
             <div class="minigame-card" data-minigame-card="compostSort">
               <div>
                 <strong>Sortowanie kompostu</strong>
+                <span class="minigame-brief" data-minigame-brief="compostSort">22 s · Przeciąganie lub C/R · Dobry materiał w prawo, odrzut w lewo.</span>
                 <span data-minigame-last="compostSort">0 kawałków</span>
-                <span class="minigame-mastery" data-minigame-mastery="compostSort">Rekord 0 · cel 18</span>
+                <span class="minigame-mastery" data-minigame-mastery="compostSort">Rekord 0 · cel rundy 14</span>
               </div>
-              <button class="ghost-button" type="button" data-minigame-start="compostSort" data-focus-key="minigame-compostSort">Start</button>
+              <button class="ghost-button" type="button" data-minigame-start="compostSort" data-minigame-mode="reward" data-focus-key="minigame-compostSort">Start</button>
             </div>
             <div class="minigame-card" data-minigame-card="rhythmHum">
               <div>
                 <strong>Rytmiczne nucenie</strong>
+                <span class="minigame-brief" data-minigame-brief="rhythmHum">18 s · Strzałki lub pady · Trafiaj nuty przy jasnej linii.</span>
                 <span data-minigame-last="rhythmHum">0 nut</span>
-                <span class="minigame-mastery" data-minigame-mastery="rhythmHum">Rekord 0 · cel 8</span>
+                <span class="minigame-mastery" data-minigame-mastery="rhythmHum">Rekord 0 · cel rundy 14</span>
               </div>
-              <button class="ghost-button" type="button" data-minigame-start="rhythmHum" data-focus-key="minigame-rhythmHum">Start</button>
+              <button class="ghost-button" type="button" data-minigame-start="rhythmHum" data-minigame-mode="reward" data-focus-key="minigame-rhythmHum">Start</button>
             </div>
-            <div class="minigame-playfield" data-minigame-playfield tabindex="-1" aria-describedby="minigameLaunchStatus" hidden>
+            <div class="minigame-playfield" data-minigame-playfield tabindex="-1" aria-describedby="minigameLaunchStatus minigameSemanticCompanion" hidden>
               <p class="minigame-launch-status" id="minigameLaunchStatus" data-minigame-launch-status role="status" aria-live="polite" aria-atomic="true"></p>
+              <div class="minigame-sensory-bar" role="group" aria-label="Ustawienia sygnałów minigry">
+                <button class="ghost-button minigame-sensory-toggle" type="button" data-minigame-sound-toggle aria-pressed="true">Dźwięk: wł.</button>
+                <button class="ghost-button minigame-sensory-toggle" type="button" data-minigame-haptics-toggle aria-pressed="false">Wibracje: wył.</button>
+              </div>
+              <div class="minigame-semantic-companion" id="minigameSemanticCompanion" data-minigame-semantic-companion="standard" role="group" aria-label="Czytelny stan minigry">
+                <strong data-minigame-semantic-title>Minigra</strong>
+                <span data-minigame-semantic-instruction>Instrukcja pojawi się przed startem.</span>
+                <span data-minigame-semantic-summary>Wynik 0 · czas 0 s · czysto.</span>
+              </div>
               <canvas
                 class="dew-catch-canvas"
                 data-dew-catch-canvas
                 width="240"
                 height="144"
                 aria-label="Minigra łapania rosy"
+                aria-describedby="minigameSemanticCompanion"
               ></canvas>
               <canvas
                 class="spore-pop-canvas"
@@ -199,6 +214,7 @@
                 width="240"
                 height="144"
                 aria-label="Minigra pękania zarodników"
+                aria-describedby="minigameSemanticCompanion"
                 hidden
               ></canvas>
               <canvas
@@ -207,6 +223,7 @@
                 width="240"
                 height="144"
                 aria-label="Minigra sortowania kompostu"
+                aria-describedby="minigameSemanticCompanion"
                 hidden
               ></canvas>
               <canvas
@@ -215,18 +232,34 @@
                 width="240"
                 height="144"
                 aria-label="Minigra rytmicznego nucenia"
+                aria-describedby="minigameSemanticCompanion"
                 hidden
               ></canvas>
               <div class="minigame-hud">
                 <span data-minigame-score>0 kropli</span>
                 <span data-minigame-time>0 s</span>
                 <span data-minigame-combo>Seria x0</span>
-                <button class="ghost-button" type="button" data-minigame-end>Zakończ</button>
+                <button class="ghost-button minigame-interrupt" type="button" data-minigame-end data-minigame-navigation-allowed>Przerwij</button>
                 <span class="minigame-progress" aria-hidden="true">
                   <i data-minigame-progress></i>
                 </span>
               </div>
             </div>
+            <section class="minigame-recap" data-minigame-recap="standard" tabindex="-1" aria-labelledby="minigameRecapTitle" hidden>
+              <div class="minigame-recap__heading">
+                <strong id="minigameRecapTitle" data-minigame-recap-title>Podsumowanie rundy</strong>
+                <span class="minigame-recap__tier" data-minigame-recap-tier>Gotowe</span>
+              </div>
+              <dl class="minigame-recap__metrics">
+                <div><dt>Wynik</dt><dd data-minigame-recap-score>0</dd></div>
+                <div><dt>Ukończenie</dt><dd data-minigame-recap-coverage>—</dd></div>
+                <div><dt>Celność</dt><dd data-minigame-recap-accuracy>—</dd></div>
+              </dl>
+              <p data-minigame-recap-rewards>Bez nagrody.</p>
+              <p data-minigame-recap-unlocks hidden></p>
+              <p data-minigame-recap-cooldown></p>
+              <button class="ghost-button" type="button" data-minigame-start data-minigame-mode="practice" data-minigame-recap-replay data-focus-key="minigame-recap-replay">Praktyka</button>
+            </section>
           </section>
 
           <section class="panel-block panel-block--long-loop" id="workspacePanelMycelium" data-care-panel data-workspace-panel="mycelium" role="tabpanel" aria-labelledby="workspaceTabMycelium">
@@ -354,24 +387,49 @@
                 </div>
                 <div class="legendary-game-grid" data-legendary-game-list></div>
                 <div class="legendary-game-playfield" data-legendary-game-playfield tabindex="-1" hidden>
+                  <div class="minigame-sensory-bar" role="group" aria-label="Ustawienia sygnałów legendarnej minigry">
+                    <button class="ghost-button minigame-sensory-toggle" type="button" data-minigame-sound-toggle aria-pressed="true">Dźwięk: wł.</button>
+                    <button class="ghost-button minigame-sensory-toggle" type="button" data-minigame-haptics-toggle aria-pressed="false">Wibracje: wył.</button>
+                  </div>
+                  <div class="minigame-semantic-companion" id="legendaryMinigameSemanticCompanion" data-minigame-semantic-companion="legendary" role="group" aria-label="Czytelny stan legendarnej minigry">
+                    <strong data-minigame-semantic-title>Legendarne wyzwanie</strong>
+                    <span data-minigame-semantic-instruction>Wskazówka pojawi się przed startem.</span>
+                    <span data-minigame-semantic-summary>Wynik 0 · czas 0 s · czysto.</span>
+                  </div>
                   <canvas
                     class="legendary-game-canvas"
                     data-legendary-game-canvas
                     width="300"
                     height="180"
                     aria-label="Legendarna minigra pieczarki"
+                    aria-describedby="legendaryMinigameSemanticCompanion"
                     hidden
                   ></canvas>
                   <div class="minigame-hud legendary-game-hud">
                     <span data-legendary-minigame-score>0 punktów</span>
                     <span data-legendary-minigame-time>0 s</span>
                     <span data-legendary-minigame-combo>Czysto</span>
-                    <button class="ghost-button" type="button" data-legendary-minigame-end>Zakończ</button>
+                    <button class="ghost-button minigame-interrupt" type="button" data-legendary-minigame-end data-minigame-navigation-allowed>Przerwij</button>
                     <span class="minigame-progress" aria-hidden="true">
                       <i data-legendary-minigame-progress></i>
                     </span>
                   </div>
                 </div>
+                <section class="minigame-recap" data-minigame-recap="legendary" tabindex="-1" aria-labelledby="legendaryMinigameRecapTitle" hidden>
+                  <div class="minigame-recap__heading">
+                    <strong id="legendaryMinigameRecapTitle" data-minigame-recap-title>Podsumowanie legendy</strong>
+                    <span class="minigame-recap__tier" data-minigame-recap-tier>Gotowe</span>
+                  </div>
+                  <dl class="minigame-recap__metrics">
+                    <div><dt>Wynik</dt><dd data-minigame-recap-score>0</dd></div>
+                    <div><dt>Ukończenie</dt><dd data-minigame-recap-coverage>—</dd></div>
+                    <div><dt>Celność</dt><dd data-minigame-recap-accuracy>—</dd></div>
+                  </dl>
+                  <p data-minigame-recap-rewards>Bez nagrody.</p>
+                  <p data-minigame-recap-unlocks hidden></p>
+                  <p data-minigame-recap-cooldown></p>
+                  <button class="ghost-button" type="button" data-minigame-start data-minigame-mode="practice" data-minigame-recap-replay data-focus-key="legendary-minigame-recap-replay">Praktyka</button>
+                </section>
                 <div class="legendary-album" data-legendary-album></div>
               </div>
             </div>
@@ -584,6 +642,15 @@
           </form>
 
           <div class="settings-dialog__content" data-settings-content></div>
+
+          <section class="settings-sensory" aria-labelledby="settingsSensoryTitle">
+            <h3 id="settingsSensoryTitle">Sygnały minigier</h3>
+            <p>Dźwięk uruchamia się dopiero po świadomym starcie minigry. Wibracje pozostają domyślnie wyłączone.</p>
+            <div class="settings-sensory__controls" role="group" aria-label="Dźwięk i wibracje minigier">
+              <button class="ghost-button" type="button" data-minigame-sound-toggle aria-pressed="true">Dźwięk: wł.</button>
+              <button class="ghost-button" type="button" data-minigame-haptics-toggle aria-pressed="false">Wibracje: wył.</button>
+            </div>
+          </section>
 
           <section class="settings-danger-zone" aria-labelledby="settingsDangerTitle">
             <h3 id="settingsDangerTitle">Nowy początek</h3>

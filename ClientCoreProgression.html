@@ -11,6 +11,7 @@
     state.history = normalizeHistoryCore(state.history, actions);
     state.evolution = normalizeEvolutionCore(state.evolution);
     state.minigames = normalizeMinigamesCore(state.minigames, rules, timestamp);
+    state.preferences = normalizePreferencesCore(state.preferences);
     state.battle = normalizeBattleState(state.battle, timestamp);
     state.legendaryGames = typeof normalizeLegendaryGamesStateCore === 'function'
       ? normalizeLegendaryGamesStateCore(state.legendaryGames, timestamp, rules)
@@ -142,6 +143,7 @@
     return {
       active: unknownActive || malformedActive ? null : normalizedActive,
       lastResult: isPlainObject(source.lastResult) ? deepClone(source.lastResult) : null,
+      pendingRewardSeeds: normalizeMinigameSeedMapCore(source.pendingRewardSeeds),
       quarantined: unknownActive || malformedActive
         ? {
           id: String(active.id || '').slice(0, 80) || null,
@@ -172,20 +174,74 @@
       seed: clampInteger(active.seed, 1, 2147483646, 1),
       startedAt: startedAt,
       until: until,
+      mode: active.mode === 'practice' ? 'practice' : 'reward',
       score: clampInteger(active.score, 0, 999999, 0),
       caught: normalizeMinigameListCore(active.caught, 512),
       mistakes: clampInteger(active.mistakes, 0, 999999, 0),
-      missed: clampInteger(active.missed, 0, 999999, 0),
+      missed: normalizeMinigameListCore(active.missed, 512),
+      expired: normalizeMinigameListCore(active.expired, 512),
+      expiredNotes: normalizeMinigameListCore(active.expiredNotes, 256),
       combo: clampInteger(active.combo, 0, 999999, 0),
       bestCombo: clampInteger(active.bestCombo, 0, 999999, 0),
       nextBeat: clampInteger(active.nextBeat, 0, 999999, 0),
+      inputCount: clampInteger(active.inputCount, 0, 999999, 0),
+      resolvedCount: clampInteger(active.resolvedCount, 0, 999999, 0),
+      correctCount: clampInteger(active.correctCount, 0, 999999, 0),
+      expiredCount: clampInteger(active.expiredCount, 0, 999999, 0),
+      decisionCount: clampInteger(
+        active.decisionCount || getMinigameDecisionCountCore(active.id, config, active.habitatTags),
+        1,
+        999999,
+        1
+      ),
+      seedCeiling: clampInteger(
+        active.seedCeiling || getMinigameSeedCeilingCore(
+          active.id,
+          config,
+          active.decisionCount || getMinigameDecisionCountCore(active.id, config, active.habitatTags)
+        ),
+        1,
+        999999,
+        1
+      ),
       rhythmJudgments: normalizeMinigameListCore(active.rhythmJudgments, 128),
+      legendaryPhase: typeof active.legendaryPhase === 'string' ? active.legendaryPhase.slice(0, 40) : null,
+      metrics: normalizeScalarMapCore(active.metrics, 64),
       habitatTags: normalizeScalarMapCore(active.habitatTags, 32),
       sceneTone: typeof active.sceneTone === 'string' ? active.sceneTone.slice(0, 40) : null,
+      weatherCondition: typeof active.weatherCondition === 'string' ? active.weatherCondition.slice(0, 40) : null,
+      hiddenAt: Number.isFinite(Number(active.hiddenAt))
+        && Number(active.hiddenAt) >= 0
+        && Number(active.hiddenAt) <= timestamp + 5 * 60000
+        ? Math.floor(Number(active.hiddenAt))
+        : null,
       runtimeToken: typeof active.runtimeToken === 'string' ? active.runtimeToken.slice(0, 160) : null,
       ownerWriterId: typeof active.ownerWriterId === 'string' ? active.ownerWriterId.slice(0, 80) : null,
       ownerLeaseUntil: normalizeExclusiveOwnerLeaseCore(active.ownerLeaseUntil, timestamp)
     };
+  }
+
+  function normalizeMinigameSeedMapCore(source) {
+    const seeds = isPlainObject(source) ? source : {};
+    return Object.keys(seeds).slice(0, 32).reduce(function(result, minigameId) {
+      const id = String(minigameId || '').slice(0, 80);
+      if (id && ['__proto__', 'constructor', 'prototype'].indexOf(id) === -1) {
+        result[id] = clampInteger(seeds[minigameId], 1, 2147483646, 1);
+      }
+      return result;
+    }, {});
+  }
+
+  function normalizePreferencesCore(preferences) {
+    const source = isPlainObject(preferences) ? preferences : {};
+    const minigames = isPlainObject(source.minigames) ? source.minigames : {};
+    return Object.assign({}, source, {
+      minigames: {
+        audioEnabled: minigames.audioEnabled !== false,
+        hapticsEnabled: Boolean(minigames.hapticsEnabled),
+        accessibleLanes: Boolean(minigames.accessibleLanes)
+      }
+    });
   }
 
   function normalizeMinigameListCore(value, maximumLength) {

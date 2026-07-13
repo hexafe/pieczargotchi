@@ -436,6 +436,7 @@ try {
       canvasSelector: '[data-legendary-game-canvas]',
       seed: 717171,
       growth: 100,
+      startedOffsetMs: 1800,
       viewArena: true,
       detailKey: 'targets',
       detailMin: 10,
@@ -450,6 +451,7 @@ try {
       canvasSelector: '[data-legendary-game-canvas]',
       seed: 727272,
       growth: 100,
+      startedOffsetMs: 1800,
       viewArena: true,
       detailKey: 'targets',
       detailMin: 10,
@@ -464,6 +466,7 @@ try {
       canvasSelector: '[data-legendary-game-canvas]',
       seed: 737373,
       growth: 100,
+      startedOffsetMs: 1800,
       viewArena: true,
       detailKey: 'targets',
       detailMin: 8,
@@ -1897,7 +1900,7 @@ async function captureConfiguredMinigame(cdp, sample) {
       label: ${JSON.stringify(sample.label)},
       seed: ${Number(sample.seed) || 1},
       startedAt: ${startedAt},
-      until: ${now + (Number(sample.durationMs) || 16000)},
+      until: ${startedAt} + (Number(config.rules.minigames[${JSON.stringify(sample.id)}].durationMs) || ${Number(sample.durationMs) || 19600}),
       score: 0,
       caught: [],
       missed: [],
@@ -2039,6 +2042,7 @@ async function performConfiguredMinigameInteraction(cdp, sample) {
         if (!canvas || !spore) {
           return { applied: false };
         }
+        canvas.focus({ preventScroll: true });
         const raw = (progress - spore.start) / Math.max(0.1, spore.speed);
         const local = Math.max(0, Math.min(1, raw));
         const pulse = Math.sin(local * Math.PI * 2 + spore.phase);
@@ -2075,6 +2079,7 @@ async function performConfiguredMinigameInteraction(cdp, sample) {
         if (!canvas || !piece) {
           return { applied: false };
         }
+        canvas.focus({ preventScroll: true });
         const local = (progress - piece.start) / Math.max(0.1, piece.speed);
         const eased = Math.max(0, Math.min(1, local));
         if (local < 0 || local > 1.08) {
@@ -2101,15 +2106,21 @@ async function performConfiguredMinigameInteraction(cdp, sample) {
         const session = minigame.session || {};
         const caught = Array.isArray(session.caught) ? session.caught : [];
         const now = Date.now();
+        const sampleId = ${JSON.stringify(sample.id)};
         const target = Array.isArray(minigame.targets)
-          ? minigame.targets.find((item) => caught.indexOf(item.id) === -1 && now >= Number(item.appearsAt) && now <= Number(item.expiresAt))
+          ? sampleId === 'memoryGarden'
+            ? minigame.targets.find((item) => Number(item.roundIndex) === Number(session.metrics && session.metrics.roundIndex)
+              && Number(item.stepIndex) === Number(session.metrics && session.metrics.recallIndex))
+            : minigame.targets.find((item) => caught.indexOf(item.id) === -1 && now >= Number(item.appearsAt) && now <= Number(item.expiresAt))
           : null;
         if (!canvas || !target) {
           return { applied: false };
         }
-        const sampleId = ${JSON.stringify(sample.id)};
+        canvas.focus({ preventScroll: true });
         const key = sampleId === 'myceliumLeague'
           ? target.lane === 'strike' ? 'c' : target.lane === 'guard' ? 'o' : 's'
+          : sampleId === 'memoryGarden'
+            ? String(Number(target.cellIndex) + 1)
           : 'Enter';
         const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
         const canceled = !window.dispatchEvent(event);

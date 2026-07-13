@@ -218,6 +218,7 @@
       return;
     }
     runtime.state = importedState;
+    runtime.minigameLastOutcome = null;
     stopMinigameRuntime();
     cancelPendingImport({ keepMessage: true, restoreFocus: false });
     resumeMinigameIfActive();

@@ -2302,6 +2302,140 @@ test('new habitat minigames grant bounded substrate and rhythm rewards', () => {
   assert(rhythm.state.stats.energy === 62.5, `expected small rhythm energy reward, got ${rhythm.state.stats.energy}`);
 });
 
+test('minigame abort and practice clear the session without persistent rewards or history', () => {
+  const rules = {
+    minigames: {
+      dewCatch: {
+        id: 'dewCatch',
+        label: 'Łapanie rosy',
+        durationMs: 20000,
+        dropCount: 4,
+        scoreTargetCasual: 2,
+        masteryTarget: 4,
+        rewards: { hydrationBase: 4, hydrationPerCatch: 2, hydrationMax: 14 }
+      }
+    }
+  };
+  const now = Date.parse('2026-07-13T12:00:00.000Z');
+  const reward = core.createMinigameSession('dewCatch', rules, now, 101, {}, null, { mode: 'reward' }).session;
+  Object.assign(reward, { score: 4, inputCount: 4, resolvedCount: 4, correctCount: 4, decisionCount: 4, seedCeiling: 4 });
+  const base = {
+    stats: { hydration: 50 },
+    inventory: { spores: 0 },
+    history: {},
+    minigames: { active: reward, lastResult: { id: 'older', score: 2 }, pendingRewardSeeds: { dewCatch: 101 } }
+  };
+  const aborted = core.finishMinigame(base, reward, rules, now + 5000, { reason: 'abort' });
+  assert(aborted.ok && aborted.aborted && !aborted.settledReward, 'abort should be a successful non-settling close');
+  assert(aborted.state.stats.hydration === 50, 'abort must not change care stats');
+  assert(!aborted.state.history.minigames.dewCatch, 'abort must not record history');
+  assert(aborted.state.minigames.lastResult.id === 'older', 'abort must preserve the previous persistent result');
+
+  const practice = core.createMinigameSession('dewCatch', rules, now + 10000, 202, {}, null, { mode: 'practice' }).session;
+  Object.assign(practice, { score: 4, inputCount: 4, resolvedCount: 4, correctCount: 4, decisionCount: 4, seedCeiling: 4 });
+  const practiced = core.finishMinigame({
+    stats: { hydration: 50 },
+    inventory: { spores: 0 },
+    history: {},
+    minigames: { active: practice, lastResult: null, pendingRewardSeeds: {} }
+  }, practice, rules, now + 15000, { reason: 'complete' });
+  assert(practiced.ok && practiced.practice && !practiced.settledReward, 'practice should return an ephemeral outcome');
+  assert(practiced.outcome.tier === 'perfect', 'practice should still give useful skill feedback');
+  assert(practiced.state.stats.hydration === 50 && !practiced.state.history.minigames.dewCatch, 'practice must not persist economy or records');
+});
+
+test('empty timeout grants nothing while fair tiers use coverage and accuracy', () => {
+  const rules = {
+    minigames: {
+      compostSort: {
+        id: 'compostSort',
+        durationMs: 22000,
+        pieceCount: 18,
+        scoreTargetCasual: 14,
+        masteryTarget: 23,
+        perfectTarget: 27,
+        rewards: { nutrientsBase: 2, nutrientsPerPoint: 1.2, nutrientsMax: 12 }
+      }
+    }
+  };
+  const now = Date.parse('2026-07-13T13:00:00.000Z');
+  const empty = core.createMinigameSession('compostSort', rules, now, 303).session;
+  const emptyResult = core.finishMinigame({
+    stats: { nutrients: 50 },
+    inventory: { spores: 0 },
+    history: {},
+    minigames: { active: empty, lastResult: null, pendingRewardSeeds: {} }
+  }, empty, rules, now + 22000, { reason: 'timeout' });
+  assert(emptyResult.ok && !emptyResult.settledReward, 'an untouched timeout must not consume a reward run');
+  assert(emptyResult.state.stats.nutrients === 50 && !emptyResult.state.history.minigames.compostSort, 'untouched timeout must grant nothing');
+
+  const flawless = core.createMinigameSession('compostSort', rules, now + 30000, 304).session;
+  Object.assign(flawless, {
+    score: 18,
+    inputCount: 18,
+    resolvedCount: 18,
+    correctCount: 18,
+    expiredCount: 0,
+    decisionCount: 18,
+    seedCeiling: 22,
+    mistakes: 0
+  });
+  assert(core.getMinigameResultTier(flawless, rules.minigames.compostSort) === 'perfect', 'flawless coverage must not depend on rare-item luck');
+
+  const leafAvoidance = {
+    id: 'dewCatch',
+    score: 3,
+    caught: ['drop_0', 'drop_1'],
+    missed: ['leaf_2'],
+    inputCount: 2,
+    resolvedCount: 3,
+    correctCount: 3,
+    expiredCount: 0,
+    decisionCount: 3,
+    seedCeiling: 3,
+    mistakes: 0
+  };
+  const leafMetrics = core.getMinigameOutcomeMetrics(leafAvoidance, { id: 'dewCatch', dropCount: 3 });
+  assert(leafMetrics.expiredCount === 0, 'correctly avoided hazards must not be reported as expired targets');
+  const strayMetrics = core.getMinigameOutcomeMetrics(Object.assign({}, leafAvoidance, { mistakes: 1 }), { id: 'dewCatch', dropCount: 3 });
+  assert(strayMetrics.accuracy === 0.75, 'a stray failed action must lower reported accuracy even when every target resolves');
+});
+
+test('v20 migration quarantines legacy active minigames and separates league records', () => {
+  const now = Date.parse('2026-07-13T14:00:00.000Z');
+  const rules = { minigames: { dewCatch: { id: 'dewCatch', durationMs: 20000 } } };
+  const migrated = core.migrateStateVersion({
+    version: 18,
+    stats: {},
+    inventory: {},
+    history: { minigames: { myceliumLeague: { bestScore: 31 } } },
+    minigames: { active: { id: 'dewCatch', startedAt: now, until: now + 20000, score: 5 } },
+    legendaryGames: { league: { streak: 3, bestStreak: 28 } }
+  }, 20, rules, now);
+  assert(migrated.version === 20, 'migration should reach state version 20');
+  assert(migrated.minigames.active === null && migrated.minigames.quarantined.reason === 'legacyMinigameSession', 'legacy active results must not be payable after migration');
+  assert(migrated.preferences.minigames.audioEnabled && !migrated.preferences.minigames.hapticsEnabled, 'new minigame preferences need safe defaults');
+  assert(migrated.legendaryGames.league.bestScore >= 31, 'league score should survive the split from streak');
+  assert(migrated.legendaryGames.league.bestWinStreak >= 3, 'current valid streak should seed best win streak');
+
+  const hiddenAt = now - 31000;
+  const normalized = core.normalizeProgressionState({
+    version: 20,
+    minigames: {
+      active: {
+        id: 'dewCatch',
+        seed: 404,
+        startedAt: now - 5000,
+        until: now + 15000,
+        hiddenAt: hiddenAt,
+        caught: [],
+        missed: []
+      }
+    }
+  }, rules, null, now);
+  assert(normalized.minigames.active.hiddenAt === hiddenAt, 'normalization must preserve hiddenAt for reload abort policy');
+});
+
 test('rhythm input judgment explains timing and lane mistakes', () => {
   const windows = { perfect: 90, good: 155, ok: 235, miss: 360 };
   const perfect = core.judgeRhythmInput('left', 'left', 12, windows, 0);

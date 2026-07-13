@@ -509,13 +509,14 @@
     }
   }
 
-  function handleMinigameStart(minigameId) {
+  function handleMinigameStart(minigameId, requestedMode) {
     if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
       renderPersistenceStatus();
       return;
     }
     const core = window.PieczargotchiCore;
     const minigameRules = rules.minigames && rules.minigames[minigameId];
+    const mode = requestedMode === 'practice' ? 'practice' : 'reward';
     const now = getRuntimeNow();
     if (!core || !core.createMinigameSession || !minigameRules) {
       setTransientMessage('Gry', 'Ta minigra nie jest jeszcze gotowa.');
@@ -559,14 +560,18 @@
     }
     const cooldownKey = getMinigameCooldownKey(minigameId);
     const cooldownUntil = Number(runtime.state.cooldowns[cooldownKey]) || 0;
-    if (cooldownUntil > now) {
+    if (cooldownUntil > now && mode !== 'practice') {
       setTransientMessage('Gry', 'Następna rozgrywka za ' + formatRemainingTime(cooldownUntil - now) + '.');
       renderUi();
       return;
     }
 
     const scene = typeof getCurrentWeatherScene === 'function' ? getCurrentWeatherScene() : null;
-    const result = core.createMinigameSession(minigameId, rules, now, buildMinigameSeed(minigameId, now), runtime.state, scene);
+    const pendingSeeds = runtime.state.minigames && runtime.state.minigames.pendingRewardSeeds || {};
+    const seed = mode === 'practice'
+      ? buildMinigameSeed(minigameId, now, 'practice')
+      : Number(pendingSeeds[minigameId]) || buildMinigameSeed(minigameId, now, 'reward');
+    const result = core.createMinigameSession(minigameId, rules, now, seed, runtime.state, scene, { mode: mode });
     if (!result.ok) {
       setTransientMessage('Gry', result.reason);
       renderUi();
@@ -581,6 +586,10 @@
     }
     result.session.runtimeToken = sessionToken;
     candidateState.minigames.active = result.session;
+    candidateState.minigames.pendingRewardSeeds = Object.assign({}, candidateState.minigames.pendingRewardSeeds || {});
+    if (mode === 'reward') {
+      candidateState.minigames.pendingRewardSeeds[minigameId] = seed;
+    }
     assignExclusiveSessionOwnership(candidateState, getExclusiveOwnershipNow());
     candidateState.lastUpdatedAt = new Date(now).toISOString();
     const pending = {
@@ -591,6 +600,7 @@
       timer: null,
       returnFocus: document.activeElement,
       legendary: Boolean(minigameRules.legendary),
+      mode: mode,
       launchDelayMs: Math.max(0, Number(result.session.startedAt) - now)
     };
     persistExclusiveStartCandidate(candidateState, baseState, pending, function(persisted, savedState) {
@@ -652,23 +662,77 @@
       flushMinigameRuntimePersist('end');
     }
     const baseState = deepClone(runtime.state);
-    const result = core.finishMinigame(runtime.state, session, rules, now);
+    const result = core.finishMinigame(runtime.state, session, rules, now, { reason: reason });
     let candidateState = result.state || deepClone(runtime.state);
+    const outcome = result.outcome || candidateState.minigames && candidateState.minigames.lastResult || null;
     let resultTitle = 'Gry';
     let resultBody = result.reason || 'Nie udało się zakończyć sesji.';
     if (!result.ok) {
       candidateState.minigames.active = null;
-    } else {
+    } else if (result.settledReward) {
       candidateState.stats = clampAllStats(candidateState.stats);
-      candidateState.cooldowns[getMinigameCooldownKey(session.id)] = now + getMinigameCooldownMs(session.id);
-      addLog(candidateState, formatMinigameRewardLog(session, result.rewards, reason), now);
-      applyGameplayEventToState(candidateState, {
-        type: 'minigame',
-        minigameId: session.id,
-        score: session.score
-      }, now);
-      resultTitle = getMinigameResultTitle(candidateState.minigames.lastResult);
-      resultBody = getMinigameResultBody(session, candidateState.minigames.lastResult);
+      const cooldownUntil = now + getMinigameCooldownMs(session.id);
+      candidateState.cooldowns[getMinigameCooldownKey(session.id)] = cooldownUntil;
+      candidateState.minigames.pendingRewardSeeds = Object.assign({}, candidateState.minigames.pendingRewardSeeds || {});
+      delete candidateState.minigames.pendingRewardSeeds[session.id];
+      if (outcome) {
+        outcome.cooldownUntil = cooldownUntil;
+        candidateState.minigames.lastResult = outcome;
+      }
+      if (outcome && outcome.clear) {
+        const ownedMementosBefore = candidateState.longLoop
+          && candidateState.longLoop.mementos
+          && candidateState.longLoop.mementos.owned
+          ? Object.keys(candidateState.longLoop.mementos.owned)
+          : [];
+        applyGameplayEventToState(candidateState, {
+          type: 'minigame',
+          minigameId: session.id,
+          score: session.score,
+          mode: 'reward',
+          tier: outcome.tier,
+          clear: true,
+          coverage: outcome.coverage,
+          accuracy: outcome.accuracy,
+          eligibleForProgress: true
+        }, now);
+        const ownedMementosAfter = candidateState.longLoop
+          && candidateState.longLoop.mementos
+          && candidateState.longLoop.mementos.owned
+          ? candidateState.longLoop.mementos.owned
+          : {};
+        outcome.unlocks = Object.keys(ownedMementosAfter).filter(function(mementoId) {
+          return ownedMementosBefore.indexOf(mementoId) === -1;
+        }).map(function(mementoId) {
+          const item = ownedMementosAfter[mementoId] || {};
+          return { id: mementoId, label: item.label || 'Nowa pamiątka', kind: item.kind || 'memory' };
+        });
+        const legendaryResult = candidateState.legendaryGames && candidateState.legendaryGames.lastResult;
+        if (legendaryResult && legendaryResult.id === session.id && legendaryResult.bonus) {
+          outcome.rewards = outcome.rewards || { stats: {}, inventory: {}, spores: 0 };
+          outcome.rewards.inventory = Object.assign({}, outcome.rewards.inventory || {});
+          if (Number(legendaryResult.bonus.substrate)) {
+            outcome.rewards.inventory.substrate = (Number(outcome.rewards.inventory.substrate) || 0)
+              + Number(legendaryResult.bonus.substrate);
+          }
+          if (Number(legendaryResult.bonus.spores)) {
+            outcome.rewards.spores = (Number(outcome.rewards.spores) || 0) + Number(legendaryResult.bonus.spores);
+          }
+        }
+        candidateState.minigames.lastResult = outcome;
+      }
+      addLog(candidateState, formatMinigameRewardLog(session, outcome && outcome.rewards || result.rewards, reason), now);
+      resultTitle = getMinigameResultTitle(outcome);
+      resultBody = getMinigameResultBody(session, outcome);
+    } else if (result.practice) {
+      resultTitle = 'Praktyka zakończona';
+      resultBody = getMinigameResultBody(session, outcome) + ' Bez nagród, rekordu i cooldownu.';
+    } else if (result.aborted) {
+      resultTitle = 'Runda przerwana';
+      resultBody = 'Wynik i nagrody nie zostały zapisane. Próba nagradzana zachowa ten sam układ.';
+    } else {
+      resultTitle = 'Runda bez wyniku';
+      resultBody = 'Nie wykonano żadnego ruchu — bez nagród i cooldownu.';
     }
 
     candidateState.lastUpdatedAt = new Date(now).toISOString();
@@ -689,9 +753,10 @@
         return;
       }
       runtime.state = savedState;
+      runtime.minigameLastOutcome = outcome;
       releaseExclusiveRuntimeSession('minigame');
       setTransientMessage(resultTitle, resultBody);
-      if (result.ok) {
+      if (result.ok && result.settledReward && outcome && outcome.clear) {
         triggerEffect(getMinigameEffectType(session.id));
       }
       renderUi();
@@ -1157,8 +1222,17 @@
     if (result.newBest && result.tier === 'perfect') {
       return 'Perfekcyjny rekord';
     }
+    if (result.tier === 'perfect') {
+      return 'Perfekcyjna runda';
+    }
     if (result.newBest) {
       return 'Nowy rekord';
+    }
+    if (result.tier === 'mastery') {
+      return 'Mistrzowska runda';
+    }
+    if (result.tier === 'clear') {
+      return 'Cel osiągnięty';
     }
     if (result.tier === 'near') {
       return 'Blisko znaku';
@@ -1168,22 +1242,34 @@
 
   function getMinigameResultBody(session, result) {
     const score = getMinigameScoreLabel(session.id, session.score);
-    const target = result && Number(result.targetScore) || 0;
+    const target = result && Number(result.clearTarget || result.targetScore) || 0;
     const combo = result && Number(result.bestCombo) || 0;
+    const coverage = result && Number.isFinite(Number(result.coverage))
+      ? Math.round(Number(result.coverage) * 100)
+      : null;
+    const accuracy = result && Number.isFinite(Number(result.accuracy))
+      ? Math.round(Number(result.accuracy) * 100)
+      : null;
+    const metrics = coverage === null || accuracy === null
+      ? ''
+      : ' Pokrycie ' + coverage + '%, celność ' + accuracy + '%.';
     if (result && result.tier === 'perfect') {
-      return score + ' bez potknięcia. Grzybnia zapamięta ten rytm.';
+      return score + ' bez potknięcia. Grzybnia zapamięta ten rytm.' + metrics;
+    }
+    if (result && result.tier === 'mastery') {
+      return score + '. Pełna kontrola nad rytmem rundy.' + metrics;
     }
     if (result && result.newBest) {
-      return score + '. Seria x' + combo + ' przesuwa mistrzostwo bliżej.';
+      return score + '. Seria x' + combo + ' przesuwa mistrzostwo bliżej.' + metrics;
     }
     if (target) {
-      return score + '. Do znaku mistrzostwa brakuje ' + Math.max(0, target - Number(session.score || 0)) + '.';
+      return score + '. Do celu brakuje ' + Math.max(0, target - Number(session.score || 0)) + '.' + metrics;
     }
-    return score + '.';
+    return score + '.' + metrics;
   }
 
-  function buildMinigameSeed(minigameId, now) {
-    const source = (runtime.state.playerId || 'player') + ':' + minigameId + ':' + now;
+  function buildMinigameSeed(minigameId, now, mode) {
+    const source = (runtime.state.playerId || 'player') + ':' + minigameId + ':' + String(mode || 'reward') + ':' + now;
     return Math.floor(hashStringToUnit(source) * 2147483645) + 1;
   }
 

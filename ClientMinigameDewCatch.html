@@ -29,6 +29,24 @@
     }
     const active = runtime.state && runtime.state.minigames ? runtime.state.minigames.active : null;
     if (active && !isGameOverForRuntime() && !isRecoveryActiveForRuntime(getRuntimeNow()) && !isBattleSessionActive()) {
+      const now = getRuntimeNow();
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        if (!Number(active.hiddenAt)) {
+          active.hiddenAt = now;
+          persistRuntimeState(runtime.state);
+        }
+        return;
+      }
+      const hiddenAt = Number(active.hiddenAt) || 0;
+      if (hiddenAt) {
+        const hiddenFor = Math.max(0, now - hiddenAt);
+        if (hiddenFor > 30000) {
+          handleMinigameEnd('abort');
+          return;
+        }
+        shiftMinigameSessionClock(active, hiddenFor);
+        persistRuntimeState(runtime.state);
+      }
       startMinigameRuntime(active);
     } else if (active) {
       runtime.state.minigames.active = null;
@@ -315,12 +333,105 @@
     document.addEventListener('keydown', guardActiveMinigameNavigationKeydown, true);
     if (!runtime.minigameVisibilityBound) {
       runtime.minigameVisibilityBound = true;
-      document.addEventListener('visibilitychange', function() {
-        if (document.visibilityState === 'hidden') {
-          flushMinigameRuntimePersist('visibility');
+      document.addEventListener('visibilitychange', handleMinigameVisibilityChange);
+    }
+  }
+
+  function handleMinigameVisibilityChange() {
+    const activeState = runtime.state && runtime.state.minigames
+      ? runtime.state.minigames.active
+      : null;
+    const owner = runtime.minigame;
+    const session = owner && owner.session ? owner.session : activeState;
+    if (!session) {
+      return;
+    }
+    const now = getRuntimeNow();
+    if (document.visibilityState === 'hidden') {
+      session.hiddenAt = now;
+      if (runtime.state && runtime.state.minigames) {
+        runtime.state.minigames.active = Object.assign({}, activeState || {}, session, {
+          hiddenAt: now,
+          metrics: session.metrics && typeof session.metrics === 'object'
+            ? Object.assign({}, session.metrics)
+            : session.metrics
+        });
+      }
+      const flushed = flushMinigameRuntimePersist('visibility');
+      if (!flushed && typeof persistRuntimeState === 'function') {
+        persistRuntimeState(runtime.state);
+      }
+      return;
+    }
+
+    const hiddenAt = Number(session.hiddenAt || activeState && activeState.hiddenAt) || 0;
+    if (!hiddenAt) {
+      return;
+    }
+    const hiddenFor = Math.max(0, now - hiddenAt);
+    if (hiddenFor > 30000) {
+      handleMinigameEnd('abort');
+      return;
+    }
+
+    shiftMinigameSessionClock(session, hiddenFor);
+    if (activeState && activeState !== session) {
+      shiftMinigameSessionClock(activeState, hiddenFor);
+    }
+    if (runtime.minigameLaunch) {
+      runtime.minigameLaunch.countdownUntil = Number(runtime.minigameLaunch.countdownUntil) + hiddenFor;
+    }
+    if (owner) {
+      owner.lastFrameAt = now;
+      shiftMinigameRuntimeTargets(owner.targets, hiddenFor);
+      shiftMinigameRuntimeTargets(owner.chart, hiddenFor);
+    }
+    if (runtime.state && runtime.state.minigames) {
+      runtime.state.minigames.active = Object.assign({}, activeState || {}, session, { hiddenAt: null });
+    }
+    if (typeof persistRuntimeState === 'function') {
+      persistRuntimeState(runtime.state);
+    }
+    if (runtime.minigameLaunch && typeof updateMinigameLaunchCountdown === 'function') {
+      updateMinigameLaunchCountdown();
+    }
+    if (!owner && runtime.state && runtime.state.minigames && runtime.state.minigames.active) {
+      startMinigameRuntime(runtime.state.minigames.active);
+    }
+  }
+
+  function shiftMinigameSessionClock(session, deltaMs) {
+    if (!session || !Number(deltaMs)) {
+      return session;
+    }
+    session.startedAt = Number(session.startedAt) + deltaMs;
+    session.until = Number(session.until) + deltaMs;
+    if (Number.isFinite(Number(session.ownerLeaseUntil)) && Number(session.ownerLeaseUntil) > 0) {
+      session.ownerLeaseUntil = Number(session.ownerLeaseUntil) + deltaMs;
+    }
+    if (session.metrics && typeof session.metrics === 'object') {
+      ['phaseStartedAt', 'phaseUntil'].forEach(function(key) {
+        if (Number.isFinite(Number(session.metrics[key])) && Number(session.metrics[key]) > 0) {
+          session.metrics[key] = Number(session.metrics[key]) + deltaMs;
         }
       });
     }
+    session.hiddenAt = null;
+    return session;
+  }
+
+  function shiftMinigameRuntimeTargets(targets, deltaMs) {
+    if (!Array.isArray(targets) || !Number(deltaMs)) {
+      return targets;
+    }
+    targets.forEach(function(target) {
+      ['appearsAt', 'expiresAt', 'beatAt', 'hitAt'].forEach(function(key) {
+        if (Number.isFinite(Number(target && target[key]))) {
+          target[key] = Number(target[key]) + deltaMs;
+        }
+      });
+    });
+    return targets;
   }
 
   function guardActiveMinigameNavigation(event) {
@@ -433,6 +544,103 @@
     return persistRuntimeState(runtime.state);
   }
 
+  function normalizeStandardMinigameExperience(session, summary) {
+    const target = session || {};
+    const source = summary || {};
+    const total = Math.max(0, Math.floor(Number(source.total) || 0));
+    const clampCounter = function(value, fallback, maximum) {
+      const normalized = Math.max(0, Math.floor(Number(value)) || Math.max(0, Math.floor(Number(fallback) || 0)));
+      return Number.isFinite(maximum) ? Math.min(maximum, normalized) : normalized;
+    };
+    target.resolvedCount = clampCounter(target.resolvedCount, source.resolvedCount, total);
+    target.correctCount = clampCounter(target.correctCount, source.correctCount, total);
+    target.expiredCount = clampCounter(target.expiredCount, source.expiredCount, total);
+    target.inputCount = clampCounter(target.inputCount, source.inputCount, undefined);
+    target.mistakes = clampCounter(target.mistakes, source.mistakes, undefined);
+    return target;
+  }
+
+  function recordStandardMinigameInput(session) {
+    if (!session) {
+      return;
+    }
+    session.inputCount = Math.max(0, Math.floor(Number(session.inputCount) || 0)) + 1;
+  }
+
+  function recordStandardMinigameMistake(session) {
+    if (!session) {
+      return;
+    }
+    session.mistakes = Math.max(0, Math.floor(Number(session.mistakes) || 0)) + 1;
+  }
+
+  function recordStandardMinigameResolution(session, outcome) {
+    if (!session) {
+      return;
+    }
+    session.resolvedCount = Math.max(0, Math.floor(Number(session.resolvedCount) || 0)) + 1;
+    if (outcome === 'correct') {
+      session.correctCount = Math.max(0, Math.floor(Number(session.correctCount) || 0)) + 1;
+      return;
+    }
+    if (outcome === 'expired') {
+      session.expiredCount = Math.max(0, Math.floor(Number(session.expiredCount) || 0)) + 1;
+    }
+    recordStandardMinigameMistake(session);
+  }
+
+  function requestStandardMinigameAutoFinish(totalCount) {
+    const owner = runtime.minigame;
+    if (!owner || !owner.session || owner.autoFinishRequested) {
+      return Boolean(owner && owner.autoFinishRequested);
+    }
+    const total = Math.max(0, Math.floor(Number(totalCount) || 0));
+    if (!total || Math.max(0, Math.floor(Number(owner.session.resolvedCount) || 0)) < total) {
+      return false;
+    }
+    owner.autoFinishRequested = true;
+    if (owner.animationFrame) {
+      window.cancelAnimationFrame(owner.animationFrame);
+      owner.animationFrame = 0;
+    }
+    owner.autoFinishTimer = window.setTimeout(function() {
+      if (runtime.minigame !== owner || !owner.session) {
+        return;
+      }
+      owner.autoFinishTimer = 0;
+      handleMinigameEnd('completed');
+    }, 0);
+    return true;
+  }
+
+  function getMinigameVisualPulse(now, divisor, phase) {
+    if (runtime.reducedMotion) {
+      return 0.5;
+    }
+    return 0.5 + Math.sin((Number(now) || 0) / Math.max(1, Number(divisor) || 1) + (Number(phase) || 0)) * 0.5;
+  }
+
+  function emitStandardMinigameSensoryCue(cueInput, detailInput) {
+    const cue = String(cueInput || 'success');
+    const detail = Object.assign({ cue: cue }, detailInput || {});
+    try {
+      if (typeof playMinigameSensoryCue === 'function') {
+        playMinigameSensoryCue(cue, detail);
+        return true;
+      }
+      if (typeof document !== 'undefined'
+        && typeof document.dispatchEvent === 'function'
+        && typeof window !== 'undefined'
+        && typeof window.CustomEvent === 'function') {
+        document.dispatchEvent(new window.CustomEvent('pieczargotchi:minigame-cue', { detail: detail }));
+        return true;
+      }
+    } catch (error) {
+      // Sensory feedback is optional and must never interrupt a round.
+    }
+    return false;
+  }
+
   function startDewCatchRuntime(session) {
     if (!session || session.id !== 'dewCatch' || !dom.dewCatchCanvas) {
       return;
@@ -442,17 +650,44 @@
     const canvas = dom.dewCatchCanvas;
     const ctx = canvas.getContext('2d');
     setActiveMinigameCanvas('dewCatch');
+    const drops = buildDewCatchDrops(session);
+    const restoredSession = Object.assign({}, session, {
+      score: Number(session.score) || 0,
+      caught: Array.isArray(session.caught) ? session.caught.slice() : [],
+      missed: Array.isArray(session.missed) ? session.missed.slice() : [],
+      mistakes: Number(session.mistakes) || 0,
+      combo: Number(session.combo) || 0,
+      bestCombo: Number(session.bestCombo) || 0
+    });
+    const dropById = drops.reduce(function(result, drop) {
+      result[drop.id] = drop;
+      return result;
+    }, {});
+    const resolvedIds = restoredSession.caught.concat(restoredSession.missed).filter(function(id, index, items) {
+      return items.indexOf(id) === index && dropById[id];
+    });
+    const restoredCorrect = restoredSession.caught.filter(function(id) {
+      return dropById[id] && dropById[id].kind !== 'leaf';
+    }).length + restoredSession.missed.filter(function(id) {
+      return dropById[id] && dropById[id].kind === 'leaf';
+    }).length;
+    const restoredExpired = restoredSession.missed.filter(function(id) {
+      return dropById[id] && dropById[id].kind !== 'leaf';
+    }).length;
+    normalizeStandardMinigameExperience(restoredSession, {
+      total: drops.length,
+      resolvedCount: resolvedIds.length,
+      correctCount: restoredCorrect,
+      expiredCount: restoredExpired
+    });
+    restoredSession.decisionCount = drops.length;
+    restoredSession.seedCeiling = drops.reduce(function(total, drop) {
+      return total + (drop.kind === 'leaf' ? 0 : Number(drop.points) || 1);
+    }, 0);
     runtime.minigame = {
-      session: Object.assign({}, session, {
-        score: Number(session.score) || 0,
-        caught: Array.isArray(session.caught) ? session.caught.slice() : [],
-        missed: Array.isArray(session.missed) ? session.missed.slice() : [],
-        mistakes: Number(session.mistakes) || 0,
-        combo: Number(session.combo) || 0,
-        bestCombo: Number(session.bestCombo) || 0
-      }),
+      session: restoredSession,
       ctx: ctx,
-      drops: buildDewCatchDrops(session),
+      drops: drops,
       bucket: {
         x: canvas.width / 2,
         targetX: canvas.width / 2,
@@ -466,6 +701,7 @@
       keyHandler: handleDewCatchKeydown,
       animationFrame: 0
     };
+    syncDewCatchActiveSession(false);
     canvas.tabIndex = 0;
     canvas.setAttribute('role', 'application');
     canvas.setAttribute('aria-label', 'Łapanie rosy. Użyj strzałek w lewo i w prawo, aby przesuwać koszyk.');
@@ -488,6 +724,9 @@
     }
     if (runtime.minigame && runtime.minigame.persistTimer) {
       window.clearTimeout(runtime.minigame.persistTimer);
+    }
+    if (runtime.minigame && runtime.minigame.autoFinishTimer) {
+      window.clearTimeout(runtime.minigame.autoFinishTimer);
     }
     cancelMinigameLaunchTimer(true);
     if (runtime.minigameReturnObserver) {
@@ -561,7 +800,7 @@
 
       const position = getDewDropPosition(drop, progress, canvas.width, canvas.height);
       if (position.y > canvas.height + 14) {
-        markDewDropMissed(drop.id);
+        markDewDropMissed(drop, now);
         return;
       }
       if (canDewBucketCatchDrop(position, drop.size)) {
@@ -575,6 +814,9 @@
       drawDewDrop(ctx, position.x, position.y, drop, drop.sparklePhase + now / 260);
       runtime.minigame.drawnDrops += 1;
     });
+    if (requestStandardMinigameAutoFinish(runtime.minigame.drops.length)) {
+      return;
+    }
     drawDewCatchCombo(ctx, canvas.width, now);
     drawDewBucket(ctx, runtime.minigame.bucket, canvas.width, canvas.height, now);
     drawDewCatchForegroundGrass(ctx, canvas.width, canvas.height, now, progress);
@@ -603,6 +845,14 @@
     const bucket = runtime.minigame.bucket;
     if (bucket) {
       bucket.targetX = clampDewBucketX(x, canvas.width, bucket.width);
+    }
+    if (event.type === 'pointerdown') {
+      if (typeof recordStandardMinigameInput === 'function') {
+        recordStandardMinigameInput(session);
+      }
+      if (typeof syncDewCatchActiveSession === 'function') {
+        syncDewCatchActiveSession(true);
+      }
     }
 
     event.preventDefault();
@@ -636,7 +886,13 @@
     event.preventDefault();
     const bucket = runtime.minigame.bucket;
     const canvas = dom.dewCatchCanvas;
+    if (typeof recordStandardMinigameInput === 'function') {
+      recordStandardMinigameInput(session);
+    }
     bucket.targetX = clampDewBucketX((Number(bucket.targetX) || Number(bucket.x)) + direction * 26, canvas.width, bucket.width);
+    if (typeof syncDewCatchActiveSession === 'function') {
+      syncDewCatchActiveSession(true);
+    }
   }
 
   function buildDewCatchDrops(session) {
@@ -658,13 +914,17 @@
         : kindRoll > 0.80
         ? 'heavy'
         : 'dew';
+      const speed = 0.46 + seededDewUnit(seed, index, 3) * 0.18;
+      const latestStart = Math.max(0.04, 0.94 - speed);
+      const sequence = count > 1 ? index / (count - 1) : 0;
+      const jitter = (seededDewUnit(seed, index, 2) - 0.5) * Math.min(0.035, latestStart / Math.max(2, count));
       drops.push({
         id: 'drop_' + index,
         kind: kind,
         points: kind === 'glint' ? 3 : kind === 'heavy' ? 2 : kind === 'leaf' ? 0 : 1,
         x: Math.round(18 + seededDewUnit(seed, index, 1) * 204),
-        start: seededDewUnit(seed, index, 2) * 0.56,
-        speed: 0.54 + seededDewUnit(seed, index, 3) * 0.28,
+        start: Math.max(0, Math.min(latestStart, 0.01 + sequence * Math.max(0, latestStart - 0.01) + jitter)),
+        speed: speed,
         sway: 5 + seededDewUnit(seed, index, 4) * 15,
         size: (kind === 'heavy' ? 8 : 6) + Math.round(seededDewUnit(seed, index, 5) * 3),
         driftPhase: seededDewUnit(seed, index, 6) * Math.PI * 2,
@@ -757,17 +1017,32 @@
 
     session.caught.push(drop.id);
     if (drop.kind === 'leaf') {
-      session.mistakes = (Number(session.mistakes) || 0) + 1;
+      recordStandardMinigameResolution(session, 'mistake');
       session.combo = 0;
+      emitStandardMinigameSensoryCue('miss', {
+        minigameId: 'dewCatch',
+        outcome: 'mistake',
+        targetKind: drop.kind
+      });
       runtime.minigame.bucket.catchPulseUntil = now + 180;
       pushMinigameFloater('liść', position.x, position.y - 8, 'bad', now);
     } else {
+      recordStandardMinigameResolution(session, 'correct');
       session.score += Number(drop.points) || 1;
       session.combo = (Number(session.combo) || 0) + 1;
       session.bestCombo = Math.max(Number(session.bestCombo) || 0, Number(session.combo) || 0);
+      emitStandardMinigameSensoryCue(drop.kind === 'glint' ? 'rare' : 'success', {
+        minigameId: 'dewCatch',
+        outcome: 'correct',
+        targetKind: drop.kind
+      });
       runtime.minigame.bucket.catchPulseUntil = now + (drop.kind === 'glint' ? 420 : 260);
       pushMinigameFloater('+' + (Number(drop.points) || 1), position.x, position.y - 8, drop.kind === 'glint' ? 'rare' : 'good', now);
       if (session.combo >= 4 && session.combo % 4 === 0) {
+        emitStandardMinigameSensoryCue('combo', {
+          minigameId: 'dewCatch',
+          combo: session.combo
+        });
         pushMinigameFloater('seria x' + session.combo, position.x, position.y - 22, 'combo', now);
       }
     }
@@ -784,17 +1059,37 @@
     }
     syncDewCatchActiveSession(true);
     updateMinigameHud(now);
+    requestStandardMinigameAutoFinish(runtime.minigame.drops.length);
   }
 
-  function markDewDropMissed(dropId) {
+  function markDewDropMissed(drop, now) {
     const session = runtime.minigame.session;
     session.missed = Array.isArray(session.missed) ? session.missed : [];
-    if (isDewDropResolved(session, dropId)) {
+    if (!drop || isDewDropResolved(session, drop.id)) {
       return;
     }
 
-    session.missed.push(dropId);
+    session.missed.push(drop.id);
+    if (drop.kind === 'leaf') {
+      recordStandardMinigameResolution(session, 'correct');
+      emitStandardMinigameSensoryCue('success', {
+        minigameId: 'dewCatch',
+        outcome: 'correct',
+        targetKind: drop.kind,
+        passive: true
+      });
+    } else {
+      recordStandardMinigameResolution(session, 'expired');
+      session.combo = 0;
+      emitStandardMinigameSensoryCue('miss', {
+        minigameId: 'dewCatch',
+        outcome: 'expired',
+        targetKind: drop.kind
+      });
+    }
     syncDewCatchActiveSession(true);
+    updateMinigameHud(now || getRuntimeNow());
+    requestStandardMinigameAutoFinish(runtime.minigame.drops.length);
   }
 
   function syncDewCatchActiveSession(shouldSave) {
@@ -808,7 +1103,11 @@
       missed: (session.missed || []).slice(),
       mistakes: session.mistakes,
       combo: session.combo,
-      bestCombo: session.bestCombo
+      bestCombo: session.bestCombo,
+      resolvedCount: session.resolvedCount,
+      correctCount: session.correctCount,
+      expiredCount: session.expiredCount,
+      inputCount: session.inputCount
     });
     if (shouldSave) {
       scheduleMinigameRuntimePersist();
@@ -1089,7 +1388,7 @@
       return;
     }
 
-    const pulse = Math.sin(now / 170) * 0.5 + 0.5;
+    const pulse = getMinigameVisualPulse(now, 170, 0);
     const meter = Math.min(10, combo);
     const x = width - 58;
     ctx.save();
@@ -1148,20 +1447,20 @@
   function setMinigameHudText(kind, text) {
     const careNode = dom['minigame' + kind];
     const legendaryNode = dom['legendaryMinigame' + kind];
-    if (careNode) {
+    if (careNode && careNode.textContent !== text) {
       careNode.textContent = text;
     }
-    if (legendaryNode) {
+    if (legendaryNode && legendaryNode.textContent !== text) {
       legendaryNode.textContent = text;
     }
   }
 
   function setMinigameHudProgress(progress) {
     const value = 'scaleX(' + Math.max(0, Math.min(1, Number(progress) || 0)).toFixed(3) + ')';
-    if (dom.minigameProgress) {
+    if (dom.minigameProgress && dom.minigameProgress.style.transform !== value) {
       dom.minigameProgress.style.transform = value;
     }
-    if (dom.legendaryMinigameProgress) {
+    if (dom.legendaryMinigameProgress && dom.legendaryMinigameProgress.style.transform !== value) {
       dom.legendaryMinigameProgress.style.transform = value;
     }
   }

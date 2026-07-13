@@ -7,16 +7,32 @@
     const canvas = dom.compostSortCanvas;
     const ctx = canvas.getContext('2d');
     setActiveMinigameCanvas('compostSort');
+    const pieces = buildCompostSortPieces(session);
+    const restoredSession = Object.assign({}, session, {
+      score: Number(session.score) || 0,
+      caught: Array.isArray(session.caught) ? session.caught.slice() : [],
+      expired: Array.isArray(session.expired) ? session.expired.slice() : [],
+      mistakes: Number(session.mistakes) || 0,
+      combo: Number(session.combo) || 0,
+      bestCombo: Number(session.bestCombo) || 0
+    });
+    normalizeStandardMinigameExperience(restoredSession, {
+      total: pieces.length,
+      resolvedCount: restoredSession.caught.length + restoredSession.expired.length,
+      correctCount: Math.max(0, restoredSession.caught.length - Math.max(
+        0,
+        (Number(restoredSession.mistakes) || 0) - restoredSession.expired.length
+      )),
+      expiredCount: restoredSession.expired.length
+    });
+    restoredSession.decisionCount = pieces.length;
+    restoredSession.seedCeiling = pieces.reduce(function(total, piece) {
+      return total + (piece.good ? Number(piece.points) || 1 : 1);
+    }, 0);
     runtime.minigame = {
-      session: Object.assign({}, session, {
-        score: Number(session.score) || 0,
-        caught: Array.isArray(session.caught) ? session.caught.slice() : [],
-        mistakes: Number(session.mistakes) || 0,
-        combo: Number(session.combo) || 0,
-        bestCombo: Number(session.bestCombo) || 0
-      }),
+      session: restoredSession,
       ctx: ctx,
-      pieces: buildCompostSortPieces(session),
+      pieces: pieces,
       dragging: null,
       pulses: [],
       floaters: [],
@@ -24,6 +40,7 @@
       keyHandler: handleCompostSortKeydown,
       animationFrame: 0
     };
+    syncCompostSortActiveSession(false);
     canvas.tabIndex = 0;
     canvas.setAttribute('role', 'application');
     canvas.setAttribute('aria-label', 'Sortowanie kompostu. Strzałkami wybierz element, C lub 1 odkłada do kompostu, R lub 2 odrzuca.');
@@ -52,14 +69,18 @@
     drawCompostSortBackground(ctx, canvas.width, canvas.height, now, progress);
     drawCompostSortDropZones(ctx, canvas.width, canvas.height, now);
     runtime.minigame.pieces.forEach(function(piece) {
-      if (session.caught.indexOf(piece.id) !== -1) {
+      if (isCompostSortPieceResolved(session, piece.id)) {
+        return;
+      }
+      const position = getCompostPiecePosition(piece, progress, canvas.width, canvas.height);
+      if (position.raw > 1.08) {
+        expireCompostSortPiece(piece, now);
         return;
       }
       if (runtime.minigame.dragging && runtime.minigame.dragging.id === piece.id) {
         return;
       }
 
-      const position = getCompostPiecePosition(piece, progress, canvas.width, canvas.height);
       if (position.visible) {
         drawCompostPiece(ctx, position.x, position.y, piece, now);
         if (piece.id === runtime.minigame.keyboardPieceId) {
@@ -67,6 +88,9 @@
         }
       }
     });
+    if (requestStandardMinigameAutoFinish(runtime.minigame.pieces.length)) {
+      return;
+    }
     drawCompostBasket(ctx, canvas.width, canvas.height, now);
     drawDraggedCompostPiece(ctx, now);
     drawCompostSortPulses(ctx, now);
@@ -122,9 +146,7 @@
 
     const picked = findCompostPieceAt(x, y, progress, canvas.width, canvas.height);
     if (!picked) {
-      if (typeof pushMinigameFloater === 'function') {
-        pushMinigameFloater('pudło', x, y - 10, 'bad', now);
-      }
+      registerCompostSortBlankInput(x, y, now, 'pointer');
       return;
     }
 
@@ -162,16 +184,52 @@
     event.preventDefault();
     const pieces = getVisibleKeyboardCompostPieces(now);
     if (!pieces.length) {
+      if (bin) {
+        registerCompostSortBlankInput(dom.compostSortCanvas.width / 2, dom.compostSortCanvas.height / 2, now, 'keyboard');
+      }
       return;
     }
     if (direction) {
+      if (typeof recordStandardMinigameInput === 'function') {
+        recordStandardMinigameInput(session);
+      }
       runtime.minigame.keyboardPieceIndex = positiveModulo((Number(runtime.minigame.keyboardPieceIndex) || 0) + direction, pieces.length);
     }
     const selected = pieces[Math.min(pieces.length - 1, Number(runtime.minigame.keyboardPieceIndex) || 0)];
     runtime.minigame.keyboardPieceId = selected.piece.id;
     if (bin) {
       finishCompostSortDrag(selected.piece, bin, selected.position.x, selected.position.y, now);
+    } else {
+      syncCompostSortActiveSession(true);
     }
+  }
+
+  function registerCompostSortBlankInput(x, y, now, source) {
+    if (!runtime.minigame || runtime.minigame.session.id !== 'compostSort') {
+      return;
+    }
+    const session = runtime.minigame.session;
+    if (typeof recordStandardMinigameInput === 'function') {
+      recordStandardMinigameInput(session);
+    }
+    if (typeof recordStandardMinigameMistake === 'function') {
+      recordStandardMinigameMistake(session);
+    } else {
+      session.mistakes = (Number(session.mistakes) || 0) + 1;
+    }
+    session.combo = 0;
+    if (typeof pushMinigameFloater === 'function') {
+      pushMinigameFloater('pudło', x, y - 10, 'bad', now);
+    }
+    if (typeof emitStandardMinigameSensoryCue === 'function') {
+      emitStandardMinigameSensoryCue('miss', {
+        minigameId: 'compostSort',
+        outcome: 'mistake',
+        source: source || 'unknown'
+      });
+    }
+    syncCompostSortActiveSession(true);
+    updateMinigameHud(now);
   }
 
   function getVisibleKeyboardCompostPieces(now) {
@@ -181,29 +239,47 @@
     return runtime.minigame.pieces.map(function(piece) {
       return { piece: piece, position: getCompostPiecePosition(piece, progress, canvas.width, canvas.height) };
     }).filter(function(item) {
-      return item.position.visible && session.caught.indexOf(item.piece.id) === -1;
+      return item.position.visible && !isCompostSortPieceResolved(session, item.piece.id);
     });
   }
 
   function finishCompostSortDrag(picked, bin, x, y, now) {
-    if (!picked) {
+    if (!picked || !runtime.minigame || isCompostSortPieceResolved(runtime.minigame.session, picked.id)) {
       return;
     }
     const session = runtime.minigame.session;
+    if (typeof recordStandardMinigameInput === 'function') {
+      recordStandardMinigameInput(session);
+    }
     if (!bin) {
       if (typeof pushMinigameFloater === 'function') {
         pushMinigameFloater('upuść w strefę', x, y - 12, 'combo', now);
       }
+      syncCompostSortActiveSession(true);
       return;
     }
 
     const correct = picked.good ? bin === 'compost' : bin === 'reject';
     session.caught.push(picked.id);
     if (correct) {
+      recordStandardMinigameResolution(session, 'correct');
       const points = picked.good ? Number(picked.points) || 1 : 1;
       session.score += points;
       session.combo = (Number(session.combo) || 0) + 1;
       session.bestCombo = Math.max(Number(session.bestCombo) || 0, Number(session.combo) || 0);
+      if (typeof emitStandardMinigameSensoryCue === 'function') {
+        emitStandardMinigameSensoryCue(picked.kind === 'mycelium' ? 'rare' : 'success', {
+          minigameId: 'compostSort',
+          outcome: 'correct',
+          targetKind: picked.kind
+        });
+      }
+      if (session.combo >= 4 && session.combo % 4 === 0 && typeof emitStandardMinigameSensoryCue === 'function') {
+        emitStandardMinigameSensoryCue('combo', {
+          minigameId: 'compostSort',
+          combo: session.combo
+        });
+      }
       if (typeof pushMinigameFloater === 'function') {
         pushMinigameFloater(picked.good ? '+' + points : 'czysto', x, y - 12, picked.kind === 'mycelium' ? 'rare' : 'good', now);
         if (session.combo >= 4 && session.combo % 4 === 0) {
@@ -212,9 +288,16 @@
       }
       triggerEffect('hearts');
     } else {
-      session.mistakes = (Number(session.mistakes) || 0) + 1;
+      recordStandardMinigameResolution(session, 'mistake');
       session.combo = 0;
       session.score = Math.max(0, Number(session.score) - 1);
+      if (typeof emitStandardMinigameSensoryCue === 'function') {
+        emitStandardMinigameSensoryCue('miss', {
+          minigameId: 'compostSort',
+          outcome: 'mistake',
+          targetKind: picked.kind
+        });
+      }
       if (typeof pushMinigameFloater === 'function') {
         pushMinigameFloater(picked.good ? 'nie tu' : picked.kind === 'stone' ? 'kamień' : 'pleśń', x, y - 12, 'bad', now);
       }
@@ -229,6 +312,38 @@
     });
     syncCompostSortActiveSession(true);
     updateMinigameHud(now);
+    requestStandardMinigameAutoFinish(runtime.minigame.pieces.length);
+  }
+
+  function isCompostSortPieceResolved(session, pieceId) {
+    return Boolean(session) && (
+      (Array.isArray(session.caught) && session.caught.indexOf(pieceId) !== -1)
+      || (Array.isArray(session.expired) && session.expired.indexOf(pieceId) !== -1)
+    );
+  }
+
+  function expireCompostSortPiece(piece, now) {
+    const session = runtime.minigame && runtime.minigame.session;
+    if (!session || !piece || isCompostSortPieceResolved(session, piece.id)) {
+      return false;
+    }
+    session.expired = Array.isArray(session.expired) ? session.expired : [];
+    session.expired.push(piece.id);
+    session.combo = 0;
+    if (runtime.minigame.dragging && runtime.minigame.dragging.id === piece.id) {
+      runtime.minigame.dragging = null;
+    }
+    recordStandardMinigameResolution(session, 'expired');
+    if (typeof emitStandardMinigameSensoryCue === 'function') {
+      emitStandardMinigameSensoryCue('miss', {
+        minigameId: 'compostSort',
+        outcome: 'expired',
+        targetKind: piece.kind
+      });
+    }
+    syncCompostSortActiveSession(true);
+    updateMinigameHud(now || getRuntimeNow());
+    return true;
   }
 
   function getCompostPointerPosition(event) {
@@ -245,7 +360,7 @@
     const config = rules.minigames && rules.minigames.compostSort ? rules.minigames.compostSort : {};
     const forgivenessPx = getMinigamePointerForgivenessPx(config);
     return runtime.minigame.pieces.find(function(piece) {
-      if (session.caught.indexOf(piece.id) !== -1) {
+      if (isCompostSortPieceResolved(session, piece.id)) {
         return false;
       }
       const position = getCompostPiecePosition(piece, progress, width, height);
@@ -272,9 +387,14 @@
     const session = runtime.minigame.session;
     runtime.state.minigames.active = Object.assign({}, session, {
       caught: session.caught.slice(),
+      expired: (session.expired || []).slice(),
       mistakes: session.mistakes,
       combo: session.combo,
-      bestCombo: session.bestCombo
+      bestCombo: session.bestCombo,
+      resolvedCount: session.resolvedCount,
+      correctCount: session.correctCount,
+      expiredCount: session.expiredCount,
+      inputCount: session.inputCount
     });
     if (shouldSave) {
       scheduleMinigameRuntimePersist();
@@ -296,6 +416,10 @@
         ? contaminantRoll < 0.14 ? 'stone' : 'mold'
         : rare ? 'mycelium'
         : seededDewUnit(seed, index, 9) > 0.62 ? 'leaf' : 'crumb';
+      const speed = 0.15 + seededDewUnit(seed, index, 6) * 0.07;
+      const latestStart = Math.max(0.08, 0.92 - speed * 1.08);
+      const sequence = count > 1 ? index / (count - 1) : 0;
+      const jitter = (seededDewUnit(seed, index, 5) - 0.5) * Math.min(0.018, 0.22 / Math.max(1, count));
       pieces.push({
         id: 'compost_' + index,
         good: good,
@@ -303,8 +427,8 @@
         points: rare ? 2 : good ? 1 : 0,
         x: 20 + seededDewUnit(seed, index, 3) * 200,
         lane: Math.floor(seededDewUnit(seed, index, 4) * 3),
-        start: seededDewUnit(seed, index, 5) * 0.74,
-        speed: 0.30 + seededDewUnit(seed, index, 6) * 0.22,
+        start: Math.max(0.02, Math.min(latestStart, 0.02 + sequence * Math.max(0, latestStart - 0.02) + jitter)),
+        speed: speed,
         size: 8 + Math.round(seededDewUnit(seed, index, 7) * 4),
         variant: Math.floor(seededDewUnit(seed, index, 8) * 4)
       });
@@ -319,6 +443,7 @@
     return {
       x: Math.round(Math.max(12, Math.min(width - 12, piece.x + Math.sin(local * 5 + piece.variant) * 9))),
       y: Math.round(22 + piece.lane * 30 + eased * 38),
+      raw: local,
       visible: local >= 0 && local <= 1.08
     };
   }
@@ -379,7 +504,7 @@
 
   function drawCompostSortDropZones(ctx, width, height, now) {
     const dragging = runtime.minigame && runtime.minigame.dragging;
-    const pulse = dragging ? 0.5 + Math.sin(now / 150) * 0.5 : 0;
+    const pulse = dragging ? getMinigameVisualPulse(now, 150, 0) : 0;
     ctx.save();
     ctx.globalAlpha = dragging ? 0.9 : 0.68;
     ctx.fillStyle = '#3c2b20';
@@ -468,7 +593,7 @@
   function drawCompostBasket(ctx, width, height, now) {
     const session = runtime.minigame && runtime.minigame.session ? runtime.minigame.session : {};
     const fill = Math.min(1, (Number(session.score) || 0) / 18);
-    const pulse = Math.sin(now / 260) * 0.5 + 0.5;
+    const pulse = getMinigameVisualPulse(now, 260, 0);
     ctx.save();
     ctx.globalAlpha = 0.9;
     ctx.fillStyle = '#3c2b20';

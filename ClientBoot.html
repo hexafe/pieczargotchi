@@ -231,6 +231,7 @@
     precipitationMotion: null,
     actionButtons: new Map(),
     minigame: null,
+    minigameLastOutcome: null,
     minigameLaunch: null,
     minigameReturnFocus: null,
     minigameVisibilityBound: false,
@@ -256,6 +257,8 @@
     renderAnimationFrame: 0,
     renderVisibilityBound: false,
     reducedMotion: false,
+    reducedMotionQuery: null,
+    reducedMotionQueryBound: false,
     resetConfirmUntil: 0,
     resetConfirmTimer: null,
     adaptiveDock: {
@@ -866,6 +869,7 @@
   function handleExternalPersistenceUpdate(update) {
     const payload = update || {};
     cancelPendingExclusiveStart();
+    runtime.minigameLastOutcome = null;
     runtime.persistenceStatus = typeof getPersistenceStatus === 'function'
       ? getPersistenceStatus()
       : Object.assign({}, runtime.persistenceStatus || {}, payload);
@@ -1029,6 +1033,7 @@
       clearExclusiveOwnershipClaimSchedule();
       runtime.foreignExclusiveSession = null;
     }
+    runtime.minigameLastOutcome = null;
     renderUi();
     if (!isForeignExclusiveSessionActive()) {
       resumeMinigameIfActive();
@@ -1411,7 +1416,11 @@
     dom.battleStart.addEventListener('click', handleBattleStart);
     dom.minigameStartButtons.forEach(function(button) {
       button.addEventListener('click', function() {
-        handleMinigameStart(button.dataset.minigameStart);
+        const minigameId = String(button.dataset.minigameStart || '');
+        if (!minigameId) {
+          return;
+        }
+        handleMinigameStart(minigameId, button.dataset.minigameMode === 'practice' ? 'practice' : 'reward');
       });
     });
     if (dom.minigameEnd) {
@@ -1661,6 +1670,7 @@
         return;
       }
     }
+    runtime.minigameLastOutcome = null;
     renderUi();
     focusNameInputIfNeeded();
     triggerEffect('clean');

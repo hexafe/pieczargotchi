@@ -7,22 +7,36 @@
     const canvas = dom.sporePopCanvas;
     const ctx = canvas.getContext('2d');
     setActiveMinigameCanvas('sporePop');
+    const spores = buildSporePopSpores(session);
+    const restoredSession = Object.assign({}, session, {
+      score: Number(session.score) || 0,
+      caught: Array.isArray(session.caught) ? session.caught.slice() : [],
+      expired: Array.isArray(session.expired) ? session.expired.slice() : [],
+      combo: Number(session.combo) || 0,
+      bestCombo: Number(session.bestCombo) || 0,
+      mistakes: Number(session.mistakes) || 0
+    });
+    normalizeStandardMinigameExperience(restoredSession, {
+      total: spores.length,
+      resolvedCount: restoredSession.caught.length + restoredSession.expired.length,
+      correctCount: restoredSession.caught.length,
+      expiredCount: restoredSession.expired.length
+    });
+    restoredSession.decisionCount = spores.length;
+    restoredSession.seedCeiling = spores.reduce(function(total, spore) {
+      return total + (Number(spore.points) || 1);
+    }, 0);
     runtime.minigame = {
-      session: Object.assign({}, session, {
-        score: Number(session.score) || 0,
-        caught: Array.isArray(session.caught) ? session.caught.slice() : [],
-        combo: Number(session.combo) || 0,
-        bestCombo: Number(session.bestCombo) || 0,
-        mistakes: Number(session.mistakes) || 0
-      }),
+      session: restoredSession,
       ctx: ctx,
-      spores: buildSporePopSpores(session),
+      spores: spores,
       bursts: [],
       floaters: [],
       keyboardTargetIndex: 0,
       keyHandler: handleSporePopKeydown,
       animationFrame: 0
     };
+    syncSporePopActiveSession(false);
     canvas.tabIndex = 0;
     canvas.setAttribute('role', 'application');
     canvas.setAttribute('aria-label', 'Pękanie zarodników. Strzałkami wybierz widoczny zarodnik, Enterem lub spacją go pęknij.');
@@ -53,11 +67,15 @@
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawSporePopBackground(ctx, canvas.width, canvas.height, now, progress);
     runtime.minigame.spores.forEach(function(spore) {
-      if (session.caught.indexOf(spore.id) !== -1) {
+      if (isSporePopTargetResolved(session, spore.id)) {
         return;
       }
 
       const position = getSporePopPosition(spore, progress, canvas.width, canvas.height);
+      if (position.raw > 1) {
+        expireSporePopTarget(spore, now);
+        return;
+      }
       if (position.visible) {
         drawSporePopTarget(ctx, position.x, position.y, spore, position, spore.phase + now / 310);
         if (spore.id === runtime.minigame.keyboardTargetId) {
@@ -67,6 +85,9 @@
         drawSporePopTelegraph(ctx, position.x, position.y, spore, position, now);
       }
     });
+    if (requestStandardMinigameAutoFinish(runtime.minigame.spores.length)) {
+      return;
+    }
     drawSporePopBursts(ctx, now);
     drawMinigameFloaters(ctx, now);
 
@@ -92,9 +113,12 @@
     const scaleY = canvas.height / Math.max(1, rect.height);
     const x = (event.clientX - rect.left) * scaleX;
     const y = (event.clientY - rect.top) * scaleY;
+    if (typeof recordStandardMinigameInput === 'function') {
+      recordStandardMinigameInput(session);
+    }
     const progress = (now - Number(session.startedAt)) / Math.max(1, Number(session.until) - Number(session.startedAt));
     const popped = runtime.minigame.spores.find(function(spore) {
-      if (session.caught.indexOf(spore.id) !== -1) {
+      if (isSporePopTargetResolved(session, spore.id)) {
         return false;
       }
 
@@ -105,18 +129,7 @@
     });
 
     if (!popped) {
-      runtime.minigame.bursts.push({
-        x: x,
-        y: y,
-        kind: 'miss',
-        startedAt: now
-      });
-      if (typeof pushMinigameFloater === 'function') {
-        pushMinigameFloater('pudło', x, y - 10, 'bad', now);
-      }
-      session.combo = 0;
-      session.mistakes = (Number(session.mistakes) || 0) + 1;
-      syncSporePopActiveSession(true);
+      registerSporePopBlankInput(x, y, now, 'pointer');
       return;
     }
 
@@ -138,8 +151,16 @@
       return;
     }
     event.preventDefault();
+    if (typeof recordStandardMinigameInput === 'function') {
+      recordStandardMinigameInput(session);
+    }
     const targets = getVisibleSporePopTargets(now);
     if (!targets.length) {
+      if (event.key === 'Enter' || event.key === ' ') {
+        registerSporePopBlankInput(dom.sporePopCanvas.width / 2, dom.sporePopCanvas.height / 2, now, 'keyboard');
+      } else {
+        syncSporePopActiveSession(true);
+      }
       return;
     }
     const direction = event.key === 'ArrowLeft' || event.key === 'Left' ? -1 : event.key === 'ArrowRight' || event.key === 'Right' ? 1 : 0;
@@ -150,7 +171,35 @@
     runtime.minigame.keyboardTargetId = selected.spore.id;
     if (!direction) {
       scoreSporePopTarget(selected.spore, selected.position.x, selected.position.y, now);
+    } else {
+      syncSporePopActiveSession(true);
     }
+  }
+
+  function registerSporePopBlankInput(x, y, now, source) {
+    if (!runtime.minigame || runtime.minigame.session.id !== 'sporePop') {
+      return;
+    }
+    const session = runtime.minigame.session;
+    runtime.minigame.bursts.push({ x: x, y: y, kind: 'miss', startedAt: now });
+    if (typeof pushMinigameFloater === 'function') {
+      pushMinigameFloater('pudło', x, y - 10, 'bad', now);
+    }
+    session.combo = 0;
+    if (typeof recordStandardMinigameMistake === 'function') {
+      recordStandardMinigameMistake(session);
+    } else {
+      session.mistakes = (Number(session.mistakes) || 0) + 1;
+    }
+    if (typeof emitStandardMinigameSensoryCue === 'function') {
+      emitStandardMinigameSensoryCue('miss', {
+        minigameId: 'sporePop',
+        outcome: 'mistake',
+        source: source || 'unknown'
+      });
+    }
+    syncSporePopActiveSession(true);
+    updateMinigameHud(now);
   }
 
   function getVisibleSporePopTargets(now) {
@@ -160,19 +209,27 @@
     return runtime.minigame.spores.map(function(spore) {
       return { spore: spore, position: getSporePopPosition(spore, progress, canvas.width, canvas.height) };
     }).filter(function(item) {
-      return item.position.visible && session.caught.indexOf(item.spore.id) === -1;
+      return item.position.visible && !isSporePopTargetResolved(session, item.spore.id);
     });
   }
 
   function scoreSporePopTarget(popped, x, y, now) {
-    if (!popped || !runtime.minigame || runtime.minigame.session.caught.indexOf(popped.id) !== -1) {
+    if (!popped || !runtime.minigame || isSporePopTargetResolved(runtime.minigame.session, popped.id)) {
       return;
     }
     const session = runtime.minigame.session;
     session.caught.push(popped.id);
+    recordStandardMinigameResolution(session, 'correct');
     session.score += Number(popped.points) || 1;
     session.combo = (Number(session.combo) || 0) + 1;
     session.bestCombo = Math.max(Number(session.bestCombo) || 0, Number(session.combo) || 0);
+    if (typeof emitStandardMinigameSensoryCue === 'function') {
+      emitStandardMinigameSensoryCue(popped.kind === 'golden' ? 'rare' : 'success', {
+        minigameId: 'sporePop',
+        outcome: 'correct',
+        targetKind: popped.kind
+      });
+    }
     runtime.minigame.bursts.push({
       x: x,
       y: y,
@@ -180,6 +237,12 @@
       points: popped.points,
       startedAt: now
     });
+    if (session.combo >= 5 && session.combo % 5 === 0 && typeof emitStandardMinigameSensoryCue === 'function') {
+      emitStandardMinigameSensoryCue('combo', {
+        minigameId: 'sporePop',
+        combo: session.combo
+      });
+    }
     if (typeof pushMinigameFloater === 'function') {
       pushMinigameFloater('+' + (Number(popped.points) || 1), x, y - 12, popped.kind === 'golden' ? 'rare' : 'good', now);
       if (session.combo >= 5 && session.combo % 5 === 0) {
@@ -189,6 +252,35 @@
     triggerEffect('spores');
     syncSporePopActiveSession(true);
     updateMinigameHud(now);
+    requestStandardMinigameAutoFinish(runtime.minigame.spores.length);
+  }
+
+  function isSporePopTargetResolved(session, sporeId) {
+    return Boolean(session) && (
+      (Array.isArray(session.caught) && session.caught.indexOf(sporeId) !== -1)
+      || (Array.isArray(session.expired) && session.expired.indexOf(sporeId) !== -1)
+    );
+  }
+
+  function expireSporePopTarget(spore, now) {
+    const session = runtime.minigame && runtime.minigame.session;
+    if (!session || !spore || isSporePopTargetResolved(session, spore.id)) {
+      return false;
+    }
+    session.expired = Array.isArray(session.expired) ? session.expired : [];
+    session.expired.push(spore.id);
+    session.combo = 0;
+    recordStandardMinigameResolution(session, 'expired');
+    if (typeof emitStandardMinigameSensoryCue === 'function') {
+      emitStandardMinigameSensoryCue('miss', {
+        minigameId: 'sporePop',
+        outcome: 'expired',
+        targetKind: spore.kind
+      });
+    }
+    syncSporePopActiveSession(true);
+    updateMinigameHud(now || getRuntimeNow());
+    return true;
   }
 
   function drawMinigameKeyboardFocus(ctx, x, y, radius) {
@@ -210,6 +302,10 @@
     for (let index = 0; index < count; index += 1) {
       const kindRoll = seededSporeUnit(seed, index, 9);
       const kind = kindRoll > 0.92 ? 'golden' : kindRoll < 0.14 ? 'quick' : 'spore';
+      const speed = (kind === 'quick' ? 0.11 : 0.15) + seededSporeUnit(seed, index, 6) * 0.05;
+      const latestStart = Math.max(0.05, 0.94 - speed);
+      const sequence = count > 1 ? index / (count - 1) : 0;
+      const jitter = (seededSporeUnit(seed, index, 5) - 0.5) * Math.min(0.018, 0.24 / Math.max(1, count));
       spores.push({
         id: 'spore_' + index,
         kind: kind,
@@ -218,8 +314,8 @@
         y: Math.round(18 + seededSporeUnit(seed, index, 2) * 96),
         driftX: -12 + seededSporeUnit(seed, index, 3) * 24,
         driftY: -8 + seededSporeUnit(seed, index, 4) * 18,
-        start: seededSporeUnit(seed, index, 5) * 0.46,
-        speed: (kind === 'quick' ? 0.36 : 0.46) + seededSporeUnit(seed, index, 6) * 0.34,
+        start: Math.max(0.02, Math.min(latestStart, 0.02 + sequence * Math.max(0, latestStart - 0.02) + jitter)),
+        speed: speed,
         size: (kind === 'golden' ? 7 : 5) + Math.round(seededSporeUnit(seed, index, 7) * 5),
         phase: seededSporeUnit(seed, index, 8) * Math.PI * 2
       });
@@ -329,7 +425,7 @@
   function drawSporePopTelegraph(ctx, x, y, spore, position, now) {
     const wake = Math.max(0, Math.min(1, (position.raw + 0.18) / 0.18));
     const size = Math.round((spore.size + 12) * (0.65 + wake * 0.35));
-    const pulse = 0.5 + Math.sin(now / 110 + spore.phase) * 0.5;
+    const pulse = getMinigameVisualPulse(now, 110, spore.phase);
     ctx.save();
     ctx.globalAlpha = 0.12 + wake * 0.28 + pulse * 0.08;
     ctx.fillStyle = spore.kind === 'golden' ? '#fff0a8' : spore.kind === 'quick' ? '#e6ffd0' : '#fff2a5';
@@ -375,9 +471,14 @@
     const session = runtime.minigame.session;
     runtime.state.minigames.active = Object.assign({}, session, {
       caught: session.caught.slice(),
+      expired: (session.expired || []).slice(),
       mistakes: session.mistakes,
       combo: session.combo,
-      bestCombo: session.bestCombo
+      bestCombo: session.bestCombo,
+      resolvedCount: session.resolvedCount,
+      correctCount: session.correctCount,
+      expiredCount: session.expiredCount,
+      inputCount: session.inputCount
     });
     if (shouldSave) {
       scheduleMinigameRuntimePersist();

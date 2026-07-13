@@ -28,6 +28,7 @@ const runtimeFiles = [
 // intentionally use terms such as runtime, sprite sheet and asset. Product UI
 // copy remains covered through runtimeFiles below.
 const technicalLanguageFiles = new Set([
+  'AGENTS.md',
   'README.md',
   'docs/APPS_SCRIPT_DEPLOYMENT_DRY_RUN.md',
   'docs/IMAGEGEN_ASSET_PIPELINE.md',

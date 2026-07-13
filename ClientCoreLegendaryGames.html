@@ -4,11 +4,12 @@
       ? getGameplayDateKeyCore(now)
       : new Date(now).toISOString().slice(0, 10);
     return {
-      version: 1,
+      version: 2,
       daily: {
         dateKey: dateKey,
         projectPointsEarned: 0,
-        featuredIds: getLegendaryFeaturedIdsCore(rules, dateKey)
+        featuredIds: getLegendaryFeaturedIdsCore(rules, dateKey),
+        featuredClears: {}
       },
       trail: {
         plays: 0,
@@ -18,6 +19,10 @@
       },
       league: {
         rank: 1,
+        bestScore: 0,
+        winStreak: 0,
+        bestWinStreak: 0,
+        // Compatibility aliases kept for saves and older UI builds.
         streak: 0,
         bestStreak: 0,
         badges: {},
@@ -47,7 +52,10 @@
       projectPointsEarned: daily.dateKey === dateKey ? clampInteger(daily.projectPointsEarned, 0, 9999, 0) : 0,
       featuredIds: daily.dateKey === dateKey && Array.isArray(daily.featuredIds) && daily.featuredIds.length
         ? uniqueStringListCore(daily.featuredIds).slice(0, 3)
-        : getLegendaryFeaturedIdsCore(rules, dateKey)
+        : getLegendaryFeaturedIdsCore(rules, dateKey),
+      featuredClears: daily.dateKey === dateKey
+        ? normalizeLegendaryBooleanMapCore(daily.featuredClears)
+        : {}
     };
     base.trail = {
       plays: clampInteger(trail.plays, 0, 999999, 0),
@@ -55,10 +63,17 @@
       discoveredNodes: normalizeLegendaryBooleanMapCore(trail.discoveredNodes),
       lastPlayedAt: trail.lastPlayedAt || null
     };
+    const legacyLeagueStreak = clampInteger(league.streak, 0, 999999, 0);
+    const legacyLeagueBest = clampInteger(league.bestStreak, 0, 999999, 0);
+    const leagueWinStreak = clampInteger(league.winStreak, 0, 999999, legacyLeagueStreak);
+    const leagueBestWinStreak = clampInteger(league.bestWinStreak, 0, 999999, legacyLeagueBest);
     base.league = {
       rank: clampInteger(league.rank, 1, 99, 1),
-      streak: clampInteger(league.streak, 0, 999999, 0),
-      bestStreak: clampInteger(league.bestStreak, 0, 999999, 0),
+      bestScore: clampInteger(league.bestScore, 0, 999999, legacyLeagueBest),
+      winStreak: leagueWinStreak,
+      bestWinStreak: Math.max(leagueWinStreak, leagueBestWinStreak),
+      streak: leagueWinStreak,
+      bestStreak: Math.max(leagueWinStreak, leagueBestWinStreak),
       badges: normalizeLegendaryBooleanMapCore(league.badges),
       dailyRewardWins: daily.dateKey === dateKey ? clampInteger(league.dailyRewardWins, 0, 999999, 0) : 0
     };
@@ -179,6 +194,18 @@
       games: games,
       album: album,
       daily: legendaryGames.daily,
+      trailDiscoveries: Object.keys(legendaryGames.trail.discoveredNodes || {}).filter(function(id) {
+        return legendaryGames.trail.discoveredNodes[id];
+      }).sort(),
+      gardenSets: Object.keys(legendaryGames.garden.discoveredSets || {}).filter(function(id) {
+        return legendaryGames.garden.discoveredSets[id];
+      }).sort(),
+      league: {
+        rank: Number(legendaryGames.league.rank) || 1,
+        bestScore: Number(legendaryGames.league.bestScore) || 0,
+        bestWinStreak: Number(legendaryGames.league.bestWinStreak) || 0,
+        winStreak: Number(legendaryGames.league.winStreak) || 0
+      },
       sceneTone: scene && scene.dayPhase ? scene.dayPhase : null
     };
   }
@@ -192,7 +219,9 @@
       return Number(legendaryGames.trail.bestScore) || 0;
     }
     if (gameId === 'myceliumLeague') {
-      return Number(legendaryGames.league.bestStreak) || 0;
+      return Number(legendaryGames.league.bestScore)
+        || Number(legendaryGames.league.bestStreak)
+        || 0;
     }
     if (gameId === 'memoryGarden') {
       return Object.keys(legendaryGames.garden.layouts || {}).reduce(function(best, key) {
@@ -230,17 +259,40 @@
     const config = getLegendaryGameConfigCore(event.minigameId, rules);
     const score = clampInteger(event.score, 0, 999999, 0);
     const target = getLegendaryGameTargetScoreCore(config);
-    const clear = score >= target;
+    const rewardMode = event.mode !== 'practice';
+    const clear = typeof event.clear === 'boolean' ? event.clear : score >= target;
+    const eventMetrics = isPlainObject(event.metrics) ? deepClone(event.metrics) : null;
+    const perfectTarget = Math.max(target, Math.floor(Number(config.perfectTarget) || target));
+    const previousMinigameResult = state.minigames && state.minigames.lastResult;
+    const tier = String(event.tier || previousMinigameResult && previousMinigameResult.tier || '');
+    const perfect = clear
+      && (tier ? tier === 'perfect' : score >= perfectTarget);
     const result = {
       id: config.id,
       label: config.label,
       score: score,
       targetScore: target,
       clear: clear,
+      perfect: perfect,
+      tier: tier || null,
+      mode: event.mode === 'practice' ? 'practice' : 'reward',
+      metrics: eventMetrics,
       at: new Date(now).toISOString()
     };
     state.legendaryGames = normalizeLegendaryGamesStateCore(state.legendaryGames, now, rules);
     state.legendaryGames.lastResult = result;
+    const featuredClear = rewardMode
+      && clear
+      && state.legendaryGames.daily.featuredIds.indexOf(config.id) !== -1
+      && !state.legendaryGames.daily.featuredClears[config.id];
+    if (featuredClear) {
+      state.legendaryGames.daily.featuredClears[config.id] = true;
+      addLongLoopSeasonPointsCore(state, 1, now);
+      result.featuredSeasonPoint = 1;
+      if (Array.isArray(messages)) {
+        messages.push('Pierwsze dzisiejsze ukończenie wyróżnionej legendy daje 1 punkt sezonu.');
+      }
+    }
 
     if (config.id === 'sporeTrail') {
       state.legendaryGames.trail.plays += 1;
@@ -248,11 +300,17 @@
       state.legendaryGames.trail.lastPlayedAt = result.at;
       state.legendaryGames.trail.discoveredNodes['trail-' + Math.min(6, Math.floor(score / 4))] = true;
     } else if (config.id === 'myceliumLeague') {
-      state.legendaryGames.league.streak = clear ? state.legendaryGames.league.streak + 1 : 0;
-      state.legendaryGames.league.bestStreak = Math.max(state.legendaryGames.league.bestStreak, score, state.legendaryGames.league.streak);
+      state.legendaryGames.league.bestScore = Math.max(state.legendaryGames.league.bestScore, score);
+      state.legendaryGames.league.winStreak = clear ? state.legendaryGames.league.winStreak + 1 : 0;
+      state.legendaryGames.league.bestWinStreak = Math.max(
+        state.legendaryGames.league.bestWinStreak,
+        state.legendaryGames.league.winStreak
+      );
+      state.legendaryGames.league.streak = state.legendaryGames.league.winStreak;
+      state.legendaryGames.league.bestStreak = state.legendaryGames.league.bestWinStreak;
       state.legendaryGames.league.rank = Math.max(state.legendaryGames.league.rank, Math.min(9, 1 + Math.floor(score / 6)));
       state.legendaryGames.league.badges.participant = true;
-      if (clear) {
+      if (clear && rewardMode) {
         state.legendaryGames.league.dailyRewardWins += 1;
         state.legendaryGames.league.badges.clear = true;
       }
@@ -261,12 +319,26 @@
       state.legendaryGames.garden.layouts[dateKey] = Math.max(Number(state.legendaryGames.garden.layouts[dateKey]) || 0, score);
       state.legendaryGames.garden.discoveredSets['set-' + Math.min(5, Math.floor(score / 3))] = true;
       state.legendaryGames.garden.lastBonusAt = result.at;
+      if (clear && rewardMode) {
+        state.inventory = Object.assign({ spores: 0, substrate: 0 }, state.inventory || {});
+        state.inventory.substrate = (Number(state.inventory.substrate) || 0) + 1;
+        result.bonus = { substrate: 1, spores: perfect ? 1 : 0 };
+        if (perfect) {
+          state.inventory.spores = (Number(state.inventory.spores) || 0) + 1;
+          state.coins = Number(state.inventory.spores) || Number(state.coins) || 0;
+        }
+        if (Array.isArray(messages)) {
+          messages.push(perfect
+            ? 'Ogród Pamiątek daje 1 podłoże i 1 zarodnik za perfekcyjne odtworzenie.'
+            : 'Ogród Pamiątek daje 1 podłoże za ukończenie.');
+        }
+      }
     }
 
-    if (Number(config.seasonPoints)) {
+    if (rewardMode && Number(config.seasonPoints)) {
       addLongLoopSeasonPointsCore(state, Number(config.seasonPoints), now);
     }
-    if (clear && config.memento && config.memento.id) {
+    if (rewardMode && clear && config.memento && config.memento.id) {
       const owned = state.longLoop && state.longLoop.mementos && state.longLoop.mementos.owned || {};
       if (!owned[config.memento.id]) {
         addLongLoopMementoCore(state, config.memento.id, config.memento.label, config.label, 'legendaryGame', now);
@@ -275,7 +347,7 @@
         }
       }
     }
-    if (clear) {
+    if (rewardMode && clear) {
       const nextState = addRelationshipEntryCore(state, {
         title: 'Legendy',
         body: config.label + ' domknięte wynikiem ' + score + '.',

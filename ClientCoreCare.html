@@ -22,6 +22,42 @@
       repairLegacyEpochTimestampsCore(state, now);
     }
 
+    if (version < 19 && versionInfo.targetVersion >= 19) {
+      state.minigames = isPlainObject(state.minigames) ? state.minigames : {};
+      if (isPlainObject(state.minigames.active)) {
+        state.minigames.quarantined = {
+          id: String(state.minigames.active.id || '').slice(0, 80) || null,
+          reason: 'legacyMinigameSession',
+          at: new Date(Number(now) || Date.now()).toISOString()
+        };
+        state.minigames.active = null;
+      }
+      state.minigames.pendingRewardSeeds = isPlainObject(state.minigames.pendingRewardSeeds)
+        ? state.minigames.pendingRewardSeeds
+        : {};
+    }
+
+    if (version < 20 && versionInfo.targetVersion >= 20) {
+      state.preferences = isPlainObject(state.preferences) ? state.preferences : {};
+      state.preferences.minigames = Object.assign({
+        audioEnabled: true,
+        hapticsEnabled: false,
+        accessibleLanes: false
+      }, isPlainObject(state.preferences.minigames) ? state.preferences.minigames : {});
+      const league = state.legendaryGames && isPlainObject(state.legendaryGames.league)
+        ? state.legendaryGames.league
+        : null;
+      if (league) {
+        const historyBest = state.history
+          && state.history.minigames
+          && state.history.minigames.myceliumLeague
+          ? Number(state.history.minigames.myceliumLeague.bestScore) || 0
+          : 0;
+        league.bestScore = Math.max(0, Number(league.bestScore) || 0, Number(league.bestStreak) || 0, historyBest);
+        league.bestWinStreak = Math.max(0, Number(league.bestWinStreak) || 0, Number(league.streak) || 0);
+      }
+    }
+
     state.version = versionInfo.targetVersion;
     if (typeof normalizeProgressionState === 'function') {
       return normalizeProgressionState(state, rules, null, now);

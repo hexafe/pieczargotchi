@@ -131,6 +131,11 @@
       });
     }
 
+    if (typeof initMinigameSensoryManager === 'function') {
+      initMinigameSensoryManager();
+    }
+    exposeMinigameUiApi();
+
     document.addEventListener('click', handleSceneFirstUiClick, true);
     document.addEventListener('keydown', handleSceneFirstUiKeydown, true);
     document.addEventListener('focusin', handleSceneFirstUiFocusIn, true);
@@ -205,6 +210,7 @@
     if (minigameScores.length && 'MutationObserver' in window) {
       ui.minigameScoreObserver = new MutationObserver(function() {
         syncMinigameAnnouncement();
+        syncMinigameSemanticCompanion();
       });
       minigameScores.forEach(function(node) {
         ui.minigameScoreObserver.observe(node, { childList: true, characterData: true, subtree: true });
@@ -227,7 +233,14 @@
       return;
     }
 
-    const workspaceTab = target.closest('[data-workspace-tab]');
+    // Session navigation guards apply only to the tab control itself. A nested
+    // gameplay button (notably legendary "Przerwij") must never inherit a tab
+    // decision from an ancestor panel.
+    if (target.matches('[data-minigame-end], [data-legendary-minigame-end], [data-minigame-navigation-allowed]')) {
+      return;
+    }
+
+    const workspaceTab = target.matches('[data-workspace-tab]') ? target : null;
     if (workspaceTab) {
       event.preventDefault();
       if (workspaceTab.getAttribute('aria-disabled') === 'true') {
@@ -239,7 +252,7 @@
       return;
     }
 
-    const legendsTab = target.closest('[data-legends-tab]');
+    const legendsTab = target.matches('[data-legends-tab]') ? target : null;
     if (legendsTab) {
       event.preventDefault();
       if (legendsTab.getAttribute('aria-disabled') === 'true') {
@@ -598,9 +611,11 @@
     renderDailyRhythm();
     renderDayPlan();
     renderMinigameOpportunities();
+    renderMinigameBriefs();
     renderMinigames();
     renderLongLoop();
     renderLegendaryGames();
+    renderMinigameRecap();
     renderHabitatSummary();
     renderDecorations();
     renderCharacterCompass();
@@ -625,6 +640,10 @@
     assignStableUiFocusKeys();
     restoreStableUiFocus(focusSnapshot);
     syncMinigameAnnouncement();
+    syncMinigameSemanticCompanion();
+    if (typeof syncMinigameSensorySession === 'function') {
+      syncMinigameSensorySession();
+    }
     scheduleAdaptiveActionDockUpdate();
   }
 
@@ -816,7 +835,13 @@
 
       tracker.lastScore = score;
       const minigameRules = rules.minigames && rules.minigames[active.id] ? rules.minigames[active.id] : {};
-      const threshold = Math.max(2, Math.ceil((Number(minigameRules.targetScore) || 8) / 4));
+      const announcementTarget = Number(
+        minigameRules.masteryTarget
+        || minigameRules.scoreTargetMastery
+        || minigameRules.targetScore
+        || 8
+      );
+      const threshold = Math.max(2, Math.ceil(announcementTarget / 4));
       if (
         Math.abs(score - (Number(tracker.lastAnnouncedScore) || 0)) >= threshold
         && now - (Number(tracker.lastAnnouncedAt) || 0) >= 1800
@@ -848,6 +873,104 @@
   function getMinigameLabelForUi(minigameId) {
     const definition = rules.minigames && rules.minigames[minigameId] ? rules.minigames[minigameId] : null;
     return definition && definition.label ? definition.label : 'Wyzwanie';
+  }
+
+  function syncMinigameSemanticCompanion() {
+    if (!runtime.state) {
+      return;
+    }
+    const active = runtime.state.minigames && runtime.state.minigames.active;
+    if (!active) {
+      return;
+    }
+    const legendary = typeof isLegendaryMinigameRuntimeId === 'function' && isLegendaryMinigameRuntimeId(active.id);
+    const companion = document.querySelector('[data-minigame-semantic-companion="' + (legendary ? 'legendary' : 'standard') + '"]');
+    if (!companion) {
+      return;
+    }
+    const title = companion.querySelector('[data-minigame-semantic-title]');
+    const instruction = companion.querySelector('[data-minigame-semantic-instruction]');
+    const summary = companion.querySelector('[data-minigame-semantic-summary]');
+    const scoreNode = document.querySelector(legendary ? '[data-legendary-minigame-score]' : '[data-minigame-score]');
+    const timeNode = document.querySelector(legendary ? '[data-legendary-minigame-time]' : '[data-minigame-time]');
+    const comboNode = document.querySelector(legendary ? '[data-legendary-minigame-combo]' : '[data-minigame-combo]');
+    if (title) {
+      title.textContent = active.label || getMinigameLabelForUi(active.id);
+    }
+    if (instruction) {
+      instruction.textContent = getMinigameUiCopy(active.id).instruction + ' Sterowanie: ' + getMinigameUiCopy(active.id).controls + '.';
+    }
+    if (summary) {
+      summary.textContent = [
+        scoreNode && scoreNode.textContent.trim(),
+        timeNode && timeNode.textContent.trim(),
+        comboNode && comboNode.textContent.trim()
+      ].filter(Boolean).join(' · ');
+    }
+    companion.dataset.minigameId = active.id || '';
+  }
+
+  function announceMinigameSemanticCue(cueInput, options) {
+    const cue = typeof cueInput === 'object' && cueInput
+      ? String(cueInput.text || cueInput.label || '')
+      : String(cueInput || '');
+    const settings = typeof cueInput === 'object' && cueInput ? cueInput : (options || {});
+    const text = formatMushroomText(cue.trim());
+    if (!text) {
+      return;
+    }
+    const active = runtime.state && runtime.state.minigames && runtime.state.minigames.active;
+    const legendary = active && typeof isLegendaryMinigameRuntimeId === 'function' && isLegendaryMinigameRuntimeId(active.id);
+    const companion = document.querySelector('[data-minigame-semantic-companion="' + (legendary ? 'legendary' : 'standard') + '"]');
+    if (companion) {
+      let cueNode = companion.querySelector('[data-minigame-semantic-cue]');
+      if (!cueNode) {
+        cueNode = document.createElement('strong');
+        cueNode.className = 'minigame-semantic-companion__cue';
+        cueNode.dataset.minigameSemanticCue = '';
+        companion.appendChild(cueNode);
+      }
+      cueNode.textContent = text;
+      cueNode.dataset.tone = settings.tone || '';
+    }
+    const live = document.querySelector('[data-minigame-semantic-live]');
+    if (live && settings.announce !== false) {
+      if (live.textContent === text) {
+        live.textContent = '';
+        window.setTimeout(function() {
+          live.textContent = text;
+        }, 20);
+      } else {
+        live.textContent = text;
+      }
+    }
+  }
+
+  function setMinigameLastOutcomeForUi(outcome) {
+    runtime.minigameLastOutcome = outcome || null;
+    if (typeof renderUi === 'function') {
+      renderUi();
+    }
+  }
+
+  function exposeMinigameUiApi() {
+    const ui = ensureSceneFirstUiRuntime();
+    window.PieczargotchiMinigameUi = Object.assign(window.PieczargotchiMinigameUi || {}, {
+      setCue: announceMinigameSemanticCue,
+      announce: announceMinigameSemanticCue,
+      setOutcome: setMinigameLastOutcomeForUi,
+      renderOutcome: renderMinigameRecap,
+      refresh: function() {
+        syncMinigameSemanticCompanion();
+        renderMinigameRecap();
+      }
+    });
+    if (!ui.minigameSemanticEventBound) {
+      ui.minigameSemanticEventBound = true;
+      document.addEventListener('pieczargotchi:minigame-semantic-cue', function(event) {
+        announceMinigameSemanticCue(event && event.detail ? event.detail : '');
+      });
+    }
   }
 
   function renderNameGate() {
@@ -1987,6 +2110,74 @@
     });
   }
 
+  function getMinigameUiCopy(minigameId) {
+    const copy = {
+      dewCatch: {
+        controls: 'Strzałki lub wskaźnik',
+        instruction: 'Przesuwaj koszyk, łap krople i omijaj liście.',
+        rewards: 'Nagrody: nawodnienie i radość.'
+      },
+      sporePop: {
+        controls: 'Strzałki i Enter lub dotyk',
+        instruction: 'Wybieraj rozświetlone zarodniki i pękaj je przed zgaśnięciem.',
+        rewards: 'Nagrody: radość i zarodniki.'
+      },
+      compostSort: {
+        controls: 'Przeciąganie lub C/R',
+        instruction: 'Dobry materiał odkładaj do zielonego kompostu po prawej, odrzut do czerwonej strefy po lewej.',
+        rewards: 'Nagrody: składniki, czystość i podłoże.'
+      },
+      rhythmHum: {
+        controls: 'Strzałki lub dotyk padów',
+        instruction: 'Trafiaj właściwą nutę, gdy dotrze do jasnej linii.',
+        rewards: 'Nagrody: radość i energia.'
+      },
+      sporeTrail: {
+        controls: 'Enter lub dotyk symbolu',
+        instruction: 'Prowadź zarodniki po rozświetlonych śladach we właściwej kolejności.',
+        rewards: 'Nagrody: zarodniki, pyłek projektu i pamiątka za mistrzostwo.'
+      },
+      myceliumLeague: {
+        controls: 'C/O/S, 1/2/3 lub dotyk znaku',
+        instruction: 'Odczytaj znak aury i wybierz pasujący ruch.',
+        rewards: 'Nagrody: zarodniki, pyłek sezonu i odznaki ligi.'
+      },
+      memoryGarden: {
+        controls: 'Enter lub dotyk symbolu',
+        instruction: 'Odtwarzaj rozświetlone pamiątki we właściwej kolejności.',
+        rewards: 'Nagrody: podłoże, pyłek projektu i pamiątka.'
+      }
+    };
+    return copy[minigameId] || {
+      controls: 'Klawiatura lub dotyk',
+      instruction: 'Wykonuj ruchy zgodnie ze wskazówkami wyzwania.',
+      rewards: 'Nagrody zależą od wyniku.'
+    };
+  }
+
+  function getMinigameDurationLabel(minigameId) {
+    const definition = rules.minigames && rules.minigames[minigameId] ? rules.minigames[minigameId] : {};
+    const seconds = Math.max(1, Math.round((Number(definition.durationMs) || 20000) / 1000));
+    return seconds + ' s';
+  }
+
+  function getMinigameBriefText(minigameId, options) {
+    const uiCopy = getMinigameUiCopy(minigameId);
+    const definition = rules.minigames && rules.minigames[minigameId] ? rules.minigames[minigameId] : {};
+    const prompt = options && options.includePrompt && definition.prompt
+      ? formatMushroomText(definition.prompt) + ' '
+      : '';
+    return prompt + getMinigameDurationLabel(minigameId) + ' · ' + uiCopy.controls + ' · '
+      + uiCopy.instruction + ' ' + uiCopy.rewards;
+  }
+
+  function renderMinigameBriefs() {
+    document.querySelectorAll('[data-minigame-brief]').forEach(function(node) {
+      const minigameId = node.dataset.minigameBrief;
+      node.textContent = getMinigameBriefText(minigameId);
+    });
+  }
+
   function renderMinigameOpportunities() {
     if (!dom.minigameOpportunities) {
       return;
@@ -2060,7 +2251,7 @@
     } else if (active) {
       dom.minigameStatus.textContent = active.label || (minigameRules[active.id] && minigameRules[active.id].label) || 'Trwa';
     } else if (remaining && !readyVisible) {
-      dom.minigameStatus.textContent = 'Za ' + formatRemainingLabel(remaining);
+      dom.minigameStatus.textContent = 'Praktyka · nagrody za ' + formatRemainingLabel(remaining);
     } else {
       dom.minigameStatus.textContent = 'Gotowe';
     }
@@ -2084,10 +2275,21 @@
     }
     dom.minigameStartButtons.forEach(function(button) {
       const minigameId = button.dataset.minigameStart;
+      if (!minigameId || button.matches('[data-minigame-recap-replay]')) {
+        return;
+      }
       const cooldownUntil = Number(runtime.state.cooldowns[getMinigameCooldownKey(minigameId)]) || 0;
       const ownRemaining = Math.max(0, cooldownUntil - now);
-      button.disabled = unnamed || gameOver || isMinigameActive() || isBattleSessionActive() || ownRemaining > 0 || runtime.state.mode !== 'awake';
-      button.textContent = unnamed ? 'Imię' : gameOver ? 'Koniec' : ownRemaining ? formatCooldownLabel(ownRemaining) : 'Start';
+      const practice = ownRemaining > 0;
+      button.disabled = unnamed || gameOver || isMinigameActive() || isBattleSessionActive() || runtime.state.mode !== 'awake';
+      button.dataset.minigameMode = practice ? 'practice' : 'reward';
+      button.textContent = unnamed ? 'Imię' : gameOver ? 'Koniec' : practice ? 'Praktyka' : 'Start';
+      button.setAttribute('aria-label', practice
+        ? 'Praktyka: ' + getMinigameLabelForUi(minigameId) + '. Bez nagród. Tryb nagradzany za ' + formatCooldownLabel(ownRemaining) + '.'
+        : 'Start: ' + getMinigameLabelForUi(minigameId) + '.');
+      button.title = practice
+        ? 'Tryb praktyki bez nagród · nagradzana runda za ' + formatCooldownLabel(ownRemaining)
+        : getMinigameBriefText(minigameId);
     });
     updateMinigameHud(now);
   }
@@ -2301,7 +2503,10 @@
       const text = document.createElement('div');
       const title = document.createElement('strong');
       const meta = document.createElement('span');
+      const prompt = document.createElement('span');
+      const brief = document.createElement('span');
       const button = document.createElement('button');
+      const practice = Number(game.cooldownMs) > 0;
       const blocked = !dashboard.unlocked
         || isGameOverUiState()
         || isRecoveryActiveForRuntime(getRuntimeNow())
@@ -2310,32 +2515,45 @@
         || isMinigameActive()
         || Boolean(active)
         || isBattleSessionActive()
-        || (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked())
-        || Number(game.cooldownMs) > 0;
+        || (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked());
 
       card.className = 'legendary-game-card' + (game.featured ? ' is-featured' : '') + (game.active ? ' is-active' : '');
       title.textContent = game.label;
       meta.textContent = game.featured
         ? 'Dzisiejszy trop · rekord ' + game.bestScore + '/' + game.targetScore
         : 'Rekord ' + game.bestScore + '/' + game.targetScore;
+      prompt.className = 'legendary-game-card__prompt';
+      prompt.textContent = formatMushroomText(game.prompt || getMinigameUiCopy(game.id).instruction);
+      brief.className = 'minigame-brief legendary-game-card__brief';
+      brief.textContent = getMinigameDurationLabel(game.id) + ' · ' + getMinigameUiCopy(game.id).controls + ' · '
+        + getMinigameUiCopy(game.id).rewards;
       button.className = 'ghost-button';
       button.type = 'button';
       button.dataset.focusKey = 'legendary-game-' + game.id;
+      button.dataset.minigameStart = game.id;
+      button.dataset.minigameMode = practice ? 'practice' : 'reward';
       button.textContent = !dashboard.unlocked
         ? 'Zamknięte'
         : game.active
           ? 'Trwa'
-          : game.cooldownMs
-            ? formatCooldownLabel(game.cooldownMs)
+          : practice
+            ? 'Praktyka'
             : 'Start';
       button.disabled = blocked;
-      button.title = game.prompt || game.label;
+      button.setAttribute('aria-label', practice
+        ? 'Praktyka: ' + game.label + '. Bez nagród. Tryb nagradzany za ' + formatCooldownLabel(game.cooldownMs) + '.'
+        : 'Start: ' + game.label + '. ' + (game.prompt || ''));
+      button.title = practice
+        ? 'Tryb praktyki bez nagród · nagradzana runda za ' + formatCooldownLabel(game.cooldownMs)
+        : getMinigameBriefText(game.id, { includePrompt: true });
       button.addEventListener('click', function() {
-        handleMinigameStart(game.id);
+        handleMinigameStart(game.id, button.dataset.minigameMode === 'practice' ? 'practice' : 'reward');
       });
 
       text.appendChild(title);
       text.appendChild(meta);
+      text.appendChild(prompt);
+      text.appendChild(brief);
       card.appendChild(text);
       card.appendChild(button);
       dom.legendaryGameList.appendChild(card);
@@ -2400,17 +2618,265 @@
     dom.minigameMasteryItems.forEach(function(item) {
       const minigameId = item.dataset.minigameMastery;
       const entry = byId[minigameId] || {};
+      const minigameRules = rules.minigames && rules.minigames[minigameId] ? rules.minigames[minigameId] : {};
       const best = Number(entry.bestScore) || 0;
-      const target = Number(entry.targetScore) || getMinigameStaticTarget(minigameId);
+      const casualTarget = Math.max(1, Math.floor(Number(minigameRules.scoreTargetCasual) || getMinigameStaticTarget(minigameId)));
       const plays = Number(entry.plays) || 0;
-      const missing = Math.max(0, target - best);
+      const perfectCriteria = formatMushroomText(entry.criteriaLabel || '100% ukończenia i 100% celności');
+      const perfectLabel = /^perfekcja\b/i.test(perfectCriteria)
+        ? perfectCriteria
+        : 'Perfekcja: ' + perfectCriteria;
       item.textContent = entry.perfect
         ? 'Perfekcyjna pamiątka · rekord ' + best
         : best
-          ? 'Rekord ' + best + ' · do znaku ' + missing
-          : 'Cel mistrzostwa ' + target + ' · prób ' + plays;
+          ? 'Rekord ' + best + ' · ' + perfectLabel
+          : 'Cel rundy ' + casualTarget + ' · ' + perfectLabel + ' · prób ' + plays;
       item.classList.toggle('is-complete', Boolean(entry.perfect));
     });
+  }
+
+  function getMinigameLastOutcomeForUi() {
+    if (runtime.minigameLastOutcome && typeof runtime.minigameLastOutcome === 'object') {
+      return runtime.minigameLastOutcome;
+    }
+    const lastResult = runtime.state && runtime.state.minigames && runtime.state.minigames.lastResult;
+    return lastResult && typeof lastResult === 'object' ? lastResult : null;
+  }
+
+  function getMinigameOutcomeId(outcome) {
+    return String(outcome && (outcome.id || outcome.minigameId || outcome.gameId) || '');
+  }
+
+  function isLegendaryMinigameOutcome(outcome) {
+    const minigameId = getMinigameOutcomeId(outcome);
+    if (minigameId && typeof isLegendaryMinigameRuntimeId === 'function') {
+      return isLegendaryMinigameRuntimeId(minigameId);
+    }
+    const definition = rules.minigames && rules.minigames[minigameId];
+    return Boolean(outcome && outcome.legendary) || Boolean(definition && definition.legendary);
+  }
+
+  function formatMinigameOutcomePercent(value, fallback) {
+    if (value === null || typeof value === 'undefined' || value === '') {
+      return fallback || '—';
+    }
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (typeof value === 'object') {
+      const completed = Number(value.completed || value.caught || value.hits || value.value);
+      const total = Number(value.total || value.targets || value.attempts || value.max);
+      if (Number.isFinite(completed) && Number.isFinite(total) && total > 0) {
+        return Math.max(0, Math.min(100, Math.round(completed / total * 100))) + '%';
+      }
+    }
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return fallback || '—';
+    }
+    const percent = Math.abs(numeric) <= 1 ? numeric * 100 : numeric;
+    return Math.max(0, Math.min(100, Math.round(percent))) + '%';
+  }
+
+  function getMinigameOutcomeTierLabel(outcome) {
+    if (isMinigameOutcomePractice(outcome)) {
+      return 'Praktyka';
+    }
+    const labels = {
+      perfect: 'Perfekcyjnie',
+      mastery: 'Mistrzostwo',
+      clear: 'Cel osiągnięty',
+      success: 'Cel osiągnięty',
+      near: 'Blisko celu',
+      practice: 'Jeszcze jedna próba',
+      incomplete: 'Do poprawy',
+      aborted: 'Przerwana',
+      stopped: 'Przerwana'
+    };
+    return labels[String(outcome && outcome.tier || '').toLowerCase()] || 'Runda zapisana';
+  }
+
+  function isMinigameOutcomePractice(outcome) {
+    return Boolean(outcome && (outcome.practice === true || outcome.mode === 'practice'));
+  }
+
+  function formatMinigameOutcomeRewards(outcome) {
+    if (!outcome || isMinigameOutcomePractice(outcome)) {
+      return 'Praktyka nie przyznaje nagród ani postępu dziennego.';
+    }
+    const rewards = outcome.rewards;
+    if (!rewards) {
+      return 'Bez nagrody w tej rundzie.';
+    }
+    if (typeof rewards === 'string') {
+      return rewards;
+    }
+    if (Array.isArray(rewards)) {
+      return rewards.length ? 'Nagrody: ' + rewards.map(String).join(', ') + '.' : 'Bez nagrody w tej rundzie.';
+    }
+    const parts = [];
+    const statLabels = {
+      hydration: 'nawodnienia',
+      nutrients: 'składników',
+      energy: 'energii',
+      happiness: 'radości',
+      cleanliness: 'czystości',
+      health: 'zdrowia'
+    };
+    const inventoryLabels = {
+      spores: 'zarodników',
+      substrate: 'podłoża'
+    };
+    const stats = rewards.stats && typeof rewards.stats === 'object' ? rewards.stats : {};
+    Object.keys(stats).forEach(function(key) {
+      const amount = Number(stats[key]);
+      if (Number.isFinite(amount) && amount) {
+        parts.push((amount > 0 ? '+' : '') + Math.round(amount * 10) / 10 + ' ' + (statLabels[key] || key));
+      }
+    });
+    const inventory = rewards.inventory && typeof rewards.inventory === 'object' ? rewards.inventory : {};
+    Object.keys(inventory).forEach(function(key) {
+      const amount = Number(inventory[key]);
+      if (Number.isFinite(amount) && amount) {
+        parts.push((amount > 0 ? '+' : '') + Math.round(amount * 10) / 10 + ' ' + (inventoryLabels[key] || key));
+      }
+    });
+    ['spores', 'substrate'].forEach(function(key) {
+      if (Object.prototype.hasOwnProperty.call(inventory, key)) {
+        return;
+      }
+      const amount = Number(rewards[key]);
+      if (Number.isFinite(amount) && amount) {
+        parts.push((amount > 0 ? '+' : '') + Math.round(amount * 10) / 10 + ' ' + inventoryLabels[key]);
+      }
+    });
+    return parts.length ? 'Nagrody: ' + parts.join(', ') + '.' : 'Bez nagrody w tej rundzie.';
+  }
+
+  function formatMinigameOutcomeUnlocks(unlocks) {
+    if (!unlocks) {
+      return '';
+    }
+    const items = Array.isArray(unlocks)
+      ? unlocks
+      : typeof unlocks === 'object'
+        ? Object.keys(unlocks).filter(function(key) { return Boolean(unlocks[key]); }).map(function(key) {
+          return unlocks[key] === true ? key : unlocks[key];
+        })
+        : [unlocks];
+    const labels = items.map(function(item) {
+      if (item && typeof item === 'object') {
+        return item.label || item.title || item.name || item.id || '';
+      }
+      return String(item || '');
+    }).filter(Boolean);
+    return labels.length ? 'Odblokowano: ' + labels.join(', ') + '.' : '';
+  }
+
+  function getMinigameOutcomeCooldownMs(outcome, minigameId) {
+    const now = getRuntimeNow();
+    if (outcome && outcome.cooldown && typeof outcome.cooldown === 'object') {
+      const objectRemaining = Number(outcome.cooldown.remainingMs || outcome.cooldown.ms);
+      if (Number.isFinite(objectRemaining)) {
+        return Math.max(0, objectRemaining);
+      }
+    }
+    const until = Number(outcome && outcome.cooldownUntil);
+    if (Number.isFinite(until) && until > 0) {
+      return Math.max(0, until - now);
+    }
+    const explicit = Number(outcome && (outcome.cooldownMs || outcome.cooldown));
+    if (Number.isFinite(explicit) && explicit > 0) {
+      return explicit > now ? Math.max(0, explicit - now) : explicit;
+    }
+    const stateUntil = runtime.state && runtime.state.cooldowns && minigameId
+      ? Number(runtime.state.cooldowns[getMinigameCooldownKey(minigameId)])
+      : 0;
+    return Number.isFinite(stateUntil) ? Math.max(0, stateUntil - now) : 0;
+  }
+
+  function renderMinigameRecap() {
+    const recaps = Array.from(document.querySelectorAll('[data-minigame-recap]'));
+    if (!recaps.length || !runtime.state) {
+      return;
+    }
+    recaps.forEach(function(node) {
+      node.hidden = true;
+    });
+    const active = runtime.state.minigames && runtime.state.minigames.active;
+    const outcome = getMinigameLastOutcomeForUi();
+    const minigameId = getMinigameOutcomeId(outcome);
+    if (active || !outcome || !minigameId) {
+      return;
+    }
+    const legendary = isLegendaryMinigameOutcome(outcome);
+    const recap = document.querySelector('[data-minigame-recap="' + (legendary ? 'legendary' : 'standard') + '"]');
+    if (!recap) {
+      return;
+    }
+    const label = outcome.label || getMinigameLabelForUi(minigameId);
+    const tier = getMinigameOutcomeTierLabel(outcome);
+    const coverage = formatMinigameOutcomePercent(outcome.coverage, '—');
+    const accuracy = formatMinigameOutcomePercent(outcome.accuracy, '—');
+    const cooldownMs = getMinigameOutcomeCooldownMs(outcome, minigameId);
+    const unlocks = formatMinigameOutcomeUnlocks(outcome.unlocks || outcome.unlocked);
+    const practice = isMinigameOutcomePractice(outcome);
+    const title = practice
+      ? label + ' · praktyka'
+      : outcome.newBest
+        ? label + ' · nowy rekord'
+        : label + ' · podsumowanie';
+    const rawTierKey = String(outcome.tier || '').toLowerCase();
+    const tierKey = practice ? 'practice' : rawTierKey === 'practice' ? 'incomplete' : rawTierKey;
+    const setText = function(selector, value) {
+      const node = recap.querySelector(selector);
+      if (node) {
+        node.textContent = value;
+      }
+    };
+    setText('[data-minigame-recap-title]', title);
+    setText('[data-minigame-recap-tier]', tier);
+    setText('[data-minigame-recap-score]', getMinigameScoreLabel(minigameId, Number(outcome.score) || 0));
+    setText('[data-minigame-recap-coverage]', coverage);
+    setText('[data-minigame-recap-accuracy]', accuracy);
+    setText('[data-minigame-recap-rewards]', formatMinigameOutcomeRewards(outcome));
+    setText('[data-minigame-recap-cooldown]', cooldownMs
+      ? 'Nagradzana runda wróci za ' + formatCooldownLabel(cooldownMs) + '. Praktyka jest dostępna teraz.'
+      : 'Nagradzana runda jest gotowa.');
+    const unlockNode = recap.querySelector('[data-minigame-recap-unlocks]');
+    if (unlockNode) {
+      unlockNode.textContent = unlocks;
+      unlockNode.hidden = !unlocks;
+    }
+    const replay = recap.querySelector('[data-minigame-recap-replay]');
+    if (replay) {
+      const practice = cooldownMs > 0;
+      replay.dataset.minigameStart = minigameId;
+      replay.dataset.minigameMode = practice ? 'practice' : 'reward';
+      replay.textContent = practice ? 'Praktyka' : 'Zagraj ponownie';
+      replay.setAttribute('aria-label', practice
+        ? 'Praktyka: ' + label + '. Bez nagród.'
+        : 'Zagraj ponownie: ' + label + '.');
+      replay.disabled = !hasNamedMushroom(runtime.state)
+        || isGameOverUiState()
+        || runtime.state.mode !== 'awake'
+        || isMinigameActive()
+        || isBattleSessionActive()
+        || (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked());
+    }
+    recap.hidden = false;
+    recap.className = 'minigame-recap' + (tierKey ? ' is-' + tierKey.replace(/[^a-z0-9_-]/g, '') : '');
+
+    const ui = ensureSceneFirstUiRuntime();
+    if (runtime.minigameLastOutcome === outcome && ui.lastRecapOutcomeReference !== outcome) {
+      ui.lastRecapOutcomeReference = outcome;
+      announceMinigameSemanticCue(title + '. ' + tier + '. Wynik: '
+        + getMinigameScoreLabel(minigameId, Number(outcome.score) || 0)
+        + '. Ukończenie ' + coverage + ', celność ' + accuracy + '.');
+      if (typeof notifyMinigameSensoryOutcome === 'function') {
+        notifyMinigameSensoryOutcome(outcome);
+      }
+    }
   }
 
   function getMinigameStaticTarget(minigameId) {

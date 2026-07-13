@@ -24,25 +24,42 @@
     const canvas = dom.rhythmHumCanvas;
     const ctx = canvas.getContext('2d');
     const chart = buildRhythmHumChart(session);
+    const judgments = normalizeRhythmHumJudgments(session.rhythmJudgments, chart.length);
+    const restoredSession = Object.assign({}, session, {
+      score: Number(session.score) || 0,
+      caught: Array.isArray(session.caught) ? session.caught.slice() : [],
+      expiredNotes: Array.isArray(session.expiredNotes) ? session.expiredNotes.slice() : [],
+      mistakes: Number(session.mistakes) || 0,
+      nextBeat: Number(session.nextBeat) || 0,
+      combo: Number(session.combo) || 0,
+      bestCombo: Number(session.bestCombo) || 0,
+      rhythmJudgments: judgments
+    });
+    normalizeStandardMinigameExperience(restoredSession, {
+      total: chart.length,
+      resolvedCount: judgments.filter(Boolean).length,
+      correctCount: judgments.filter(function(value) {
+        return value === 'perfect' || value === 'good' || value === 'ok';
+      }).length,
+      expiredCount: restoredSession.expiredNotes.length
+    });
+    restoredSession.decisionCount = chart.length;
+    restoredSession.seedCeiling = chart.length * 3;
     setActiveMinigameCanvas('rhythmHum');
     runtime.minigame = {
-      session: Object.assign({}, session, {
-        score: Number(session.score) || 0,
-        caught: Array.isArray(session.caught) ? session.caught.slice() : [],
-        mistakes: Number(session.mistakes) || 0,
-        nextBeat: Number(session.nextBeat) || 0,
-        combo: Number(session.combo) || 0,
-        bestCombo: Number(session.bestCombo) || 0,
-        rhythmJudgments: normalizeRhythmHumJudgments(session.rhythmJudgments, chart.length)
-      }),
+      session: restoredSession,
       ctx: ctx,
       chart: chart,
       pattern: chart.map(function(note) { return note.lane; }),
+      metronomeCueIndex: chart.reduce(function(lastIndex, note, index) {
+        return Number(note.hitAt) < getRuntimeNow() ? index : lastIndex;
+      }, -1),
       pulses: [],
       floaters: [],
       keyHandler: handleRhythmHumKeydown,
       animationFrame: 0
     };
+    syncRhythmHumActiveSession(false);
     canvas.tabIndex = 0;
     canvas.setAttribute('role', 'application');
     canvas.setAttribute('aria-label', 'Minigra rytmicznego nucenia. Użyj strzałek, gdy nuta trafi w jasną linię.');
@@ -69,6 +86,10 @@
     }
 
     markRhythmHumMisses(now);
+    if (!runtime.minigame || runtime.minigame.autoFinishRequested) {
+      return;
+    }
+    emitRhythmHumMetronomeCue(now);
     const ctx = runtime.minigame.ctx;
     const canvas = dom.rhythmHumCanvas;
     const progress = (now - Number(session.startedAt)) / Math.max(1, Number(session.until) - Number(session.startedAt));
@@ -144,6 +165,15 @@
   }
 
   function scoreRhythmHumLane(laneId, now) {
+    recordStandardMinigameInput(runtime.minigame && runtime.minigame.session);
+    if (typeof emitStandardMinigameSensoryCue === 'function') {
+      emitStandardMinigameSensoryCue('confirm', {
+        minigameId: 'rhythmHum',
+        type: 'lane',
+        lane: laneId,
+        haptics: false
+      });
+    }
     const candidate = getRhythmHumCandidate(now);
     const lane = getRhythmHumLane(laneId);
     if (!candidate) {
@@ -197,9 +227,17 @@
     const session = runtime.minigame.session;
     const nearest = getRhythmHumNearestUnresolved(now);
     const label = nearest && nearest.delta > 0 ? 'za późno' : 'za wcześnie';
-    session.mistakes = (Number(session.mistakes) || 0) + 1;
+    recordStandardMinigameMistake(session);
     session.score = Math.max(0, Number(session.score) - 1);
     session.combo = 0;
+    if (typeof emitStandardMinigameSensoryCue === 'function') {
+      emitStandardMinigameSensoryCue('miss', {
+        minigameId: 'rhythmHum',
+        outcome: 'mistake',
+        type: 'lane',
+        lane: laneId
+      });
+    }
     if (typeof pushMinigameFloater === 'function' && lane) {
       pushMinigameFloater(label, lane.x, lane.hitY - 18, 'bad', now);
     }
@@ -212,17 +250,38 @@
     updateMinigameHud(now);
   }
 
-  function resolveRhythmHumNote(index, judgment, points, now, inputLaneId, delta, label, shouldSave) {
+  function resolveRhythmHumNote(index, judgment, points, now, inputLaneId, delta, label, shouldSave, resolutionKind) {
     const session = runtime.minigame.session;
     const note = runtime.minigame.chart[index];
+    if (!note || isRhythmHumNoteResolved(index)) {
+      return false;
+    }
     const lane = getRhythmHumLane(note ? note.lane : inputLaneId);
     session.rhythmJudgments[index] = judgment;
     session.nextBeat = getNextRhythmHumNoteIndex();
     if (points > 0) {
+      recordStandardMinigameResolution(session, 'correct');
       session.score += points;
       session.combo = (Number(session.combo) || 0) + 1;
       session.bestCombo = Math.max(Number(session.bestCombo) || 0, Number(session.combo) || 0);
       session.caught.push('beat_' + index + '_' + now);
+      if (typeof emitStandardMinigameSensoryCue === 'function') {
+        emitStandardMinigameSensoryCue(judgment === 'perfect' ? 'rare' : 'success', {
+          minigameId: 'rhythmHum',
+          outcome: 'correct',
+          type: 'lane',
+          lane: inputLaneId || note.lane,
+          judgment: judgment
+        });
+      }
+      if (session.combo >= 6 && session.combo % 6 === 0 && typeof emitStandardMinigameSensoryCue === 'function') {
+        emitStandardMinigameSensoryCue('combo', {
+          minigameId: 'rhythmHum',
+          type: 'lane',
+          lane: inputLaneId || note.lane,
+          combo: session.combo
+        });
+      }
       if (typeof pushMinigameFloater === 'function' && lane) {
         pushMinigameFloater(label || '+' + points, lane.x, lane.hitY - 22, judgment === 'perfect' ? 'rare' : 'good', now);
         if (session.combo >= 6 && session.combo % 6 === 0) {
@@ -230,9 +289,26 @@
         }
       }
     } else {
-      session.mistakes = (Number(session.mistakes) || 0) + 1;
+      if (resolutionKind === 'expired') {
+        session.expiredNotes = Array.isArray(session.expiredNotes) ? session.expiredNotes : [];
+        if (session.expiredNotes.indexOf(note.id) === -1) {
+          session.expiredNotes.push(note.id);
+        }
+        recordStandardMinigameResolution(session, 'expired');
+      } else {
+        recordStandardMinigameResolution(session, 'mistake');
+      }
       session.score = Math.max(0, Number(session.score) - 1);
       session.combo = 0;
+      if (typeof emitStandardMinigameSensoryCue === 'function') {
+        emitStandardMinigameSensoryCue('miss', {
+          minigameId: 'rhythmHum',
+          outcome: resolutionKind === 'expired' ? 'expired' : 'mistake',
+          type: 'lane',
+          lane: inputLaneId || note.lane,
+          judgment: judgment
+        });
+      }
       if (typeof pushMinigameFloater === 'function' && lane) {
         pushMinigameFloater(judgment === 'miss' ? 'pudło' : 'fałsz', lane.x, lane.hitY - 22, 'bad', now);
       }
@@ -246,6 +322,37 @@
     });
     syncRhythmHumActiveSession(shouldSave !== false);
     updateMinigameHud(now);
+    requestStandardMinigameAutoFinish(runtime.minigame.chart.length);
+    return true;
+  }
+
+  function emitRhythmHumMetronomeCue(now) {
+    const owner = runtime.minigame;
+    if (!owner || !Array.isArray(owner.chart)) {
+      return;
+    }
+    const parsedIndex = Math.floor(Number(owner.metronomeCueIndex));
+    const previousIndex = Number.isFinite(parsedIndex) ? Math.max(-1, parsedIndex) : -1;
+    let cueIndex = previousIndex;
+    owner.chart.forEach(function(note, index) {
+      if (index > previousIndex && now >= Number(note.hitAt)) {
+        cueIndex = index;
+      }
+    });
+    if (cueIndex === previousIndex) {
+      return;
+    }
+    owner.metronomeCueIndex = cueIndex;
+    const note = owner.chart[cueIndex];
+    if (typeof emitStandardMinigameSensoryCue === 'function') {
+      emitStandardMinigameSensoryCue('confirm', {
+        minigameId: 'rhythmHum',
+        type: 'metronome',
+        lane: note && note.lane,
+        noteIndex: cueIndex,
+        haptics: false
+      });
+    }
   }
 
   function markRhythmHumMisses(now) {
@@ -255,7 +362,7 @@
       if (isRhythmHumNoteResolved(index) || now <= Number(note.hitAt) + windows.miss) {
         return;
       }
-      resolveRhythmHumNote(index, 'miss', 0, now, note.lane, now - Number(note.hitAt), '', false);
+      resolveRhythmHumNote(index, 'miss', 0, now, note.lane, now - Number(note.hitAt), '', false, 'expired');
       changed = true;
     });
     if (changed) {
@@ -271,7 +378,12 @@
       nextBeat: session.nextBeat,
       combo: session.combo,
       bestCombo: session.bestCombo,
-      rhythmJudgments: session.rhythmJudgments.slice()
+      rhythmJudgments: session.rhythmJudgments.slice(),
+      expiredNotes: (session.expiredNotes || []).slice(),
+      resolvedCount: session.resolvedCount,
+      correctCount: session.correctCount,
+      expiredCount: session.expiredCount,
+      inputCount: session.inputCount
     });
     if (shouldSave) {
       scheduleMinigameRuntimePersist();
@@ -284,7 +396,10 @@
     const duration = Math.max(9000, Number(session.until) - Number(session.startedAt) || Number(config.durationMs) || 18000);
     const leadMs = Number(config.noteLeadMs) || 1600;
     const intervalMs = Number(config.beatIntervalMs) || 1150;
-    const maxCount = Math.max(6, Math.floor((duration - leadMs - 850) / intervalMs) + 1);
+    const missWindowMs = Math.max(150, Number(config.missWindowMs) || 260)
+      + Math.max(0, Number(config.mobileForgivenessWindowMs) || Number(config.mobileForgivenessMs) || 0);
+    const settleMs = missWindowMs + 250;
+    const maxCount = Math.max(6, Math.floor((duration - leadMs - settleMs) / intervalMs) + 1);
     const count = Math.min(
       maxCount,
       Math.max(6, (Number(config.beatCount) || 8) + Math.min(3, Number(habitatTags.music) || 0))
@@ -302,11 +417,15 @@
         laneIndex = (laneIndex + 1 + Math.floor(seededDewUnit(seed, index, 41) * 3)) % laneIds.length;
       }
       const lane = getRhythmHumLaneDef(laneIds[laneIndex]);
+      const hitAt = Math.min(
+        Number(session.startedAt) + leadMs + index * intervalMs,
+        Number(session.until) - settleMs
+      );
       chart.push({
         id: 'note_' + index,
         lane: lane.id,
         key: lane.key,
-        hitAt: Number(session.startedAt) + leadMs + index * intervalMs,
+        hitAt: hitAt,
         travelMs: leadMs,
         accent: index === count - 1 || index % 4 === 3
       });
@@ -447,7 +566,7 @@
             : lane.color;
       ctx.fillRect(x + 2, active ? 8 : 10, active ? 8 : 6, active ? 8 : 6);
       if (active) {
-        const pulse = Math.sin(now / 160) * 0.5 + 0.5;
+        const pulse = getMinigameVisualPulse(now, 160, 0);
         ctx.globalAlpha = 0.22 + pulse * 0.18;
         ctx.fillStyle = lane.light;
         ctx.fillRect(x - 2, 4, 16, 16);
@@ -464,7 +583,7 @@
     const windows = getRhythmHumWindows();
     ctx.save();
     lanes.forEach(function(lane, index) {
-      const pulse = 0.5 + Math.sin(now / 420 + index) * 0.5;
+      const pulse = getMinigameVisualPulse(now, 420, index);
       ctx.globalAlpha = 0.28;
       ctx.fillStyle = index % 2 ? '#10212b' : '#132834';
       ctx.fillRect(lane.x - lane.width / 2, lane.topY, lane.width, lane.hitY - lane.topY + 18);
@@ -514,7 +633,11 @@
       const cue = getRhythmHumLaneCue(lane.id, now);
       const preview = lane.id === expected;
       const active = cue && cue.inOk;
-      const pulse = active ? 0.5 + Math.sin(now / 120) * 0.5 : preview ? 0.35 + Math.sin(now / 260) * 0.25 : 0;
+      const pulse = active
+        ? getMinigameVisualPulse(now, 120, 0)
+        : preview
+          ? 0.35 + (getMinigameVisualPulse(now, 260, 0) - 0.5) * 0.5
+          : 0;
       ctx.fillStyle = '#211a1c';
       ctx.fillRect(lane.x - 19, lane.padY - 13, 38, 26);
       ctx.fillStyle = active ? lane.light : preview ? lane.color : '#594a56';

@@ -1,4 +1,4 @@
-  function createMinigameSessionCore(minigameId, rules, now, seedInput, rawState, scene) {
+  function createMinigameSessionCore(minigameId, rules, now, seedInput, rawState, scene, options) {
     const minigames = rules && rules.minigames ? rules.minigames : {};
     const config = minigames[minigameId];
     const timestamp = Number(now) || Date.now();
@@ -9,8 +9,11 @@
       return { ok: false, reason: 'To wyzwanie czeka na legendarną Pieczarkę.' };
     }
 
+    const launchOptions = isPlainObject(options) ? options : {};
+    const mode = launchOptions.mode === 'practice' ? 'practice' : 'reward';
     const seed = clampInteger(seedInput || timestamp, 1, 2147483646, 1);
     const habitat = rawState ? getHabitatInfluenceCore(rawState, rules) : { tags: {} };
+    const decisionCount = getMinigameDecisionCountCore(minigameId, config, habitat.tags);
     return {
       ok: true,
       session: {
@@ -19,16 +22,29 @@
         seed: seed,
         startedAt: timestamp,
         until: timestamp + (Number(config.durationMs) || 20000),
+        mode: mode,
         score: 0,
         caught: [],
         mistakes: 0,
+        missed: [],
+        expired: [],
+        expiredNotes: [],
+        combo: 0,
+        bestCombo: 0,
+        inputCount: 0,
+        resolvedCount: 0,
+        correctCount: 0,
+        expiredCount: 0,
+        decisionCount: decisionCount,
+        seedCeiling: getMinigameSeedCeilingCore(minigameId, config, decisionCount),
         habitatTags: Object.assign({}, habitat.tags || {}),
-        sceneTone: scene && scene.dayPhase ? scene.dayPhase : null
+        sceneTone: scene && scene.dayPhase ? scene.dayPhase : null,
+        weatherCondition: scene && scene.condition ? scene.condition : null
       }
     };
   }
 
-  function finishMinigameCore(rawState, session, rules, now) {
+  function finishMinigameCore(rawState, session, rules, now, finishOptions) {
     const timestamp = Number(now) || Date.now();
     const state = normalizeProgressionState(rawState, rules, null, timestamp);
     const minigames = rules && rules.minigames ? rules.minigames : {};
@@ -56,21 +72,69 @@
       return { ok: false, reason: 'Ta sesja minigry już wygasła.', state: state };
     }
     if (config.requiresStage && !isGameplayStageAtLeastCore(state.stage, config.requiresStage)) {
-      state.minigames = {
-        active: null,
-        lastResult: state.minigames && state.minigames.lastResult || null
-      };
+      state.minigames.active = null;
       return { ok: false, reason: 'To wyzwanie czeka na legendarną Pieczarkę.', state: state };
     }
 
+    const finishReason = normalizeMinigameFinishReasonCore(finishOptions);
+    const mode = session.mode === 'practice' ? 'practice' : 'reward';
     const score = clampInteger(session.score, 0, 999, 0);
     const bestCombo = clampInteger(session.bestCombo, 0, 999, 0);
     const mistakes = clampInteger(session.mistakes, 0, 999, 0);
     const previousBest = state.history && state.history.minigames && state.history.minigames[session.id]
       ? clampInteger(state.history.minigames[session.id].bestScore, 0, 999999, 0)
       : 0;
+    const metrics = getMinigameOutcomeMetricsCore(session, config);
     const targetScore = getMinigameTargetScoreCore(session.id, config);
-    const rewards = calculateMinigameRewardsCore(config, score);
+    const clearTarget = getMinigameClearTargetScoreCore(session.id, config);
+    const tier = finishReason === 'abort'
+      ? 'aborted'
+      : getMinigameResultTierCore(session, config);
+    const engaged = metrics.inputCount > 0 || metrics.resolvedCount > 0 || score > 0;
+    const settledReward = mode === 'reward' && finishReason !== 'abort' && engaged;
+    const rewards = settledReward ? calculateMinigameRewardsCore(config, score) : createEmptyMinigameRewardsCore();
+    const outcome = {
+      id: session.id,
+      gameId: session.id,
+      mode: mode,
+      reason: finishReason,
+      score: score,
+      seedCeiling: metrics.seedCeiling,
+      inputCount: metrics.inputCount,
+      resolvedCount: metrics.resolvedCount,
+      correctCount: metrics.correctCount,
+      expiredCount: metrics.expiredCount,
+      decisionCount: metrics.decisionCount,
+      coverage: metrics.coverage,
+      accuracy: metrics.accuracy,
+      normalizedScore: metrics.normalizedScore,
+      previousBest: previousBest,
+      newBest: settledReward && score > previousBest,
+      bestCombo: bestCombo,
+      mistakes: mistakes,
+      clearTarget: clearTarget,
+      targetScore: targetScore,
+      tier: tier,
+      clear: ['clear', 'mastery', 'perfect'].indexOf(tier) !== -1,
+      rewards: rewards,
+      cooldownUntil: null,
+      unlocks: [],
+      endedAt: new Date(timestamp).toISOString()
+    };
+
+    state.minigames.active = null;
+    if (!settledReward) {
+      return {
+        ok: true,
+        state: state,
+        rewards: rewards,
+        outcome: outcome,
+        aborted: finishReason === 'abort',
+        practice: mode === 'practice',
+        settledReward: false
+      };
+    }
+
     state.stats = Object.assign({}, state.stats || {});
     Object.keys(rewards.stats).forEach(function(stat) {
       state.stats[stat] = clampNumber(Number(state.stats[stat]) + rewards.stats[stat], 0, 100, 0);
@@ -95,26 +159,21 @@
     item.bestScore = Math.max(item.bestScore, score);
     item.lastPlayedAt = new Date(timestamp).toISOString();
     state.history.minigames[session.id] = item;
-    state.minigames = {
-      active: null,
-      lastResult: {
-        id: session.id,
-        score: score,
-        previousBest: previousBest,
-        newBest: score > previousBest,
-        bestCombo: bestCombo,
-        mistakes: mistakes,
-        targetScore: targetScore,
-        tier: getMinigameResultTierCore(score, targetScore, mistakes),
-        rewards: rewards,
-        endedAt: new Date(timestamp).toISOString()
-      }
-    };
+    state.minigames.lastResult = outcome;
 
-    return { ok: true, state: state, rewards: rewards };
+    return {
+      ok: true,
+      state: state,
+      rewards: rewards,
+      outcome: outcome,
+      settledReward: true
+    };
   }
 
   function calculateMinigameRewardsCore(config, score) {
+    if (!(Number(score) > 0)) {
+      return createEmptyMinigameRewardsCore();
+    }
     const rewardRules = config.rewards || {};
     const stats = {};
     const inventory = {};
@@ -189,19 +248,181 @@
     return 10;
   }
 
-  function getMinigameResultTierCore(score, targetScore, mistakes) {
-    const target = Math.max(1, Number(targetScore) || 1);
-    const ratio = Math.max(0, Number(score) || 0) / target;
-    if (ratio >= 1 && !mistakes) {
+  function getMinigameClearTargetScoreCore(minigameId, config) {
+    const source = config || {};
+    if (Number(source.scoreTargetCasual)) {
+      return Math.max(1, Math.floor(Number(source.scoreTargetCasual)));
+    }
+    return getMinigameTargetScoreCore(minigameId, source);
+  }
+
+  function getMinigameResultTierCore(sessionOrScore, configOrTarget, legacyMistakes) {
+    if (!isPlainObject(sessionOrScore)) {
+      const target = Math.max(1, Number(configOrTarget) || 1);
+      const ratio = Math.max(0, Number(sessionOrScore) || 0) / target;
+      if (ratio >= 1 && !legacyMistakes) {
+        return 'perfect';
+      }
+      if (ratio >= 1) {
+        return 'clear';
+      }
+      return ratio >= 0.72 ? 'near' : 'practice';
+    }
+
+    const session = sessionOrScore;
+    const config = configOrTarget || {};
+    const metrics = getMinigameOutcomeMetricsCore(session, config);
+    const score = clampInteger(session.score, 0, 999999, 0);
+    const mistakes = clampInteger(session.mistakes, 0, 999999, 0);
+    const clearTarget = getMinigameClearTargetScoreCore(session.id, config);
+    const perfectTiming = session.id !== 'rhythmHum' || metrics.normalizedScore >= 0.9;
+    if (metrics.coverage >= 0.999
+      && metrics.accuracy >= 0.999
+      && mistakes === 0
+      && perfectTiming) {
       return 'perfect';
     }
-    if (ratio >= 1) {
+    if (metrics.coverage >= 0.9 && metrics.accuracy >= 0.9 && metrics.normalizedScore >= 0.85) {
+      return 'mastery';
+    }
+    if (score >= clearTarget && metrics.coverage >= 0.7) {
       return 'clear';
     }
-    if (ratio >= 0.72) {
+    if (score >= clearTarget * 0.8 || metrics.coverage >= 0.6) {
       return 'near';
     }
     return 'practice';
+  }
+
+  function getMinigameOutcomeMetricsCore(session, config) {
+    const source = session || {};
+    const nestedMetrics = isPlainObject(source.metrics) ? source.metrics : {};
+    const score = clampInteger(source.score, 0, 999999, 0);
+    const decisionCount = Math.max(1, clampInteger(
+      source.decisionCount || source.targetCount || getMinigameDecisionCountCore(source.id, config, source.habitatTags),
+      1,
+      999999,
+      1
+    ));
+    const nestedResolved = nestedMetrics.resolvedCount || nestedMetrics.resolved;
+    const nestedCorrect = nestedMetrics.correctCount || nestedMetrics.correct || nestedMetrics.wins;
+    const nestedInputs = nestedMetrics.inputCount || nestedMetrics.inputs;
+    const nestedExpired = nestedMetrics.expiredCount || nestedMetrics.expired;
+    const hasMetricFields = Object.prototype.hasOwnProperty.call(source, 'resolvedCount')
+      || Object.prototype.hasOwnProperty.call(source, 'correctCount')
+      || Object.prototype.hasOwnProperty.call(source, 'inputCount')
+      || Object.keys(nestedMetrics).length > 0;
+    const hasExplicitMetrics = hasMetricFields && (
+      Number(source.resolvedCount) > 0
+      || Number(source.correctCount) > 0
+      || Number(source.inputCount) > 0
+      || Number(nestedResolved) > 0
+      || Number(nestedCorrect) > 0
+      || Number(nestedInputs) > 0
+      || score === 0
+    );
+    const caughtCount = Array.isArray(source.caught) ? source.caught.length : 0;
+    const resolvedCount = clampInteger(
+      hasExplicitMetrics ? Number(source.resolvedCount) || nestedResolved : Math.max(caughtCount, score > 0 ? Math.ceil(decisionCount * 0.75) : 0),
+      0,
+      decisionCount,
+      0
+    );
+    const correctCount = clampInteger(
+      hasExplicitMetrics ? Number(source.correctCount) || nestedCorrect : Math.max(0, resolvedCount - clampInteger(source.mistakes, 0, resolvedCount, 0)),
+      0,
+      resolvedCount,
+      0
+    );
+    const inputCount = clampInteger(
+      hasExplicitMetrics ? Number(source.inputCount) || nestedInputs : Math.max(correctCount, score > 0 ? 1 : 0),
+      0,
+      999999,
+      0
+    );
+    const missedCount = Array.isArray(source.missed) ? source.missed.length : source.missed;
+    const hasSourceExpired = Object.prototype.hasOwnProperty.call(source, 'expiredCount');
+    const hasNestedExpired = Object.prototype.hasOwnProperty.call(nestedMetrics, 'expiredCount')
+      || Object.prototype.hasOwnProperty.call(nestedMetrics, 'expired');
+    const expiredMetric = Number(source.expiredCount) > 0
+      ? source.expiredCount
+      : Number(nestedExpired) > 0
+        ? nestedExpired
+        : hasSourceExpired
+          ? source.expiredCount
+          : hasNestedExpired
+            ? nestedExpired
+            : missedCount;
+    const expiredCount = clampInteger(expiredMetric, 0, decisionCount, 0);
+    const seedCeiling = Math.max(1, clampInteger(
+      source.seedCeiling || getMinigameSeedCeilingCore(source.id, config, decisionCount),
+      1,
+      999999,
+      1
+    ));
+    const mistakeCount = clampInteger(source.mistakes, 0, 999999, 0);
+    const resolutionErrors = Math.max(0, resolvedCount - correctCount);
+    const strayMistakes = Math.max(0, mistakeCount - resolutionErrors);
+    const accuracyDenominator = resolvedCount + strayMistakes;
+    return {
+      inputCount: inputCount,
+      resolvedCount: resolvedCount,
+      correctCount: correctCount,
+      expiredCount: expiredCount,
+      decisionCount: decisionCount,
+      seedCeiling: seedCeiling,
+      coverage: Math.max(0, Math.min(1, resolvedCount / decisionCount)),
+      accuracy: accuracyDenominator > 0 ? Math.max(0, Math.min(1, correctCount / accuracyDenominator)) : 0,
+      normalizedScore: Math.max(0, Math.min(1, score / seedCeiling))
+    };
+  }
+
+  function getMinigameDecisionCountCore(minigameId, config, habitatTags) {
+    const source = config || {};
+    const tags = habitatTags || {};
+    if (minigameId === 'dewCatch') {
+      return Math.max(1, Math.floor(Number(source.dropCount) || 24) + Math.min(6, Math.max(0, Number(tags.moisture) || 0) * 3));
+    }
+    if (minigameId === 'compostSort') {
+      return Math.max(1, Math.floor(Number(source.pieceCount) || 18) + Math.min(4, Math.max(0, Number(tags.shelter) || 0)));
+    }
+    return Math.max(1, Math.floor(Number(source.targetCount || source.beatCount) || 10));
+  }
+
+  function getMinigameSeedCeilingCore(minigameId, config, decisionCount) {
+    const source = config || {};
+    if (minigameId === 'rhythmHum') {
+      return Math.max(1, Number(decisionCount) * 3);
+    }
+    if (minigameId === 'sporeTrail') {
+      return Math.max(1, Number(decisionCount) * Math.max(1, Number(source.riskyChoicePoints) || 3));
+    }
+    if (minigameId === 'myceliumLeague') {
+      const exchanges = Math.max(1, Number(decisionCount) || 1);
+      const base = Math.max(1, Number(source.exchangePoints) || 2);
+      return exchanges * base + Math.floor(exchanges / 4) * 2;
+    }
+    if (minigameId === 'memoryGarden') {
+      const steps = Math.max(1, Number(decisionCount) || 1);
+      return steps + Math.floor(steps / 4);
+    }
+    return Math.max(1, Number(source.scoreTargetMastery || source.masteryTarget) || Number(decisionCount) || 1);
+  }
+
+  function normalizeMinigameFinishReasonCore(finishOptions) {
+    const raw = isPlainObject(finishOptions) ? finishOptions.reason : finishOptions;
+    const reason = String(raw || 'complete');
+    if (reason === 'manual' || reason === 'cancel' || reason === 'cancelled') {
+      return 'abort';
+    }
+    if (reason === 'completed') {
+      return 'complete';
+    }
+    return ['complete', 'timeout', 'abort'].indexOf(reason) !== -1 ? reason : 'complete';
+  }
+
+  function createEmptyMinigameRewardsCore() {
+    return { stats: {}, inventory: {}, spores: 0 };
   }
 
   function judgeRhythmInputCore(expectedLane, inputLane, deltaMs, windows, offsetMs) {

@@ -1,6 +1,6 @@
 {
   "name": "pieczargotchi",
-  "version": "0.1.51",
+  "version": "0.1.53",
   "private": true,
   "engines": {
     "node": ">=22.0.0"
@@ -21,6 +21,7 @@
     "check:client": "node scripts/check-client-syntax.mjs",
     "test:core": "node scripts/test-client-core.mjs",
     "test:runtime": "node scripts/test-runtime-gameplay-regressions.mjs",
+    "test:minigames": "node scripts/test-standard-minigame-experience.mjs && node scripts/test-legendary-minigames-redesign.mjs && node scripts/test-minigame-sensory-recap.mjs",
     "test:persistence": "node scripts/test-state-persistence.mjs",
     "test:celestial": "node scripts/test-celestial-position.mjs",
     "test:palette": "node scripts/test-scene-palette.mjs",

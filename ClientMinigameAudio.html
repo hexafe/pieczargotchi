@@ -1,0 +1,365 @@
+  const PIECZARGOTCHI_MINIGAME_SENSORY_STORAGE_KEY = 'pieczargotchi_minigame_sensory_v1';
+
+  function ensureMinigameSensoryRuntime() {
+    if (runtime.minigameSensory) {
+      return runtime.minigameSensory;
+    }
+    runtime.minigameSensory = {
+      preferences: loadMinigameSensoryPreferences(),
+      audioContext: null,
+      masterGain: null,
+      bound: false,
+      lastCueAt: {},
+      activeSessionKey: '',
+      lastOutcomeKey: ''
+    };
+    return runtime.minigameSensory;
+  }
+
+  function loadMinigameSensoryPreferences() {
+    const defaults = { sound: true, haptics: false };
+    const statePreferences = readMinigameSensoryStatePreferences();
+    if (statePreferences) {
+      return statePreferences;
+    }
+    try {
+      const raw = window.localStorage && window.localStorage.getItem(PIECZARGOTCHI_MINIGAME_SENSORY_STORAGE_KEY);
+      const saved = raw ? JSON.parse(raw) : null;
+      return {
+        sound: saved && typeof saved.sound === 'boolean' ? saved.sound : defaults.sound,
+        haptics: saved && typeof saved.haptics === 'boolean' ? saved.haptics : defaults.haptics
+      };
+    } catch (error) {
+      return defaults;
+    }
+  }
+
+  function readMinigameSensoryStatePreferences() {
+    try {
+      if (!runtime || !runtime.state) {
+        return null;
+      }
+      const preferences = runtime.state.preferences && runtime.state.preferences.minigames;
+      if (!preferences || (typeof preferences.audioEnabled !== 'boolean' && typeof preferences.hapticsEnabled !== 'boolean')) {
+        return null;
+      }
+      return {
+        sound: typeof preferences.audioEnabled === 'boolean' ? preferences.audioEnabled : true,
+        haptics: typeof preferences.hapticsEnabled === 'boolean' ? preferences.hapticsEnabled : false
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function writeMinigameSensoryStatePreferences(preferences) {
+    try {
+      if (!runtime || !runtime.state || (typeof isRuntimeReadOnly === 'function' && isRuntimeReadOnly())) {
+        return false;
+      }
+      runtime.state.preferences = Object.assign({}, runtime.state.preferences || {});
+      runtime.state.preferences.minigames = Object.assign({}, runtime.state.preferences.minigames || {}, {
+        audioEnabled: Boolean(preferences.sound),
+        hapticsEnabled: Boolean(preferences.haptics)
+      });
+      if (runtime.state.minigames
+        && runtime.state.minigames.active
+        && runtime.minigame
+        && typeof scheduleMinigameRuntimePersist === 'function') {
+        scheduleMinigameRuntimePersist();
+      } else if (typeof persistRuntimeState === 'function') {
+        persistRuntimeState(runtime.state);
+      }
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function persistMinigameSensoryPreferences(preferences) {
+    try {
+      if (window.localStorage) {
+        window.localStorage.setItem(PIECZARGOTCHI_MINIGAME_SENSORY_STORAGE_KEY, JSON.stringify({
+          sound: Boolean(preferences.sound),
+          haptics: Boolean(preferences.haptics)
+        }));
+      }
+    } catch (error) {
+      // Prefer a working in-memory setting when storage is unavailable.
+    }
+  }
+
+  function getMinigameSensoryPreferences() {
+    const sensory = ensureMinigameSensoryRuntime();
+    const statePreferences = readMinigameSensoryStatePreferences();
+    if (statePreferences) {
+      sensory.preferences = statePreferences;
+    }
+    const preferences = sensory.preferences;
+    return { sound: Boolean(preferences.sound), haptics: Boolean(preferences.haptics) };
+  }
+
+  function setMinigameSoundEnabled(enabled, options) {
+    const sensory = ensureMinigameSensoryRuntime();
+    sensory.preferences.sound = Boolean(enabled);
+    writeMinigameSensoryStatePreferences(sensory.preferences);
+    persistMinigameSensoryPreferences(sensory.preferences);
+    syncMinigameSensoryControls();
+    if (!sensory.preferences.sound && sensory.audioContext && sensory.audioContext.state === 'running') {
+      try {
+        sensory.audioContext.suspend();
+      } catch (error) {
+        // Suspension is only a power-saving hint.
+      }
+    } else if (sensory.preferences.sound && (!options || options.fromGesture !== false)) {
+      unlockMinigameAudio().then(function() {
+        playMinigameSensoryCue('confirm', { haptics: false });
+      });
+    }
+    dispatchMinigameSensoryPreferenceChange();
+    return getMinigameSensoryPreferences();
+  }
+
+  function setMinigameHapticsEnabled(enabled, options) {
+    const sensory = ensureMinigameSensoryRuntime();
+    sensory.preferences.haptics = Boolean(enabled);
+    writeMinigameSensoryStatePreferences(sensory.preferences);
+    persistMinigameSensoryPreferences(sensory.preferences);
+    syncMinigameSensoryControls();
+    if (sensory.preferences.haptics && (!options || options.fromGesture !== false)) {
+      vibrateMinigameCue('confirm');
+    }
+    dispatchMinigameSensoryPreferenceChange();
+    return getMinigameSensoryPreferences();
+  }
+
+  function dispatchMinigameSensoryPreferenceChange() {
+    if (typeof window.CustomEvent !== 'function') {
+      return;
+    }
+    document.dispatchEvent(new window.CustomEvent('pieczargotchi:minigame-sensory-change', {
+      detail: getMinigameSensoryPreferences()
+    }));
+  }
+
+  function initMinigameSensoryManager() {
+    const sensory = ensureMinigameSensoryRuntime();
+    syncMinigameSensoryControls();
+    if (sensory.bound) {
+      return;
+    }
+    sensory.bound = true;
+    document.addEventListener('click', handleMinigameSensoryClick, true);
+    document.addEventListener('pieczargotchi:minigame-cue', function(event) {
+      const detail = event && event.detail ? event.detail : {};
+      playMinigameSensoryCue(detail.cue || detail.type || 'success', detail);
+    });
+    exposeMinigameSensoryApi();
+  }
+
+  function handleMinigameSensoryClick(event) {
+    const target = event.target && event.target.closest
+      ? event.target.closest('[data-minigame-sound-toggle], [data-minigame-haptics-toggle], [data-minigame-start]')
+      : null;
+    if (!target || target.disabled || target.getAttribute('aria-disabled') === 'true') {
+      return;
+    }
+    if (target.matches('[data-minigame-sound-toggle]')) {
+      event.preventDefault();
+      setMinigameSoundEnabled(!getMinigameSensoryPreferences().sound, { fromGesture: true });
+      return;
+    }
+    if (target.matches('[data-minigame-haptics-toggle]')) {
+      event.preventDefault();
+      setMinigameHapticsEnabled(!getMinigameSensoryPreferences().haptics, { fromGesture: true });
+      return;
+    }
+    beginMinigameSensoryFromGesture(target.dataset.minigameStart, target.dataset.minigameMode || 'reward');
+  }
+
+  function beginMinigameSensoryFromGesture(minigameId, mode) {
+    const sensory = ensureMinigameSensoryRuntime();
+    if (!sensory.preferences.sound) {
+      vibrateMinigameCue('start');
+      return Promise.resolve(false);
+    }
+    return unlockMinigameAudio().then(function(unlocked) {
+      if (unlocked) {
+        playMinigameSensoryCue(mode === 'practice' ? 'practice' : 'start');
+      } else {
+        vibrateMinigameCue(mode === 'practice' ? 'practice' : 'start');
+      }
+      return unlocked;
+    });
+  }
+
+  function unlockMinigameAudio() {
+    const sensory = ensureMinigameSensoryRuntime();
+    if (!sensory.preferences.sound) {
+      return Promise.resolve(false);
+    }
+    const Context = window.AudioContext || window.webkitAudioContext;
+    if (!Context) {
+      return Promise.resolve(false);
+    }
+    try {
+      if (!sensory.audioContext) {
+        sensory.audioContext = new Context();
+        sensory.masterGain = sensory.audioContext.createGain();
+        sensory.masterGain.gain.value = 0.055;
+        sensory.masterGain.connect(sensory.audioContext.destination);
+      }
+      if (sensory.audioContext.state === 'suspended' && typeof sensory.audioContext.resume === 'function') {
+        return Promise.resolve(sensory.audioContext.resume()).then(function() {
+          return sensory.audioContext.state === 'running';
+        }).catch(function() {
+          return false;
+        });
+      }
+      return Promise.resolve(sensory.audioContext.state === 'running');
+    } catch (error) {
+      return Promise.resolve(false);
+    }
+  }
+
+  function playMinigameSensoryCue(cueInput, options) {
+    const cue = String(cueInput || 'success');
+    const sensory = ensureMinigameSensoryRuntime();
+    const now = Date.now();
+    const throttleMs = cue === 'success' ? 70 : 120;
+    if (now - (Number(sensory.lastCueAt[cue]) || 0) < throttleMs) {
+      return false;
+    }
+    sensory.lastCueAt[cue] = now;
+    if (!options || options.haptics !== false) {
+      vibrateMinigameCue(cue);
+    }
+    if (!sensory.preferences.sound || !sensory.audioContext || sensory.audioContext.state !== 'running' || !sensory.masterGain) {
+      return false;
+    }
+    const patterns = {
+      start: [[392, 0, 0.07], [523.25, 0.08, 0.08], [659.25, 0.17, 0.10]],
+      practice: [[349.23, 0, 0.07], [440, 0.09, 0.09]],
+      confirm: [[523.25, 0, 0.07]],
+      success: [[659.25, 0, 0.055], [783.99, 0.045, 0.07]],
+      rare: [[659.25, 0, 0.07], [987.77, 0.06, 0.12]],
+      combo: [[523.25, 0, 0.05], [659.25, 0.05, 0.06], [880, 0.11, 0.10]],
+      miss: [[196, 0, 0.09]],
+      end: [[523.25, 0, 0.08], [392, 0.09, 0.12]],
+      record: [[523.25, 0, 0.06], [659.25, 0.06, 0.07], [783.99, 0.13, 0.16]],
+      perfect: [[659.25, 0, 0.06], [783.99, 0.06, 0.07], [1046.5, 0.13, 0.18]]
+    };
+    const notes = patterns[cue] || patterns.success;
+    notes.forEach(function(note) {
+      scheduleMinigameSynthTone(sensory, note[0], note[1], note[2], cue === 'miss' ? 'square' : 'sine');
+    });
+    return true;
+  }
+
+  function dispatchMinigameSensoryCue(cueInput, detailInput) {
+    const cue = String(cueInput || 'success');
+    const detail = Object.assign({}, detailInput || {}, { cue: cue });
+    if (typeof window.CustomEvent !== 'function') {
+      return playMinigameSensoryCue(cue, detail);
+    }
+    document.dispatchEvent(new window.CustomEvent('pieczargotchi:minigame-cue', { detail: detail }));
+    return true;
+  }
+
+  function scheduleMinigameSynthTone(sensory, frequency, offsetSeconds, durationSeconds, wave) {
+    try {
+      const context = sensory.audioContext;
+      const startAt = context.currentTime + Math.max(0, Number(offsetSeconds) || 0);
+      const duration = Math.max(0.035, Number(durationSeconds) || 0.07);
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = wave || 'sine';
+      oscillator.frequency.setValueAtTime(Math.max(80, Number(frequency) || 440), startAt);
+      gain.gain.setValueAtTime(0.0001, startAt);
+      gain.gain.exponentialRampToValueAtTime(0.9, startAt + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
+      oscillator.connect(gain);
+      gain.connect(sensory.masterGain);
+      oscillator.start(startAt);
+      oscillator.stop(startAt + duration + 0.02);
+    } catch (error) {
+      // Audio feedback is optional and must never interrupt gameplay.
+    }
+  }
+
+  function vibrateMinigameCue(cueInput) {
+    const sensory = ensureMinigameSensoryRuntime();
+    if (!sensory.preferences.haptics || !window.navigator || typeof window.navigator.vibrate !== 'function') {
+      return false;
+    }
+    const patterns = {
+      start: 14,
+      practice: 10,
+      confirm: 12,
+      success: 18,
+      rare: [18, 28, 38],
+      combo: [14, 24, 14],
+      miss: [28, 36, 28],
+      end: 22,
+      record: [18, 28, 48],
+      perfect: [18, 24, 18, 24, 44]
+    };
+    try {
+      return Boolean(window.navigator.vibrate(patterns[String(cueInput || '')] || 14));
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function syncMinigameSensorySession() {
+    const sensory = ensureMinigameSensoryRuntime();
+    const active = runtime.state && runtime.state.minigames && runtime.state.minigames.active;
+    const key = active ? [active.id || '', active.runtimeToken || '', active.startedAt || ''].join(':') : '';
+    sensory.activeSessionKey = key;
+  }
+
+  function notifyMinigameSensoryOutcome(outcome) {
+    if (!outcome) {
+      return;
+    }
+    const sensory = ensureMinigameSensoryRuntime();
+    const practice = outcome.practice === true || outcome.mode === 'practice';
+    const key = [outcome.id || outcome.minigameId || '', outcome.endedAt || outcome.at || '', outcome.score || 0, practice].join(':');
+    if (!key || key === sensory.lastOutcomeKey) {
+      return;
+    }
+    sensory.lastOutcomeKey = key;
+    const tier = String(outcome.tier || '').toLowerCase();
+    playMinigameSensoryCue(tier === 'perfect' ? 'perfect' : outcome.newBest ? 'record' : 'end');
+  }
+
+  function syncMinigameSensoryControls() {
+    const preferences = getMinigameSensoryPreferences();
+    document.querySelectorAll('[data-minigame-sound-toggle]').forEach(function(button) {
+      button.setAttribute('aria-pressed', preferences.sound ? 'true' : 'false');
+      button.textContent = preferences.sound ? 'Dźwięk: wł.' : 'Dźwięk: wył.';
+      button.title = preferences.sound ? 'Wycisz dźwięki minigier' : 'Włącz dźwięki minigier';
+    });
+    document.querySelectorAll('[data-minigame-haptics-toggle]').forEach(function(button) {
+      button.setAttribute('aria-pressed', preferences.haptics ? 'true' : 'false');
+      button.textContent = preferences.haptics ? 'Wibracje: wł.' : 'Wibracje: wył.';
+      button.title = preferences.haptics ? 'Wyłącz wibracje minigier' : 'Włącz wibracje minigier';
+      button.hidden = !window.navigator || typeof window.navigator.vibrate !== 'function';
+    });
+  }
+
+  function exposeMinigameSensoryApi() {
+    window.PieczargotchiMinigameAudio = Object.assign(window.PieczargotchiMinigameAudio || {}, {
+      getPreferences: getMinigameSensoryPreferences,
+      setSoundEnabled: setMinigameSoundEnabled,
+      setHapticsEnabled: setMinigameHapticsEnabled,
+      unlock: unlockMinigameAudio,
+      playCue: playMinigameSensoryCue,
+      dispatchCue: dispatchMinigameSensoryCue,
+      emit: dispatchMinigameSensoryCue,
+      vibrate: vibrateMinigameCue,
+      beginFromGesture: beginMinigameSensoryFromGesture,
+      notifyOutcome: notifyMinigameSensoryOutcome,
+      storageKey: PIECZARGOTCHI_MINIGAME_SENSORY_STORAGE_KEY
+    });
+  }

@@ -146,14 +146,23 @@ function createDefaultStateTemplate() {
     minigames: {
       active: null,
       lastResult: null,
+      pendingRewardSeeds: {},
       quarantined: null
     },
+    preferences: {
+      minigames: {
+        audioEnabled: true,
+        hapticsEnabled: false,
+        accessibleLanes: false
+      }
+    },
     legendaryGames: {
-      version: 1,
+      version: 2,
       daily: {
         dateKey: null,
         projectPointsEarned: 0,
-        featuredIds: []
+        featuredIds: [],
+        featuredClears: {}
       },
       trail: {
         plays: 0,
@@ -164,6 +173,9 @@ function createDefaultStateTemplate() {
       league: {
         rank: 1,
         streak: 0,
+        winStreak: 0,
+        bestScore: 0,
+        bestWinStreak: 0,
         bestStreak: 0,
         badges: {},
         dailyRewardWins: 0

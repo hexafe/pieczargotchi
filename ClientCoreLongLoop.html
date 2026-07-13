@@ -239,8 +239,12 @@
     const sourceEvent = isPlainObject(event) ? event : {};
     state.longLoop = normalizeLongLoopStateCore(state.longLoop, now);
     const messages = [];
+    const minigameProgressEligible = sourceEvent.type !== 'minigame'
+      || (sourceEvent.mode !== 'practice'
+        && sourceEvent.eligibleForProgress !== false
+        && sourceEvent.clear !== false);
 
-    if (sourceEvent.type === 'minigame') {
+    if (sourceEvent.type === 'minigame' && minigameProgressEligible) {
       updateMinigameMasteryLongLoopCore(state, sourceEvent, rules, now, messages);
       if (typeof registerLegendaryGameResultCore === 'function') {
         state = registerLegendaryGameResultCore(state, sourceEvent, rules, now, scene, messages);
@@ -248,7 +252,9 @@
     }
 
     completeDailyEpisodeIfReadyCore(state, rules, now, scene, messages);
-    updateLegendaryProjectCore(state, sourceEvent, rules, now, messages);
+    if (minigameProgressEligible) {
+      updateLegendaryProjectCore(state, sourceEvent, rules, now, messages);
+    }
     return { state: state, messages: messages };
   }
 
@@ -406,7 +412,8 @@
     mastery.bestScore = Math.max(mastery.bestScore, score);
     const perfectScore = getMinigamePerfectScoreCore(minigameId, config);
     const badges = mastery.badges.slice();
-    if (score >= perfectScore) {
+    const perfect = event.tier ? event.tier === 'perfect' : score >= perfectScore;
+    if (perfect) {
       mastery.perfects += 1;
       addLongLoopSeasonPointsCore(state, 3, now);
       if (badges.indexOf('perfect') === -1) {
@@ -613,7 +620,8 @@
         label: config.label || minigameId,
         plays: mastery.plays,
         bestScore: mastery.bestScore,
-        targetScore: getMinigamePerfectScoreCore(minigameId, config),
+        targetScore: Math.max(1, Math.floor(Number(config.scoreTargetCasual) || getMinigamePerfectScoreCore(minigameId, config))),
+        criteriaLabel: 'Perfekcja: wszystkie decyzje bez błędu',
         badges: mastery.badges,
         perfect: mastery.badges.indexOf('perfect') !== -1
       };
@@ -640,6 +648,21 @@
   function addLongLoopSeasonPointsCore(state, points, now) {
     state.longLoop = normalizeLongLoopStateCore(state.longLoop, now);
     state.longLoop.season.points = clampInteger((Number(state.longLoop.season.points) || 0) + points, 0, 9999, 0);
+    getSeasonTierCatalogCore().forEach(function(tier) {
+      if (state.longLoop.season.points < tier.points
+        || state.longLoop.season.claimedTiers.indexOf(tier.id) !== -1) {
+        return;
+      }
+      state.longLoop.season.claimedTiers.push(tier.id);
+      addLongLoopMementoCore(
+        state,
+        'season-' + state.longLoop.season.monthKey + '-' + tier.id,
+        tier.label,
+        'Sezon ' + state.longLoop.season.monthKey,
+        'seasonBadge',
+        now
+      );
+    });
   }
 
   function getActiveLegendaryProjectCore(state) {

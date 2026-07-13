@@ -39,10 +39,26 @@
     }
 
     runtime.renderStarted = true;
-    runtime.reducedMotion = Boolean(
-      window.matchMedia
-      && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    );
+    const reducedMotionQuery = window.matchMedia
+      ? window.matchMedia('(prefers-reduced-motion: reduce)')
+      : null;
+    runtime.reducedMotion = Boolean(reducedMotionQuery && reducedMotionQuery.matches);
+    if (reducedMotionQuery && !runtime.reducedMotionQueryBound) {
+      runtime.reducedMotionQueryBound = true;
+      runtime.reducedMotionQuery = reducedMotionQuery;
+      const syncReducedMotion = function(event) {
+        runtime.reducedMotion = Boolean(event && event.matches);
+        runtime.lastRenderedFrameAt = null;
+        if (typeof renderUi === 'function') {
+          renderUi();
+        }
+      };
+      if (typeof reducedMotionQuery.addEventListener === 'function') {
+        reducedMotionQuery.addEventListener('change', syncReducedMotion);
+      } else if (typeof reducedMotionQuery.addListener === 'function') {
+        reducedMotionQuery.addListener(syncReducedMotion);
+      }
+    }
 
     function render(frameNow) {
       runtime.renderAnimationFrame = 0;
