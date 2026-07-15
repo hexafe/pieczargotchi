@@ -1211,7 +1211,15 @@ test('browser QA covers responsive journal, real touch cancellation, and world i
     && captureSource.includes('info.scrollContainers > 1')
     && captureSource.includes('info.invalidScrollContainer'),
   'journal capture must wait for the real sprite and reject photo overlap or competing scroll containers');
-  assert(captureSource.includes("type: 'touchCancel'"), 'mobile capture must issue a real touchCancel event');
+  assert(/async function captureTouchInteractionSmoke\(cdp\) \{\s*await cdp\.send\('Emulation\.setTouchEmulationEnabled'/s.test(captureSource)
+    && captureSource.includes("canvas.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' })")
+    && captureSource.includes('document.elementFromPoint(x, y)')
+    && captureSource.includes('maxTouchPoints: navigator.maxTouchPoints'),
+  'mobile capture must own touch emulation and restore a hit-testable canvas after journal scrolling');
+  assert(captureSource.includes("type: 'touchCancel'")
+    && captureSource.includes('event.isTrusted')
+    && captureSource.includes("cancelTypes[cancelTypes.length - 1] !== 'pointercancel'"),
+  'mobile capture must prove trusted touch delivery and a real touchCancel cleanup');
   assert(captureSource.includes('qa.beginStorageBusyProbe()'), 'pending-session QA must wrap the real persistence seam');
   assert(captureSource.includes("localKinds.includes('brush')")
     && captureSource.includes('requestRuntimeRender()')

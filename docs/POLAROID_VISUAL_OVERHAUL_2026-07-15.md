@@ -1,7 +1,7 @@
 # Journal Polaroid Visual Overhaul
 
 Date: 2026-07-15
-Release target: `0.1.60`
+Release target: `0.1.61`
 State contract: v22, unchanged
 
 ## Outcome

@@ -1337,40 +1337,102 @@ async function captureInteractionSmoke(cdp) {
 }
 
 async function captureTouchInteractionSmoke(cdp) {
+  await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
   const setup = await cdp.send('Runtime.evaluate', {
-    expression: `(() => {
+    expression: `(async () => {
       const canvas = document.getElementById('mushroomCanvas');
       const runtime = window.__pieczargotchiRuntime || {};
       if (!canvas || !runtime.input) {
         return { ok: false };
       }
+      const careTab = document.querySelector('[data-workspace-tab="care"]');
+      if (careTab && careTab.getAttribute('aria-selected') !== 'true') {
+        careTab.click();
+      }
+      canvas.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const rect = canvas.getBoundingClientRect();
       runtime.input.grassBrushDistance = 0;
       runtime.input.grassBrushLastAt = 0;
       runtime.input.lastCancelAt = 0;
       runtime.input.lastUpAt = 0;
+      runtime.input.isDown = false;
+      runtime.input.pointerId = null;
+      runtime.input.lastDragX = null;
+      runtime.input.lastDragY = null;
       if (runtime.worldInteractions) {
         runtime.worldInteractions.effects = [];
         runtime.worldInteractions.cooldowns = {};
       }
+      const scenePoints = [
+        [190, 424], [230, 426], [275, 426], [325, 426], [370, 426],
+        [210, 420], [250, 422]
+      ];
+      const hitPoints = scenePoints.map(([sceneX, sceneY]) => {
+        const x = Math.round(rect.left + sceneX / 512 * rect.width);
+        const y = Math.round(rect.top + sceneY / 512 * rect.height);
+        const hit = document.elementFromPoint(x, y);
+        return {
+          sceneX,
+          sceneY,
+          x,
+          y,
+          inViewport: x >= 0 && x < innerWidth && y >= 0 && y < innerHeight,
+          hitCanvas: hit === canvas,
+          hitTag: hit ? hit.tagName : '',
+          hitId: hit ? hit.id : ''
+        };
+      });
+      const trace = [];
+      const record = (event) => {
+        trace.push({
+          type: event.type,
+          pointerType: event.pointerType,
+          pointerId: event.pointerId,
+          isTrusted: event.isTrusted
+        });
+      };
+      ['pointerdown', 'pointermove', 'pointerup', 'pointercancel'].forEach((type) => {
+        canvas.addEventListener(type, record, true);
+      });
+      window.__pieczargotchiTouchProbe = { canvas, trace, record };
       return {
         ok: true,
         left: rect.left,
         top: rect.top,
         width: rect.width,
-        height: rect.height
+        height: rect.height,
+        right: rect.right,
+        bottom: rect.bottom,
+        viewportWidth: innerWidth,
+        viewportHeight: innerHeight,
+        scrollX,
+        scrollY,
+        maxTouchPoints: navigator.maxTouchPoints,
+        openDialog: document.querySelector('dialog[open]')
+          ? document.querySelector('dialog[open]').className
+          : '',
+        hitPoints
       };
     })()`,
-    returnByValue: true
+    returnByValue: true,
+    awaitPromise: true
   });
   const canvas = setup.result.value || {};
-  if (!canvas.ok || canvas.width < 1 || canvas.height < 1) {
+  if (
+    !canvas.ok
+    || canvas.width < 1
+    || canvas.height < 1
+    || Number(canvas.maxTouchPoints) < 1
+    || !Array.isArray(canvas.hitPoints)
+    || canvas.hitPoints.some((pointInfo) => !pointInfo.inViewport || !pointInfo.hitCanvas)
+  ) {
     throw new Error(`Mobilny touch probe nie znalazł sceny: ${JSON.stringify(canvas)}`);
   }
 
   const point = (sceneX, sceneY, id) => ({
-    x: canvas.left + sceneX / 512 * canvas.width,
-    y: canvas.top + sceneY / 512 * canvas.height,
+    x: Math.round(canvas.left + sceneX / 512 * canvas.width),
+    y: Math.round(canvas.top + sceneY / 512 * canvas.height),
     radiusX: 2,
     radiusY: 2,
     force: 1,
@@ -1378,6 +1440,7 @@ async function captureTouchInteractionSmoke(cdp) {
   });
   const dragId = 71;
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point(190, 424, dragId)] });
+  await delay(24);
   for (const sceneX of [230, 275, 325, 370]) {
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [point(sceneX, 426, dragId)] });
     await delay(18);
@@ -1396,12 +1459,17 @@ async function captureTouchInteractionSmoke(cdp) {
         lastUpAt: runtime.input && runtime.input.lastUpAt,
         grassEffects: runtime.worldInteractions && Array.isArray(runtime.worldInteractions.effects)
           ? runtime.worldInteractions.effects.filter((effect) => String(effect.type).includes('grass')).length
-          : 0
+          : 0,
+        trace: window.__pieczargotchiTouchProbe
+          ? window.__pieczargotchiTouchProbe.trace.slice()
+          : []
       };
     })()`,
     returnByValue: true
   });
   const dragInfo = drag.result.value || {};
+  const dragTrace = Array.isArray(dragInfo.trace) ? dragInfo.trace : [];
+  const dragTypes = dragTrace.map((event) => event.type);
   if (
     dragInfo.pointerType !== 'touch'
     || dragInfo.isDown
@@ -1409,13 +1477,61 @@ async function captureTouchInteractionSmoke(cdp) {
     || Number(dragInfo.brushDistance) < 72
     || Number(dragInfo.lastUpAt) <= 0
     || Number(dragInfo.grassEffects) < 1
+    || dragTypes[0] !== 'pointerdown'
+    || dragTypes[dragTypes.length - 1] !== 'pointerup'
+    || !dragTypes.includes('pointermove')
+    || dragTrace.some((event) => event.pointerType !== 'touch' || event.isTrusted !== true)
   ) {
-    throw new Error(`Prawdziwy mobilny gest touch nie uruchomił reakcji trawy: ${JSON.stringify(dragInfo)}`);
+    throw new Error(`Prawdziwy mobilny gest touch nie uruchomił reakcji trawy: ${JSON.stringify({ setup: canvas, drag: dragInfo })}`);
   }
 
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const runtime = window.__pieczargotchiRuntime || {};
+      if (window.__pieczargotchiTouchProbe) {
+        window.__pieczargotchiTouchProbe.trace.length = 0;
+      }
+      if (runtime.input) {
+        runtime.input.lastCancelAt = 0;
+      }
+    })()`
+  });
   const cancelId = 72;
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point(210, 420, cancelId)] });
+  await delay(24);
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [point(250, 422, cancelId)] });
+  await delay(24);
+  const beforeCancel = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const input = window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.input;
+      return input ? {
+        pointerType: input.pointerType,
+        isDown: input.isDown,
+        pointerId: input.pointerId,
+        lastCancelAt: input.lastCancelAt,
+        trace: window.__pieczargotchiTouchProbe
+          ? window.__pieczargotchiTouchProbe.trace.slice()
+          : []
+      } : null;
+    })()`,
+    returnByValue: true
+  });
+  const beforeCancelInfo = beforeCancel.result.value || {};
+  const beforeCancelTrace = Array.isArray(beforeCancelInfo.trace) ? beforeCancelInfo.trace : [];
+  const beforeCancelTypes = beforeCancelTrace.map((event) => event.type);
+  if (
+    beforeCancelInfo.pointerType !== 'touch'
+    || !beforeCancelInfo.isDown
+    || beforeCancelInfo.pointerId === null
+    || Number(beforeCancelInfo.lastCancelAt) !== 0
+    || beforeCancelTypes[0] !== 'pointerdown'
+    || !beforeCancelTypes.includes('pointermove')
+    || beforeCancelTypes.includes('pointerup')
+    || beforeCancelTypes.includes('pointercancel')
+    || beforeCancelTrace.some((event) => event.pointerType !== 'touch' || event.isTrusted !== true)
+  ) {
+    throw new Error(`Mobilny gest nie był aktywny przed pointercancel: ${JSON.stringify({ setup: canvas, beforeCancel: beforeCancelInfo })}`);
+  }
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
   await delay(80);
   const cancel = await cdp.send('Runtime.evaluate', {
@@ -1427,12 +1543,17 @@ async function captureTouchInteractionSmoke(cdp) {
         pointerId: input.pointerId,
         lastDragX: input.lastDragX,
         lastDragY: input.lastDragY,
-        lastCancelAt: input.lastCancelAt
+        lastCancelAt: input.lastCancelAt,
+        trace: window.__pieczargotchiTouchProbe
+          ? window.__pieczargotchiTouchProbe.trace.slice()
+          : []
       } : null;
     })()`,
     returnByValue: true
   });
   const cancelInfo = cancel.result.value || {};
+  const cancelTrace = Array.isArray(cancelInfo.trace) ? cancelInfo.trace : [];
+  const cancelTypes = cancelTrace.map((event) => event.type);
   if (
     cancelInfo.pointerType !== 'touch'
     || cancelInfo.isDown
@@ -1440,10 +1561,27 @@ async function captureTouchInteractionSmoke(cdp) {
     || cancelInfo.lastDragX !== null
     || cancelInfo.lastDragY !== null
     || Number(cancelInfo.lastCancelAt) <= 0
+    || cancelTypes[0] !== 'pointerdown'
+    || !cancelTypes.includes('pointermove')
+    || cancelTypes[cancelTypes.length - 1] !== 'pointercancel'
+    || cancelTypes.includes('pointerup')
+    || cancelTrace.some((event) => event.pointerType !== 'touch' || event.isTrusted !== true)
   ) {
-    throw new Error(`pointercancel nie wyczyścił mobilnego gestu: ${JSON.stringify(cancelInfo)}`);
+    throw new Error(`pointercancel nie wyczyścił mobilnego gestu: ${JSON.stringify({ setup: canvas, cancel: cancelInfo })}`);
   }
-  console.log(`touch interactions diagnostics: ${JSON.stringify({ drag: dragInfo, cancel: cancelInfo })}`);
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const probe = window.__pieczargotchiTouchProbe;
+      if (!probe) {
+        return;
+      }
+      ['pointerdown', 'pointermove', 'pointerup', 'pointercancel'].forEach((type) => {
+        probe.canvas.removeEventListener(type, probe.record, true);
+      });
+      delete window.__pieczargotchiTouchProbe;
+    })()`
+  });
+  console.log(`touch interactions diagnostics: ${JSON.stringify({ setup: canvas, drag: dragInfo, beforeCancel: beforeCancelInfo, cancel: cancelInfo })}`);
 }
 
 async function captureArena(cdp) {

@@ -137,7 +137,7 @@ Stary `scripts/generate-pixel-assets.py` deleguje do tego buildera, jeżeli wykr
 - `assets/source/imagegen/PROVENANCE.json` musi wskazać kolekcję, origin, model lub jawne `unknown`, datę, builder, postprocess i ręczne korekty.
 - Deterministyczne pochodne nie deklarują modelu: wskazują builder i konkretne source paths.
 - Nie edytujemy ręcznie `SpriteLayout.gs`; metadata musi dać się odtworzyć z PNG przez optimizer.
-- Nie podmieniamy istniejącego wydanego katalogu assetów. Aktualna paczka docelowa należy do wersji `0.1.60`.
+- Nie podmieniamy istniejącego wydanego katalogu assetów. Aktualna paczka docelowa należy do wersji `0.1.61`.
 
 ## Walidacja
 
