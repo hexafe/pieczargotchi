@@ -1,6 +1,6 @@
 # Apps Script Deployment Dry Run
 
-This checklist verifies the real Google Apps Script execution without committing deployment credentials or private IDs. The current GUI-hardening release candidate is app `0.1.51` with state schema v18; verify the tracked constants again immediately before deployment.
+This checklist verifies the real Google Apps Script execution without committing deployment credentials or private IDs. The current polaroid release candidate is app `0.1.60` with state schema v22; verify the tracked constants again immediately before deployment.
 
 ## Local Preflight
 
@@ -18,11 +18,11 @@ Expected posture before binding:
 - `.clasp.json` is absent or ignored by Git.
 - `.claspignore` reports only root `.gs`, `.html`, and `appsscript.json`; it never reports `dist/`, scripts, docs, or browser `.js` bundles.
 - `Config.gs` does not contain private Drive URLs or deployment credentials.
-- `PIECZARGOTCHI_APP_VERSION` and `package.json` both equal `0.1.51`, while `PIECZARGOTCHI_STATE_VERSION` equals `18`.
+- `PIECZARGOTCHI_APP_VERSION` and `package.json` both equal `0.1.60`, while `PIECZARGOTCHI_STATE_VERSION` equals `22`.
 - `SpriteLayout.gs` is present in the Apps Script file set and is current for every tight runtime atlas; it is generated, not edited by hand.
 - Production execution flags keep `debugEnabled: false` and `exposeRuntime: false`.
 - Production `assetMode` stays `critical` so the deployed app renders quickly instead of embedding the full PNG manifest in the initial Apps Script HTML response.
-- The preferred Script Property for this release is `PIECZARGOTCHI_ASSET_BASE_URL_0_1_51=https://PUBLIC-HOST/releases/0.1.51/assets/`. Both the key and path are release-specific so a later property update cannot retarget this deployment. It must use HTTPS and may be public because it contains no credential. The host must retain old release directories.
+- The preferred Script Property for this release is `PIECZARGOTCHI_ASSET_BASE_URL_0_1_60=https://PUBLIC-HOST/releases/0.1.60/assets/`. Both the key and path are release-specific so a later property update cannot retarget this deployment. It must use HTTPS and may be public because it contains no credential. The host must retain old release directories.
 - Missing public hosting and Drive IDs are acceptable only for the placeholder smoke; the full supported Apps Script smoke must load the critical PNGs from the public base URL.
 
 ## Test Project Bind
@@ -75,9 +75,9 @@ For the legendary smoke, use the browser console on the test web app:
 
 ```js
 const state = JSON.parse(localStorage.getItem('pieczargotchi_state_v2'));
-// Preserve a copy as a v17 migration fixture before the first v18 load.
-localStorage.setItem('pieczargotchi_state_v17_dry_run_backup', JSON.stringify(state));
-state.version = Math.min(Number(state.version) || 17, 17);
+// Preserve a copy as a v21 migration fixture before the first v22 load.
+localStorage.setItem('pieczargotchi_state_v21_dry_run_backup', JSON.stringify(state));
+state.version = Math.min(Number(state.version) || 21, 21);
 state.stats.growth = 100;
 state.stage = 'legendary';
 state.inventory.spores = Math.max(6, state.inventory.spores || 0);
@@ -85,7 +85,7 @@ localStorage.setItem('pieczargotchi_state_v2', JSON.stringify(state));
 location.reload();
 ```
 
-After reload, confirm that the save migrated to v18, ordinary care/progression fields survived, and a newly started battle persists `player.visualId` plus `opponent.visualId`. A legacy active battle without `opponent.visualId` must normalize from its opponent name rather than corrupting or discarding unrelated save state.
+After reload, confirm that the save migrated to v22, ordinary care/progression fields survived, and a newly started battle persists `player.visualId` plus `opponent.visualId`. A legacy active battle without `opponent.visualId` must normalize from its opponent name rather than corrupting or discarding unrelated save state.
 
 ## Optional private Drive backup smoke
 

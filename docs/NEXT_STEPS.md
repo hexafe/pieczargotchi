@@ -1,10 +1,11 @@
 # Pieczargotchi Next Steps
 
-Last updated: 2026-07-13
+Last updated: 2026-07-15
 Last stable checkpoint: `0.1.48` / state v17
 Visual-pipeline checkpoint: `0.1.49` / state v18
 Scene-first UI checkpoint: `0.1.50` / state v18
-Current GUI-hardening release candidate: `0.1.51` / state v18
+GUI-hardening checkpoint: `0.1.51` / state v18
+Current polaroid release candidate: `0.1.60` / state v22
 Primary preview target: Cloudflare static build
 
 This is the current start-here document for the next Pieczargotchi work. Older
@@ -22,13 +23,13 @@ Latest minigame launch UX plan: `docs/MINIGAME_LAUNCH_UX_PLAN_2026-05-31.md`.
 Latest world interactivity research: `docs/INTERACTIVITY_RESEARCH_IMPLEMENTATION_PLAN_2026-06-01.md`.
 Latest visual asset implementation: `docs/VISUAL_ASSET_IMPLEMENTATION_2026-07-11.md`.
 Latest scene-first UI implementation: `docs/UI_SCENE_FIRST_IMPLEMENTATION_2026-07-12.md`.
-Current implementation slice: body-only tight/dedup atlases, generated
-`SpriteLayout.gs`, one shared grass system, stable arena `visualId` art, asset
-provenance, focused visual/runtime contracts, scene-first workspace tabs,
-accessible modal flows, mobile action tray, deterministic browser/UI gates, and
-exclusive-session/input hardening for the `0.1.51` release candidate.
-Recommended next release step: complete the canonical full QA, publish the
-immutable `0.1.51` asset directory, and run the external Apps Script dry run.
+Latest journal-polaroid overhaul: `docs/POLAROID_VISUAL_OVERHAUL_2026-07-15.md`.
+Current implementation slice: a single exhaustive journal-photo renderer,
+stage-aware sprite composition, raster-grass clearance, real lazy album
+thumbnails, responsive semantic polaroids, deterministic visual contracts, and
+browser evidence for the `0.1.60` / state-v22 release candidate.
+Recommended next release step: complete canonical full QA, publish the
+immutable `0.1.60` asset directory, and run the external Apps Script dry run.
 
 ## 1. Current Baseline
 
@@ -340,7 +341,17 @@ Acceptance:
 
 - hover/click works with mouse, keyboard focus, and touch-friendly layout;
 - popover does not clip on mobile;
-- polaroid scene is not blank;
+- every catalog `photoScene` resolves through an explicit renderer recipe;
+- the captured stage sprite remains readable and centered for idle and reaction
+  atlases, using logical body placement rather than the whole tight crop;
+- real raster grass frames the subject and covers at most the bottom few pixels
+  of its feet; a procedural fallback cannot report the photo as ready;
+- calendar props and instrument identities remain recognizable beside every
+  growth stage instead of disappearing behind the subject or grass;
+- album thumbnails use the same renderer as the full photo, are visually
+  distinct, and hydrate lazily only near the visible Mycelium scrollport;
+- the modal has one scroll container at most, its close control never overlaps
+  the photo, and the full card remains usable at 1194x891, 390x844, and 320x568;
 - pending mushroom placeholder is neutral, not creepy;
 - discovered phenomena have useful Polish descriptions;
 - photo caption matches the scene and mushroom emotion.
@@ -526,25 +537,26 @@ Acceptance:
 
 Goal: make discoveries feel like memories.
 
-Status: continued through version `0.1.26` on 2026-05-30. Calendar event source
-labels, cosmetic frame tiers, mobile-safe polaroid layout, missing-sprite
-polaroid markers, forced journal discovery captures, and distinct Tea Day, Bee
-Day, Biodiversity Day, Soil Day, and Space Week polaroid scenes are
-implemented. See
-`docs/JOURNAL_CALENDAR_POLISH_2026-05-30.md`.
+Status: overhauled for `0.1.60` / state v22 on 2026-07-15. The album and modal
+now share an exhaustive scene renderer, real raster grass with stage-aware
+clearance, logical sprite-body composition, semantic responsive copy, explicit
+asset states, and lazy real-photo thumbnails. See
+`docs/POLAROID_VISUAL_OVERHAUL_2026-07-15.md`.
 
 Tasks:
 
-- audit popover/polaroid mobile behavior;
-- improve missing/pending asset states if captures show backup-placeholder issues;
+- keep the 39-recipe browser matrix current when catalog scenes change;
+- retain explicit degraded states for missing mushroom or grass raster assets;
 - make event category labels explicit in copy/data;
-- plan event-specific polaroid scenes and optional stage reaction sheets;
+- add optional event-specific reaction sheets only when they preserve the
+  logical-body placement contract;
 - tune calendar checklist reward tiers toward cosmetic frames, not stat power.
 
 Acceptance:
 
-- player can discover a phenomenon, inspect it later, and see a charming
-  polaroid without UI clipping or creepy backup-placeholder art.
+- player can discover a phenomenon, recognize it from the album thumbnail, and
+  inspect a coherent keepsake without clipped copy, hidden props, subject
+  occlusion, fake scene bands, or backup-placeholder art.
 
 ### Slice 3: Mushroom Animation And Activity Polish
 
@@ -558,10 +570,11 @@ contracts have green focused results. The final asset set stores 1,358 of 1,560
 logical frames, reports 539.3 MiB decoded sprite cost, and has 69 advisory frame
 quality findings with zero strict chroma findings. Corrected desktop, mobile,
 night, journal, minigame, and Arena captures replaced the invalid preview
-evidence. The current `0.1.51` candidate retains those assets while hardening
-GUI session guards, input ownership, mobile actions, and browser QA. The external
-Apps Script deployment gate still requires a real published `/exec` URL and
-immutable `0.1.51` asset host. See
+evidence. The `0.1.51` checkpoint retained those assets while hardening GUI
+session guards, input ownership, mobile actions, and browser QA. The current
+`0.1.60` target adds the exhaustive polaroid renderer and still requires a real
+published `/exec` URL plus an immutable `0.1.60` asset host for the external
+Apps Script deployment gate. See
 `docs/VISUAL_ASSET_IMPLEMENTATION_2026-07-11.md` and
 `docs/UI_SCENE_FIRST_IMPLEMENTATION_2026-07-12.md`.
 
@@ -662,6 +675,6 @@ not rely on Node tests alone for layout, sprite layering, polaroids, weather
 balance, or minigame feel.
 
 For the current target, do not start deployment until `Config.gs` and
-`package.json` both report `0.1.51`, `PIECZARGOTCHI_STATE_VERSION` reports `18`,
-the versioned public asset root is `/releases/0.1.51/assets/`, and every blocker
-listed in `docs/UI_SCENE_FIRST_IMPLEMENTATION_2026-07-12.md` is closed.
+`package.json` both report `0.1.60`, `PIECZARGOTCHI_STATE_VERSION` reports `22`,
+the versioned public asset root is `/releases/0.1.60/assets/`, and every blocker
+listed in `docs/POLAROID_VISUAL_OVERHAUL_2026-07-15.md` is closed.

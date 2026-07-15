@@ -1180,10 +1180,37 @@ test('GUI accessibility hooks and desktop focus dimensions remain explicit', () 
   assert(stylesSource.includes('.stage-panel[data-scene-calm="true"]'), 'active gameplay must visibly calm the unrelated care scene');
 });
 
+test('journal album hydrates real thumbnails only near the visible Mycelium scrollport', () => {
+  assert(uiSource.includes("if (ui.workspaceTab !== 'mycelium')")
+    && uiSource.includes("if (ui.workspaceTab === 'mycelium') {\n      renderWorldJournal();"),
+  'journal DOM work must stay deferred until the Mycelium workspace is opened');
+  assert(uiSource.includes('canvas.width = 1;')
+    && uiSource.includes("canvas.setAttribute('data-photo-state', 'queued')")
+    && uiSource.includes('canvas.width = 192;')
+    && uiSource.includes('root: null,')
+    && uiSource.includes("rootMargin: '240px 0px'"),
+  'offscreen keepsakes must keep a tiny backing store and hydrate through a bounded IntersectionObserver margin');
+  assert(uiSource.includes("document.createElement('h4')")
+    && uiSource.includes("lockedHeading.textContent = 'Do odkrycia'"),
+  'locked clues need a semantic visible subheading rather than generated CSS copy');
+  assert(/\.discovery-item\s*\{[^}]*min-height:\s*44px/s.test(stylesSource),
+    'journal clue and keepsake controls must preserve a 44 px touch target');
+  assert(captureSource.includes("state === 'queued' || state === 'loading'")
+    && captureSource.includes("pending.scrollIntoView({ block: 'center'")
+    && captureSource.includes('tinyQueued')
+    && captureSource.includes('uniqueInstrumentHashes'),
+  'browser QA must prove offscreen canvases stay tiny, hydrate every thumbnail, and reject repeated instrument keepsakes');
+});
+
 test('browser QA covers responsive journal, real touch cancellation, and world interactions', () => {
   assert(indexSource.includes('data-minigame-announcement'), 'dedicated minigame status output is missing');
   assert(uiSource.includes("button.dataset.focusKey = 'legendary-game-' + game.id"), 'legendary start buttons need stable focus keys');
-  assert(captureSource.includes('expectsTiltedPolaroid = viewportWidth > 640'), 'journal tilt assertion must follow the CSS breakpoint');
+  assert(captureSource.includes("info.photoReady !== 'true'")
+    && captureSource.includes("info.subjectRendered !== 'true'")
+    && captureSource.includes('info.closeOverlapsCanvas')
+    && captureSource.includes('info.scrollContainers > 1')
+    && captureSource.includes('info.invalidScrollContainer'),
+  'journal capture must wait for the real sprite and reject photo overlap or competing scroll containers');
   assert(captureSource.includes("type: 'touchCancel'"), 'mobile capture must issue a real touchCancel event');
   assert(captureSource.includes('qa.beginStorageBusyProbe()'), 'pending-session QA must wrap the real persistence seam');
   assert(captureSource.includes("localKinds.includes('brush')")

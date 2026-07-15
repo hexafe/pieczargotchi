@@ -1591,6 +1591,33 @@ async function captureWorldJournal(cdp) {
         }
       },
       instruments: {
+        rareInstrument_spore: {
+          id: 'rareInstrument_spore',
+          label: 'Gwiezdny zarodkofon',
+          stage: 'spore',
+          firstSeenAt: '2026-05-17T20:30:00.000Z',
+          lastSeenAt: iso,
+          count: 1,
+          photoSnapshot: makeSnapshot('rareInstrument_spore', 'spore', 'clear', 'dawn')
+        },
+        rareInstrument_baby: {
+          id: 'rareInstrument_baby',
+          label: 'Księżycowa okaryna',
+          stage: 'baby',
+          firstSeenAt: '2026-05-18T20:30:00.000Z',
+          lastSeenAt: iso,
+          count: 1,
+          photoSnapshot: makeSnapshot('rareInstrument_baby', 'baby', 'clear', 'morning')
+        },
+        rareInstrument_young: {
+          id: 'rareInstrument_young',
+          label: 'Świetlikowa lira',
+          stage: 'young',
+          firstSeenAt: '2026-05-19T20:30:00.000Z',
+          lastSeenAt: iso,
+          count: 1,
+          photoSnapshot: makeSnapshot('rareInstrument_young', 'young', 'clear', 'dusk')
+        },
         rareInstrument_adult: {
           id: 'rareInstrument_adult',
           label: 'Kometowa harfa',
@@ -1599,6 +1626,15 @@ async function captureWorldJournal(cdp) {
           lastSeenAt: iso,
           count: 1,
           photoSnapshot: makeSnapshot('rareInstrument_adult', 'adult', 'clear', 'dusk')
+        },
+        rareInstrument_legendary: {
+          id: 'rareInstrument_legendary',
+          label: 'Zorzo-organki',
+          stage: 'legendary',
+          firstSeenAt: '2026-05-21T20:30:00.000Z',
+          lastSeenAt: iso,
+          count: 1,
+          photoSnapshot: makeSnapshot('rareInstrument_legendary', 'legendary', 'clear', 'night')
         }
       },
       calendar: {
@@ -1675,9 +1711,140 @@ async function captureWorldJournal(cdp) {
     await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: preloadScript.identifier }).catch(() => {});
   }
   await waitForExpression(cdp, getAssetStatusReadyExpression(), 6000);
-  await waitForExpression(cdp, `Boolean(document.querySelector('[data-discovery-id="${captureJournalDiscoveryId}"][data-discovered="true"]'))`, 3000);
-  const diagnostics = await cdp.send('Runtime.evaluate', {
+  await cdp.send('Runtime.evaluate', {
     expression: `(() => {
+      const tab = document.querySelector('[data-workspace-tab="mycelium"]');
+      if (tab && tab.getAttribute('aria-selected') !== 'true') {
+        tab.click();
+      }
+      return Boolean(tab);
+    })()`,
+    returnByValue: true
+  });
+  await waitForExpression(cdp, `Boolean(document.querySelector('[data-discovery-id="${captureJournalDiscoveryId}"][data-discovered="true"]'))`, 3000);
+  await waitForExpression(cdp, `(() => {
+    const panel = document.querySelector('.panel-block--discoveries');
+    return Boolean(panel && panel.getClientRects().length && panel.getBoundingClientRect().width > 0);
+  })()`, 3000);
+  const lazyAlbumDiagnostics = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const canvases = Array.from(document.querySelectorAll('[data-discovered="true"] [data-journal-thumbnail]'));
+      const queued = canvases.filter((canvas) => canvas.getAttribute('data-photo-state') === 'queued');
+      return {
+        count: canvases.length,
+        queued: queued.length,
+        tinyQueued: queued.filter((canvas) => canvas.width === 1 && canvas.height === 1).length
+      };
+    })()`,
+    returnByValue: true
+  });
+  const lazyAlbumInfo = lazyAlbumDiagnostics.result.value || {};
+  if (
+    Number(lazyAlbumInfo.count) > 4
+    && (!Number(lazyAlbumInfo.queued) || Number(lazyAlbumInfo.tinyQueued) !== Number(lazyAlbumInfo.queued))
+  ) {
+    throw new Error(`Album uruchomił pozaekranowe canvasy przedwcześnie: ${JSON.stringify(lazyAlbumInfo)}`);
+  }
+  if (!blockedAssetPatterns.length) {
+    await cdp.send('Runtime.evaluate', {
+      expression: `(async () => {
+        const canvases = Array.from(document.querySelectorAll('[data-discovered="true"] [data-journal-thumbnail]'));
+        const panel = document.querySelector('.panel-block--discoveries');
+        const deadline = Date.now() + 12000;
+        while (Date.now() < deadline) {
+          const pending = canvases.find((canvas) => {
+            const state = canvas.getAttribute('data-photo-state');
+            return state === 'queued' || state === 'loading';
+          });
+          if (!pending) {
+            break;
+          }
+          pending.scrollIntoView({ block: 'center', inline: 'nearest' });
+          await new Promise((resolve) => setTimeout(resolve, 60));
+        }
+        if (panel) {
+          panel.scrollIntoView({ block: 'center', inline: 'nearest' });
+        }
+        return canvases.map((canvas) => canvas.getAttribute('data-photo-state'));
+      })()`,
+      awaitPromise: true,
+      returnByValue: true
+    });
+    await waitForExpression(cdp, `(() => {
+      const canvases = Array.from(document.querySelectorAll('[data-discovered="true"] [data-journal-thumbnail]'));
+      return canvases.length > 0 && canvases.every((canvas) => {
+        const state = canvas.getAttribute('data-photo-state');
+        return state !== 'queued' && state !== 'loading';
+      });
+    })()`, 12000);
+  }
+  const albumDiagnostics = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const panel = document.querySelector('.panel-block--discoveries');
+      const canvases = Array.from(document.querySelectorAll('[data-discovered="true"] [data-journal-thumbnail]'));
+      if (panel) {
+        panel.scrollIntoView({ block: 'center', inline: 'nearest' });
+      }
+      const hashes = canvases.map((canvas) => {
+        const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+        let hash = 2166136261;
+        for (let index = 0; index < pixels.length; index += 64) {
+          hash ^= pixels[index] + pixels[index + 1] * 3 + pixels[index + 2] * 7 + pixels[index + 3] * 11;
+          hash = Math.imul(hash, 16777619);
+        }
+        return hash >>> 0;
+      });
+      const instrumentHashes = canvases.map((canvas, index) => ({
+        id: canvas.getAttribute('data-discovery-id') || '',
+        hash: hashes[index]
+      })).filter((entry) => entry.id.startsWith('rareInstrument_'));
+      const panelRect = panel ? panel.getBoundingClientRect() : null;
+      return {
+        count: canvases.length,
+        ready: canvases.filter((canvas) => canvas.getAttribute('data-photo-ready') === 'true').length,
+        subjects: canvases.filter((canvas) => canvas.getAttribute('data-subject-rendered') === 'true').length,
+        uniqueHashes: new Set(hashes).size,
+        instrumentCount: instrumentHashes.length,
+        uniqueInstrumentHashes: new Set(instrumentHashes.map((entry) => entry.hash)).size,
+        scenes: canvases.map((canvas) => canvas.getAttribute('data-scene-id')),
+        panelRect: panelRect ? {
+          x: panelRect.left + scrollX,
+          y: panelRect.top + scrollY,
+          width: panelRect.width,
+          height: panelRect.height
+        } : null
+      };
+    })()`,
+    returnByValue: true
+  });
+  const albumInfo = albumDiagnostics.result.value || {};
+  if (
+    !albumInfo.count
+    || (!blockedAssetPatterns.length && (albumInfo.ready !== albumInfo.count || albumInfo.subjects !== albumInfo.count))
+    || Number(albumInfo.uniqueHashes) < Math.min(3, Number(albumInfo.count) || 0)
+    || (Number(albumInfo.instrumentCount) >= 5 && Number(albumInfo.uniqueInstrumentHashes) !== Number(albumInfo.instrumentCount))
+  ) {
+    throw new Error(`Album pamiątek nie wyrenderował prawdziwych, zróżnicowanych miniatur: ${JSON.stringify(albumInfo)}`);
+  }
+  const albumScreenshot = await cdp.send('Page.captureScreenshot', {
+    format: 'png',
+    fromSurface: true,
+    captureBeyondViewport: true,
+    ...(albumInfo.panelRect ? {
+      clip: {
+        x: Math.max(0, albumInfo.panelRect.x),
+        y: Math.max(0, albumInfo.panelRect.y),
+        width: Math.max(1, albumInfo.panelRect.width),
+        height: Math.max(1, albumInfo.panelRect.height),
+        scale: 1
+      }
+    } : {})
+  });
+  const albumPath = `${outputPrefix}-journal-album-${viewportWidth}x${viewportHeight}.png`;
+  writeFileSync(albumPath, Buffer.from(albumScreenshot.data, 'base64'));
+  console.log(`journal-album: ${albumPath}`);
+  const diagnostics = await cdp.send('Runtime.evaluate', {
+    expression: `(async () => {
       const button = document.querySelector('[data-discovery-id="${captureJournalDiscoveryId}"][data-discovered="true"]');
       const panel = document.querySelector('.panel-block--discoveries');
       if (!button || !panel) {
@@ -1703,6 +1870,10 @@ async function captureWorldJournal(cdp) {
       button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
       const polaroid = document.querySelector('[data-journal-polaroid]');
       const canvas = document.querySelector('[data-journal-polaroid-canvas]');
+      const deadline = Date.now() + 6000;
+      while (canvas.getAttribute('data-photo-state') === 'loading' && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      }
       const ctx = canvas.getContext('2d');
       const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
       let nonBlank = 0;
@@ -1713,6 +1884,7 @@ async function captureWorldJournal(cdp) {
       }
       const polaroidRect = rectInfo(polaroid);
       const canvasRect = rectInfo(canvas);
+      const closeRect = rectInfo(document.querySelector('[data-journal-polaroid-close]'));
       const viewport = { width: innerWidth, height: innerHeight };
       const runtime = window.__pieczargotchiRuntime || {};
       const state = runtime.state || {};
@@ -1724,6 +1896,12 @@ async function captureWorldJournal(cdp) {
         : null;
       const expectedFrameTier = snapshot && snapshot.world && snapshot.world.frameTier ? snapshot.world.frameTier : '';
       const transform = getComputedStyle(polaroid).transform;
+      const transformMatrix = transform && transform !== 'none' ? new DOMMatrixReadOnly(transform) : null;
+      const sheet = polaroid.querySelector('.journal-polaroid__sheet');
+      const scrollContainers = [polaroid].concat(Array.from(polaroid.querySelectorAll('*'))).filter((node) => {
+        const style = getComputedStyle(node);
+        return /(auto|scroll)/.test(style.overflowY) && node.scrollHeight > node.clientHeight + 1;
+      });
       return {
         ok: true,
         tooltipVisible,
@@ -1736,10 +1914,22 @@ async function captureWorldJournal(cdp) {
         snapshotFallback: polaroid.getAttribute('data-snapshot-fallback'),
         expectedFrameTier,
         frameTier: polaroid.getAttribute('data-frame-tier'),
-        polaroidTilted: Boolean(transform && transform !== 'none'),
+        polaroidTilted: Boolean(transformMatrix && (Math.abs(transformMatrix.b) > 0.001 || Math.abs(transformMatrix.c) > 0.001)),
+        photoReady: canvas.getAttribute('data-photo-ready'),
+        photoState: canvas.getAttribute('data-photo-state'),
+        subjectRendered: canvas.getAttribute('data-subject-rendered'),
+        grassRendered: canvas.getAttribute('data-grass-rendered'),
+        grassRaster: canvas.getAttribute('data-grass-raster'),
         polaroidRect,
         canvasRect,
+        closeRect,
         viewport,
+        closeOverlapsCanvas: !(closeRect.right <= canvasRect.left
+          || closeRect.left >= canvasRect.right
+          || closeRect.bottom <= canvasRect.top
+          || closeRect.top >= canvasRect.bottom),
+        scrollContainers: scrollContainers.length,
+        invalidScrollContainer: scrollContainers.some((node) => node !== sheet),
         polaroidInViewport: polaroidRect.left >= -1
           && polaroidRect.top >= -1
           && polaroidRect.right <= innerWidth + 1
@@ -1748,10 +1938,10 @@ async function captureWorldJournal(cdp) {
         canvasSquare: Math.abs(canvas.width - canvas.height) <= 1 && Math.abs(canvasRect.width - canvasRect.height) <= 2
       };
     })()`,
-    returnByValue: true
+    returnByValue: true,
+    awaitPromise: true
   });
   const info = diagnostics.result.value || {};
-  const expectsTiltedPolaroid = viewportWidth > 640;
   if (
     !info.ok
     || !info.tooltipVisible
@@ -1761,7 +1951,15 @@ async function captureWorldJournal(cdp) {
     || !info.snapshotStage
     || info.snapshotFallback !== 'false'
     || (info.expectedFrameTier && info.frameTier !== info.expectedFrameTier)
-    || (expectsTiltedPolaroid ? !info.polaroidTilted : info.polaroidTilted)
+    || info.polaroidTilted
+    || info.photoReady !== 'true'
+    || info.photoState !== 'ready'
+    || info.subjectRendered !== 'true'
+    || info.grassRendered !== 'true'
+    || info.grassRaster !== 'true'
+    || info.closeOverlapsCanvas
+    || info.scrollContainers > 1
+    || info.invalidScrollContainer
     || !info.canvasSquare
     || !info.polaroidInViewport
     || !info.canvasVisible

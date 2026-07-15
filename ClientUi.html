@@ -981,6 +981,9 @@
     ui.workspaceTab = ['care', 'games', 'mycelium'].indexOf(tabId) !== -1 ? tabId : 'care';
     collapseMobileActionTray({ restoreFocus: false });
     renderWorkspaceNavigation();
+    if (ui.workspaceTab === 'mycelium') {
+      renderWorldJournal();
+    }
     updateMobileActionTrayState(getRuntimeNow());
     if (announce) {
       const labels = { care: 'Opieka', games: 'Gry', mycelium: 'Grzybnia' };
@@ -3808,31 +3811,62 @@
       dom.skyDiscoveryCount.textContent = journal.discoveredCount + '/' + journal.totalCount;
     }
 
+    const renderKey = getWorldJournalRenderKey(journal);
+    const ui = ensureSceneFirstUiRuntime();
+    if (ui.workspaceTab !== 'mycelium') {
+      dom.skyDiscoveries.setAttribute('data-journal-pending-key', renderKey);
+      return;
+    }
+    if (dom.skyDiscoveries.getAttribute('data-journal-render-key') === renderKey) {
+      return;
+    }
+
+    resetWorldJournalThumbnailObserver();
     dom.skyDiscoveries.innerHTML = '';
     dom.skyDiscoveries.hidden = false;
+    dom.skyDiscoveries.setAttribute('data-journal-render-key', renderKey);
+    dom.skyDiscoveries.removeAttribute('data-journal-pending-key');
 
     (journal.groups || []).forEach(function(group) {
       const section = document.createElement('div');
       const heading = document.createElement('h3');
       const items = document.createElement('div');
+      const lockedItems = document.createElement('div');
+      const lockedHeading = document.createElement('h4');
       section.className = 'discovery-group';
       heading.textContent = formatMushroomText(group.title);
       items.className = 'discovery-group__items';
+      lockedItems.className = 'discovery-group__locked';
+      lockedHeading.className = 'discovery-group__locked-heading';
+      lockedHeading.textContent = 'Do odkrycia';
       section.appendChild(heading);
       section.appendChild(items);
+      section.appendChild(lockedItems);
+      dom.skyDiscoveries.appendChild(section);
 
       group.items.forEach(function(item) {
         const row = document.createElement('button');
+        const photo = item.discovered ? document.createElement('span') : null;
+        const canvas = item.discovered ? document.createElement('canvas') : null;
         const label = document.createElement('strong');
         const meta = document.createElement('span');
-        row.className = 'discovery-item' + (item.discovered ? '' : ' discovery-item--locked');
+        row.className = 'discovery-item' + (item.discovered ? ' discovery-item--polaroid' : ' discovery-item--locked');
         row.type = 'button';
         row.setAttribute('data-discovery-group', group.id);
         row.setAttribute('data-discovery-id', item.id);
         row.setAttribute('data-discovered', item.discovered ? 'true' : 'false');
         if (item.discovered) {
-          row.classList.add('discovery-item--polaroid');
           row.style.setProperty('--journal-tilt', getWorldJournalItemTilt(group.id, item));
+          row.setAttribute('data-photo-scene', item.photoScene || item.id);
+          photo.className = 'discovery-item__photo';
+          photo.setAttribute('data-journal-polaroid-photo-state', 'loading');
+          canvas.width = 1;
+          canvas.height = 1;
+          canvas.setAttribute('data-journal-thumbnail', '');
+          canvas.setAttribute('data-discovery-id', item.id);
+          canvas.setAttribute('data-photo-state', 'queued');
+          canvas.setAttribute('aria-hidden', 'true');
+          photo.appendChild(canvas);
         }
         row.setAttribute('aria-disabled', item.discovered ? 'false' : 'true');
         label.textContent = item.discovered ? formatMushroomText(item.label) : '???';
@@ -3840,15 +3874,105 @@
           ? [item.sourceLabel || '', item.count > 1 ? item.count + ' razy' : 'Odkryte'].filter(Boolean).join(' · ')
           : formatMushroomText(item.hint);
         row.setAttribute('aria-label', item.discovered
-          ? formatMushroomText(item.label + '. Otwórz pamiątkę odkrycia.')
+          ? formatMushroomText([
+            item.label,
+            typeof getWorldJournalSnapshotLabel === 'function' ? getWorldJournalSnapshotLabel(item.photoSnapshot) : '',
+            'Otwórz pamiątkę odkrycia.'
+          ].filter(Boolean).join('. '))
           : 'Nieodkryte. ' + formatMushroomText(item.hint));
+        if (photo) {
+          row.appendChild(photo);
+        }
         row.appendChild(label);
         row.appendChild(meta);
-        items.appendChild(row);
+        if (!item.discovered && !lockedHeading.parentNode) {
+          lockedItems.appendChild(lockedHeading);
+        }
+        (item.discovered ? items : lockedItems).appendChild(row);
+        if (canvas && typeof drawWorldJournalPolaroidThumbnail === 'function') {
+          queueWorldJournalThumbnail(canvas, Object.assign({
+            groupId: group.id,
+            groupTitle: group.title
+          }, item));
+        }
       });
-
-      dom.skyDiscoveries.appendChild(section);
     });
+  }
+
+  let worldJournalThumbnailObserver = null;
+  const worldJournalThumbnailItems = new WeakMap();
+
+  function resetWorldJournalThumbnailObserver() {
+    if (worldJournalThumbnailObserver) {
+      worldJournalThumbnailObserver.disconnect();
+      worldJournalThumbnailObserver = null;
+    }
+  }
+
+  function renderQueuedWorldJournalThumbnail(canvas) {
+    const item = worldJournalThumbnailItems.get(canvas);
+    if (!item || !canvas.isConnected || canvas.getAttribute('data-photo-state') !== 'queued') {
+      return;
+    }
+    canvas.width = 192;
+    canvas.height = 192;
+    canvas.setAttribute('data-photo-state', 'loading');
+    drawWorldJournalPolaroidThumbnail(canvas, item);
+  }
+
+  function getWorldJournalThumbnailObserver() {
+    if (worldJournalThumbnailObserver || !('IntersectionObserver' in window)) {
+      return worldJournalThumbnailObserver;
+    }
+    worldJournalThumbnailObserver = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (!entry.isIntersecting && entry.intersectionRatio <= 0) {
+          return;
+        }
+        worldJournalThumbnailObserver.unobserve(entry.target);
+        renderQueuedWorldJournalThumbnail(entry.target);
+      });
+    }, {
+      root: null,
+      rootMargin: '240px 0px'
+    });
+    return worldJournalThumbnailObserver;
+  }
+
+  function queueWorldJournalThumbnail(canvas, item) {
+    worldJournalThumbnailItems.set(canvas, item);
+    const observer = getWorldJournalThumbnailObserver();
+    if (observer) {
+      observer.observe(canvas);
+      return;
+    }
+    const render = function() {
+      renderQueuedWorldJournalThumbnail(canvas);
+    };
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(render, { timeout: 800 });
+    } else {
+      window.setTimeout(render, 0);
+    }
+  }
+
+  function getWorldJournalRenderKey(journal) {
+    return (journal && Array.isArray(journal.groups) ? journal.groups : []).map(function(group) {
+      return [group.id].concat((group.items || []).map(function(item) {
+        const snapshot = item.photoSnapshot || {};
+        return [
+          item.id,
+          item.discovered ? 1 : 0,
+          item.count || 0,
+          item.firstSeenAt || '',
+          item.lastSeenAt || '',
+          item.hint || '',
+          snapshot.seed || '',
+          snapshot.stage || '',
+          item.photoScene || ''
+        ].join(':');
+      })).join('|');
+    }).join('||');
   }
 
   function getWorldJournalItemTilt(groupId, item) {
@@ -3857,7 +3981,7 @@
       item && item.id || 'item',
       item && item.firstSeenAt || ''
     ].join(':');
-    const tilt = -3.8 + hashStringToUnit(seed) * 7.6;
+    const tilt = -0.8 + hashStringToUnit(seed) * 1.6;
     return tilt.toFixed(2) + 'deg';
   }
 
