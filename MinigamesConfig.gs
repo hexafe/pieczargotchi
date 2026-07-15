@@ -14,6 +14,7 @@ function getMinigamesConfig() {
       scoreTargetCasual: 18,
       scoreTargetMastery: 32,
       perfectTarget: 36,
+      scoreLabelForms: ['punkt', 'punkty', 'punktów'],
       rewards: {
         hydrationBase: 4,
         hydrationPerCatch: 2,
@@ -37,6 +38,7 @@ function getMinigamesConfig() {
       scoreTargetCasual: 18,
       scoreTargetMastery: 30,
       perfectTarget: 34,
+      scoreLabelForms: ['punkt', 'punkty', 'punktów'],
       rewards: {
         happinessBase: 2,
         happinessPerPop: 1,
@@ -59,6 +61,7 @@ function getMinigamesConfig() {
       scoreTargetCasual: 14,
       scoreTargetMastery: 23,
       perfectTarget: 27,
+      scoreLabelForms: ['punkt', 'punkty', 'punktów'],
       rewards: {
         nutrientsBase: 2,
         nutrientsPerPoint: 1.2,
@@ -91,6 +94,7 @@ function getMinigamesConfig() {
       scoreTargetCasual: 14,
       scoreTargetMastery: 24,
       perfectTarget: 27,
+      scoreLabelForms: ['punkt', 'punkty', 'punktów'],
       rewards: {
         happinessBase: 2,
         happinessPerPoint: 1.1,

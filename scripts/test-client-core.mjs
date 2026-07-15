@@ -2154,6 +2154,7 @@ test('minigame completion grants bounded rewards and records play history', () =
   const now = Date.parse('2026-05-16T12:00:00.000Z');
   const session = core.createMinigameSession('dewCatch', rules, now, 123).session;
   session.score = 20;
+  Object.assign(session, { inputCount: 11, resolvedCount: 11, correctCount: 11, decisionCount: 18 });
   const result = core.finishMinigame({
     stats: { hydration: 50, happiness: 50 },
     inventory: { spores: 0 },
@@ -2194,6 +2195,7 @@ test('spore pop grants bounded happiness and spores without hydration', () => {
   const now = Date.parse('2026-05-16T12:20:00.000Z');
   const session = core.createMinigameSession('sporePop', rules, now, 456).session;
   session.score = 30;
+  Object.assign(session, { inputCount: 20, resolvedCount: 20, correctCount: 20, decisionCount: 20 });
   const result = core.finishMinigame({
     stats: { hydration: 50, happiness: 50 },
     inventory: { spores: 1 },
@@ -2277,6 +2279,7 @@ test('new habitat minigames grant bounded substrate and rhythm rewards', () => {
   const now = Date.parse('2026-05-21T15:00:00.000Z');
   const compostSession = core.createMinigameSession('compostSort', rules, now, 789).session;
   compostSession.score = 18;
+  Object.assign(compostSession, { inputCount: 18, resolvedCount: 18, correctCount: 18, decisionCount: 18 });
   const compost = core.finishMinigame({
     stats: { nutrients: 50, cleanliness: 60, happiness: 50 },
     inventory: { spores: 0, substrate: 0 },
@@ -2286,6 +2289,7 @@ test('new habitat minigames grant bounded substrate and rhythm rewards', () => {
 
   const rhythmSession = core.createMinigameSession('rhythmHum', rules, now, 790).session;
   rhythmSession.score = 10;
+  Object.assign(rhythmSession, { inputCount: 4, resolvedCount: 4, correctCount: 4, decisionCount: 8 });
   const rhythm = core.finishMinigame({
     stats: { happiness: 50, energy: 60 },
     inventory: { spores: 0 },
@@ -2344,7 +2348,7 @@ test('minigame abort and practice clear the session without persistent rewards o
   assert(practiced.state.stats.hydration === 50 && !practiced.state.history.minigames.dewCatch, 'practice must not persist economy or records');
 });
 
-test('empty timeout grants nothing while fair tiers use coverage and accuracy', () => {
+test('untouched auto-resolved timeout grants nothing while fair tiers use coverage and accuracy', () => {
   const rules = {
     minigames: {
       compostSort: {
@@ -2360,14 +2364,23 @@ test('empty timeout grants nothing while fair tiers use coverage and accuracy', 
   };
   const now = Date.parse('2026-07-13T13:00:00.000Z');
   const empty = core.createMinigameSession('compostSort', rules, now, 303).session;
+  Object.assign(empty, {
+    score: 7,
+    resolvedCount: 18,
+    correctCount: 7,
+    expiredCount: 11,
+    decisionCount: 18,
+    inputCount: 0
+  });
   const emptyResult = core.finishMinigame({
     stats: { nutrients: 50 },
     inventory: { spores: 0 },
     history: {},
     minigames: { active: empty, lastResult: null, pendingRewardSeeds: {} }
   }, empty, rules, now + 22000, { reason: 'timeout' });
-  assert(emptyResult.ok && !emptyResult.settledReward, 'an untouched timeout must not consume a reward run');
-  assert(emptyResult.state.stats.nutrients === 50 && !emptyResult.state.history.minigames.compostSort, 'untouched timeout must grant nothing');
+  assert(emptyResult.ok && !emptyResult.settledReward, 'an untouched auto-resolved timeout must not consume a reward run');
+  assert(emptyResult.outcome.score === 7 && emptyResult.outcome.resolvedCount === 18, 'automatic score and expiries should remain available as round feedback');
+  assert(emptyResult.state.stats.nutrients === 50 && !emptyResult.state.history.minigames.compostSort, 'untouched auto-resolved timeout must grant nothing');
 
   const flawless = core.createMinigameSession('compostSort', rules, now + 30000, 304).session;
   Object.assign(flawless, {

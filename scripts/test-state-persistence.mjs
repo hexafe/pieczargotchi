@@ -56,6 +56,24 @@ test('localStorage read SecurityError falls back to a playable in-memory state',
   assert(status.mode === 'memory' && status.reason === 'storageUnavailable', 'read failure should expose memory fallback');
 });
 
+test('reload keeps its tab owner while cloned and traversed documents rotate identity', () => {
+  const tabSessionStorage = new Map();
+  const firstLoad = createHarness({ sessionValues: tabSessionStorage, navigationType: 'navigate' });
+  const firstId = firstLoad.context.getPersistenceStatus().tabId;
+  const firstDocumentId = firstLoad.context.getPersistenceStatus().documentId;
+  const reloaded = createHarness({ sessionValues: tabSessionStorage, navigationType: 'reload' });
+  const clonedTab = createHarness({ sessionValues: new Map(tabSessionStorage), navigationType: 'navigate' });
+  const traversed = createHarness({ sessionValues: tabSessionStorage, navigationType: 'back_forward' });
+  const fallback = createHarness({ sessionValues: tabSessionStorage, noNavigationTiming: true });
+
+  assert(/^tab_[a-z0-9]+$/i.test(firstId), 'tab identity should use a bounded generated id');
+  assert(reloaded.context.getPersistenceStatus().tabId === firstId, 'an explicit reload should resume the same exclusive owner');
+  assert(reloaded.context.getPersistenceStatus().documentId !== firstDocumentId, 'each loaded document must own a distinct write lease');
+  assert(clonedTab.context.getPersistenceStatus().tabId !== firstId, 'a cloned tab must not inherit the live writer identity');
+  assert(traversed.context.getPersistenceStatus().tabId !== firstId, 'a history traversal should not reuse a possibly cloned owner');
+  assert(fallback.context.getPersistenceStatus().tabId !== firstId, 'missing navigation timing must fail safe with a fresh owner');
+});
+
 test('storage write failure falls back to a playable memory save', () => {
   const harness = createHarness({ throwOnSet: true });
   const state = { version: 17, saveRevision: 0, stats: { health: 100 } };
@@ -99,6 +117,27 @@ test('external storage event reports split-brain writes at the same revision', (
 
   assert(received && received.revision === saved.revision, 'same-revision external writer should reach conflict handling');
   assert(harness.context.getPersistenceStatus().conflicted, 'same-revision split brain should mark local state stale');
+});
+
+test('a legacy cloned owner cannot hide storage events or reuse the document lease', () => {
+  const harness = createHarness();
+  const status = harness.context.getPersistenceStatus();
+  let received = null;
+  harness.context.initializePersistenceSync((payload) => {
+    received = payload;
+  });
+  harness.dispatchStorage({
+    key: 'pieczargotchi_state_v2',
+    newValue: JSON.stringify({ version: 17, saveRevision: 1, saveWriterId: status.tabId, stats: { health: 75 } })
+  });
+  assert(received && received.writerId === status.tabId, 'a cloned legacy owner with the same tab id must still trigger conflict handling');
+
+  harness.storage.setItem('pieczargotchi_state_v2_write_lock', JSON.stringify({
+    owner: status.tabId,
+    expiresAt: Date.now() + 10000
+  }));
+  const result = harness.context.saveState({ version: 17, saveRevision: 0, stats: { health: 100 } });
+  assert(!result.ok && result.reason === 'storageBusy', 'write leases must be owned by the unique document id, not the reload-stable tab id');
 });
 
 test('saveState rejects a stale local revision without changing storage', () => {
@@ -196,6 +235,7 @@ test('successful save clears transient busy persistence status', () => {
 
 function createHarness(options = {}) {
   const values = new Map();
+  const sessionValues = options.sessionValues || new Map();
   if (options.initialRaw) {
     values.set('pieczargotchi_state_v2', options.initialRaw);
   }
@@ -227,6 +267,23 @@ function createHarness(options = {}) {
       values.delete(key);
     }
   };
+  const sessionStorage = {
+    getItem(key) {
+      if (options.throwOnSessionGet) {
+        throw new Error('session storage denied');
+      }
+      return sessionValues.has(key) ? sessionValues.get(key) : null;
+    },
+    setItem(key, value) {
+      if (options.throwOnSessionSet) {
+        throw new Error('session storage denied');
+      }
+      sessionValues.set(key, String(value));
+    },
+    removeItem(key) {
+      sessionValues.delete(key);
+    }
+  };
   const context = {
     console,
     config: { stateVersion: 17, storageKey: 'pieczargotchi_state_v2' },
@@ -242,6 +299,12 @@ function createHarness(options = {}) {
     cleanupActivity() {},
     window: {
       localStorage: storage,
+      sessionStorage,
+      performance: options.noNavigationTiming ? {} : {
+        getEntriesByType(type) {
+          return type === 'navigation' ? [{ type: options.navigationType || 'navigate' }] : [];
+        }
+      },
       PieczargotchiCore: loadCore(),
       addEventListener(type, listener) {
         listeners.set(type, listener);
@@ -258,6 +321,7 @@ function createHarness(options = {}) {
   return {
     context,
     storage,
+    sessionStorage,
     dispatchStorage(event) {
       const listener = listeners.get('storage');
       if (listener) {

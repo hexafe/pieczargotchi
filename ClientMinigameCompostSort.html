@@ -58,6 +58,7 @@
     const now = getRuntimeNow();
     const session = runtime.minigame.session;
     if (now >= Number(session.until)) {
+      settleCompostSortTimeout(now);
       handleMinigameEnd('timeout');
       return;
     }
@@ -189,18 +190,22 @@
       }
       return;
     }
+    const preservedIndex = pieces.findIndex(function(item) {
+      return item.piece.id === runtime.minigame.keyboardPieceId;
+    });
+    let selectedIndex = preservedIndex >= 0
+      ? preservedIndex
+      : Math.min(pieces.length - 1, Math.max(0, Number(runtime.minigame.keyboardPieceIndex) || 0));
     if (direction) {
-      if (typeof recordStandardMinigameInput === 'function') {
-        recordStandardMinigameInput(session);
-      }
-      runtime.minigame.keyboardPieceIndex = positiveModulo((Number(runtime.minigame.keyboardPieceIndex) || 0) + direction, pieces.length);
+      selectedIndex = preservedIndex >= 0
+        ? positiveModulo(selectedIndex + direction, pieces.length)
+        : direction > 0 ? 0 : pieces.length - 1;
     }
-    const selected = pieces[Math.min(pieces.length - 1, Number(runtime.minigame.keyboardPieceIndex) || 0)];
+    const selected = pieces[selectedIndex];
+    runtime.minigame.keyboardPieceIndex = selectedIndex;
     runtime.minigame.keyboardPieceId = selected.piece.id;
     if (bin) {
       finishCompostSortDrag(selected.piece, bin, selected.position.x, selected.position.y, now);
-    } else {
-      syncCompostSortActiveSession(true);
     }
   }
 
@@ -240,6 +245,10 @@
       return { piece: piece, position: getCompostPiecePosition(piece, progress, canvas.width, canvas.height) };
     }).filter(function(item) {
       return item.position.visible && !isCompostSortPieceResolved(session, item.piece.id);
+    }).sort(function(left, right) {
+      return Number(left.position.x) - Number(right.position.x)
+        || Number(left.position.y) - Number(right.position.y)
+        || String(left.piece.id).localeCompare(String(right.piece.id));
     });
   }
 
@@ -344,6 +353,31 @@
     syncCompostSortActiveSession(true);
     updateMinigameHud(now || getRuntimeNow());
     return true;
+  }
+
+  function settleCompostSortTimeout(now) {
+    const owner = runtime.minigame;
+    const session = owner && owner.session;
+    if (!session || !Array.isArray(owner.pieces)) {
+      return false;
+    }
+    let changed = false;
+    session.expired = Array.isArray(session.expired) ? session.expired : [];
+    owner.pieces.forEach(function(piece) {
+      if (isCompostSortPieceResolved(session, piece.id)) {
+        return;
+      }
+      session.expired.push(piece.id);
+      recordStandardMinigameResolution(session, 'expired');
+      changed = true;
+    });
+    if (changed) {
+      session.combo = 0;
+      owner.dragging = null;
+      syncCompostSortActiveSession(true);
+      updateMinigameHud(now || getRuntimeNow());
+    }
+    return changed;
   }
 
   function getCompostPointerPosition(event) {

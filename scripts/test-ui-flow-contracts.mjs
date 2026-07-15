@@ -114,6 +114,151 @@ test('ending a minigame reserves persistence for the final exclusive write', () 
   assert(runtime.state.minigames.active === null, 'successful result persistence should close the active session');
 });
 
+test('untouched auto-resolved reward rounds preserve seed and cooldown eligibility', () => {
+  const session = {
+    id: 'dewCatch',
+    runtimeToken: 'round-idle',
+    startedAt: 1000,
+    until: 21000,
+    score: 7,
+    inputCount: 0,
+    resolvedCount: 18
+  };
+  const runtime = {
+    state: {
+      saveRevision: 1,
+      stats: { hydration: 50 },
+      cooldowns: {},
+      minigames: {
+        active: structuredClone(session),
+        pendingRewardSeeds: { dewCatch: 4242 }
+      }
+    },
+    minigame: { session: structuredClone(session) },
+    pendingExclusiveStart: null
+  };
+  let persistedCandidate = null;
+  const end = evaluateFunction(actionsSource, 'handleMinigameEnd', {
+    runtime,
+    rules: {},
+    window: {
+      PieczargotchiCore: {
+        finishMinigame(state) {
+          const next = structuredClone(state);
+          next.minigames.active = null;
+          return {
+            ok: true,
+            state: next,
+            outcome: { id: 'dewCatch', score: 7, resolvedCount: 18 },
+            settledReward: false
+          };
+        }
+      }
+    },
+    getRuntimeNow: () => 22000,
+    isRuntimeMutationBlocked: () => false,
+    doesRuntimeMinigameSessionMatch: () => true,
+    isGameOverForRuntime: () => false,
+    isRecoveryActiveForRuntime: () => false,
+    isBattleSessionActive: () => false,
+    flushMinigameRuntimePersist: () => {},
+    deepClone: structuredClone,
+    stopMinigameRuntime: () => { runtime.minigame = null; },
+    releaseExclusiveRuntimeSession: () => {},
+    persistExclusiveStartCandidate(candidate, _base, _pending, complete) {
+      persistedCandidate = structuredClone(candidate);
+      complete({ ok: true }, candidate);
+    },
+    reconcileExclusiveRuntimeSession: () => {},
+    setTransientMessage: () => {},
+    renderPersistenceStatus: () => {},
+    renderUi: () => {},
+    Date
+  });
+
+  end('timeout');
+  assert(persistedCandidate.minigames.pendingRewardSeeds.dewCatch === 4242, 'idle timeout must retain the deterministic reward seed');
+  assert(Object.keys(persistedCandidate.cooldowns).length === 0, 'idle timeout must not start a cooldown');
+});
+
+test('manual reward abort rotates the revealed seed without starting a cooldown', () => {
+  const session = {
+    id: 'memoryGarden',
+    runtimeToken: 'round-abort',
+    startedAt: 1000,
+    until: 43000,
+    seed: 4242,
+    score: 0,
+    inputCount: 0
+  };
+  const runtime = {
+    state: {
+      saveRevision: 1,
+      cooldowns: {},
+      minigames: {
+        active: structuredClone(session),
+        pendingRewardSeeds: { memoryGarden: 4242 }
+      }
+    },
+    minigame: { session: structuredClone(session) },
+    pendingExclusiveStart: null
+  };
+  let persistedCandidate = null;
+  let message = '';
+  const end = evaluateFunction(actionsSource, 'handleMinigameEnd', {
+    runtime,
+    rules: {},
+    window: {
+      PieczargotchiCore: {
+        finishMinigame(state) {
+          const next = structuredClone(state);
+          next.minigames.active = null;
+          return {
+            ok: true,
+            state: next,
+            outcome: { id: 'memoryGarden', score: 0 },
+            aborted: true,
+            settledReward: false
+          };
+        }
+      }
+    },
+    getRuntimeNow: () => 5000,
+    isRuntimeMutationBlocked: () => false,
+    doesRuntimeMinigameSessionMatch: () => true,
+    isGameOverForRuntime: () => false,
+    isRecoveryActiveForRuntime: () => false,
+    isBattleSessionActive: () => false,
+    flushMinigameRuntimePersist: () => {},
+    deepClone: structuredClone,
+    buildNextMinigameRewardSeed: (_id, current) => current + 1,
+    stopMinigameRuntime: () => { runtime.minigame = null; },
+    releaseExclusiveRuntimeSession: () => {},
+    persistExclusiveStartCandidate(candidate, _base, _pending, complete) {
+      persistedCandidate = structuredClone(candidate);
+      complete({ ok: true }, candidate);
+    },
+    reconcileExclusiveRuntimeSession: () => {},
+    setTransientMessage(_title, body) { message = body; },
+    renderPersistenceStatus: () => {},
+    renderUi: () => {},
+    Date
+  });
+
+  end('manual');
+  assert(persistedCandidate.minigames.pendingRewardSeeds.memoryGarden === 4243, 'manual abort must replace the revealed reward seed');
+  assert(Object.keys(persistedCandidate.cooldowns).length === 0, 'manual abort must remain free of cooldown penalties');
+  assert(message.includes('nowy układ'), 'abort feedback should explain that the next reward layout changes');
+});
+
+test('reward seed rotation cannot return the same deterministic seed', () => {
+  const rotate = evaluateFunction(actionsSource, 'buildNextMinigameRewardSeed', {
+    buildMinigameSeed: () => 4242
+  });
+  assert(rotate('memoryGarden', 4242, 5000) === 4243, 'seed collision should advance to a distinct bounded seed');
+  assert(rotate('memoryGarden', 2147483645, 5000) === 4242, 'a distinct generated seed should remain valid at the upper bound');
+});
+
 test('end flush clears the debounce without scheduling a competing write', () => {
   const clearedTimers = [];
   let persistCount = 0;
@@ -340,6 +485,103 @@ test('nested dialogs restore focus to their own visible launch points', () => {
   assert(menu.focusCount === 1, 'Menu must retain its independent return target');
   close(settingsDialog);
   assert(menu.focusCount === 1, 'closing an already closed dialog must be idempotent');
+});
+
+test('fallback dialogs close on Escape before background shortcuts run', () => {
+  const fallbackDialog = {};
+  let prevented = 0;
+  let stopped = 0;
+  let closed = 0;
+  let trayCollapsed = 0;
+  const handleKeydown = evaluateFunction(uiSource, 'handleSceneFirstUiKeydown', {
+    document: {
+      querySelector(selector) {
+        assert(selector === 'dialog[open][data-fallback-modal="true"]', 'fallback lookup should remain scoped to the open dialog');
+        return fallbackDialog;
+      }
+    },
+    ensureSceneFirstUiRuntime: () => ({ actionTrayExpanded: true }),
+    closeSceneFirstDialog(dialog) {
+      assert(dialog === fallbackDialog, 'Escape should close the active fallback dialog');
+      closed += 1;
+    },
+    collapseMobileActionTray: () => { trayCollapsed += 1; }
+  });
+  handleKeydown({
+    key: 'Escape',
+    preventDefault() { prevented += 1; },
+    stopPropagation() { stopped += 1; }
+  });
+  assert(closed === 1 && prevented === 1 && stopped === 1, 'fallback Escape should close modally and consume the key');
+  assert(trayCollapsed === 0, 'background action tray must not receive fallback-dialog Escape');
+});
+
+test('fallback dialogs isolate the interactive runtime alert but preserve passive live regions', () => {
+  const makeNode = (kind) => {
+    const attributes = new Map();
+    return {
+      kind,
+      inert: false,
+      hasAttribute(name) { return attributes.has(name); },
+      getAttribute(name) { return attributes.has(name) ? attributes.get(name) : null; },
+      setAttribute(name, value) { attributes.set(name, String(value)); },
+      removeAttribute(name) { attributes.delete(name); },
+      matches(selector) {
+        return kind === 'status' && selector.includes('[data-ui-status]');
+      }
+    };
+  };
+  const dialog = makeNode('dialog');
+  const runtimeAlert = makeNode('runtime-alert');
+  const status = makeNode('status');
+  const ui = {};
+  const isolate = evaluateFunction(uiSource, 'syncFallbackDialogBackgroundIsolation', {
+    document: { querySelectorAll: () => [dialog, runtimeAlert, status] },
+    ensureSceneFirstUiRuntime: () => ui
+  });
+
+  isolate(dialog, true);
+  assert(runtimeAlert.inert && runtimeAlert.getAttribute('aria-hidden') === 'true', 'runtime retry action must be inert behind the fallback dialog');
+  assert(!status.inert && status.getAttribute('aria-hidden') === null, 'passive live status should remain available to assistive technology');
+  isolate(dialog, false);
+  assert(!runtimeAlert.inert && runtimeAlert.getAttribute('aria-hidden') === null, 'runtime alert isolation must restore its original state');
+});
+
+test('minigame completion focus scrolls the recap target into the visible scrollport', () => {
+  let focusOptions = null;
+  let scrollOptions = null;
+  const replay = {
+    isConnected: true,
+    hidden: false,
+    disabled: false,
+    closest: () => null,
+    getBoundingClientRect: () => ({ width: 100, height: 44 }),
+    focus(options) { focusOptions = options; },
+    scrollIntoView(options) { scrollOptions = options; }
+  };
+  const recap = { querySelector: () => replay };
+  const runtime = {
+    state: { minigames: { active: null } },
+    pendingMinigameFocusRestore: { id: 'dewCatch', legendary: false, scheduled: false }
+  };
+  const restore = evaluateFunction(uiSource, 'restorePendingMinigameFocus', {
+    runtime,
+    document: {
+      querySelector(selector) {
+        return selector.startsWith('[data-minigame-recap=') ? recap : null;
+      },
+      querySelectorAll: () => []
+    },
+    window: {
+      requestAnimationFrame(callback) { callback(); },
+      getComputedStyle() { return { display: 'block', visibility: 'visible' }; }
+    }
+  });
+
+  restore();
+  assert(focusOptions && focusOptions.preventScroll === false, 'completion focus should permit native scroll restoration');
+  assert(scrollOptions && scrollOptions.block === 'nearest' && scrollOptions.inline === 'nearest', 'completion target should be scrolled into the nearest visible region');
+  assert(runtime.pendingMinigameFocusRestore === null, 'successful focus restoration should clear the pending target');
 });
 
 test('mobile action tray does not reserve space outside the Care workspace', () => {

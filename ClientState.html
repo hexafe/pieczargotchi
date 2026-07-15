@@ -1,4 +1,5 @@
-  const persistenceTabId = 'tab_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  const persistenceDocumentId = createPersistenceIdentity('doc');
+  const persistenceTabId = getOrCreatePersistenceTabId();
   const persistenceState = {
     mode: 'storage',
     reason: null,
@@ -12,6 +13,44 @@
   };
   let persistenceMemoryRaw = null;
   let persistenceStorageListener = null;
+
+  function createPersistenceIdentity(prefix) {
+    return String(prefix || 'tab') + '_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  }
+
+  function getPersistenceNavigationType() {
+    try {
+      const performanceApi = window.performance;
+      const entries = performanceApi && typeof performanceApi.getEntriesByType === 'function'
+        ? performanceApi.getEntriesByType('navigation')
+        : [];
+      const entryType = entries && entries[0] ? String(entries[0].type || '') : '';
+      if (entryType) {
+        return entryType;
+      }
+      if (performanceApi && performanceApi.navigation && Number(performanceApi.navigation.type) === 1) {
+        return 'reload';
+      }
+    } catch (error) {
+      return '';
+    }
+    return '';
+  }
+
+  function getOrCreatePersistenceTabId() {
+    const sessionKey = 'pieczargotchi_persistence_tab_id_v1';
+    try {
+      const storedId = String(window.sessionStorage.getItem(sessionKey) || '').slice(0, 80);
+      if (getPersistenceNavigationType() === 'reload' && /^tab_[a-z0-9]+$/i.test(storedId)) {
+        return storedId;
+      }
+      const nextId = createPersistenceIdentity('tab');
+      window.sessionStorage.setItem(sessionKey, nextId);
+      return nextId;
+    } catch (error) {
+      return createPersistenceIdentity('tab');
+    }
+  }
 
   function createDefaultState() {
     const now = new Date(getRuntimeNow()).toISOString();
@@ -242,6 +281,7 @@
   function getPersistenceStatus() {
     return Object.assign({}, persistenceState, {
       tabId: persistenceTabId,
+      documentId: persistenceDocumentId,
       memoryOnly: persistenceState.mode === 'memory'
     });
   }
@@ -277,9 +317,6 @@
       try {
         nextState = JSON.parse(event.newValue);
       } catch (error) {
-        return;
-      }
-      if (nextState.saveWriterId === persistenceTabId) {
         return;
       }
       const revision = Math.max(0, Math.floor(Number(nextState.saveRevision) || 0));
@@ -339,17 +376,17 @@
     } catch (error) {
       existing = null;
     }
-    if (existing && existing.owner !== persistenceTabId && Number(existing.expiresAt) > now) {
+    if (existing && existing.owner !== persistenceDocumentId && Number(existing.expiresAt) > now) {
       return false;
     }
     const lease = {
-      owner: persistenceTabId,
+      owner: persistenceDocumentId,
       expiresAt: now + 10000
     };
     window.localStorage.setItem(lockKey, JSON.stringify(lease));
     const confirmedRaw = window.localStorage.getItem(lockKey);
     const confirmed = confirmedRaw ? JSON.parse(confirmedRaw) : null;
-    return Boolean(confirmed && confirmed.owner === persistenceTabId);
+    return Boolean(confirmed && confirmed.owner === persistenceDocumentId);
   }
 
   function releasePersistenceWriteLease(key, acquired) {
@@ -360,7 +397,7 @@
     try {
       const raw = window.localStorage.getItem(lockKey);
       const lease = raw ? JSON.parse(raw) : null;
-      if (lease && lease.owner === persistenceTabId) {
+      if (lease && lease.owner === persistenceDocumentId) {
         window.localStorage.removeItem(lockKey);
       }
     } catch (error) {
@@ -373,14 +410,14 @@
     try {
       const lockRaw = window.localStorage.getItem(lockKey);
       const lock = lockRaw ? JSON.parse(lockRaw) : null;
-      if (!lock || lock.owner !== persistenceTabId || Number(lock.expiresAt) <= Date.now()) {
+      if (!lock || lock.owner !== persistenceDocumentId || Number(lock.expiresAt) <= Date.now()) {
         return { ok: false, reason: 'storageBusy', storedRevision: persistenceState.revision };
       }
       lock.expiresAt = Date.now() + 10000;
       window.localStorage.setItem(lockKey, JSON.stringify(lock));
       const refreshedRaw = window.localStorage.getItem(lockKey);
       const refreshed = refreshedRaw ? JSON.parse(refreshedRaw) : null;
-      if (!refreshed || refreshed.owner !== persistenceTabId || Number(refreshed.expiresAt) <= Date.now()) {
+      if (!refreshed || refreshed.owner !== persistenceDocumentId || Number(refreshed.expiresAt) <= Date.now()) {
         return { ok: false, reason: 'storageBusy', storedRevision: persistenceState.revision };
       }
 

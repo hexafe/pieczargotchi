@@ -158,12 +158,13 @@
       const surface = getActiveMinigameSurface(session.id);
       const status = getMinigameLaunchStatusNode();
       if (surface) {
-        surface.dataset.launchPhase = 'running';
+        setMinigameSurfacePhase(surface, 'running');
         surface.setAttribute('aria-busy', 'false');
       }
       if (status) {
         status.textContent = 'Start! ' + getMinigameInstructionText(session.id);
       }
+      revealMinigameCriticalRegion(session);
       cancelMinigameLaunchTimer(true);
       launchMinigameRuntimeNow(session);
       return;
@@ -173,7 +174,7 @@
     const surface = getActiveMinigameSurface(session.id);
     launch.phase = 'countdown';
     if (surface) {
-      surface.dataset.launchPhase = 'countdown';
+      setMinigameSurfacePhase(surface, 'countdown');
       surface.setAttribute('aria-busy', 'true');
     }
     if (status) {
@@ -199,12 +200,14 @@
     setActiveMinigameCanvas(session && session.id);
     if (surface) {
       surface.hidden = false;
-      surface.dataset.launchPhase = phase || 'running';
+      setMinigameSurfacePhase(surface, phase || 'running');
       surface.setAttribute('aria-busy', phase === 'running' ? 'false' : 'true');
       if (!surface.hasAttribute('tabindex')) {
         surface.tabIndex = -1;
       }
-      if (shouldScroll && typeof surface.scrollIntoView === 'function') {
+      if (shouldScroll && phase === 'running') {
+        revealMinigameCriticalRegion(session);
+      } else if (shouldScroll && typeof surface.scrollIntoView === 'function') {
         window.requestAnimationFrame(function() {
           window.requestAnimationFrame(function() {
             if (!surface.isConnected || surface.hidden) {
@@ -239,6 +242,91 @@
         canvas.setAttribute('aria-describedby', status.id);
       }
     }
+  }
+
+  function setMinigameSurfacePhase(surface, phase) {
+    if (!surface) {
+      return;
+    }
+    const launchPhase = phase || 'idle';
+    surface.dataset.launchPhase = launchPhase;
+    const legendaryHub = surface.closest && surface.closest('[data-legendary-games]');
+    if (legendaryHub) {
+      legendaryHub.dataset.launchPhase = launchPhase;
+    }
+  }
+
+  function clearMinigameSurfacePhases() {
+    [dom.minigamePlayfield, dom.legendaryGamePlayfield].forEach(function(surface) {
+      if (!surface) {
+        return;
+      }
+      delete surface.dataset.launchPhase;
+      surface.removeAttribute('aria-busy');
+      const legendaryHub = surface.closest && surface.closest('[data-legendary-games]');
+      if (legendaryHub) {
+        delete legendaryHub.dataset.launchPhase;
+      }
+    });
+  }
+
+  function revealMinigameCriticalRegion(session) {
+    const minigameId = session && session.id;
+    const surface = getActiveMinigameSurface(minigameId);
+    const canvas = getMinigameCanvas(minigameId);
+    if (!surface || !canvas) {
+      return;
+    }
+
+    const alignCriticalRegion = function() {
+      if (!surface.isConnected || surface.hidden || !canvas.isConnected || canvas.hidden) {
+        return;
+      }
+      const hud = surface.querySelector('.minigame-hud');
+      const interrupt = surface.querySelector('[data-minigame-end], [data-legendary-minigame-end]');
+      const critical = [canvas, hud, interrupt].filter(function(element) {
+        if (!element || !element.isConnected || element.hidden) {
+          return false;
+        }
+        const style = window.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+      });
+      if (!critical.length) {
+        return;
+      }
+
+      const rects = critical.map(function(element) {
+        return element.getBoundingClientRect();
+      });
+      const groupTop = Math.min.apply(null, rects.map(function(rect) { return rect.top; }));
+      const groupBottom = Math.max.apply(null, rects.map(function(rect) { return rect.bottom; }));
+      const groupHeight = groupBottom - groupTop;
+      const sidePanel = surface.closest('.side-panel');
+      if (sidePanel && sidePanel.scrollHeight > sidePanel.clientHeight + 1) {
+        const panelRect = sidePanel.getBoundingClientRect();
+        const visibleTop = Math.max(0, panelRect.top + sidePanel.clientTop + 4);
+        const visibleBottom = Math.min(window.innerHeight, panelRect.bottom - sidePanel.clientTop - 4);
+        const availableHeight = Math.max(1, visibleBottom - visibleTop);
+        const targetTop = visibleTop + Math.max(0, (availableHeight - groupHeight) / 2);
+        if (groupTop < visibleTop || groupBottom > visibleBottom) {
+          sidePanel.scrollTop += groupTop - targetTop;
+        }
+        return;
+      }
+
+      const visibleTop = 4;
+      const visibleBottom = window.innerHeight - 4;
+      if (groupTop < visibleTop || groupBottom > visibleBottom) {
+        const targetTop = visibleTop + Math.max(0, (visibleBottom - visibleTop - groupHeight) / 2);
+        window.scrollBy({ top: groupTop - targetTop, behavior: 'auto' });
+      }
+    };
+
+    alignCriticalRegion();
+    window.requestAnimationFrame(function() {
+      window.requestAnimationFrame(alignCriticalRegion);
+    });
   }
 
   function getActiveMinigameSurface(minigameId) {
@@ -508,6 +596,12 @@
     runtime.minigameReturnObserver = new window.IntersectionObserver(function(entries) {
       const entry = entries && entries[0];
       dom.minigameReturn.hidden = Boolean(entry && entry.intersectionRatio >= 0.35);
+      if (entry && entry.isIntersecting && surface.dataset.launchPhase === 'running') {
+        const current = runtime.state && runtime.state.minigames ? runtime.state.minigames.active : null;
+        if (current) {
+          revealMinigameCriticalRegion(current);
+        }
+      }
     }, { threshold: [0, 0.35, 1] });
     runtime.minigameReturnObserver.observe(surface);
   }
@@ -713,6 +807,11 @@
 
   function stopMinigameRuntime() {
     const hadActiveRuntime = Boolean(runtime.minigame || runtime.minigameLaunch);
+    const endingSession = runtime.minigame && runtime.minigame.session
+      ? runtime.minigame.session
+      : runtime.state && runtime.state.minigames
+        ? runtime.state.minigames.active
+        : null;
     if (runtime.minigame && runtime.minigame.animationFrame) {
       window.cancelAnimationFrame(runtime.minigame.animationFrame);
     }
@@ -741,15 +840,13 @@
     if (hadActiveRuntime) {
       const returnFocus = runtime.minigameReturnFocus;
       runtime.minigameReturnFocus = null;
-      if (returnFocus && returnFocus.isConnected && typeof returnFocus.focus === 'function') {
-        window.setTimeout(function() {
-          try {
-            returnFocus.focus({ preventScroll: true });
-          } catch (error) {
-            returnFocus.focus();
-          }
-        }, 0);
-      }
+      runtime.pendingMinigameFocusRestore = {
+        id: endingSession && endingSession.id || '',
+        legendary: Boolean(endingSession && isLegendaryMinigameRuntimeId(endingSession.id)),
+        focusKey: returnFocus && returnFocus.dataset ? returnFocus.dataset.focusKey || '' : '',
+        node: returnFocus || null
+      };
+      clearMinigameSurfacePhases();
     }
   }
 
@@ -778,6 +875,7 @@
     const now = getRuntimeNow();
     const session = runtime.minigame.session;
     if (now >= Number(session.until)) {
+      settleDewCatchTimeout(now);
       handleMinigameEnd('timeout');
       return;
     }
@@ -1062,7 +1160,32 @@
     requestStandardMinigameAutoFinish(runtime.minigame.drops.length);
   }
 
-  function markDewDropMissed(drop, now) {
+  function settleDewCatchTimeout(now) {
+    const owner = runtime.minigame;
+    if (!owner || !owner.session || owner.session.id !== 'dewCatch' || owner.timeoutSettled) {
+      return 0;
+    }
+
+    owner.timeoutSettled = true;
+    const session = owner.session;
+    const settledCount = (owner.drops || []).reduce(function(count, drop) {
+      if (!drop || isDewDropResolved(session, drop.id)) {
+        return count;
+      }
+      markDewDropMissed(drop, now, {
+        deferSync: true,
+        deferAutoFinish: true,
+        silent: true
+      });
+      return count + 1;
+    }, 0);
+    syncDewCatchActiveSession(true);
+    updateMinigameHud(now || getRuntimeNow());
+    return settledCount;
+  }
+
+  function markDewDropMissed(drop, now, optionsInput) {
+    const options = optionsInput || {};
     const session = runtime.minigame.session;
     session.missed = Array.isArray(session.missed) ? session.missed : [];
     if (!drop || isDewDropResolved(session, drop.id)) {
@@ -1072,24 +1195,32 @@
     session.missed.push(drop.id);
     if (drop.kind === 'leaf') {
       recordStandardMinigameResolution(session, 'correct');
-      emitStandardMinigameSensoryCue('success', {
-        minigameId: 'dewCatch',
-        outcome: 'correct',
-        targetKind: drop.kind,
-        passive: true
-      });
+      if (!options.silent) {
+        emitStandardMinigameSensoryCue('success', {
+          minigameId: 'dewCatch',
+          outcome: 'correct',
+          targetKind: drop.kind,
+          passive: true
+        });
+      }
     } else {
       recordStandardMinigameResolution(session, 'expired');
       session.combo = 0;
-      emitStandardMinigameSensoryCue('miss', {
-        minigameId: 'dewCatch',
-        outcome: 'expired',
-        targetKind: drop.kind
-      });
+      if (!options.silent) {
+        emitStandardMinigameSensoryCue('miss', {
+          minigameId: 'dewCatch',
+          outcome: 'expired',
+          targetKind: drop.kind
+        });
+      }
     }
-    syncDewCatchActiveSession(true);
-    updateMinigameHud(now || getRuntimeNow());
-    requestStandardMinigameAutoFinish(runtime.minigame.drops.length);
+    if (!options.deferSync) {
+      syncDewCatchActiveSession(true);
+      updateMinigameHud(now || getRuntimeNow());
+    }
+    if (!options.deferAutoFinish) {
+      requestStandardMinigameAutoFinish(runtime.minigame.drops.length);
+    }
   }
 
   function syncDewCatchActiveSession(shouldSave) {

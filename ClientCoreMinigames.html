@@ -90,7 +90,7 @@
     const tier = finishReason === 'abort'
       ? 'aborted'
       : getMinigameResultTierCore(session, config);
-    const engaged = metrics.inputCount > 0 || metrics.resolvedCount > 0 || score > 0;
+    const engaged = metrics.inputCount > 0;
     const settledReward = mode === 'reward' && finishReason !== 'abort' && engaged;
     const rewards = settledReward ? calculateMinigameRewardsCore(config, score) : createEmptyMinigameRewardsCore();
     const outcome = {
@@ -334,8 +334,12 @@
       resolvedCount,
       0
     );
+    const hasSourceInput = Object.prototype.hasOwnProperty.call(source, 'inputCount');
+    const hasNestedInput = Object.prototype.hasOwnProperty.call(nestedMetrics, 'inputCount')
+      || Object.prototype.hasOwnProperty.call(nestedMetrics, 'inputs');
+    const inputMetric = hasSourceInput ? source.inputCount : nestedInputs;
     const inputCount = clampInteger(
-      hasExplicitMetrics ? Number(source.inputCount) || nestedInputs : Math.max(correctCount, score > 0 ? 1 : 0),
+      hasSourceInput || hasNestedInput ? inputMetric : Math.max(correctCount, score > 0 ? 1 : 0),
       0,
       999999,
       0

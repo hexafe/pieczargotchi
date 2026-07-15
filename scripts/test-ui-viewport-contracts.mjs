@@ -21,8 +21,20 @@ const viewports = [
   { width: 320, height: 568, label: 'mobile-small', mobile: true },
   { width: 640, height: 500, label: 'breakpoint-640', mobile: true },
   { width: 641, height: 500, label: 'breakpoint-641' },
-  { width: 645, height: 700, label: 'breakpoint-645' },
+  { width: 642, height: 500, label: 'breakpoint-642' },
+  { width: 643, height: 500, label: 'breakpoint-643' },
+  { width: 644, height: 500, label: 'breakpoint-644' },
+  { width: 645, height: 500, label: 'breakpoint-645' },
+  { width: 645, height: 700, label: 'breakpoint-645-tall' },
   { width: 646, height: 500, label: 'breakpoint-646' }
+];
+const activeMinigameViewports = [
+  { width: 1194, height: 891, label: 'active-desktop-reference' },
+  { width: 844, height: 390, label: 'active-landscape-wide', mobile: true },
+  { width: 740, height: 360, label: 'active-landscape-short', mobile: true },
+  { width: 320, height: 568, label: 'active-mobile-small', mobile: true },
+  { width: 641, height: 500, label: 'active-breakpoint-641', mobile: true },
+  { width: 646, height: 500, label: 'active-breakpoint-646', mobile: true }
 ];
 
 await rm(outputDir, { recursive: true, force: true });
@@ -61,8 +73,11 @@ try {
   for (const viewport of viewports) {
     await runViewport(viewport);
   }
+  for (const viewport of activeMinigameViewports) {
+    await runViewport(viewport, { activeMinigames: true });
+  }
   passed = true;
-  console.log(`UI viewport contracts passed for ${viewports.length} viewport(s).`);
+  console.log(`UI viewport contracts passed for ${viewports.length} base viewport(s) and ${activeMinigameViewports.length} active-minigame viewport(s).`);
 } finally {
   server.kill('SIGTERM');
   if (passed) {
@@ -115,8 +130,9 @@ async function waitForPreview() {
   throw new Error(`Local preview nie wystartował w 10 s: ${serverError.trim() || serverOutput.trim()}`);
 }
 
-function runViewport(viewport) {
+function runViewport(viewport, options = {}) {
   const prefix = path.join(outputDir, viewport.label);
+  const activeMinigames = Boolean(options.activeMinigames);
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [
       'scripts/capture-app-render.mjs',
@@ -128,7 +144,10 @@ function runViewport(viewport) {
         ...process.env,
         CHROMIUM_BIN: chromiumPath,
         PIECZARGOTCHI_CAPTURE_DELAY_MS: '40',
-        PIECZARGOTCHI_CAPTURE_VIEWPORT: '1',
+        PIECZARGOTCHI_CAPTURE_VIEWPORT: activeMinigames ? '0' : '1',
+        PIECZARGOTCHI_CAPTURE_ALL_MINIGAMES: activeMinigames ? '1' : '0',
+        PIECZARGOTCHI_CAPTURE_MINIGAMES_ONLY: activeMinigames ? '1' : '0',
+        PIECZARGOTCHI_CAPTURE_MINIGAME_PANEL: activeMinigames ? '1' : '0',
         PIECZARGOTCHI_VIEWPORT_WIDTH: String(viewport.width),
         PIECZARGOTCHI_VIEWPORT_HEIGHT: String(viewport.height),
         PIECZARGOTCHI_EMULATE_MOBILE: viewport.mobile ? '1' : '0'
@@ -141,7 +160,7 @@ function runViewport(viewport) {
         resolve();
         return;
       }
-      reject(new Error(`Viewport ${viewport.label} (${viewport.width}x${viewport.height}) zakończył się kodem ${code}.`));
+      reject(new Error(`${activeMinigames ? 'Active minigame viewport' : 'Viewport'} ${viewport.label} (${viewport.width}x${viewport.height}) zakończył się kodem ${code}.`));
     });
   });
 }

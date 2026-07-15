@@ -19,6 +19,7 @@ const chromiumStartupTimeoutMs = Math.max(
 const captureAppsScriptNoAssets = process.env.PIECZARGOTCHI_CAPTURE_APPS_SCRIPT_NO_ASSETS === '1';
 const captureBeforeAssets = process.env.PIECZARGOTCHI_CAPTURE_BEFORE_ASSETS === '1';
 const captureAllMinigames = process.env.PIECZARGOTCHI_CAPTURE_ALL_MINIGAMES === '1';
+const captureMinigamesOnly = process.env.PIECZARGOTCHI_CAPTURE_MINIGAMES_ONLY === '1';
 const captureUiFlow = process.env.PIECZARGOTCHI_CAPTURE_UI_FLOW === '1';
 const captureExceptionProbe = process.env.PIECZARGOTCHI_CAPTURE_EXCEPTION_PROBE === '1';
 const captureLegendaryGames = process.env.PIECZARGOTCHI_CAPTURE_LEGENDARY_GAMES === '1';
@@ -354,6 +355,7 @@ try {
   if (captureUiFlow) {
     await captureRealUiFlow(cdp);
   } else {
+  if (!captureMinigamesOnly) {
   if (process.env.PIECZARGOTCHI_CAPTURE_VIEWPORT === '1') {
     await setCaptureGrowth(cdp, 70);
     await captureViewport(cdp);
@@ -400,6 +402,7 @@ try {
 
   if (process.env.PIECZARGOTCHI_CAPTURE_ARENA === '1') {
     await captureArena(cdp);
+  }
   }
 
   if (process.env.PIECZARGOTCHI_CAPTURE_DEW_MINIGAME === '1' || captureAllMinigames) {
@@ -786,15 +789,18 @@ async function captureRealUiFlow(cdp) {
     expression: `(() => {
       document.querySelector('[data-workspace-tab="care"]').click();
       const more = document.querySelector('[data-action-more]');
-      more.focus({ preventScroll: true });
-      const focusedMore = document.activeElement === more;
+      const moreRect = more && more.getBoundingClientRect();
+      const moreVisible = Boolean(more && !more.hidden && getComputedStyle(more).display !== 'none' && moreRect.width > 0 && moreRect.height > 0);
+      const launchFocus = moreVisible ? more : document.querySelector('[data-view-care]');
+      launchFocus.focus({ preventScroll: true });
+      const focusedLaunchTarget = document.activeElement === launchFocus;
       document.querySelector('[data-battle-start]').click();
-      return { focusedMore };
+      return { focusedLaunchTarget, launchTarget: moreVisible ? 'more' : 'care-view' };
     })()`,
     returnByValue: true
   });
-  if (!battleLaunch.result.value || !battleLaunch.result.value.focusedMore) {
-    throw new Error(`Nie udało się ustawić fokusu na mobilnym przycisku Więcej: ${JSON.stringify(battleLaunch.result.value)}`);
+  if (!battleLaunch.result.value || !battleLaunch.result.value.focusedLaunchTarget) {
+    throw new Error(`Nie udało się ustawić fokusu na widocznym punkcie startu walki: ${JSON.stringify(battleLaunch.result.value)}`);
   }
   await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime.state.battle.activeBattle)`, 3000);
   await waitForExpression(cdp, `!document.querySelector('[data-arena-panel]').hidden`, 2000);
@@ -1746,9 +1752,7 @@ async function captureWorldJournal(cdp) {
 }
 
 async function captureDewMinigame(cdp) {
-  const now = captureDebugSettings && Number.isFinite(Number(captureDebugSettings.fixedAt))
-    ? Number(captureDebugSettings.fixedAt)
-    : Date.now();
+  const now = Date.now();
   const startedAt = now - 4200;
   const stateExpression = `(() => {
     const config = window.PIECZARGOTCHI_CONFIG;
@@ -1804,6 +1808,7 @@ async function captureDewMinigame(cdp) {
   const preloadScript = await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
     source: `try {
       localStorage.setItem(${JSON.stringify(preparedStorageKey)}, ${JSON.stringify(JSON.stringify(preparedState))});
+      localStorage.removeItem(${JSON.stringify(preparedStorageKey + '_debug')});
     } catch (error) {}`
   });
   await waitForLoad(cdp, () => cdp.send('Page.reload', { ignoreCache: true }));
@@ -1888,7 +1893,16 @@ async function captureDewMinigame(cdp) {
   console.log(`dew-catch: ${filePath}`);
   console.log(`dew-catch diagnostics: ${JSON.stringify(info)}`);
   if (captureMinigamePanelScreens) {
-    await captureMinigamePanel(cdp, { fileLabel: 'dew-catch', label: 'Łapanie rosy' });
+    await captureMinigamePanel(cdp, {
+      id: 'dewCatch',
+      fileLabel: 'dew-catch',
+      label: 'Łapanie rosy',
+      canvasSelector: '[data-dew-catch-canvas]'
+    });
+    await assertMinigameCompletionFocus(cdp, {
+      id: 'dewCatch',
+      label: 'Łapanie rosy'
+    });
   }
 }
 
@@ -2039,8 +2053,9 @@ async function captureConfiguredMinigame(cdp, sample) {
   delete outputInfo.domainPixels;
   console.log(`${sample.fileLabel}: ${filePath}`);
   console.log(`${sample.fileLabel} diagnostics: ${JSON.stringify(outputInfo)}`);
-  if (captureMinigamePanelScreens && !sample.viewArena) {
+  if (captureMinigamePanelScreens) {
     await captureMinigamePanel(cdp, sample);
+    await assertMinigameCompletionFocus(cdp, sample);
   }
 }
 
@@ -2110,6 +2125,7 @@ async function performConfiguredMinigameInteraction(cdp, sample) {
         const x = Math.round(Math.max(12, Math.min(canvas.width - 12, piece.x + Math.sin(local * 5 + piece.variant) * 9)));
         const y = Math.round(22 + piece.lane * 30 + eased * 38);
         const key = piece.good ? 'c' : 'r';
+        minigame.keyboardPieceId = piece.id;
         const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
         const canceled = !window.dispatchEvent(event);
         return { applied: true, score: session.score, target: piece.id, good: piece.good, input: 'keyboard', key, canceled };
@@ -2229,24 +2245,44 @@ async function performConfiguredMinigameInteraction(cdp, sample) {
 }
 
 async function captureMinigamePanel(cdp, sample) {
-  await cdp.send('Runtime.evaluate', {
-    expression: `(() => {
-      const panel = document.querySelector('.panel-block--minigames');
-      if (panel) {
-        panel.scrollIntoView({ block: 'start', inline: 'nearest' });
-      }
-    })()`,
-    awaitPromise: true
-  });
   await delay(Math.max(160, captureDelayMs));
+  const legendary = Boolean(sample.viewArena);
+  const surfaceSelector = legendary ? '[data-legendary-game-playfield]' : '[data-minigame-playfield]';
+  const panelSelector = legendary ? '[data-legendary-games]' : '.panel-block--minigames';
+  const hudSelector = legendary ? '.legendary-game-hud' : '.minigame-hud';
+  const scoreSelector = legendary ? '[data-legendary-minigame-score]' : '[data-minigame-score]';
+  const timeSelector = legendary ? '[data-legendary-minigame-time]' : '[data-minigame-time]';
+  const comboSelector = legendary ? '[data-legendary-minigame-combo]' : '[data-minigame-combo]';
+  const endSelector = legendary ? '[data-legendary-minigame-end]' : '[data-minigame-end]';
+  const progressSelector = legendary ? '[data-legendary-minigame-progress]' : '[data-minigame-progress]';
   const diagnostics = await cdp.send('Runtime.evaluate', {
     expression: `(() => {
-      const rectOf = (selector) => {
-        const element = document.querySelector(selector);
+      const epsilon = 1;
+      const surface = document.querySelector(${JSON.stringify(surfaceSelector)});
+      const panel = document.querySelector(${JSON.stringify(panelSelector)});
+      const sidePanel = surface && surface.closest('.side-panel');
+      const sideRect = sidePanel && sidePanel.getBoundingClientRect();
+      const sideBounds = sideRect ? {
+        top: Math.max(0, sideRect.top + sidePanel.clientTop),
+        left: Math.max(0, sideRect.left + sidePanel.clientLeft),
+        right: Math.min(innerWidth, sideRect.right - sidePanel.clientLeft),
+        bottom: Math.min(innerHeight, sideRect.bottom - sidePanel.clientTop)
+      } : { top: 0, left: 0, right: innerWidth, bottom: innerHeight };
+      const fullyWithin = (rect, bounds) => Boolean(
+        rect
+        && rect.width > 0
+        && rect.height > 0
+        && rect.top >= bounds.top - epsilon
+        && rect.left >= bounds.left - epsilon
+        && rect.right <= bounds.right + epsilon
+        && rect.bottom <= bounds.bottom + epsilon
+      );
+      const rectOf = (element) => {
         if (!element) {
           return null;
         }
         const rect = element.getBoundingClientRect();
+        const viewport = { top: 0, left: 0, right: innerWidth, bottom: innerHeight };
         return {
           top: rect.top,
           left: rect.left,
@@ -2254,32 +2290,72 @@ async function captureMinigamePanel(cdp, sample) {
           height: rect.height,
           bottom: rect.bottom,
           right: rect.right,
-          visible: rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < innerHeight
+          fullyInViewport: fullyWithin(rect, viewport),
+          fullyInPanel: fullyWithin(rect, sideBounds),
+          fullyVisible: fullyWithin(rect, viewport) && fullyWithin(rect, sideBounds)
         };
       };
-      const isClipped = (selector) => {
-        const element = document.querySelector(selector);
+      const isClipped = (element) => {
         return Boolean(element && (element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1));
       };
-      const canvases = Array.from(document.querySelectorAll('[data-dew-catch-canvas], [data-spore-pop-canvas], [data-compost-sort-canvas], [data-rhythm-hum-canvas]'));
+      const isLayoutHidden = (element) => {
+        if (!element || element.hidden) {
+          return true;
+        }
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return style.display === 'none' || style.visibility === 'hidden' || rect.width <= 0 || rect.height <= 0;
+      };
+      const canvas = document.querySelector(${JSON.stringify(sample.canvasSelector)});
+      const hud = surface && surface.querySelector(${JSON.stringify(hudSelector)});
+      const interrupt = surface && surface.querySelector(${JSON.stringify(endSelector)});
+      const score = surface && surface.querySelector(${JSON.stringify(scoreSelector)});
+      const time = surface && surface.querySelector(${JSON.stringify(timeSelector)});
+      const combo = surface && surface.querySelector(${JSON.stringify(comboSelector)});
+      const progress = surface && surface.querySelector(${JSON.stringify(progressSelector)});
+      const canvases = Array.from(document.querySelectorAll('[data-dew-catch-canvas], [data-spore-pop-canvas], [data-compost-sort-canvas], [data-rhythm-hum-canvas], [data-legendary-game-canvas]'));
       const visibleCanvases = canvases.filter((canvas) => {
         const rect = canvas.getBoundingClientRect();
         return !canvas.hidden && getComputedStyle(canvas).display !== 'none' && rect.width > 0 && rect.height > 0;
       });
-      const progress = document.querySelector('[data-minigame-progress]');
-      const progressRect = progress ? progress.getBoundingClientRect() : null;
+      const progressTrack = progress ? progress.closest('.minigame-progress') : null;
+      const progressRect = progressTrack ? progressTrack.getBoundingClientRect() : null;
+      const progressTransform = progress ? String(progress.style.transform || '') : '';
+      const progressValue = progressTransform.startsWith('scaleX(') && progressTransform.endsWith(')')
+        ? Number(progressTransform.slice(7, -1))
+        : NaN;
+      const overflowNodes = [document.documentElement, document.body, sidePanel, panel, surface].filter(Boolean);
+      const horizontalOverflow = overflowNodes.filter((element) => element.scrollWidth > element.clientWidth + 1).map((element) => {
+        return element === document.documentElement
+          ? 'html'
+          : element === document.body
+            ? 'body'
+            : element.className || element.tagName;
+      });
+      const catalog = document.querySelector('[data-legendary-game-list]');
+      const album = document.querySelector('[data-legendary-album]');
       return {
-        panel: rectOf('.panel-block--minigames'),
-        hud: rectOf('.minigame-hud'),
+        phase: surface && surface.dataset.launchPhase || '',
+        panel: rectOf(panel),
+        sidePanel: rectOf(sidePanel),
+        canvas: rectOf(canvas),
+        hud: rectOf(hud),
+        interrupt: rectOf(interrupt),
         activeCanvasCount: visibleCanvases.length,
-        scoreText: (document.querySelector('[data-minigame-score]') || {}).textContent || '',
-        timeText: (document.querySelector('[data-minigame-time]') || {}).textContent || '',
-        comboText: (document.querySelector('[data-minigame-combo]') || {}).textContent || '',
-        scoreClipped: isClipped('[data-minigame-score]'),
-        timeClipped: isClipped('[data-minigame-time]'),
-        comboClipped: isClipped('[data-minigame-combo]'),
-        endClipped: isClipped('[data-minigame-end]'),
-        progressVisible: Boolean(progressRect && progressRect.width > 20 && progressRect.height >= 3)
+        scoreText: score && score.textContent || '',
+        timeText: time && time.textContent || '',
+        comboText: combo && combo.textContent || '',
+        scoreClipped: isClipped(score),
+        timeClipped: isClipped(time),
+        comboClipped: isClipped(combo),
+        endClipped: isClipped(interrupt),
+        progressVisible: Boolean(progressRect && progressRect.width > 20 && progressRect.height >= 3),
+        progressValueValid: Number.isFinite(progressValue) && progressValue >= 0 && progressValue <= 1,
+        progressValue: Number.isFinite(progressValue) ? progressValue : null,
+        progressTransform,
+        horizontalOverflow,
+        legendaryCatalogHidden: ${legendary} ? isLayoutHidden(catalog) : true,
+        legendaryAlbumHidden: ${legendary} ? isLayoutHidden(album) : true
       };
     })()`,
     returnByValue: true
@@ -2287,19 +2363,168 @@ async function captureMinigamePanel(cdp, sample) {
   const info = diagnostics.result.value || {};
   if (
     !info.panel
-    || !info.panel.visible
+    || !info.panel.fullyVisible
+    || info.phase !== 'running'
+    || !info.canvas
+    || !info.canvas.fullyVisible
     || !info.hud
-    || !info.hud.visible
+    || !info.hud.fullyVisible
+    || !info.interrupt
+    || !info.interrupt.fullyVisible
     || info.activeCanvasCount !== 1
     || info.scoreClipped
     || info.timeClipped
     || info.comboClipped
     || info.endClipped
     || !info.progressVisible
+    || !info.progressValueValid
+    || info.horizontalOverflow.length
+    || !info.legendaryCatalogHidden
+    || !info.legendaryAlbumHidden
   ) {
     throw new Error(`${sample.label} panel layout looks incomplete: ${JSON.stringify(info)}`);
   }
+  const screenshot = await cdp.send('Page.captureScreenshot', { format: 'png', fromSurface: true });
+  const screenshotPath = `${outputPrefix}-${sample.fileLabel}-panel.png`;
+  writeFileSync(screenshotPath, Buffer.from(screenshot.data, 'base64'));
+  console.log(`${sample.fileLabel} panel: ${screenshotPath}`);
   console.log(`${sample.fileLabel} panel diagnostics: ${JSON.stringify(info)}`);
+}
+
+async function assertMinigameCompletionFocus(cdp, sample) {
+  const legendary = Boolean(sample.viewArena);
+  const endSelector = legendary ? '[data-legendary-minigame-end]' : '[data-minigame-end]';
+  const interrupted = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const button = document.querySelector(${JSON.stringify(endSelector)});
+      if (!button || button.hidden || button.disabled) {
+        return { clicked: false };
+      }
+      let clickObserved = false;
+      button.addEventListener('click', () => { clickObserved = true; }, { once: true });
+      const runtime = window.__pieczargotchiRuntime || {};
+      const disabledAncestor = button.closest('[aria-disabled="true"]');
+      const before = {
+        blocked: typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked(),
+        pendingStart: runtime.pendingExclusiveStart && runtime.pendingExclusiveStart.kind || '',
+        battleActive: typeof isBattleSessionActive === 'function' && isBattleSessionActive(),
+        viewMode: runtime.viewMode || '',
+        activeId: runtime.state && runtime.state.minigames && runtime.state.minigames.active && runtime.state.minigames.active.id || '',
+        disabled: button.disabled,
+        effectivelyDisabled: button.matches(':disabled'),
+        inertAncestor: Boolean(button.closest('[inert]')),
+        hiddenAncestor: Boolean(button.closest('[hidden]')),
+        ariaDisabledAncestor: disabledAncestor ? {
+          tag: disabledAncestor.tagName,
+          id: disabledAncestor.id || '',
+          className: disabledAncestor.className || '',
+          data: Object.assign({}, disabledAncestor.dataset)
+        } : null,
+        clickSource: String(button.click)
+      };
+      button.click();
+      return { clicked: true, clickObserved, before };
+    })()`,
+    awaitPromise: true,
+    returnByValue: true
+  });
+  const interruptDiagnostics = interrupted.result.value || {};
+  if (!interruptDiagnostics.clicked || !interruptDiagnostics.clickObserved) {
+    throw new Error(`${sample.label} nie udostępnia działającego przycisku przerwania rundy: ${JSON.stringify(interruptDiagnostics)}`);
+  }
+  console.log(`${sample.fileLabel || sample.id} interrupt: ${JSON.stringify(interruptDiagnostics)}`);
+
+  await waitForExpression(cdp, `(() => {
+    const runtime = window.__pieczargotchiRuntime || {};
+    const active = runtime.state && runtime.state.minigames && runtime.state.minigames.active;
+    return !runtime.minigame && !active;
+  })()`, 4000);
+  await waitForExpression(cdp, `(() => {
+    const active = document.activeElement;
+    if (!active || active === document.body) {
+      return false;
+    }
+    const rect = active.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0 || active.closest('[hidden], [inert]')
+      || rect.top < 0 || rect.left < 0 || rect.bottom > window.innerHeight || rect.right > window.innerWidth) {
+      return false;
+    }
+    let ancestor = active.parentElement;
+    while (ancestor && ancestor !== document.body) {
+      const style = getComputedStyle(ancestor);
+      if (/(auto|scroll|hidden|clip)/.test(style.overflow + style.overflowX + style.overflowY)) {
+        const bounds = ancestor.getBoundingClientRect();
+        if (rect.top < bounds.top || rect.left < bounds.left || rect.bottom > bounds.bottom || rect.right > bounds.right) {
+          return false;
+        }
+      }
+      ancestor = ancestor.parentElement;
+    }
+    return true;
+  })()`, 2000);
+
+  const result = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const active = document.activeElement;
+      const recap = document.querySelector('[data-minigame-recap="${legendary ? 'legendary' : 'standard'}"]:not([hidden])');
+      const matchingStart = active && active.matches('[data-minigame-start="${String(sample.id).replace(/"/g, '\\"')}"]');
+      const catalog = document.querySelector('[data-legendary-game-list]');
+      const album = document.querySelector('[data-legendary-album]');
+      const isVisible = (node) => {
+        if (!node || node.hidden || node.closest('[hidden], [inert]')) {
+          return false;
+        }
+        const rect = node.getBoundingClientRect();
+        const style = getComputedStyle(node);
+        return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+      };
+      const isFullyVisible = (node) => {
+        if (!isVisible(node)) {
+          return false;
+        }
+        const rect = node.getBoundingClientRect();
+        if (rect.top < 0 || rect.left < 0 || rect.bottom > window.innerHeight || rect.right > window.innerWidth) {
+          return false;
+        }
+        let ancestor = node.parentElement;
+        while (ancestor && ancestor !== document.body) {
+          const style = getComputedStyle(ancestor);
+          if (/(auto|scroll|hidden|clip)/.test(style.overflow + style.overflowX + style.overflowY)) {
+            const bounds = ancestor.getBoundingClientRect();
+            if (rect.top < bounds.top || rect.left < bounds.left || rect.bottom > bounds.bottom || rect.right > bounds.right) {
+              return false;
+            }
+          }
+          ancestor = ancestor.parentElement;
+        }
+        return true;
+      };
+      return {
+        activeTag: active && active.tagName || '',
+        activeFocusKey: active && active.dataset && active.dataset.focusKey || '',
+        activeMinigameStart: active && active.dataset && active.dataset.minigameStart || '',
+        activeFullyVisible: isFullyVisible(active),
+        recapVisible: isVisible(recap),
+        focusInRecap: Boolean(recap && active && recap.contains(active)),
+        matchingStart: Boolean(matchingStart && isVisible(active) && !active.disabled),
+        pendingRestore: Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.pendingMinigameFocusRestore),
+        catalogRestored: ${legendary} ? isVisible(catalog) : true,
+        albumRestored: ${legendary} ? isVisible(album) : true
+      };
+    })()`,
+    returnByValue: true
+  });
+  const diagnostics = result.result.value || {};
+  if (
+    (!diagnostics.focusInRecap && !diagnostics.matchingStart)
+    || !diagnostics.activeFullyVisible
+    || diagnostics.pendingRestore
+    || !diagnostics.catalogRestored
+    || !diagnostics.albumRestored
+  ) {
+    throw new Error(`${sample.label} nie przywróciła stabilnego fokusu lub powierzchni po rundzie: ${JSON.stringify(diagnostics)}`);
+  }
+  console.log(`${sample.fileLabel || sample.id} completion focus: ${JSON.stringify(diagnostics)}`);
 }
 
 async function assertArenaUnlockVisibility(cdp) {
@@ -3213,7 +3438,9 @@ async function captureViewport(cdp) {
       const primaryActionColumns = actionsPrimary
         ? getComputedStyle(actionsPrimary).gridTemplateColumns.split(' ').filter(Boolean).length
         : 0;
+      const stagePanel = document.querySelector('.stage-panel');
       const stageRect = rectOf('.stage-panel');
+      const stageStyle = stagePanel ? getComputedStyle(stagePanel) : null;
       const topbarRect = rectOf('.topbar');
       const stageToolbarRect = rectOf('.stage-toolbar');
       const messageRect = elementInfo('.message-panel');
@@ -3232,6 +3459,10 @@ async function captureViewport(cdp) {
         app: rectOf('.app'),
         topbar: topbarRect,
         stage: stageRect,
+        stageScrollTop: stagePanel ? stagePanel.scrollTop : 0,
+        stageScrollHeight: stagePanel ? stagePanel.scrollHeight : 0,
+        stageClientHeight: stagePanel ? stagePanel.clientHeight : 0,
+        stageOverflowY: stageStyle ? stageStyle.overflowY : '',
         stageToolbar: stageToolbarRect,
         message: messageRect,
         side: sideRect,
@@ -3301,7 +3532,22 @@ async function captureViewport(cdp) {
   }
 
   if (viewportWidth > 640 && viewportHeight <= 700) {
-    assertShortViewportLayout(info);
+    try {
+      assertShortViewportLayout(info);
+    } catch (error) {
+      console.error(`short viewport diagnostics: ${JSON.stringify({
+        stage: info.stage,
+        canvas: info.canvas,
+        message: info.message,
+        dailyRhythm: info.dailyRhythm,
+        dailyPlan: info.dailyPlan,
+        side: info.side
+      })}`);
+      throw error;
+    }
+    if (viewportHeight <= 500) {
+      await assertShortStageScrollReachability(cdp, info);
+    }
   }
 
   const screenshot = await cdp.send('Page.captureScreenshot', {
@@ -3563,7 +3809,9 @@ function assertShortStageStack(info) {
         `Sekcja lewego panelu nachodzi na poprzedni element: previousBottom=${Math.round(previous.bottom)}, sectionTop=${Math.round(section.top)}.`
       );
     }
-    if (section.bottom > info.stage.bottom + 1) {
+    const stageCanScroll = ['auto', 'scroll'].includes(info.stageOverflowY)
+      && Number(info.stageScrollHeight) > Number(info.stageClientHeight) + 1;
+    if (section.bottom > info.stage.bottom + 1 && !stageCanScroll) {
       throw new Error(`Sekcja lewego panelu jest ucięta przez scenę: bottom=${Math.round(section.bottom)}, stageBottom=${Math.round(info.stage.bottom)}.`);
     }
     if (section.clipped && info.innerHeight > 500) {
@@ -3571,6 +3819,78 @@ function assertShortStageStack(info) {
     }
     previous = section;
   });
+
+  if (!info.message || !info.message.visible || info.message.top >= info.stage.bottom - 4 || info.message.bottom <= info.stage.top + 4) {
+    throw new Error('Krótki landscape nie zachował widocznego komunikatu pod sceną.');
+  }
+}
+
+async function assertShortStageScrollReachability(cdp, initialInfo) {
+  const result = await cdp.send('Runtime.evaluate', {
+    expression: `(async () => {
+      const stage = document.querySelector('.stage-panel');
+      const rhythm = document.querySelector('.daily-rhythm-strip');
+      const plan = document.querySelector('.daily-plan-strip');
+      if (!stage || !rhythm || !plan) {
+        return null;
+      }
+      const initialScrollTop = stage.scrollTop;
+      let maxScroll = 0;
+      let attempts = 0;
+      for (attempts = 1; attempts <= 4; attempts += 1) {
+        maxScroll = Math.max(0, stage.scrollHeight - stage.clientHeight);
+        stage.scrollTop = maxScroll;
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        maxScroll = Math.max(0, stage.scrollHeight - stage.clientHeight);
+        if (stage.scrollTop >= maxScroll - 1) {
+          break;
+        }
+      }
+      const stageRect = stage.getBoundingClientRect();
+      const rectOf = (element) => {
+        const rect = element.getBoundingClientRect();
+        return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right };
+      };
+      const withinStage = (element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.top >= stageRect.top - 1
+          && rect.bottom <= stageRect.bottom + 1
+          && rect.left >= stageRect.left - 1
+          && rect.right <= stageRect.right + 1;
+      };
+      const rhythmButtons = Array.from(rhythm.querySelectorAll('button'));
+      const info = {
+        maxScroll,
+        reachedScrollTop: stage.scrollTop,
+        attempts: Math.min(attempts, 4),
+        rhythm: rectOf(rhythm),
+        plan: rectOf(plan),
+        rhythmReachable: withinStage(rhythm),
+        planReachable: withinStage(plan),
+        rhythmButtonCount: rhythmButtons.length,
+        rhythmFocusableCount: rhythmButtons.filter((button) => !button.disabled && button.tabIndex >= 0).length
+      };
+      stage.scrollTop = initialScrollTop;
+      return info;
+    })()`,
+    awaitPromise: true,
+    returnByValue: true
+  });
+  const info = result.result.value;
+  if (!info) {
+    throw new Error('Brakuje komunikatu rytmu albo planu dnia w krótkim landscape.');
+  }
+  if (Number(initialInfo.stageScrollHeight) > Number(initialInfo.stageClientHeight) + 1) {
+    if (info.maxScroll <= 1 || info.reachedScrollTop < info.maxScroll - 1) {
+      throw new Error(`Scena nie dociera do końca własnego scrolla: ${JSON.stringify(info)}.`);
+    }
+  }
+  if (!info.rhythmReachable || !info.planReachable) {
+    throw new Error(`Rytm albo plan dnia nie są osiągalne w scrollu sceny: ${JSON.stringify(info)}.`);
+  }
+  if (!info.rhythmButtonCount || !info.rhythmFocusableCount) {
+    throw new Error(`Wybór rytmu nie zachował osiągalnego przycisku: ${JSON.stringify(info)}.`);
+  }
 }
 
 function assertShortDesktopActionFlow(info) {

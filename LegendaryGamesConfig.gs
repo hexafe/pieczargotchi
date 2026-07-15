@@ -26,11 +26,21 @@ function getLegendaryMinigamesConfig() {
       decisionWindowMs: 2900,
       safeChoicePoints: 2,
       riskyChoicePoints: 3,
+      riskyClosedPenaltyPoints: 1,
+      riskyOpenChanceByWeather: {
+        clear: 0.78,
+        cloudy: 0.68,
+        wind: 0.58,
+        fog: 0.45,
+        rain: 0.36,
+        snow: 0.28,
+        storm: 0.16
+      },
       requiresStage: 'legendary',
       legendary: true,
       projectPoints: 3,
       seasonPoints: 2,
-      scoreLabelForms: ['trop', 'tropy', 'tropów'],
+      scoreLabelForms: ['punkt', 'punkty', 'punktów'],
       prompt: 'Podejmij osiem decyzji: pewny szlak albo ryzykowny skrót dopasowany do pogody.',
       memento: { id: 'memento-spore-trail-map', label: 'Mapa szlaku zarodników' },
       rewards: {
@@ -55,6 +65,7 @@ function getLegendaryMinigamesConfig() {
       exchangeIntervalMs: 3100,
       exchangeWindowMs: 2300,
       exchangePoints: 2,
+      guidedExchangeCount: 3,
       counterCycle: {
         strike: 'guard',
         guard: 'focus',
@@ -65,7 +76,7 @@ function getLegendaryMinigamesConfig() {
       projectPoints: 2,
       seasonPoints: 3,
       scoreLabelForms: ['punkt', 'punkty', 'punktów'],
-      prompt: 'Czytaj dwanaście zapowiedzianych ruchów rywala i odpowiadaj właściwą kontrą.',
+      prompt: 'Czytaj ruch rywala i kontruj: atak osłoną, osłonę skupieniem, a skupienie atakiem.',
       memento: { id: 'memento-mycelium-league-badge', label: 'Odznaka ligi grzybni' },
       rewards: {
         sporesPerPoint: 0.05,
@@ -96,7 +107,7 @@ function getLegendaryMinigamesConfig() {
       legendary: true,
       projectPoints: 3,
       seasonPoints: 2,
-      scoreLabelForms: ['układ', 'układy', 'układów'],
+      scoreLabelForms: ['punkt', 'punkty', 'punktów'],
       prompt: 'Zapamiętaj cztery sekwencje 3/4/5/6 na siatce 3×3, poczekaj aż zgasną i odtwórz je.',
       memento: { id: 'memento-memory-garden-frame', label: 'Ramka ogrodu pamiątek' },
       rewards: {

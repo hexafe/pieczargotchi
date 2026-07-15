@@ -2,6 +2,7 @@
   const LEGENDARY_PIXEL_SYMBOLS = {
     trail: ['00100', '01110', '11111', '01110', '00100'],
     rare: ['10101', '01110', '11111', '01110', '10101'],
+    hazard: ['10001', '01010', '00100', '01010', '10001'],
     strike: ['00110', '01100', '11111', '01100', '00110'],
     guard: ['01110', '11011', '11011', '11111', '01110'],
     focus: ['10101', '01110', '11011', '01110', '10101'],
@@ -197,14 +198,8 @@
     } else if (session.id === 'memoryGarden') {
       const directCell = /^[1-9]$/.test(key) ? Number(key) - 1 : null;
       let selected = Math.max(0, Math.min(8, Number(runtime.minigame.keyboardGardenCell) || 0));
-      if (key === 'arrowleft' || key === 'left') {
-        selected = positiveModulo(selected - 1, 9);
-      } else if (key === 'arrowright' || key === 'right') {
-        selected = positiveModulo(selected + 1, 9);
-      } else if (key === 'arrowup' || key === 'up') {
-        selected = positiveModulo(selected - 3, 9);
-      } else if (key === 'arrowdown' || key === 'down') {
-        selected = positiveModulo(selected + 3, 9);
+      if (['arrowleft', 'left', 'arrowright', 'right', 'arrowup', 'up', 'arrowdown', 'down'].indexOf(key) !== -1) {
+        selected = moveLegendaryGardenSelection(selected, key);
       } else if (directCell === null && key !== 'enter' && key !== ' ') {
         return;
       }
@@ -241,6 +236,23 @@
     scoreLegendaryGameTarget(target, now);
   }
 
+  function moveLegendaryGardenSelection(cellIndex, direction) {
+    const index = Math.max(0, Math.min(8, legendaryRuntimeInteger(cellIndex, 0)));
+    let row = Math.floor(index / 3);
+    let column = index % 3;
+    const key = String(direction || '').toLowerCase();
+    if (key === 'arrowleft' || key === 'left') {
+      column = Math.max(0, column - 1);
+    } else if (key === 'arrowright' || key === 'right') {
+      column = Math.min(2, column + 1);
+    } else if (key === 'arrowup' || key === 'up') {
+      row = Math.max(0, row - 1);
+    } else if (key === 'arrowdown' || key === 'down') {
+      row = Math.min(2, row + 1);
+    }
+    return row * 3 + column;
+  }
+
   function getLegendaryLeagueLanePoint(laneId) {
     const lanes = {
       strike: { x: 78, y: 126 },
@@ -263,7 +275,9 @@
       const weather = getLegendaryTrailWeatherContext(session);
       for (let index = 0; index < count; index += 1) {
         const appearsAt = start + leadMs + index * intervalMs;
+        const riskProfile = getLegendaryTrailDecisionProfile(session, index, weather, config);
         ['safe', 'risky'].forEach(function(choice, choiceIndex) {
+          const risky = choice === 'risky';
           targets.push({
             id: 'sporeTrail_' + index + '_' + choice,
             decisionId: 'trail-decision-' + index,
@@ -272,10 +286,15 @@
             x: choiceIndex === 0 ? 86 : 214,
             y: 104 + Math.round((seededLegendaryUnit(session.seed, index, choiceIndex + 1) - 0.5) * 18),
             radius: 22,
-            kind: choice === 'risky' ? 'rare' : 'trail',
-            points: choice === 'risky'
-              ? Math.max(1, Number(config.riskyChoicePoints) || 3)
-              : Math.max(1, Number(config.safeChoicePoints) || 2),
+            kind: risky ? riskProfile.open ? 'rare' : 'hazard' : 'trail',
+            points: risky
+              ? riskProfile.open ? riskProfile.riskyPoints : 0
+              : riskProfile.safePoints,
+            penaltyPoints: risky && !riskProfile.open ? riskProfile.penaltyPoints : 0,
+            riskyOpen: riskProfile.open,
+            riskRoll: riskProfile.roll,
+            riskOpenChance: riskProfile.openChance,
+            riskLabel: riskProfile.label,
             weatherContext: weather,
             appearsAt: appearsAt,
             expiresAt: appearsAt + windowMs
@@ -396,7 +415,19 @@
 
   function scoreLegendaryGameTarget(target, now) {
     const session = runtime.minigame.session;
-    if (session.caught.indexOf(target.id) !== -1) {
+    if (!target || isLegendaryTargetResolved(target)) {
+      return;
+    }
+    if (session.id === 'sporeTrail' && target.choice === 'risky' && !target.riskyOpen) {
+      session.metrics.riskyChoices = (Number(session.metrics.riskyChoices) || 0) + 1;
+      session.metrics.hazardousChoices = (Number(session.metrics.hazardousChoices) || 0) + 1;
+      registerLegendaryGameMiss(
+        target.inputX || target.x,
+        target.inputY || target.y,
+        now,
+        'skrót zamknięty: -' + Math.max(1, Number(target.penaltyPoints) || 1),
+        { target: target, resolve: true, penaltyPoints: target.penaltyPoints }
+      );
       return;
     }
     session.caught.push(target.id);
@@ -440,7 +471,7 @@
         ? 'Dobra kontra. Wymiana ' + (Number(target.exchangeIndex) + 1) + ' z 12.'
         : session.id === 'memoryGarden'
           ? 'Dobra pamiątka. Element ' + session.metrics.recallIndex + '.'
-          : 'Wybrano ' + (target.choice === 'risky' ? 'ryzykowny skrót' : 'pewny szlak') + '.',
+          : 'Wybrano ' + (target.choice === 'risky' ? 'otwarty skrót' : 'pewny szlak') + '.',
       'good'
     );
     syncLegendaryGameActiveSession(true);
@@ -486,7 +517,10 @@
       session.metrics.expired = (Number(session.metrics.expired) || 0) + 1;
     }
     session.combo = 0;
-    session.score = Math.max(0, Number(session.score) - 1);
+    const penaltyPoints = Math.max(0, Number.isFinite(Number(settings.penaltyPoints))
+      ? Math.floor(Number(settings.penaltyPoints))
+      : 1);
+    session.score = Math.max(0, Number(session.score) - penaltyPoints);
     if (settings.resolve && settings.target) {
       session.missed.push(settings.target.id);
       session.metrics.resolved = (Number(session.metrics.resolved) || 0) + 1;
@@ -551,6 +585,7 @@
       decisionIndex: legendaryRuntimeInteger(source.decisionIndex, resolvedFallback),
       safeChoices: legendaryRuntimeInteger(source.safeChoices, 0),
       riskyChoices: legendaryRuntimeInteger(source.riskyChoices, 0),
+      hazardousChoices: legendaryRuntimeInteger(source.hazardousChoices, 0),
       exchangeIndex: legendaryRuntimeInteger(source.exchangeIndex, resolvedFallback),
       wins: legendaryRuntimeInteger(source.wins, normalized.caught.length),
       winStreak: legendaryRuntimeInteger(source.winStreak, normalized.combo),
@@ -632,7 +667,7 @@
   function getLegendaryOutcomeSeedCeiling(session, config, decisionCount) {
     const gameId = session && session.id;
     if (gameId === 'sporeTrail') {
-      return Math.max(1, decisionCount * Math.max(1, legendaryRuntimeInteger(config.riskyChoicePoints, 3)));
+      return getLegendaryTrailSeedCeiling(session, config, decisionCount);
     }
     if (gameId === 'myceliumLeague' || gameId === 'memoryGarden') {
       const basePoints = gameId === 'myceliumLeague'
@@ -782,6 +817,33 @@
     return counters[opponentLane] || 'guard';
   }
 
+  function isLegendaryLeagueGuidedExchange(target, config) {
+    const guidedCount = Math.max(0, legendaryRuntimeInteger(config && config.guidedExchangeCount, 3));
+    return Boolean(target) && Number(target.exchangeIndex) < guidedCount;
+  }
+
+  function getLegendaryLeagueGuideText(target, config) {
+    if (!target) {
+      return 'czekaj na ruch';
+    }
+    const opponent = getLegendaryLaneLabel(target.opponentLane);
+    if (isLegendaryLeagueGuidedExchange(target, config)) {
+      return opponent + ' > ' + getLegendaryLaneLabel(target.lane);
+    }
+    return 'rywal: ' + opponent;
+  }
+
+  function getLegendaryLeagueSemanticCue(target, config) {
+    if (!target) {
+      return '';
+    }
+    const opponent = getLegendaryLaneLabel(target.opponentLane);
+    if (isLegendaryLeagueGuidedExchange(target, config)) {
+      return 'Rywal zapowiada ' + opponent + '. Nauka kontry: ' + getLegendaryLaneLabel(target.lane) + '.';
+    }
+    return 'Rywal zapowiada ' + opponent + '. Wybierz kontrę.';
+  }
+
   function getLegendaryLeagueOpponentLane(seed, index) {
     let laneIndex = Math.floor(seededLegendaryUnit(seed, index, 71) * LEGENDARY_LEAGUE_LANES.length) % LEGENDARY_LEAGUE_LANES.length;
     if (index > 0) {
@@ -809,15 +871,18 @@
     const existing = session && session.weatherContext && typeof session.weatherContext === 'object'
       ? session.weatherContext
       : null;
+    const captured = session && session.weatherCondition
+      ? { condition: session.weatherCondition }
+      : null;
     let scene = null;
-    if (!existing && typeof getCurrentWeatherScene === 'function') {
+    if (!existing && !captured && typeof getCurrentWeatherScene === 'function') {
       try {
         scene = getCurrentWeatherScene();
       } catch (error) {
         scene = null;
       }
     }
-    const source = existing || scene || {};
+    const source = existing || captured || scene || {};
     const rawCondition = String(source.condition || source.weather || source.kind || session.sceneTone || 'clear').toLowerCase();
     const condition = ['rain', 'storm', 'snow', 'wind', 'fog', 'cloudy', 'clear'].indexOf(rawCondition) !== -1
       ? rawCondition
@@ -842,6 +907,75 @@
       label: labels[condition] || labels.clear,
       risky: ['clear', 'wind', 'cloudy'].indexOf(condition) !== -1
     };
+  }
+
+  function getLegendaryTrailDecisionProfile(session, decisionIndex, weatherInput, configInput) {
+    const config = configInput || rules.minigames && rules.minigames.sporeTrail || {};
+    const weather = weatherInput || getLegendaryTrailWeatherContext(session);
+    const openChance = getLegendaryTrailOpenChance(config, weather.condition);
+    const roll = seededLegendaryUnit(session && session.seed, Number(decisionIndex) || 0, 113);
+    const open = roll < openChance;
+    return {
+      open: open,
+      roll: roll,
+      openChance: openChance,
+      safePoints: Math.max(1, legendaryRuntimeInteger(config.safeChoicePoints, 2)),
+      riskyPoints: Math.max(1, legendaryRuntimeInteger(config.riskyChoicePoints, 3)),
+      penaltyPoints: Math.max(1, legendaryRuntimeInteger(config.riskyClosedPenaltyPoints, 1)),
+      label: open ? 'skrót otwarty' : 'skrót zamknięty'
+    };
+  }
+
+  function getLegendaryTrailOpenChance(config, conditionInput) {
+    const condition = String(conditionInput || 'clear').toLowerCase();
+    const defaults = {
+      clear: 0.78,
+      cloudy: 0.68,
+      wind: 0.58,
+      fog: 0.45,
+      rain: 0.36,
+      snow: 0.28,
+      storm: 0.16
+    };
+    const configured = config && config.riskyOpenChanceByWeather && Number(config.riskyOpenChanceByWeather[condition]);
+    const fallback = Object.prototype.hasOwnProperty.call(defaults, condition) ? defaults[condition] : defaults.clear;
+    const chance = Number.isFinite(configured) ? configured : fallback;
+    return Math.max(0.05, Math.min(0.95, chance));
+  }
+
+  function getLegendaryTrailSeedCeiling(session, config, decisionCount) {
+    const count = Math.max(1, legendaryRuntimeInteger(decisionCount || config && (config.decisionCount || config.targetCount), 8));
+    const weather = getLegendaryTrailWeatherContext(session);
+    let ceiling = 0;
+    for (let index = 0; index < count; index += 1) {
+      const profile = getLegendaryTrailDecisionProfile(session, index, weather, config);
+      ceiling += profile.open
+        ? Math.max(profile.safePoints, profile.riskyPoints)
+        : profile.safePoints;
+    }
+    return Math.max(1, ceiling);
+  }
+
+  function getLegendaryTrailSemanticCue(targets) {
+    const source = Array.isArray(targets) ? targets : [];
+    const safe = source.find(function(target) { return target.choice === 'safe'; });
+    const risky = source.find(function(target) { return target.choice === 'risky'; });
+    if (!safe || !risky) {
+      return '';
+    }
+    const weatherLabel = String(safe.weatherContext && safe.weatherContext.label || 'pogodnie');
+    return 'Warunki: ' + weatherLabel + '. ' + (risky.riskyOpen
+      ? 'Skrót jest otwarty: trzy punkty. Pewny szlak daje dwa.'
+      : 'Skrót jest zamknięty i kosztuje punkt. Wybierz pewny szlak za dwa.');
+  }
+
+  function getLegendaryTrailChoiceLabel(target) {
+    if (!target || target.choice !== 'risky') {
+      return 'PEWNY SZLAK +' + Math.max(1, Number(target && target.points) || 2);
+    }
+    return target.riskyOpen
+      ? 'SKRÓT OTWARTY +' + Math.max(1, Number(target.points) || 3)
+      : 'SKRÓT ZAMKNIĘTY -' + Math.max(1, Number(target.penaltyPoints) || 1);
   }
 
   function getLegendaryGardenSequenceLengths(config) {
@@ -961,7 +1095,9 @@
   function advanceLegendaryGardenPhase(now) {
     const session = runtime.minigame.session;
     let changed = false;
-    for (let guard = 0; guard < 12 && session.legendaryPhase !== 'complete' && Number(now) >= Number(session.metrics.phaseUntil); guard += 1) {
+    const config = rules.minigames && rules.minigames.memoryGarden ? rules.minigames.memoryGarden : {};
+    const catchUpGuard = Math.max(16, getLegendaryGardenSequenceLengths(config).length * 4 + 4);
+    for (let guard = 0; guard < catchUpGuard && session.legendaryPhase !== 'complete' && Number(now) >= Number(session.metrics.phaseUntil); guard += 1) {
       const boundary = Number(session.metrics.phaseUntil) || Number(now);
       if (session.legendaryPhase === 'preview') {
         setLegendaryGardenPhase(session, 'hide', boundary);
@@ -1052,7 +1188,8 @@
       const active = getActiveLegendaryTarget(now);
       if (active) {
         key = 'league:' + active.id;
-        text = 'Rywal zapowiada ' + getLegendaryLaneLabel(active.opponentLane) + '. Kontra: ' + getLegendaryLaneLabel(active.lane) + '.';
+        const leagueConfig = rules.minigames && rules.minigames.myceliumLeague ? rules.minigames.myceliumLeague : {};
+        text = getLegendaryLeagueSemanticCue(active, leagueConfig);
       }
     } else if (session.id === 'memoryGarden') {
       key = 'garden:' + session.metrics.roundIndex + ':' + session.legendaryPhase;
@@ -1064,10 +1201,12 @@
             ? 'Odtwórz sekwencję.'
             : '';
     } else {
-      const activeTrail = getActiveLegendaryTarget(now);
-      if (activeTrail) {
+      const activeTrailTargets = getActiveLegendaryTargets(now);
+      const activeTrail = activeTrailTargets[0];
+      const riskyTrail = activeTrailTargets.find(function(target) { return target.choice === 'risky'; });
+      if (activeTrail && riskyTrail) {
         key = 'trail:' + activeTrail.decisionId;
-        text = 'Warunki: ' + String(activeTrail.weatherContext && activeTrail.weatherContext.label || 'pogodnie') + '. Wybierz pewny szlak albo ryzyko.';
+        text = getLegendaryTrailSemanticCue(activeTrailTargets);
       }
     }
     if (!key || key === runtime.minigame.lastTelegraphKey) {
@@ -1129,14 +1268,17 @@
     ctx.fillText(label, 14, 22);
     if (gameId === 'myceliumLeague') {
       const active = getActiveLegendaryTarget(now);
-      const cue = active ? getLegendaryLaneLabel(active.opponentLane) + ' > ' + getLegendaryLaneLabel(active.lane) : 'czekaj na ruch';
+      const leagueConfig = rules.minigames && rules.minigames.myceliumLeague ? rules.minigames.myceliumLeague : {};
+      const cue = getLegendaryLeagueGuideText(active, leagueConfig);
       ctx.fillText(cue, width - 126, 22);
     } else if (gameId === 'memoryGarden') {
       const phaseLabels = { preview: 'zapamiętaj', hide: 'światła gasną', recall: 'odtwórz', between: 'kolejny układ' };
       ctx.fillText(phaseLabels[runtime.minigame.session.legendaryPhase] || 'ogród gotowy', width - 122, 22);
     } else {
       const weather = getLegendaryTrailWeatherContext(runtime.minigame.session);
-      ctx.fillText((weather.label || 'pogodnie') + ' · pewnie / ryzyko', width - 148, 22);
+      const risky = getActiveLegendaryTargets(now).find(function(target) { return target.choice === 'risky'; });
+      const riskState = risky ? risky.riskyOpen ? 'skrót otwarty' : 'skrót zamknięty' : 'czekaj na szlak';
+      ctx.fillText((weather.label || 'pogodnie') + ' · ' + riskState, width - 148, 22);
     }
   }
 
@@ -1154,9 +1296,10 @@
       const life = Math.max(0, Math.min(1, (target.expiresAt - now) / Math.max(1, target.expiresAt - target.appearsAt)));
       drawActiveLegendaryTarget(ctx, target, session.id, now, warmup, life);
       ctx.globalAlpha = 1;
-      ctx.fillStyle = getLegendaryGameTheme(session.id).ink;
+      ctx.fillStyle = target.kind === 'hazard' ? '#7a2727' : getLegendaryGameTheme(session.id).ink;
       ctx.font = 'bold 10px sans-serif';
-      ctx.fillText(target.choice === 'risky' ? 'RYZYKO +3' : 'PEWNIE +2', target.x - 29, target.y + 36);
+      const choiceLabel = getLegendaryTrailChoiceLabel(target);
+      ctx.fillText(choiceLabel, target.x - (target.choice === 'risky' ? 48 : 29), target.y + 36);
     });
     const upcoming = runtime.minigame.targets.find(function(target) {
       return !isLegendaryTargetResolved(target) && target.appearsAt > now && target.appearsAt - now <= 700;
@@ -1182,8 +1325,8 @@
     const pulse = Math.sin(now / 120 + target.x * 0.03) * 2;
     const radius = Math.max(5, target.radius * warmup + pulse);
     ctx.globalAlpha = current ? Math.max(0.72, Math.min(1, life + 0.28)) : 0.48;
-    const symbol = target.kind === 'rare'
-      ? 'rare'
+    const symbol = target.kind === 'rare' || target.kind === 'hazard'
+      ? target.kind
       : gameId === 'myceliumLeague'
         ? target.lane
         : gameId === 'memoryGarden'
@@ -1192,7 +1335,7 @@
     const symbolScale = radius >= 13 ? 3 : 2;
     ctx.fillStyle = theme.ink;
     ctx.fillRect(Math.round(target.x - radius), Math.round(target.y - radius), Math.round(radius * 2), Math.round(radius * 2));
-    ctx.fillStyle = current ? theme.spark : theme.shadow;
+    ctx.fillStyle = target.kind === 'hazard' ? '#7a2727' : current ? theme.spark : theme.shadow;
     ctx.fillRect(Math.round(target.x - radius + 3), Math.round(target.y - radius + 3), Math.round(radius * 2 - 6), Math.round(radius * 2 - 6));
     drawLegendaryPixelSymbol(
       ctx,
@@ -1200,7 +1343,7 @@
       Math.round(target.x),
       Math.round(target.y),
       symbolScale,
-      target.kind === 'rare' ? '#fff8d8' : theme.ink
+      target.kind === 'rare' ? '#fff8d8' : target.kind === 'hazard' ? '#fff1df' : theme.ink
     );
     if (gameId !== 'myceliumLeague' && current) {
       ctx.globalAlpha = Math.max(0.28, life * 0.55);
@@ -1265,12 +1408,15 @@
       const laneId = index === 0 ? 'strike' : index === 1 ? 'guard' : 'focus';
       const selectedLane = LEGENDARY_LEAGUE_LANES[Number(runtime.minigame.keyboardLaneIndex) || 0] === laneId;
       ctx.fillStyle = selectedLane ? theme.spark : 'rgba(255, 253, 247, 0.62)';
-      ctx.fillRect(lane.x - 23, height - 49, 46, 26);
-      drawLegendaryPixelSymbol(ctx, lane.symbol, lane.x, height - 36, 2, theme.ink);
+      ctx.fillRect(lane.x - 27, height - 55, 54, 34);
+      drawLegendaryPixelSymbol(ctx, lane.symbol, lane.x, height - 43, 2, theme.ink);
+      ctx.fillStyle = theme.ink;
+      ctx.font = 'bold 8px sans-serif';
+      ctx.fillText(getLegendaryLaneGlyph(laneId) + ' ' + getLegendaryLaneLabel(laneId).toUpperCase(), lane.x - 22, height - 25);
       if (selectedLane) {
         ctx.globalAlpha = 0.34 + Math.sin(now / 130) * 0.16;
         ctx.fillStyle = '#fffdf7';
-        ctx.fillRect(lane.x - 25, height - 45, 50, 2);
+        ctx.fillRect(lane.x - 29, height - 53, 58, 2);
         ctx.globalAlpha = 1;
       }
     });
@@ -1313,6 +1459,9 @@
         ctx.fillRect(x, y, 40, 24);
         ctx.fillStyle = theme.shadow;
         ctx.fillRect(x + 4, y + 20, 32, 3);
+        ctx.fillStyle = theme.ink;
+        ctx.font = 'bold 8px sans-serif';
+        ctx.fillText(String(row * 3 + col + 1), x + 4, y + 9);
       }
     }
   }
@@ -1409,9 +1558,12 @@
   function getLegendaryGameAriaLabel(gameId) {
     const config = rules.minigames && rules.minigames[gameId] ? rules.minigames[gameId] : {};
     if (gameId === 'myceliumLeague') {
-      return (config.label || 'Liga Grzybni') + '. C, O i S albo klawisze 1, 2 i 3 wybierają właściwy znak.';
+      return (config.label || 'Liga Grzybni') + '. C lub 1 wybiera atak, O lub 2 osłonę, S lub 3 skupienie. Na atak odpowiedz osłoną, na osłonę skupieniem, a na skupienie atakiem. Strzałki zmieniają wybór, Enter lub spacja zatwierdza.';
     }
-    return (config.label || 'Legendarna minigra') + '. Enter lub spacja wybiera kolejny rozświetlony symbol.';
+    if (gameId === 'memoryGarden') {
+      return (config.label || 'Ogród Pamiątek') + '. Zapamiętaj sekwencję, a po zgaśnięciu odtwórz ją na siatce trzy na trzy. Strzałki przesuwają wybór i zatrzymują się na krawędzi. Enter lub spacja zatwierdza. Klawisze od 1 do 9 wybierają komórkę bezpośrednio.';
+    }
+    return (config.label || 'Szlak Zarodników') + '. Strzałki w lewo i w prawo wybierają pewny szlak lub skrót. Enter albo spacja zatwierdza. B lub 1 wybiera pewny szlak, R lub 2 skrót. Zamknięty skrót jest wyraźnie ogłaszany i kosztuje punkt.';
   }
 
   function seededLegendaryUnit(seed, index, salt) {

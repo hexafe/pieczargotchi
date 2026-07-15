@@ -188,6 +188,10 @@ test('foreign exclusive sessions stay passive and never autosave or resume local
     getActiveExclusiveSessionDescriptor: describe,
     getCurrentPersistenceWriterId: getWriterId
   });
+  const reloadedOwnerState = JSON.parse(JSON.stringify(state));
+  reloadedOwnerState.minigames.active.ownerWriterId = 'this-tab';
+  assert(inspectOwnership(reloadedOwnerState, 123).mode === 'owned', 'same-tab reload identity should retain live ownership');
+  assert(inspectOwnership(state, 123).mode === 'foreign', 'a different tab identity should remain foreign');
   let scheduledAt = 0;
   const handleExternal = evaluateFunction(bootSource, 'handleExternalPersistenceUpdate', {
     runtime: externalRuntime,
@@ -299,6 +303,47 @@ test('foreign exclusive sessions stay passive and never autosave or resume local
   finishInit();
   assert(applyCount === 0 && initialWriteCount === 0 && initialResumeCount === 0, 'expected boot to avoid elapsed mutation, write, and resume in the second tab');
   assert(timerStartCount === 1, 'expected passive boot to keep timers available for bounded lease takeover');
+});
+
+test('production minigame progress events clone detailed legendary metrics', () => {
+  const actionsSource = readFileSync(path.join(rootDir, 'ClientActions.html'), 'utf8');
+  const cloneMetrics = evaluateFunction(actionsSource, 'cloneMinigameProgressMetrics', {});
+  const buildEvent = evaluateFunction(actionsSource, 'buildMinigameProgressEvent', {
+    cloneMinigameProgressMetrics: cloneMetrics
+  });
+  const session = {
+    id: 'myceliumLeague',
+    mode: 'reward',
+    score: 30,
+    metrics: {
+      inputs: 12,
+      resolved: 12,
+      wins: 12,
+      bestWinStreak: 12,
+      nested: { ignored: true }
+    }
+  };
+  const outcome = {
+    tier: 'perfect',
+    clear: true,
+    inputCount: 12,
+    resolvedCount: 12,
+    correctCount: 12,
+    expiredCount: 0,
+    decisionCount: 12,
+    seedCeiling: 30,
+    coverage: 1,
+    accuracy: 1,
+    normalizedScore: 1
+  };
+  const event = buildEvent(session, outcome);
+  session.metrics.wins = 0;
+
+  assert(event.type === 'minigame' && event.minigameId === 'myceliumLeague' && event.eligibleForProgress, 'production event should retain reward progress eligibility');
+  assert(event.metrics.wins === 12 && event.metrics.bestWinStreak === 12, 'legendary detail metrics should survive the production event seam');
+  assert(event.metrics.coverage === 1 && event.metrics.resolvedCount === 12, 'canonical outcome metrics should join the detailed runtime metrics');
+  assert(!Object.prototype.hasOwnProperty.call(event.metrics, 'nested'), 'non-scalar runtime objects should not leak into persisted results');
+  assert(actionsSource.includes('applyGameplayEventToState(candidateState, buildMinigameProgressEvent(session, outcome), now)'), 'settled clear path should use the production event builder');
 });
 
 test('expired exclusive ownership is claimed with replacement CAS before resume', () => {

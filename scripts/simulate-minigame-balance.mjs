@@ -12,9 +12,14 @@ const samples = Math.max(32, Number(process.env.PIECZARGOTCHI_BALANCE_SAMPLES) |
 const ids = Object.keys(minigames).filter((id) => minigames[id] && minigames[id].interactionKind);
 const simulator = createGeneratedRunSimulator(config.rules);
 const failures = [];
+const trailWeatherStats = {};
+let trailOptimalSafeChoices = 0;
+let trailOptimalRiskyChoices = 0;
+let trailExactCeilingRuns = 0;
+let trailRunCount = 0;
 
 const rows = ids.map((id, gameIndex) => {
-    const rules = minigames[id];
+  const rules = minigames[id];
   const flawlessScores = [];
   const profiles = getHabitatProfiles(id);
   for (let index = 0; index < samples; index += 1) {
@@ -24,6 +29,22 @@ const rows = ids.map((id, gameIndex) => {
       flawlessScores.push(flawless.score);
       if (!flawless.reachable || flawless.resolved !== flawless.total) {
         failures.push(`${id}: seed ${seed} ma nieosiągalną decyzję dla habitatu ${JSON.stringify(habitatTags)}`);
+      }
+      if (id === 'sporeTrail') {
+        trailRunCount += 1;
+        if (flawless.exactCeiling && flawless.validProfile) {
+          trailExactCeilingRuns += 1;
+        } else {
+          failures.push(`${id}: seed ${seed} / ${flawless.weatherCondition} nie zgadza się z dokładnym sufitem lub profilem gałęzi`);
+        }
+        const condition = flawless.weatherCondition || 'clear';
+        const weatherStats = trailWeatherStats[condition] || { open: 0, closed: 0, runs: 0 };
+        weatherStats.open += flawless.openCount;
+        weatherStats.closed += flawless.closedCount;
+        weatherStats.runs += 1;
+        trailWeatherStats[condition] = weatherStats;
+        trailOptimalRiskyChoices += flawless.openCount;
+        trailOptimalSafeChoices += flawless.closedCount;
       }
     });
   }
@@ -45,10 +66,25 @@ const rows = ids.map((id, gameIndex) => {
   };
 });
 
-console.log(`Minigame balance gate from live generators (${samples} seeds per reachable habitat profile)`);
+const trailClear = trailWeatherStats.clear || { open: 0, closed: 0 };
+const trailStorm = trailWeatherStats.storm || { open: 0, closed: 0 };
+const clearOpenRate = trailClear.open / Math.max(1, trailClear.open + trailClear.closed);
+const stormOpenRate = trailStorm.open / Math.max(1, trailStorm.open + trailStorm.closed);
+if (!trailOptimalSafeChoices || !trailOptimalRiskyChoices) {
+  failures.push('sporeTrail: optymalna jawna strategia musi używać zarówno pewnego szlaku, jak i otwartego skrótu');
+}
+if (!(clearOpenRate > stormOpenRate)) {
+  failures.push(`sporeTrail: pogoda nie zmienia częstości otwarcia skrótu (clear=${clearOpenRate.toFixed(3)}, storm=${stormOpenRate.toFixed(3)})`);
+}
+if (trailExactCeilingRuns !== trailRunCount) {
+  failures.push(`sporeTrail: dokładny sufit osiągnięto w ${trailExactCeilingRuns}/${trailRunCount} profili`);
+}
+
+console.log(`Deterministic minigame reachability and ceiling gate; not player clear-rate telemetry (${samples} seeds per profile)`);
 rows.forEach((row) => {
   console.log(`${row.id.padEnd(16)} ${row.kind.padEnd(20)} flawless=${row.flawlessLow}-${row.flawlessHigh} median=${row.flawlessMedian} clear=${row.casual} habitats=${row.profileCount}`);
 });
+console.log(`sporeTrail profile choices: optimal-safe=${trailOptimalSafeChoices} optimal-risky=${trailOptimalRiskyChoices} clear-open=${clearOpenRate.toFixed(3)} storm-open=${stormOpenRate.toFixed(3)} exact-ceilings=${trailExactCeilingRuns}/${trailRunCount}`);
 
 if (failures.length) {
   failures.forEach((failure) => console.error(`fail - ${failure}`));
@@ -108,8 +144,12 @@ function createGeneratedRunSimulator(rules) {
         bestCombo: 0,
         habitatTags: habitatTags || {},
         sceneTone: 'day',
-        weatherCondition: 'clear',
-        metrics: { weatherContext: 'clear' }
+        weatherCondition: habitatTags && habitatTags.weatherCondition || 'clear',
+        metrics: {
+          weatherContext: habitatTags && habitatTags.weatherCondition || 'clear',
+          weatherCondition: habitatTags && habitatTags.weatherCondition || 'clear',
+          weatherLabel: habitatTags && habitatTags.weatherCondition || 'clear'
+        }
       };
       const result = vm.runInContext(`(() => {
         const duration = Math.max(1, Number(session.until) - Number(session.startedAt));
@@ -176,12 +216,34 @@ function createGeneratedRunSimulator(rules) {
         }
         const targets = buildLegendaryGameTargets(session);
         if (session.id === 'sporeTrail') {
-          const choices = targets.filter((item) => item.choice === 'risky');
+          const decisionCount = Math.max(1, Number(rules.minigames.sporeTrail.decisionCount) || 8);
+          const choices = [];
+          let validProfile = true;
+          for (let decisionIndex = 0; decisionIndex < decisionCount; decisionIndex += 1) {
+            const pair = targets.filter((item) => Number(item.decisionIndex) === decisionIndex);
+            const safe = pair.find((item) => item.choice === 'safe');
+            const risky = pair.find((item) => item.choice === 'risky');
+            validProfile = validProfile
+              && Boolean(safe && risky)
+              && Number(safe.points) === Math.max(1, Number(rules.minigames.sporeTrail.safeChoicePoints) || 2)
+              && (risky.riskyOpen
+                ? Number(risky.points) === Math.max(1, Number(rules.minigames.sporeTrail.riskyChoicePoints) || 3)
+                : Number(risky.points) === 0 && Number(risky.penaltyPoints) >= 1);
+            choices.push(risky && risky.riskyOpen ? risky : safe);
+          }
+          const ceiling = getLegendaryTrailSeedCeiling(session, rules.minigames.sporeTrail, decisionCount);
+          const score = choices.reduce((sum, item) => sum + (Number(item.points) || 0), 0);
+          const openCount = choices.filter((item) => item && item.choice === 'risky').length;
           return {
-            score: choices.reduce((sum, item) => sum + (Number(item.points) || 1), 0),
+            score,
             resolved: choices.length,
-            total: Math.max(1, Number(rules.minigames.sporeTrail.decisionCount) || choices.length),
-            reachable: choices.every((item) => item.appearsAt >= session.startedAt && item.expiresAt <= session.until)
+            total: decisionCount,
+            reachable: choices.every((item) => item && item.appearsAt >= session.startedAt && item.expiresAt <= session.until),
+            exactCeiling: score === ceiling,
+            validProfile,
+            openCount,
+            closedCount: decisionCount - openCount,
+            weatherCondition: session.metrics.weatherCondition
           };
         }
         const score = targets.reduce((sum, item, index) => sum + (Number(item.points) || 1) + ((index + 1) % 4 === 0 ? 2 : 0), 0);
@@ -196,7 +258,12 @@ function createGeneratedRunSimulator(rules) {
         score: Number(result && result.score) || 0,
         resolved: Number(result && result.resolved) || 0,
         total: Number(result && result.total) || 0,
-        reachable: Boolean(result && result.reachable)
+        reachable: Boolean(result && result.reachable),
+        exactCeiling: Boolean(result && result.exactCeiling),
+        validProfile: Boolean(result && result.validProfile),
+        openCount: Math.max(0, Number(result && result.openCount) || 0),
+        closedCount: Math.max(0, Number(result && result.closedCount) || 0),
+        weatherCondition: String(result && result.weatherCondition || '')
       };
     }
   };
@@ -211,6 +278,9 @@ function getHabitatProfiles(gameId) {
   }
   if (gameId === 'rhythmHum') {
     return [0, 1, 2, 3].map((music) => ({ music }));
+  }
+  if (gameId === 'sporeTrail') {
+    return ['clear', 'cloudy', 'wind', 'fog', 'rain', 'snow', 'storm'].map((weatherCondition) => ({ weatherCondition }));
   }
   return [{}];
 }

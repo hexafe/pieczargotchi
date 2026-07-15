@@ -54,6 +54,7 @@
     const now = getRuntimeNow();
     const session = runtime.minigame.session;
     if (now >= Number(session.until)) {
+      settleSporePopTimeout(now);
       handleMinigameEnd('timeout');
       return;
     }
@@ -151,28 +152,33 @@
       return;
     }
     event.preventDefault();
-    if (typeof recordStandardMinigameInput === 'function') {
+    const targets = getVisibleSporePopTargets(now);
+    const direction = event.key === 'ArrowLeft' || event.key === 'Left' ? -1 : event.key === 'ArrowRight' || event.key === 'Right' ? 1 : 0;
+    if (!direction && typeof recordStandardMinigameInput === 'function') {
       recordStandardMinigameInput(session);
     }
-    const targets = getVisibleSporePopTargets(now);
     if (!targets.length) {
-      if (event.key === 'Enter' || event.key === ' ') {
+      if (!direction) {
         registerSporePopBlankInput(dom.sporePopCanvas.width / 2, dom.sporePopCanvas.height / 2, now, 'keyboard');
-      } else {
-        syncSporePopActiveSession(true);
       }
       return;
     }
-    const direction = event.key === 'ArrowLeft' || event.key === 'Left' ? -1 : event.key === 'ArrowRight' || event.key === 'Right' ? 1 : 0;
+    const preservedIndex = targets.findIndex(function(item) {
+      return item.spore.id === runtime.minigame.keyboardTargetId;
+    });
+    let selectedIndex = preservedIndex >= 0
+      ? preservedIndex
+      : Math.min(targets.length - 1, Math.max(0, Number(runtime.minigame.keyboardTargetIndex) || 0));
     if (direction) {
-      runtime.minigame.keyboardTargetIndex = positiveModulo((Number(runtime.minigame.keyboardTargetIndex) || 0) + direction, targets.length);
+      selectedIndex = preservedIndex >= 0
+        ? positiveModulo(selectedIndex + direction, targets.length)
+        : direction > 0 ? 0 : targets.length - 1;
     }
-    const selected = targets[Math.min(targets.length - 1, Number(runtime.minigame.keyboardTargetIndex) || 0)];
+    const selected = targets[selectedIndex];
+    runtime.minigame.keyboardTargetIndex = selectedIndex;
     runtime.minigame.keyboardTargetId = selected.spore.id;
     if (!direction) {
       scoreSporePopTarget(selected.spore, selected.position.x, selected.position.y, now);
-    } else {
-      syncSporePopActiveSession(true);
     }
   }
 
@@ -210,6 +216,10 @@
       return { spore: spore, position: getSporePopPosition(spore, progress, canvas.width, canvas.height) };
     }).filter(function(item) {
       return item.position.visible && !isSporePopTargetResolved(session, item.spore.id);
+    }).sort(function(left, right) {
+      return Number(left.position.x) - Number(right.position.x)
+        || Number(left.position.y) - Number(right.position.y)
+        || String(left.spore.id).localeCompare(String(right.spore.id));
     });
   }
 
@@ -281,6 +291,30 @@
     syncSporePopActiveSession(true);
     updateMinigameHud(now || getRuntimeNow());
     return true;
+  }
+
+  function settleSporePopTimeout(now) {
+    const owner = runtime.minigame;
+    const session = owner && owner.session;
+    if (!session || !Array.isArray(owner.spores)) {
+      return false;
+    }
+    let changed = false;
+    session.expired = Array.isArray(session.expired) ? session.expired : [];
+    owner.spores.forEach(function(spore) {
+      if (isSporePopTargetResolved(session, spore.id)) {
+        return;
+      }
+      session.expired.push(spore.id);
+      recordStandardMinigameResolution(session, 'expired');
+      changed = true;
+    });
+    if (changed) {
+      session.combo = 0;
+      syncSporePopActiveSession(true);
+      updateMinigameHud(now || getRuntimeNow());
+    }
+    return changed;
   }
 
   function drawMinigameKeyboardFocus(ctx, x, y, radius) {

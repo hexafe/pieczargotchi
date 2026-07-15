@@ -685,17 +685,7 @@
           && candidateState.longLoop.mementos.owned
           ? Object.keys(candidateState.longLoop.mementos.owned)
           : [];
-        applyGameplayEventToState(candidateState, {
-          type: 'minigame',
-          minigameId: session.id,
-          score: session.score,
-          mode: 'reward',
-          tier: outcome.tier,
-          clear: true,
-          coverage: outcome.coverage,
-          accuracy: outcome.accuracy,
-          eligibleForProgress: true
-        }, now);
+        applyGameplayEventToState(candidateState, buildMinigameProgressEvent(session, outcome), now);
         const ownedMementosAfter = candidateState.longLoop
           && candidateState.longLoop.mementos
           && candidateState.longLoop.mementos.owned
@@ -728,8 +718,14 @@
       resultTitle = 'Praktyka zakończona';
       resultBody = getMinigameResultBody(session, outcome) + ' Bez nagród, rekordu i cooldownu.';
     } else if (result.aborted) {
+      candidateState.minigames.pendingRewardSeeds = Object.assign({}, candidateState.minigames.pendingRewardSeeds || {});
+      candidateState.minigames.pendingRewardSeeds[session.id] = buildNextMinigameRewardSeed(
+        session.id,
+        Number(candidateState.minigames.pendingRewardSeeds[session.id]) || Number(session.seed) || 0,
+        now
+      );
       resultTitle = 'Runda przerwana';
-      resultBody = 'Wynik i nagrody nie zostały zapisane. Próba nagradzana zachowa ten sam układ.';
+      resultBody = 'Wynik i nagrody nie zostały zapisane. Następna próba nagradzana dostanie nowy układ, bez cooldownu.';
     } else {
       resultTitle = 'Runda bez wyniku';
       resultBody = 'Nie wykonano żadnego ruchu — bez nagród i cooldownu.';
@@ -1273,6 +1269,15 @@
     return Math.floor(hashStringToUnit(source) * 2147483645) + 1;
   }
 
+  function buildNextMinigameRewardSeed(minigameId, currentSeed, now) {
+    const current = Math.max(0, Math.min(2147483645, Math.floor(Number(currentSeed) || 0)));
+    const next = buildMinigameSeed(minigameId, now, 'reward:retry:' + current);
+    if (next !== current) {
+      return next;
+    }
+    return current >= 2147483645 ? 1 : current + 1;
+  }
+
   function applyEvolutionActionBonus(state, action, now) {
     const core = window.PieczargotchiCore;
     const variant = state.evolution && state.evolution.variant;
@@ -1317,6 +1322,53 @@
     }
 
     return state;
+  }
+
+  function buildMinigameProgressEvent(session, outcome) {
+    const activeSession = session || {};
+    const result = outcome || {};
+    return {
+      type: 'minigame',
+      minigameId: activeSession.id,
+      score: activeSession.score,
+      mode: activeSession.mode === 'practice' ? 'practice' : 'reward',
+      tier: result.tier,
+      clear: Boolean(result.clear),
+      coverage: result.coverage,
+      accuracy: result.accuracy,
+      metrics: cloneMinigameProgressMetrics(activeSession, result),
+      eligibleForProgress: activeSession.mode !== 'practice'
+    };
+  }
+
+  function cloneMinigameProgressMetrics(session, outcome) {
+    const source = session && session.metrics && typeof session.metrics === 'object'
+      ? session.metrics
+      : {};
+    const result = {};
+    Object.keys(source).forEach(function(key) {
+      const value = source[key];
+      if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean' || value === null) {
+        result[key] = value;
+      }
+    });
+    [
+      'inputCount',
+      'resolvedCount',
+      'correctCount',
+      'expiredCount',
+      'decisionCount',
+      'seedCeiling',
+      'coverage',
+      'accuracy',
+      'normalizedScore'
+    ].forEach(function(key) {
+      const value = outcome && outcome[key];
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        result[key] = value;
+      }
+    });
+    return result;
   }
 
   function mergeGameplayProgressState(state, nextState) {

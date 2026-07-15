@@ -25,6 +25,7 @@
       actionDisableReasons: {},
       lastAnnouncement: '',
       nameGateBackgroundState: null,
+      dialogFallbackBackgroundState: null,
       nonSessionGuardMessage: null,
       minigameAnnouncement: {
         sessionKey: '',
@@ -348,6 +349,30 @@
 
   function handleSceneFirstUiKeydown(event) {
     const ui = ensureSceneFirstUiRuntime();
+    const fallbackDialog = document.querySelector('dialog[open][data-fallback-modal="true"]');
+    if (fallbackDialog && event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      closeSceneFirstDialog(fallbackDialog);
+      return;
+    }
+    if (fallbackDialog && event.key === 'Tab') {
+      const focusable = getFallbackDialogFocusable(fallbackDialog);
+      if (focusable.length) {
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && (document.activeElement === first || !fallbackDialog.contains(document.activeElement))) {
+          event.preventDefault();
+          last.focus({ preventScroll: true });
+          return;
+        }
+        if (!event.shiftKey && (document.activeElement === last || !fallbackDialog.contains(document.activeElement))) {
+          event.preventDefault();
+          first.focus({ preventScroll: true });
+          return;
+        }
+      }
+    }
     if (event.key === 'Escape' && ui.actionTrayExpanded) {
       event.preventDefault();
       event.stopPropagation();
@@ -390,6 +415,15 @@
 
   function handleSceneFirstUiFocusIn(event) {
     const ui = ensureSceneFirstUiRuntime();
+    const fallbackDialog = document.querySelector('dialog[open][data-fallback-modal="true"]');
+    if (fallbackDialog && !fallbackDialog.contains(event.target)) {
+      const focusable = getFallbackDialogFocusable(fallbackDialog);
+      const target = focusable[0] || fallbackDialog;
+      if (target && typeof target.focus === 'function') {
+        target.focus({ preventScroll: true });
+      }
+      return;
+    }
     if (!ui.actionTrayExpanded || !dom.actionsPanel || dom.actionsPanel.contains(event.target)) {
       return;
     }
@@ -433,16 +467,28 @@
     dialog.__pieczargotchiReturnFocus = trigger || document.activeElement;
     dialog.hidden = false;
     dialog.removeAttribute('aria-hidden');
+    let usedFallback = false;
     if (!dialog.open) {
       if (typeof dialog.showModal === 'function') {
         try {
           dialog.showModal();
         } catch (error) {
           dialog.setAttribute('open', '');
+          usedFallback = true;
         }
       } else {
         dialog.setAttribute('open', '');
+        usedFallback = true;
       }
+    }
+    if (usedFallback) {
+      dialog.__pieczargotchiFallbackAriaModal = {
+        hadAttribute: dialog.hasAttribute('aria-modal'),
+        value: dialog.getAttribute('aria-modal')
+      };
+      dialog.dataset.fallbackModal = 'true';
+      dialog.setAttribute('aria-modal', 'true');
+      syncFallbackDialogBackgroundIsolation(dialog, true);
     }
     const activeModalKind = kind || dialog.getAttribute('data-dialog') || 'dialog';
     ui.activeModal = activeModalKind;
@@ -477,6 +523,17 @@
     if (dialog.matches('[data-journal-polaroid]')) {
       dialog.hidden = true;
     }
+    if (dialog.dataset && dialog.dataset.fallbackModal === 'true') {
+      syncFallbackDialogBackgroundIsolation(dialog, false);
+      delete dialog.dataset.fallbackModal;
+      const ariaModal = dialog.__pieczargotchiFallbackAriaModal;
+      if (ariaModal && ariaModal.hadAttribute) {
+        dialog.setAttribute('aria-modal', ariaModal.value === null ? '' : ariaModal.value);
+      } else {
+        dialog.removeAttribute('aria-modal');
+      }
+      dialog.__pieczargotchiFallbackAriaModal = null;
+    }
     ui.activeModal = getOpenSceneFirstDialogKind();
     const returnFocus = dialog.__pieczargotchiReturnFocus;
     dialog.__pieczargotchiReturnFocus = null;
@@ -504,6 +561,73 @@
       return 'journal';
     }
     return dialog.dataset.dialog || 'dialog';
+  }
+
+  function getFallbackDialogFocusable(dialog) {
+    if (!dialog || typeof dialog.querySelectorAll !== 'function') {
+      return [];
+    }
+    return Array.from(dialog.querySelectorAll(
+      'button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+    )).filter(function(node) {
+      return !node.hidden && !node.closest('[hidden], [inert]');
+    });
+  }
+
+  function syncFallbackDialogBackgroundIsolation(dialog, active) {
+    const ui = ensureSceneFirstUiRuntime();
+    if (active) {
+      if (ui.dialogFallbackBackgroundState) {
+        return;
+      }
+      const liveSelector = [
+        '[data-ui-status]',
+        '[data-ui-alert]',
+        '[data-minigame-announcement]',
+        '[data-minigame-semantic-live]',
+        '[data-persistence-status]'
+      ].join(', ');
+      const nodes = Array.from(document.querySelectorAll('body > .skip-link, [data-app] > *')).filter(function(node) {
+        return node !== dialog && !node.matches(liveSelector);
+      });
+      ui.dialogFallbackBackgroundState = nodes.map(function(node) {
+        const state = {
+          node: node,
+          inert: Boolean(node.inert),
+          hadInertAttribute: node.hasAttribute('inert'),
+          inertAttribute: node.getAttribute('inert'),
+          hadAriaHidden: node.hasAttribute('aria-hidden'),
+          ariaHidden: node.getAttribute('aria-hidden')
+        };
+        node.inert = true;
+        node.setAttribute('inert', '');
+        node.setAttribute('aria-hidden', 'true');
+        return state;
+      });
+      return;
+    }
+
+    if (!ui.dialogFallbackBackgroundState) {
+      return;
+    }
+    ui.dialogFallbackBackgroundState.forEach(function(state) {
+      const node = state.node;
+      if (!node) {
+        return;
+      }
+      node.inert = state.inert;
+      if (state.hadInertAttribute) {
+        node.setAttribute('inert', state.inertAttribute === null ? '' : state.inertAttribute);
+      } else {
+        node.removeAttribute('inert');
+      }
+      if (state.hadAriaHidden) {
+        node.setAttribute('aria-hidden', state.ariaHidden === null ? '' : state.ariaHidden);
+      } else {
+        node.removeAttribute('aria-hidden');
+      }
+    });
+    ui.dialogFallbackBackgroundState = null;
   }
 
   function setWorkspaceTab(tabId, announce) {
@@ -594,7 +718,14 @@
     });
 
     if (dom.sidePanel) {
-      dom.sidePanel.dataset.workspaceTab = careMode ? ui.workspaceTab : 'legends-' + ui.legendsTab;
+      // Do not reuse data-workspace-tab here: that attribute identifies an
+      // interactive tab above, so putting it on the panel makes the whole
+      // aside enter the next tab-state pass and become aria-disabled.
+      delete dom.sidePanel.dataset.workspaceTab;
+      dom.sidePanel.dataset.activeWorkspace = careMode ? ui.workspaceTab : 'legends-' + ui.legendsTab;
+      dom.sidePanel.removeAttribute('aria-disabled');
+      delete dom.sidePanel.dataset.disabledReason;
+      dom.sidePanel.removeAttribute('title');
     }
   }
 
@@ -639,6 +770,7 @@
     updateMobileActionTrayState(getRuntimeNow());
     assignStableUiFocusKeys();
     restoreStableUiFocus(focusSnapshot);
+    restorePendingMinigameFocus();
     syncMinigameAnnouncement();
     syncMinigameSemanticCompanion();
     if (typeof syncMinigameSensorySession === 'function') {
@@ -1059,7 +1191,9 @@
     dom.modePill.dataset.mode = state.gameOver && state.gameOver.active
       ? 'game-over'
       : state.recovery && state.recovery.active ? 'recovery' : state.mode;
-    dom.mushroomName.textContent = hasNamedMushroom(state) ? getMushroomName(state) : 'Bez imienia';
+    const mushroomName = hasNamedMushroom(state) ? getMushroomName(state) : 'Bez imienia';
+    dom.mushroomName.textContent = mushroomName;
+    dom.mushroomName.title = mushroomName;
     dom.stageLabel.textContent = getStageLabel(state.stage);
     if (dom.evolutionLabel) {
       const variant = state.evolution && state.evolution.variant;
@@ -2133,18 +2267,18 @@
         rewards: 'Nagrody: radość i energia.'
       },
       sporeTrail: {
-        controls: 'Enter lub dotyk symbolu',
-        instruction: 'Prowadź zarodniki po rozświetlonych śladach we właściwej kolejności.',
+        controls: '←/→ + Enter lub B/R, 1/2, albo dotyk',
+        instruction: 'W każdej z ośmiu decyzji wybierz pewny szlak albo ryzykowny skrót dopasowany do pogody.',
         rewards: 'Nagrody: zarodniki, pyłek projektu i pamiątka za mistrzostwo.'
       },
       myceliumLeague: {
-        controls: 'C/O/S, 1/2/3 lub dotyk znaku',
-        instruction: 'Odczytaj znak aury i wybierz pasujący ruch.',
+        controls: '←/→ + Enter lub C/O/S, 1/2/3, albo dotyk',
+        instruction: 'Kontruj zapowiedź rywala: atak → osłona, osłona → skupienie, skupienie → atak.',
         rewards: 'Nagrody: zarodniki, pyłek sezonu i odznaki ligi.'
       },
       memoryGarden: {
-        controls: 'Enter lub dotyk symbolu',
-        instruction: 'Odtwarzaj rozświetlone pamiątki we właściwej kolejności.',
+        controls: 'Strzałki + Enter, klawisze 1–9 albo dotyk',
+        instruction: 'Zapamiętaj sekwencję, poczekaj aż zgaśnie i odtwórz pola we właściwej kolejności.',
         rewards: 'Nagrody: podłoże, pyłek projektu i pamiątka.'
       }
     };
@@ -2158,7 +2292,7 @@
   function getMinigameDurationLabel(minigameId) {
     const definition = rules.minigames && rules.minigames[minigameId] ? rules.minigames[minigameId] : {};
     const seconds = Math.max(1, Math.round((Number(definition.durationMs) || 20000) / 1000));
-    return seconds + ' s';
+    return 'do ' + seconds + ' s';
   }
 
   function getMinigameBriefText(minigameId, options) {
@@ -2497,6 +2631,10 @@
     if (dom.legendaryGamePlayfield) {
       dom.legendaryGamePlayfield.hidden = !activeLegendary || foreignMinigame;
     }
+    dom.legendaryGameList.hidden = Boolean(activeLegendary);
+    if (dom.legendaryAlbum) {
+      dom.legendaryAlbum.hidden = Boolean(activeLegendary);
+    }
 
     (dashboard.games || []).forEach(function(game) {
       const card = document.createElement('div');
@@ -2507,6 +2645,9 @@
       const brief = document.createElement('span');
       const button = document.createElement('button');
       const practice = Number(game.cooldownMs) > 0;
+      const gameRules = rules.minigames && rules.minigames[game.id] ? rules.minigames[game.id] : {};
+      const casualTarget = Math.max(1, Math.floor(Number(gameRules.scoreTargetCasual) || Number(game.targetScore) || 1));
+      const masteryTarget = Math.max(1, Math.floor(Number(gameRules.scoreTargetMastery || gameRules.masteryTarget) || Number(game.targetScore) || casualTarget));
       const blocked = !dashboard.unlocked
         || isGameOverUiState()
         || isRecoveryActiveForRuntime(getRuntimeNow())
@@ -2519,9 +2660,8 @@
 
       card.className = 'legendary-game-card' + (game.featured ? ' is-featured' : '') + (game.active ? ' is-active' : '');
       title.textContent = game.label;
-      meta.textContent = game.featured
-        ? 'Dzisiejszy trop · rekord ' + game.bestScore + '/' + game.targetScore
-        : 'Rekord ' + game.bestScore + '/' + game.targetScore;
+      meta.textContent = (game.featured ? 'Dzisiejszy trop · ' : '')
+        + 'Cel rundy ' + casualTarget + ' pkt · mistrzostwo ' + masteryTarget + ' pkt · rekord ' + game.bestScore + ' pkt';
       prompt.className = 'legendary-game-card__prompt';
       prompt.textContent = formatMushroomText(game.prompt || getMinigameUiCopy(game.id).instruction);
       brief.className = 'minigame-brief legendary-game-card__brief';
@@ -2580,6 +2720,52 @@
     });
     dom.legendaryAlbum.appendChild(title);
     dom.legendaryAlbum.appendChild(chips);
+  }
+
+  function restorePendingMinigameFocus() {
+    const pending = runtime.pendingMinigameFocusRestore;
+    const active = runtime.state && runtime.state.minigames ? runtime.state.minigames.active : null;
+    if (!pending || active || pending.scheduled) {
+      return;
+    }
+    pending.scheduled = true;
+    window.requestAnimationFrame(function() {
+      if (runtime.pendingMinigameFocusRestore !== pending) {
+        return;
+      }
+      pending.scheduled = false;
+      const recap = document.querySelector('[data-minigame-recap="' + (pending.legendary ? 'legendary' : 'standard') + '"]:not([hidden])');
+      const replay = recap && recap.querySelector('[data-minigame-recap-replay]');
+      const keyed = pending.focusKey
+        ? Array.from(document.querySelectorAll('[data-focus-key]')).find(function(node) {
+          return node.dataset.focusKey === pending.focusKey;
+        })
+        : null;
+      const currentStart = pending.id
+        ? document.querySelector('[data-minigame-start="' + pending.id + '"]:not([disabled])')
+        : null;
+      const candidates = [replay, recap, pending.node, keyed, currentStart];
+      const target = candidates.find(function(node) {
+        if (!node || !node.isConnected || node.hidden || node.disabled || node.closest('[hidden], [inert]')) {
+          return false;
+        }
+        const style = window.getComputedStyle(node);
+        const rect = node.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+      });
+      if (!target || typeof target.focus !== 'function') {
+        return;
+      }
+      try {
+        target.focus({ preventScroll: false });
+      } catch (error) {
+        target.focus();
+      }
+      if (typeof target.scrollIntoView === 'function') {
+        target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+      runtime.pendingMinigameFocusRestore = null;
+    });
   }
 
   function renderMinigameLastScores() {
@@ -2818,6 +3004,7 @@
     const tier = getMinigameOutcomeTierLabel(outcome);
     const coverage = formatMinigameOutcomePercent(outcome.coverage, '—');
     const accuracy = formatMinigameOutcomePercent(outcome.accuracy, '—');
+    const outcomeScore = formatMinigameOutcomeScore(outcome, minigameId);
     const cooldownMs = getMinigameOutcomeCooldownMs(outcome, minigameId);
     const unlocks = formatMinigameOutcomeUnlocks(outcome.unlocks || outcome.unlocked);
     const practice = isMinigameOutcomePractice(outcome);
@@ -2836,7 +3023,7 @@
     };
     setText('[data-minigame-recap-title]', title);
     setText('[data-minigame-recap-tier]', tier);
-    setText('[data-minigame-recap-score]', getMinigameScoreLabel(minigameId, Number(outcome.score) || 0));
+    setText('[data-minigame-recap-score]', outcomeScore);
     setText('[data-minigame-recap-coverage]', coverage);
     setText('[data-minigame-recap-accuracy]', accuracy);
     setText('[data-minigame-recap-rewards]', formatMinigameOutcomeRewards(outcome));
@@ -2871,12 +3058,24 @@
     if (runtime.minigameLastOutcome === outcome && ui.lastRecapOutcomeReference !== outcome) {
       ui.lastRecapOutcomeReference = outcome;
       announceMinigameSemanticCue(title + '. ' + tier + '. Wynik: '
-        + getMinigameScoreLabel(minigameId, Number(outcome.score) || 0)
+        + outcomeScore
         + '. Ukończenie ' + coverage + ', celność ' + accuracy + '.');
       if (typeof notifyMinigameSensoryOutcome === 'function') {
         notifyMinigameSensoryOutcome(outcome);
       }
     }
+  }
+
+  function formatMinigameOutcomeScore(outcome, minigameId) {
+    const score = Math.max(0, Number(outcome && outcome.score) || 0);
+    const ceiling = Math.max(0, Number(outcome && outcome.seedCeiling) || 0);
+    if (!ceiling) {
+      return getMinigameScoreLabel(minigameId, score);
+    }
+    const normalized = Number(outcome && outcome.normalizedScore);
+    const ratio = Number.isFinite(normalized) ? normalized : score / ceiling;
+    const percent = Math.max(0, Math.min(100, Math.round(ratio * 100)));
+    return getMinigameScoreLabel(minigameId, score) + ' z ' + ceiling + ' pkt (' + percent + '%)';
   }
 
   function getMinigameStaticTarget(minigameId) {

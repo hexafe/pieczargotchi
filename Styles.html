@@ -55,9 +55,13 @@
   }
 
   .app {
-    width: min(1180px, calc(100% - 28px));
+    width: min(1208px, 100%);
     margin: 0 auto;
-    padding: 12px 0 18px;
+    padding:
+      max(12px, env(safe-area-inset-top))
+      max(14px, env(safe-area-inset-right))
+      max(18px, env(safe-area-inset-bottom))
+      max(14px, env(safe-area-inset-left));
   }
 
   .build-badge {
@@ -83,7 +87,11 @@
     z-index: 40;
     display: grid;
     place-items: center;
-    padding: 18px;
+    padding:
+      max(18px, env(safe-area-inset-top))
+      max(18px, env(safe-area-inset-right))
+      max(18px, env(safe-area-inset-bottom))
+      max(18px, env(safe-area-inset-left));
     background: rgba(231, 240, 208, 0.86);
     backdrop-filter: blur(2px);
   }
@@ -2356,7 +2364,11 @@
 
     .app {
       width: 100%;
-      padding: 8px max(8px, env(safe-area-inset-left)) calc(14px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-right));
+      padding:
+        max(8px, env(safe-area-inset-top))
+        max(8px, env(safe-area-inset-right))
+        calc(14px + env(safe-area-inset-bottom))
+        max(8px, env(safe-area-inset-left));
     }
 
     .topbar {
@@ -2925,11 +2937,15 @@
     .app {
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
-      width: min(100% - 16px, 1080px);
+      width: min(1096px, 100%);
       height: 100vh;
       height: 100dvh;
       min-height: 0;
-      padding: 8px 0;
+      padding:
+        max(8px, env(safe-area-inset-top))
+        max(8px, env(safe-area-inset-right))
+        max(8px, env(safe-area-inset-bottom))
+        max(8px, env(safe-area-inset-left));
     }
 
     .topbar {
@@ -3842,9 +3858,9 @@
   }
 
   .app-dialog {
-    width: min(560px, calc(100vw - 28px));
+    width: min(560px, calc(100vw - 28px - env(safe-area-inset-left) - env(safe-area-inset-right)));
     max-width: none;
-    max-height: min(84dvh, 760px);
+    max-height: min(84dvh, calc(100dvh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 760px);
     margin: auto;
     padding: 0;
     overflow: visible;
@@ -3863,7 +3879,7 @@
   .app-dialog__surface {
     display: grid;
     gap: 12px;
-    max-height: min(84dvh, 760px);
+    max-height: min(84dvh, calc(100dvh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 760px);
     padding: 16px;
     overflow: auto;
     border: 3px solid var(--border);
@@ -4180,12 +4196,12 @@
     }
 
     .app-dialog {
-      width: calc(100vw - 16px);
-      max-height: calc(100dvh - 16px);
+      width: calc(100vw - 16px - env(safe-area-inset-left) - env(safe-area-inset-right));
+      max-height: calc(100dvh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
     }
 
     .app-dialog__surface {
-      max-height: calc(100dvh - 16px);
+      max-height: calc(100dvh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
       padding: 12px;
     }
 
@@ -4197,9 +4213,10 @@
     .journal-polaroid[open] {
       top: auto !important;
       bottom: max(8px, env(safe-area-inset-bottom)) !important;
-      left: 8px !important;
-      width: calc(100vw - 16px);
-      max-height: calc(100dvh - 24px);
+      left: max(8px, env(safe-area-inset-left)) !important;
+      right: max(8px, env(safe-area-inset-right)) !important;
+      width: auto;
+      max-height: calc(100dvh - max(8px, env(safe-area-inset-top)) - max(8px, env(safe-area-inset-bottom)));
       transform: none;
     }
   }
@@ -4367,7 +4384,7 @@
      wyższego niż viewport na granicy 641-880 px. */
   @media (min-width: 641px) and (max-width: 880px) and (max-height: 700px) {
     .app {
-      width: min(calc(100% - 16px), 860px);
+      width: min(876px, 100%);
     }
 
     .game-grid {
@@ -4405,6 +4422,110 @@
   @media (min-width: 641px) and (min-height: 701px) {
     .canvas-wrap {
       max-width: min(100%, 512px);
+    }
+  }
+
+  /* Running rounds prioritize the interactive canvas and HUD. Instructions
+     stay exposed to assistive technology while their visual cards collapse. */
+  .minigame-playfield[data-launch-phase="running"],
+  .legendary-game-playfield[data-launch-phase="running"] {
+    position: relative;
+    gap: 4px;
+    align-content: start;
+  }
+
+  .minigame-playfield[data-launch-phase="running"] .minigame-launch-status,
+  .minigame-playfield[data-launch-phase="running"] .minigame-semantic-companion,
+  .legendary-game-playfield[data-launch-phase="running"] .minigame-semantic-companion,
+  [data-legendary-games][data-launch-phase="running"] .legendary-status-row {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    margin: -1px !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    clip: rect(0 0 0 0) !important;
+    clip-path: inset(50%) !important;
+    border: 0 !important;
+    white-space: nowrap !important;
+  }
+
+  .minigame-playfield[data-launch-phase="running"] .minigame-sensory-bar,
+  .legendary-game-playfield[data-launch-phase="running"] .minigame-sensory-bar {
+    display: none;
+  }
+
+  .minigame-playfield[data-launch-phase="running"] .minigame-hud,
+  .legendary-game-playfield[data-launch-phase="running"] .minigame-hud {
+    width: min(100%, 300px);
+  }
+
+  .stage-toolbar > div:first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .stage-toolbar h2 {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .stage-meta {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  .name-gate__panel input,
+  .rename-form input,
+  .daily-rhythm-button,
+  .legendary-game-card .ghost-button {
+    min-height: var(--touch-target);
+  }
+
+  dialog[data-fallback-modal="true"] {
+    position: fixed;
+    z-index: 100;
+    box-shadow: 0 0 0 100vmax rgba(27, 23, 17, 0.64);
+  }
+
+  @media (min-width: 641px) and (max-height: 500px) {
+    .stage-panel {
+      grid-template-rows: repeat(5, max-content);
+      align-content: start;
+      overflow-x: hidden;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scrollbar-width: thin;
+    }
+
+    .message-panel {
+      display: grid;
+      min-height: 36px;
+      margin-top: 5px;
+      padding: 5px 6px;
+    }
+
+    .daily-rhythm-strip,
+    .daily-plan-strip {
+      display: grid;
+      margin-top: 5px;
+    }
+
+    .daily-rhythm-button,
+    .daily-goal {
+      min-height: var(--touch-target);
+    }
+  }
+
+  @media (forced-colors: active) {
+    .daily-rhythm-button[aria-pressed="true"] {
+      forced-color-adjust: none;
+      border: 2px solid CanvasText;
+      background: Highlight;
+      color: HighlightText;
+      opacity: 1;
     }
   }
 

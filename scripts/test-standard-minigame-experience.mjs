@@ -188,6 +188,146 @@ test('blank pointer and keyboard actions share the same mistake contract', () =>
     `compost blank actions should match, got inputs=${compostSession.inputCount} mistakes=${compostSession.mistakes}`);
 });
 
+test('spatial keyboard navigation preserves target identity without counting a play action', () => {
+  const spatialContext = createContext();
+  const canvas = { width: 240, height: 144 };
+  spatialContext.dom.sporePopCanvas = canvas;
+  spatialContext.dom.compostSortCanvas = canvas;
+  const spatialSession = Object.assign(makeSession('sporePop'), { startedAt: 1000, until: 19000 });
+  spatialContext.runtime.minigame = {
+    session: spatialSession,
+    spores: [
+      { id: 'right', x: 200, y: 40, driftX: 0, driftY: 0, start: 0, speed: 1, phase: 0 },
+      { id: 'left', x: 20, y: 40, driftX: 0, driftY: 0, start: 0, speed: 1, phase: 0 }
+    ]
+  };
+  assert(spatialContext.getVisibleSporePopTargets(1000).map((item) => item.spore.id).join(',') === 'left,right', 'spore keyboard targets should follow screen x order');
+
+  const compostSpatialSession = Object.assign(makeSession('compostSort'), { startedAt: 1000, until: 19000 });
+  spatialContext.runtime.minigame = {
+    session: compostSpatialSession,
+    pieces: [
+      { id: 'right', x: 200, lane: 0, start: 0, speed: 1, variant: 0 },
+      { id: 'left', x: 20, lane: 0, start: 0, speed: 1, variant: 0 }
+    ]
+  };
+  assert(spatialContext.getVisibleKeyboardCompostPieces(1000).map((item) => item.piece.id).join(',') === 'left,right', 'compost keyboard targets should follow screen x order');
+
+  const context = createContext();
+  context.dom.sporePopCanvas = canvas;
+  context.dom.compostSortCanvas = canvas;
+  context.getRuntimeNow = () => 5000;
+  context.isCurrentMinigameInputAllowed = () => true;
+  context.shouldHandleMinigameKeydown = () => true;
+  context.positiveModulo = (value, size) => (value % size + size) % size;
+  context.updateMinigameHud = () => {};
+  context.scheduleMinigameRuntimePersist = () => {};
+
+  const makeKeyEvent = (key) => ({
+    key,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    isComposing: false,
+    repeat: false,
+    preventDefault() {}
+  });
+  const sporeSession = Object.assign(makeSession('sporePop'), { startedAt: 1000, until: 19000 });
+  const spores = ['a', 'b', 'c'].map((id, index) => ({ id, kind: 'spore', points: 1, x: index * 20 }));
+  context.runtime.state = { minigames: { active: sporeSession } };
+  context.runtime.minigame = {
+    session: sporeSession,
+    spores,
+    bursts: [],
+    floaters: [],
+    keyboardTargetId: 'b',
+    keyboardTargetIndex: 0
+  };
+  context.getVisibleSporePopTargets = () => spores.map((spore, index) => ({ spore, position: { x: index * 20, y: 20 } }));
+  context.handleSporePopKeydown(makeKeyEvent('ArrowRight'));
+  assert(context.runtime.minigame.keyboardTargetId === 'c' && sporeSession.inputCount === 0, 'spore arrows should move from the selected id without engagement');
+  context.handleSporePopKeydown(makeKeyEvent('Enter'));
+  assert(sporeSession.inputCount === 1 && sporeSession.caught[0] === 'c', 'spore activation should count exactly one intentional action');
+
+  const compostSession = Object.assign(makeSession('compostSort'), { startedAt: 1000, until: 23000 });
+  const pieces = ['a', 'b', 'c'].map((id, index) => ({ id, good: true, kind: 'leaf', points: 1, size: 8, x: index * 20 }));
+  context.runtime.state = { minigames: { active: compostSession } };
+  context.runtime.minigame = {
+    session: compostSession,
+    pieces,
+    dragging: null,
+    pulses: [],
+    floaters: [],
+    keyboardPieceId: 'b',
+    keyboardPieceIndex: 2
+  };
+  context.getVisibleKeyboardCompostPieces = () => pieces.map((piece, index) => ({ piece, position: { x: index * 20, y: 20 } }));
+  context.handleCompostSortKeydown(makeKeyEvent('ArrowLeft'));
+  assert(context.runtime.minigame.keyboardPieceId === 'a' && compostSession.inputCount === 0, 'compost arrows should move from the selected id without engagement');
+  context.handleCompostSortKeydown(makeKeyEvent('c'));
+  assert(compostSession.inputCount === 1 && compostSession.caught[0] === 'a', 'compost classification should count exactly one intentional action');
+});
+
+test('wall-clock timeout settles every remaining standard decision before finish', () => {
+  const context = createContext();
+  const canvas = { width: 240, height: 144 };
+  Object.assign(context.dom, {
+    sporePopCanvas: canvas,
+    compostSortCanvas: canvas,
+    rhythmHumCanvas: canvas
+  });
+  context.getRuntimeNow = () => 20000;
+  context.updateMinigameHud = () => {};
+  context.scheduleMinigameRuntimePersist = () => {};
+  const finishes = [];
+  context.handleMinigameEnd = (reason) => {
+    const session = context.runtime.minigame.session;
+    finishes.push({ reason, id: session.id, resolved: session.resolvedCount, expired: session.expiredCount });
+  };
+
+  const sporeSession = Object.assign(makeSession('sporePop'), { startedAt: 1000, until: 19000, decisionCount: 3 });
+  context.runtime.state = { minigames: { active: sporeSession } };
+  context.runtime.minigame = {
+    session: sporeSession,
+    spores: ['a', 'b', 'c'].map((id) => ({ id, kind: 'spore' })),
+    bursts: [],
+    floaters: []
+  };
+  context.renderSporePopFrame();
+
+  const compostSession = Object.assign(makeSession('compostSort'), { startedAt: 1000, until: 19000, decisionCount: 3 });
+  context.runtime.state = { minigames: { active: compostSession } };
+  context.runtime.minigame = {
+    session: compostSession,
+    pieces: ['a', 'b', 'c'].map((id) => ({ id, kind: 'leaf' })),
+    dragging: { id: 'c' },
+    pulses: [],
+    floaters: []
+  };
+  context.renderCompostSortFrame();
+
+  const rhythmSession = Object.assign(makeSession('rhythmHum'), {
+    startedAt: 1000,
+    until: 19000,
+    decisionCount: 3,
+    rhythmJudgments: [null, null, null],
+    expiredNotes: []
+  });
+  context.runtime.state = { minigames: { active: rhythmSession } };
+  context.runtime.minigame = {
+    session: rhythmSession,
+    chart: ['left', 'down', 'right'].map((lane, index) => ({ id: 'note-' + index, lane, hitAt: 2000 + index * 1000 })),
+    pattern: ['left', 'down', 'right'],
+    pulses: [],
+    floaters: [],
+    animationFrame: 0
+  };
+  context.renderRhythmHumFrame();
+
+  assert(finishes.length === 3 && finishes.every((finish) => finish.reason === 'timeout'), 'each overdue frame should finish through timeout');
+  assert(finishes.every((finish) => finish.resolved === 3 && finish.expired === 3), `timeouts should carry complete expiry metrics: ${JSON.stringify(finishes)}`);
+});
+
 test('dew targets resolve exactly once across catches and expiries', () => {
   const context = createContext();
   context.scheduleMinigameRuntimePersist = () => {};

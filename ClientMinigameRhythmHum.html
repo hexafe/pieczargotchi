@@ -80,12 +80,12 @@
 
     const now = getRuntimeNow();
     const session = runtime.minigame.session;
+    markRhythmHumMisses(now);
     if (now >= Number(session.until)) {
       handleMinigameEnd('timeout');
       return;
     }
 
-    markRhythmHumMisses(now);
     if (!runtime.minigame || runtime.minigame.autoFinishRequested) {
       return;
     }

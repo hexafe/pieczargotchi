@@ -10,12 +10,20 @@ test('legendary configs describe the redesigned finite rounds', () => {
   const config = loadLegendaryConfig();
   assert(config.sporeTrail.durationMs === 34000, 'trail should fit the 30-35 second target');
   assert(config.sporeTrail.decisionCount === 8 && config.sporeTrail.targetCount === 8, 'trail needs eight decisions');
+  assert(config.sporeTrail.riskyOpenChanceByWeather.clear > config.sporeTrail.riskyOpenChanceByWeather.storm, 'clear weather should open more shortcuts than storms');
+  assert(JSON.stringify(config.sporeTrail.scoreLabelForms) === JSON.stringify(['punkt', 'punkty', 'punktów']), 'trail weighted score should use point forms');
   assert(config.myceliumLeague.durationMs === 39500, 'league should fit the 35-40 second target');
   assert(config.myceliumLeague.exchangeCount === 12 && config.myceliumLeague.targetCount === 12, 'league needs twelve exchanges');
+  assert(config.myceliumLeague.guidedExchangeCount === 3, 'league should teach only its first three exchanges');
   assert(config.myceliumLeague.counterCycle.strike === 'guard', 'guard must counter strike');
   assert(config.myceliumLeague.counterCycle.guard === 'focus', 'focus must counter guard');
   assert(config.myceliumLeague.counterCycle.focus === 'strike', 'strike must counter focus');
   assert(JSON.stringify(config.memoryGarden.sequenceLengths) === JSON.stringify([3, 4, 5, 6]), 'garden needs 3/4/5/6 sequences');
+  assert(JSON.stringify(config.memoryGarden.scoreLabelForms) === JSON.stringify(['punkt', 'punkty', 'punktów']), 'garden weighted score should use point forms');
+  const allMinigames = loadAllMinigameConfig();
+  ['dewCatch', 'sporePop', 'compostSort', 'rhythmHum'].forEach((id) => {
+    assert(JSON.stringify(allMinigames[id].scoreLabelForms) === JSON.stringify(['punkt', 'punkty', 'punktów']), `${id} should label weighted scores as points`);
+  });
 });
 
 test('trail exposes only active safe/risky windows and completes after eight decisions', () => {
@@ -30,8 +38,12 @@ test('trail exposes only active safe/risky windows and completes after eight dec
       choices: Array.from(new Set(targets.map((target) => target.choice))).sort(),
       before: getNextLegendaryTarget(firstAt - 1),
       active: getActiveLegendaryTargets(firstAt).map((target) => target.choice).sort(),
+      open: targets.filter((target) => target.choice === 'risky' && target.riskyOpen).length,
+      closed: targets.filter((target) => target.choice === 'risky' && !target.riskyOpen).length,
       lastExpiresAt: targets[targets.length - 1].expiresAt,
       until: runtime.minigame.session.until,
+      seedCeiling: runtime.minigame.session.seedCeiling,
+      calculatedCeiling: getLegendaryTrailSeedCeiling(runtime.minigame.session, rules.minigames.sporeTrail, 8),
       mode: runtime.minigame.session.mode,
       metricsAreScalar: Object.values(runtime.minigame.session.metrics).every((value) => value === null || ['string', 'number', 'boolean'].includes(typeof value))
     };
@@ -40,12 +52,16 @@ test('trail exposes only active safe/risky windows and completes after eight dec
   assert(JSON.stringify(summary.choices) === JSON.stringify(['risky', 'safe']), 'trail choices should be safe and risky');
   assert(summary.before === null, 'trail keyboard helper must not expose a future target');
   assert(JSON.stringify(summary.active) === JSON.stringify(['risky', 'safe']), 'both branches should share the active window');
+  assert(summary.open + summary.closed === 8 && summary.open > 0 && summary.closed > 0, 'the deterministic practice seed should expose open and closed shortcuts');
+  assert(summary.seedCeiling === summary.calculatedCeiling && summary.seedCeiling === 16 + summary.open, 'trail ceiling should sum the best valid branch for every decision');
   assert(summary.lastExpiresAt <= summary.until, 'last trail decision must fit inside the session');
   assert(summary.mode === 'practice' && summary.metricsAreScalar, 'practice mode and scalar metrics must survive normalization');
 
   const completion = harness.evaluate(`(() => {
     for (let index = 0; index < 8; index += 1) {
-      const target = runtime.minigame.targets.find((item) => item.decisionIndex === index && item.choice === 'safe');
+      const pair = runtime.minigame.targets.filter((item) => item.decisionIndex === index);
+      const target = pair.find((item) => item.choice === 'risky' && item.riskyOpen)
+        || pair.find((item) => item.choice === 'safe');
       scoreLegendaryGameTarget(target, target.appearsAt);
     }
     return {
@@ -54,18 +70,79 @@ test('trail exposes only active safe/risky windows and completes after eight dec
       phase: runtime.minigame.session.legendaryPhase,
       mode: runtime.minigame.session.mode,
       completed: runtime.minigame.session.metrics.completed,
+      seedCeiling: runtime.minigame.session.seedCeiling,
+      safeChoices: runtime.minigame.session.metrics.safeChoices,
+      riskyChoices: runtime.minigame.session.metrics.riskyChoices,
       endReasons: endReasons.slice(),
       session: runtime.minigame.session
     };
   })()`);
-  assert(completion.score === 16 && completion.resolved === 8, 'eight safe choices should produce a clear score');
+  assert(completion.score === completion.seedCeiling && completion.resolved === 8, 'the visible optimal strategy should reach the exact seed ceiling');
+  assert(completion.safeChoices > 0 && completion.riskyChoices > 0, 'optimal play should use safe and risky branches when their state changes');
   assert(completion.phase === 'complete' && completion.completed, 'trail should auto-finish after the eighth decision');
   assert(completion.mode === 'practice', 'auto-finish must never promote practice to reward mode');
   assert(completion.endReasons.includes('complete'), 'trail auto-finish should use the complete reason');
   const trailOutcome = getCoreOutcomeMetrics(completion.session, 'sporeTrail');
   assertOutcomeMetrics(trailOutcome, {
-    inputCount: 8, resolvedCount: 8, correctCount: 8, expiredCount: 0, decisionCount: 8, seedCeiling: 24
+    inputCount: 8, resolvedCount: 8, correctCount: 8, expiredCount: 0, decisionCount: 8, seedCeiling: completion.seedCeiling
   }, 'trail');
+});
+
+test('trail risk profile is deterministic, weather-shaped, explicit, and hazardous choices resolve once', () => {
+  const harness = createRuntimeHarness();
+  let clearOpen = 0;
+  let stormOpen = 0;
+  let openSeen = false;
+  let closedSeen = false;
+  for (let seed = 730000; seed < 730040; seed += 1) {
+    harness.prepare('sporeTrail', 'practice', { seed, weather: 'clear' });
+    const clear = harness.evaluate(`runtime.minigame.targets.filter((target) => target.choice === 'risky').map((target) => target.riskyOpen)`);
+    harness.prepare('sporeTrail', 'practice', { seed, weather: 'clear' });
+    const repeated = harness.evaluate(`runtime.minigame.targets.filter((target) => target.choice === 'risky').map((target) => target.riskyOpen)`);
+    assert(JSON.stringify(clear) === JSON.stringify(repeated), `trail profile should repeat for seed ${seed}`);
+    clearOpen += clear.filter(Boolean).length;
+    openSeen = openSeen || clear.some(Boolean);
+    closedSeen = closedSeen || clear.some((value) => !value);
+
+    harness.prepare('sporeTrail', 'practice', { seed, weather: 'storm' });
+    const storm = harness.evaluate(`runtime.minigame.targets.filter((target) => target.choice === 'risky').map((target) => target.riskyOpen)`);
+    stormOpen += storm.filter(Boolean).length;
+    openSeen = openSeen || storm.some(Boolean);
+    closedSeen = closedSeen || storm.some((value) => !value);
+  }
+  assert(clearOpen > stormOpen, `clear weather should open more seeded shortcuts than storms (${clearOpen} vs ${stormOpen})`);
+  assert(openSeen && closedSeen, 'seeded profiles should contain both available and hazardous shortcuts');
+
+  let hazardousSeed = 1;
+  for (; hazardousSeed < 1000; hazardousSeed += 1) {
+    harness.prepare('sporeTrail', 'reward', { seed: hazardousSeed, weather: 'storm' });
+    const hasClosed = harness.evaluate(`runtime.minigame.targets.some((target) => target.choice === 'risky' && !target.riskyOpen)`);
+    if (hasClosed) break;
+  }
+  const result = harness.evaluate(`(() => {
+    const target = runtime.minigame.targets.find((item) => item.choice === 'risky' && !item.riskyOpen);
+    const semantic = (() => {
+      const pair = runtime.minigame.targets.filter((item) => item.decisionIndex === target.decisionIndex);
+      const risky = pair.find((item) => item.choice === 'risky');
+      return getLegendaryTrailSemanticCue(pair) + '|' + getLegendaryTrailChoiceLabel(risky) + '|' + risky.riskLabel + '|' + risky.kind + '|' + risky.penaltyPoints;
+    })();
+    scoreLegendaryGameTarget(target, target.appearsAt);
+    scoreLegendaryGameTarget(target, target.appearsAt + 1);
+    return {
+      semantic,
+      resolved: runtime.minigame.session.metrics.resolved,
+      misses: runtime.minigame.session.metrics.misses,
+      inputs: runtime.minigame.session.metrics.inputs,
+      riskyChoices: runtime.minigame.session.metrics.riskyChoices,
+      hazardousChoices: runtime.minigame.session.metrics.hazardousChoices,
+      missedIds: runtime.minigame.session.missed.slice(),
+      metricsAreScalar: Object.values(runtime.state.minigames.active.metrics).every((value) => value === null || ['string', 'number', 'boolean'].includes(typeof value))
+    };
+  })()`);
+  assert(result.semantic.includes('Skrót jest zamknięty i kosztuje punkt.') && result.semantic.endsWith('|SKRÓT ZAMKNIĘTY -1|skrót zamknięty|hazard|1'), 'closed shortcut should expose an unmistakable semantic and visual hazard label');
+  assert(result.resolved === 1 && result.misses === 1 && result.inputs === 1, 'hazardous shortcut should resolve exactly once as one miss');
+  assert(result.riskyChoices === 1 && result.hazardousChoices === 1 && result.missedIds.length === 1, 'hazard attempt counters should stay singular');
+  assert(result.metricsAreScalar, 'trail persistence must retain scalar-only metrics');
 });
 
 test('expired trail windows are persisted once as misses', () => {
@@ -90,7 +167,7 @@ test('expired trail windows are persisted once as misses', () => {
   assert(result.directPersisted === 0, 'legendary progress should use the debounced persistence scheduler when available');
   const expiredOutcome = getCoreOutcomeMetrics(result.session, 'sporeTrail');
   assertOutcomeMetrics(expiredOutcome, {
-    inputCount: 0, resolvedCount: 1, correctCount: 0, expiredCount: 1, decisionCount: 8, seedCeiling: 24
+    inputCount: 0, resolvedCount: 1, correctCount: 0, expiredCount: 1, decisionCount: 8, seedCeiling: result.session.seedCeiling
   }, 'expired trail');
 });
 
@@ -100,10 +177,21 @@ test('league generates twelve telegraphed counters and tracks wins separately', 
   const summary = harness.evaluate(`(() => ({
     count: runtime.minigame.targets.length,
     validCounters: runtime.minigame.targets.every((target) => target.lane === getLegendaryCounterLane(target.opponentLane, rules.minigames.myceliumLeague)),
-    futureTarget: getNextLegendaryTarget(runtime.minigame.targets[0].appearsAt - 1)
+    futureTarget: getNextLegendaryTarget(runtime.minigame.targets[0].appearsAt - 1),
+    guidedCanvas: getLegendaryLeagueGuideText(runtime.minigame.targets[2], rules.minigames.myceliumLeague),
+    unguidedCanvas: getLegendaryLeagueGuideText(runtime.minigame.targets[3], rules.minigames.myceliumLeague),
+    guidedSemantic: getLegendaryLeagueSemanticCue(runtime.minigame.targets[2], rules.minigames.myceliumLeague),
+    unguidedSemantic: getLegendaryLeagueSemanticCue(runtime.minigame.targets[3], rules.minigames.myceliumLeague),
+    unguidedOpponent: getLegendaryLaneLabel(runtime.minigame.targets[3].opponentLane),
+    unguidedAnswer: getLegendaryLaneLabel(runtime.minigame.targets[3].lane),
+    aria: getLegendaryGameAriaLabel('myceliumLeague')
   }))()`);
   assert(summary.count === 12 && summary.validCounters, 'league should build twelve correct counter pairs');
   assert(summary.futureTarget === null, 'league must not accept input before the telegraph window');
+  assert(summary.guidedCanvas.includes(' > ') && summary.guidedSemantic.includes('Nauka kontry:'), 'first three exchanges should teach opponent to counter');
+  assert(summary.unguidedCanvas === 'rywal: ' + summary.unguidedOpponent && !summary.unguidedCanvas.includes(' > '), 'later canvas guidance should expose only the opponent');
+  assert(summary.unguidedSemantic.endsWith('Wybierz kontrę.') && !summary.unguidedSemantic.includes(summary.unguidedAnswer), 'later live cues should stop announcing the answer');
+  assert(summary.aria.includes('C lub 1') && summary.aria.includes('atak odpowiedz osłoną'), 'league ARIA should retain labeled controls and the full counter mapping');
 
   const completion = harness.evaluate(`(() => {
     runtime.minigame.targets.forEach((target) => scoreLegendaryGameTarget(target, target.appearsAt));
@@ -174,6 +262,43 @@ test('garden follows preview-hide-recall and completes deterministic 3/4/5/6 rou
   assertOutcomeMetrics(gardenOutcome, {
     inputCount: 18, resolvedCount: 18, correctCount: 18, expiredCount: 0, decisionCount: 18, seedCeiling: 22
   }, 'garden');
+});
+
+test('garden keyboard navigation clamps at edges and end-time catch-up completes every decision', () => {
+  const harness = createRuntimeHarness();
+  harness.prepare('memoryGarden', 'reward');
+  const navigation = harness.evaluate(`({
+    leftTop: moveLegendaryGardenSelection(0, 'arrowleft'),
+    upTop: moveLegendaryGardenSelection(1, 'arrowup'),
+    rightTop: moveLegendaryGardenSelection(2, 'arrowright'),
+    downBottom: moveLegendaryGardenSelection(7, 'arrowdown'),
+    rightWithin: moveLegendaryGardenSelection(1, 'arrowright'),
+    downWithin: moveLegendaryGardenSelection(2, 'arrowdown'),
+    aria: getLegendaryGameAriaLabel('memoryGarden')
+  })`);
+  assert(navigation.leftTop === 0 && navigation.upTop === 1 && navigation.rightTop === 2 && navigation.downBottom === 7, 'garden arrows should stop at each grid edge without wrapping');
+  assert(navigation.rightWithin === 2 && navigation.downWithin === 5, 'garden arrows should move naturally within the 3x3 grid');
+  assert(navigation.aria.includes('zatrzymują się na krawędzi') && navigation.aria.includes('od 1 do 9'), 'garden ARIA should explain clamped arrows, confirmation, and direct cell keys');
+
+  const catchUp = harness.evaluate(`(() => {
+    const finished = advanceLegendaryGameState(runtime.minigame.session.until);
+    return {
+      finished,
+      phase: runtime.minigame.session.legendaryPhase,
+      resolved: runtime.minigame.session.metrics.resolved,
+      expired: runtime.minigame.session.metrics.expired,
+      completedRounds: runtime.minigame.session.metrics.completedRounds,
+      endReasons: endReasons.slice(),
+      session: runtime.minigame.session
+    };
+  })()`);
+  assert(catchUp.finished && catchUp.phase === 'complete', 'jumping to session end should complete Garden before timeout handling');
+  assert(catchUp.resolved === 18 && catchUp.expired === 18 && catchUp.completedRounds === 4, 'end-time catch-up should resolve all 18 cells across all four rounds');
+  assert(catchUp.endReasons.filter((reason) => reason === 'complete').length === 1, 'Garden catch-up should request completion exactly once');
+  const outcome = getCoreOutcomeMetrics(catchUp.session, 'memoryGarden');
+  assertOutcomeMetrics(outcome, {
+    inputCount: 0, resolvedCount: 18, correctCount: 0, expiredCount: 18, decisionCount: 18, seedCeiling: 22
+  }, 'garden catch-up');
 });
 
 test('core migrates league records, exposes dashboard detail, and gates daily featured reward', () => {
@@ -255,8 +380,9 @@ function createRuntimeHarness() {
     endReasons: [],
     persistCount: 0,
     directPersistCount: 0,
+    weatherCondition: 'rain',
     getRuntimeNow: () => 1_000_000,
-    getCurrentWeatherScene: () => ({ condition: 'rain' }),
+    getCurrentWeatherScene: () => ({ condition: context.weatherCondition }),
     stopMinigameRuntime: noop,
     setActiveMinigameCanvas: noop,
     focusMinigameCanvas: noop,
@@ -281,16 +407,19 @@ function createRuntimeHarness() {
     evaluate(expression) {
       return plain(vm.runInContext(expression, context));
     },
-    prepare(gameId, mode) {
+    prepare(gameId, mode, options) {
+      const settings = options || {};
       const duration = Number(config[gameId].durationMs);
       context.gameId = gameId;
       context.sessionMode = mode;
       context.sessionDuration = duration;
+      context.sessionSeed = Number(settings.seed) || 737373;
+      context.weatherCondition = String(settings.weather || 'rain');
       vm.runInContext(`(() => {
         const raw = {
           id: gameId,
           label: rules.minigames[gameId].label,
-          seed: 737373,
+          seed: sessionSeed,
           startedAt: 1000000,
           until: 1000000 + sessionDuration,
           score: 0,
@@ -375,6 +504,14 @@ function loadLegendaryConfig() {
   vm.createContext(context);
   vm.runInContext(readFileSync(path.join(rootDir, 'LegendaryGamesConfig.gs'), 'utf8'), context, { filename: 'LegendaryGamesConfig.gs' });
   return plain(vm.runInContext('getLegendaryMinigamesConfig()', context));
+}
+
+function loadAllMinigameConfig() {
+  const context = {};
+  vm.createContext(context);
+  vm.runInContext(readFileSync(path.join(rootDir, 'LegendaryGamesConfig.gs'), 'utf8'), context, { filename: 'LegendaryGamesConfig.gs' });
+  vm.runInContext(readFileSync(path.join(rootDir, 'MinigamesConfig.gs'), 'utf8'), context, { filename: 'MinigamesConfig.gs' });
+  return plain(vm.runInContext('getMinigamesConfig()', context));
 }
 
 function renderTemplate(fileName) {
