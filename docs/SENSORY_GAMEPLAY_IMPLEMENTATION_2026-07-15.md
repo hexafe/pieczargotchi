@@ -1,6 +1,6 @@
 # Sensory Gameplay Implementation - 2026-07-15
 
-Release target: `0.1.58`
+Release target: `0.1.59`
 
 State target: `22`
 

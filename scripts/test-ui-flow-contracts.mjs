@@ -1186,6 +1186,12 @@ test('browser QA covers responsive journal, real touch cancellation, and world i
   assert(captureSource.includes('expectsTiltedPolaroid = viewportWidth > 640'), 'journal tilt assertion must follow the CSS breakpoint');
   assert(captureSource.includes("type: 'touchCancel'"), 'mobile capture must issue a real touchCancel event');
   assert(captureSource.includes('qa.beginStorageBusyProbe()'), 'pending-session QA must wrap the real persistence seam');
+  assert(captureSource.includes("localKinds.includes('brush')")
+    && captureSource.includes('requestRuntimeRender()')
+    && captureSource.includes('!hasRenderedBrush(groundAfterBrush, interactionsAfterBrush)')
+    && captureSource.includes("Number(effect.alpha) > 0.02")
+    && captureSource.includes('performance.now() < brushRenderDeadline'),
+  'interaction smoke must wait for a rendered grass frame instead of assuming display callbacks render the capped scene');
   assert(bootSource.includes('installRuntimeQaControls()'), 'runtime QA controls must remain behind exposeRuntime');
   assert(bootSource.includes('saveStateForRuntime(candidate)'), 'exclusive starts must pass through the instrumented persistence seam');
   assert(!captureSource.includes("runtime.pendingExclusiveStart = { kind: 'battle', phase: 'pending'"), 'pending-session QA must not inject the pending flag manually');

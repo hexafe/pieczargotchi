@@ -1,6 +1,6 @@
 # Inwentarz plików aplikacji
 
-Wygenerowano z `AnimationConfig.gs` dla widocznej wersji `0.1.58`. Nie zmieniaj liczb ręcznie; uruchom `npm run docs:assets`.
+Wygenerowano z `AnimationConfig.gs` dla widocznej wersji `0.1.59`. Nie zmieniaj liczb ręcznie; uruchom `npm run docs:assets`.
 
 - Wpisy manifestu: 251
 - Unikalne pliki aplikacji: 231

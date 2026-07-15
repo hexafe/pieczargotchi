@@ -1129,9 +1129,37 @@ async function captureInteractionSmoke(cdp) {
       dispatchPointer('pointerenter', 210, 424, 'mouse', 21);
       [235, 265, 300, 336].forEach((x) => dispatchPointer('pointermove', x, 426, 'mouse', 21));
       const brushDistanceAfterBrush = runtime.input && runtime.input.grassBrushDistance;
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      const groundAfterBrush = runtime.motionDiagnostics && runtime.motionDiagnostics.ground;
-      const interactionsAfterBrush = runtime.motionDiagnostics && runtime.motionDiagnostics.interactions;
+      if (typeof requestRuntimeRender === 'function') {
+        requestRuntimeRender();
+      }
+      const brushRenderDeadline = performance.now() + 750;
+      const hasRenderedBrush = (ground, interactions) => {
+        const field = ground && ground.field;
+        const localKinds = field && Array.isArray(field.localReactionKinds) ? field.localReactionKinds : [];
+        const drawnEffects = interactions && Array.isArray(interactions.drawnEffects) ? interactions.drawnEffects : [];
+        const hasVisibleGrassEffect = drawnEffects.some((effect) => (
+          ['grassRustle', 'grassFind', 'frogJump'].includes(String(effect.type))
+          && Number(effect.alpha) > 0.02
+        ));
+        return Boolean(
+          field
+          && field.brushActive === true
+          && localKinds.includes('brush')
+          && Number(field.brushDistance) >= Math.round(Number(brushDistanceAfterBrush))
+          && Number(field.brushY) >= 386
+          && hasVisibleGrassEffect
+        );
+      };
+      let groundAfterBrush = runtime.motionDiagnostics && runtime.motionDiagnostics.ground;
+      let interactionsAfterBrush = runtime.motionDiagnostics && runtime.motionDiagnostics.interactions;
+      while (
+        !hasRenderedBrush(groundAfterBrush, interactionsAfterBrush)
+        && performance.now() < brushRenderDeadline
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 16));
+        groundAfterBrush = runtime.motionDiagnostics && runtime.motionDiagnostics.ground;
+        interactionsAfterBrush = runtime.motionDiagnostics && runtime.motionDiagnostics.interactions;
+      }
 
       const beforeSun = runtime.motionDiagnostics && runtime.motionDiagnostics.celestial && runtime.motionDiagnostics.celestial.sun;
       let sunTargetVisible = false;
