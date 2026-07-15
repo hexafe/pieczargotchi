@@ -378,11 +378,20 @@
       return;
     }
 
+    const flashScale = getStormFlashScale();
+    if (flashScale <= 0) {
+      return;
+    }
+
     ctx.save();
-    ctx.globalAlpha = 0.14 + intensity * 0.20;
-    ctx.fillStyle = '#fff6b8';
-    ctx.fillRect(0, 0, 512, 512);
-    ctx.globalAlpha = 0.72;
+    const doublePulse = flashPhase < 0.07 ? 1 : flashPhase < 0.15 ? 0.32 : 0.62;
+    ctx.globalAlpha = (0.055 + intensity * 0.10) * doublePulse * flashScale;
+    ctx.fillStyle = '#e8f0ff';
+    ctx.fillRect(0, 0, 512, 284);
+    ctx.globalAlpha = (0.16 + intensity * 0.18) * doublePulse * flashScale;
+    ctx.fillStyle = '#fff6cf';
+    ctx.fillRect(0, 42, 512, 112);
+    ctx.globalAlpha = 0.78 * flashScale;
     ctx.fillStyle = '#fff0a4';
     const startX = 96 + (Math.floor(now / 1150) * 97) % 320;
     ctx.fillRect(startX, 44, 10, 66);
@@ -391,6 +400,22 @@
     ctx.fillRect(startX - 4, 154, 34, 10);
     ctx.fillRect(startX - 4, 154, 10, 46);
     ctx.restore();
+  }
+
+  function getStormFlashScale() {
+    const world = runtime && runtime.state && runtime.state.preferences
+      ? runtime.state.preferences.world || {}
+      : {};
+    const preference = world.stormFlashesEnabled !== undefined
+      ? world.stormFlashesEnabled
+      : world.flash;
+    if (preference === false || preference === 'off' || preference === 'none') {
+      return 0;
+    }
+    if (preference === 'reduced' || preference === 'low' || (runtime && runtime.reducedMotion)) {
+      return 0.42;
+    }
+    return 1;
   }
 
   function drawSnowLayer(ctx, scene, now, depth) {

@@ -2,7 +2,7 @@
 
 Pieczargotchi is a small Google Apps Script and Cloudflare static web app for a pixel-art mushroom care game.
 
-The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake loop, care actions, visible cooldowns, keyboard shortcuts, weather-driven scene life, minigames, long-term progression, JSON backup, podłoże decorations, and a local Legendary Arena. See `docs/IMPLEMENTATION_PLAN.md` for the original roadmap, `docs/NEXT_STEPS.md` for the current planning hub, `docs/VISUAL_ASSET_IMPLEMENTATION_2026-07-11.md` for the `0.1.49` visual-pipeline checkpoint, `docs/UI_SCENE_FIRST_IMPLEMENTATION_2026-07-12.md` for the scene-first UI architecture, and `docs/MINIGAME_EXPERIENCE_OVERHAUL_2026-07-13.md` for the current `0.1.55` minigame contract.
+The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake loop, care actions, visible cooldowns, keyboard shortcuts, weather-driven scene life, minigames, long-term progression, JSON backup, podłoże decorations, and a local Legendary Arena. See `docs/IMPLEMENTATION_PLAN.md` for the original roadmap, `docs/NEXT_STEPS.md` for the current planning hub, `docs/VISUAL_ASSET_IMPLEMENTATION_2026-07-11.md` for the `0.1.49` visual-pipeline checkpoint, `docs/UI_SCENE_FIRST_IMPLEMENTATION_2026-07-12.md` for the scene-first UI architecture, `docs/MINIGAME_EXPERIENCE_OVERHAUL_2026-07-13.md` for the `0.1.55` minigame contract, and `docs/SENSORY_GAMEPLAY_IMPLEMENTATION_2026-07-15.md` for the current `0.1.58` sensory/runtime release contract.
 
 ## Current Layout
 
@@ -20,7 +20,7 @@ The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake l
 - `Client.html` - thin Apps Script include aggregator for client partials.
 - `ClientCore.html` - Apps Script include shell for the testable browser-global core.
 - `ClientCoreWeather.html`, `ClientCoreLife.html`, `ClientCoreCare.html`, `ClientCoreBattle.html`, `ClientCoreImmersion.html`, `ClientCoreProgression.html`, `ClientCoreMinigames.html`, `ClientCoreShared.html`, and `ClientCoreExports.html` - pure core helpers exported as `window.PieczargotchiCore`, including weather balance, ambient life, state migrations, attention, animation intent, immersion reaction selection, progression, minigame rewards, backup import/export, and battle reducer primitives.
-- `ClientBoot.html`, `ClientDebug.html`, `ClientRuntime.html`, `ClientWeather.html`, `ClientState.html`, `ClientActions.html`, `ClientMinigame*.html`, `ClientBackup.html`, `ClientUi.html`, `ClientBattleScene.html`, `ClientInteraction.html`, `ClientAnimation.html`, `ClientScene*.html`, and `ClientSprites.html` - client code split by responsibility. `ClientInteraction.html` tracks pointer input and draws visual immersion overlays; `ClientBattleScene.html` renders the local arena; minigame partials render the short canvas games; `ClientScene.html` is the care-scene orchestrator; palette, celestial, rainbow, weather, seasonal ambient life, and ground rendering live in focused scene partials.
+- `ClientBoot.html`, `ClientDebug.html`, `ClientRuntime.html`, `ClientWeather.html`, `ClientWorldAudio.html`, `ClientState.html`, `ClientActions.html`, `ClientMinigame*.html`, `ClientBackup.html`, `ClientUi.html`, `ClientBattleScene.html`, `ClientInteraction.html`, `ClientAnimation.html`, `ClientScene*.html`, and `ClientSprites.html` - client code split by responsibility. `ClientWorldAudio.html` owns gesture-gated procedural ambience and sensory preferences; `ClientInteraction.html` tracks pointer input and draws visual immersion overlays; `ClientBattleScene.html` renders the local arena; minigame partials render the short canvas games; `ClientScene.html` is the care-scene orchestrator; palette, celestial, rainbow, weather, seasonal ambient life, and ground rendering live in focused scene partials.
 - `ClientSceneWeather.html` - weather-renderer include shell; cloud flow, precipitation, surface overlays, and shared wind/noise helpers live in `ClientSceneWeather*.html` partials.
 - `assets/awake.png` - prepared awake mushroom sprite.
 - `assets/sleeping_sheet.png` - prepared four-frame sleeping sprite sheet.
@@ -41,6 +41,7 @@ The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake l
 - `docs/VISUAL_ASSET_IMPLEMENTATION_2026-07-11.md` - implementation and verification checkpoint for tight atlases, shared grass, battle art, provenance, and the `0.1.49` / state-v18 target.
 - `docs/UI_SCENE_FIRST_IMPLEMENTATION_2026-07-12.md` - scene-first UI architecture, responsive matrix, accessible minigame flow, modal backup safety, the `0.1.50` release contract, and the `0.1.51` GUI-hardening addendum.
 - `docs/MINIGAME_EXPERIENCE_OVERHAUL_2026-07-13.md` - reward/practice integrity, fair mastery, seven-game pacing, responsive active-game layouts, legendary replayability, sensory feedback, and release acceptance for `0.1.55`.
+- `docs/SENSORY_GAMEPLAY_IMPLEMENTATION_2026-07-15.md` - attention direction, world audio, replay clues, motion/accessibility preferences, adaptive rendering, weather depth, and release acceptance for `0.1.58` / state v22.
 - `docs/UI_RENDER_AUDIT_2026-05-10.md` - screenshot-driven UI/rendering fixes and viewport validation.
 - `docs/SPRITE_AUDIT_2026-05-10.md` - focused audit for sprite size and wake-face alignment.
 - `docs/APPS_SCRIPT_DEPLOYMENT_DRY_RUN.md` - test deployment checklist that keeps `.clasp.json`, script IDs, and private Drive IDs local.
@@ -77,10 +78,10 @@ npx --no-install clasp push
 Do not commit `.clasp.json`, private Apps Script script IDs, private Drive URLs, or deployment credentials. The repo `.gitignore` keeps `.clasp.json` local, while `.claspignore` allows only root `.gs`, `.html`, and `appsscript.json` files into an Apps Script push.
 Use `docs/APPS_SCRIPT_DEPLOYMENT_DRY_RUN.md` for the full test-project dry-run checklist.
 
-For Apps Script deployment, the preferred asset setup is the versioned public Cloudflare asset directory. For the current release, first verify that `Config.gs` and `package.json` both identify `0.1.55` and the state contract is v20, then set this Apps Script Script Property without editing tracked source:
+For Apps Script deployment, the preferred asset setup is the versioned public Cloudflare asset directory. For the current release, first verify that `Config.gs` and `package.json` both identify `0.1.58` and the state contract is v22, then set this Apps Script Script Property without editing tracked source:
 
 ```text
-PIECZARGOTCHI_ASSET_BASE_URL_0_1_55=https://YOUR-PUBLIC-HOST.example/releases/0.1.55/assets/
+PIECZARGOTCHI_ASSET_BASE_URL_0_1_58=https://YOUR-PUBLIC-HOST.example/releases/0.1.58/assets/
 ```
 
 The property key and URL are release-specific: this prevents a later Script Property update from retargeting an older Apps Script deployment. The URL must use HTTPS and contain the exact visible release as its own path segment. The host must retain every published release directory; overwriting or removing an older directory can break an older deployment. Application requests append the manifest path and visible version query without embedding tens of MiB as data URLs.

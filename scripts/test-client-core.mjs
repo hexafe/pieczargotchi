@@ -3456,8 +3456,8 @@ test('return recap is generated once for long offline windows', () => {
 });
 
 function findAmbientCue(scene, start) {
-  for (let step = 0; step < 80; step += 1) {
-    const now = start + step * 13500 + 2200;
+  for (let step = 0; step < 260; step += 1) {
+    const now = start + step * 5000 + 2200;
     const cue = core.calculateAmbientLifeFocusCue(scene, new Date(now), now);
     if (cue && cue.visible) {
       return { cue, now };

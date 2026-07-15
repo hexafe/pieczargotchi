@@ -25,10 +25,12 @@ const checks = [
   node('scripts/test-condition-overlay-render-contracts.mjs'),
   node('scripts/test-journal-polaroid-render-contracts.mjs'),
   node('scripts/test-scene-render-contracts.mjs'),
+  node('scripts/test-runtime-performance-foundation.mjs'),
   node('scripts/test-ui-flow-contracts.mjs'),
   node('scripts/test-standard-minigame-experience.mjs'),
   node('scripts/test-legendary-minigames-redesign.mjs'),
   node('scripts/test-minigame-sensory-recap.mjs'),
+  node('scripts/test-world-sensory-replay.mjs'),
   node('scripts/check-deployment-readiness.mjs'),
   node('scripts/test-client-core.mjs'),
   node('scripts/test-client-core.mjs', { TZ: 'UTC' }, 'core rules (UTC)'),
@@ -62,7 +64,7 @@ if (!verifiedBuildOnly) {
     command(python, ['scripts/audit-spore-sprites.py']),
     command(python, ['scripts/audit-activity-sprite-motion.py']),
     command(python, ['scripts/audit-glint-sprites.py']),
-    command(python, ['scripts/audit-sprite-frame-quality.py']),
+    command(python, ['scripts/audit-sprite-frame-quality.py', '--regression-gate']),
     command(python, ['scripts/audit-sprite-chroma.py', '--strict'])
   );
   checks.push(

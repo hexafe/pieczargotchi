@@ -1,6 +1,6 @@
 # System Pogody
 
-Stan na 2026-07-06. Dokument jest praktyczną ściągawką dla implementacji i balansu pogody w Pieczargotchi. Nie jest planem refaktoru.
+Stan na 2026-07-15. Dokument jest praktyczną ściągawką dla implementacji i balansu pogody w Pieczargotchi. Nie jest planem refaktoru.
 
 ## Cel Systemu
 
@@ -89,6 +89,24 @@ Pogoda nie tworzy obecnie błędów opieki sama z siebie. Może pogorszyć lub p
 - Obłoki świecące nocą są sezonowym efektem czystego letniego zmierzchu/świtu i średnich szerokości geograficznych; renderer rysuje tylko subtelne srebrno-niebieskie pasma.
 - Rosa, szron, fogbow, czerwona tęcza, halo księżycowe, boczne słońce, słup światła, perłowe brzegi chmur, promienie przez chmury, parowanie po deszczu, drżenie powietrza i przejaśnienie po deszczu są liczone deterministycznie z profilu sceny, a renderer tylko rysuje warstwy.
 - Pierwsze zaobserwowanie specjalnego zjawiska zapisuje kolekcję odkryć w stanie gry.
+- Plan sceny ma teraz trzy czytelne głębokości: odległy grzybniowy horyzont, środkową polanę i trawę pierwszego planu. Mgła może rozdzielać te warstwy, ale nie może nakładać jednolitej mlecznej zasłony na Pieczarkę.
+- Błysk burzy oświetla najpierw niebo za chmurami. Ustawienie dostępności może ograniczyć albo wyłączyć błyski bez zmiany zasad pogody.
+- Zorza używa wąskich, schodkowych wstęg i lekkich kurtyn zamiast szerokich prostokątnych bloków. Tryb spokojnego ruchu ogranicza dryf bez klatkowania całej sceny.
+
+## Budżet Uwagi I Ruchu
+
+Pogoda, fauna i reakcje gracza dzielą jeden budżet percepcyjny. Kolejność priorytetów jest produktowa, nie tylko renderowa:
+
+1. wejście gracza i aktywna czynność opieki,
+2. potrzeby, recovery i game over,
+3. burza, opad i odkrywalne zjawisko,
+4. rzadkie zdarzenie nieba,
+5. fauna pierwszego planu,
+6. neutralny idle.
+
+Fauna nie uruchamia swojej scenki fokusowej podczas opadu, mgły, aktywności, świeżego dotyku/kliknięcia ani pilnej potrzeby. Jej okno wraca deterministycznie co 25–45 sekund, a nie co kilkanaście sekund. Dzięki temu świat pozostaje żywy, ale nie konkuruje bez przerwy z Pieczarką.
+
+Renderer ma adaptacyjne poziomy jakości oraz osobne tryby ruchu świata. Zmiana jakości redukuje najpierw kosztowną gęstość trawy, opadu i życia tła; nie może usuwać sygnałów gameplayowych, hit targetów ani czytelności burzy. Ukryta karta nie renderuje świata, a scena opieki zasłonięta aktywną minigrą jest wstrzymywana albo odświeżana tylko kontrolnie.
 
 ## Życie Sceny
 

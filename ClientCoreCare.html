@@ -58,6 +58,19 @@
       }
     }
 
+    if (version < 22 && versionInfo.targetVersion >= 22) {
+      state.preferences = isPlainObject(state.preferences) ? state.preferences : {};
+      state.preferences.world = Object.assign({
+        motionMode: 'system',
+        stormFlashesEnabled: true,
+        batterySaver: false,
+        audioMode: 'off',
+        ambientVolume: 40
+      }, isPlainObject(state.preferences.world) ? state.preferences.world : {});
+      state.journal = isPlainObject(state.journal) ? state.journal : {};
+      state.journal.clues = Array.isArray(state.journal.clues) ? state.journal.clues : [];
+    }
+
     state.version = versionInfo.targetVersion;
     if (typeof normalizeProgressionState === 'function') {
       return normalizeProgressionState(state, rules, null, now);

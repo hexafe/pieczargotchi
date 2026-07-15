@@ -2334,8 +2334,14 @@ async function captureMinigamePanel(cdp, sample) {
       });
       const catalog = document.querySelector('[data-legendary-game-list]');
       const album = document.querySelector('[data-legendary-album]');
+      const app = document.querySelector('[data-app]');
+      const stage = document.querySelector('.stage-panel');
       return {
+        viewportWidth: innerWidth,
         phase: surface && surface.dataset.launchPhase || '',
+        gameplayFocus: app && app.dataset.gameplayFocus || '',
+        gameplayPhase: app && app.dataset.gameplayPhase || '',
+        sceneCalm: stage && stage.dataset.sceneCalm === 'true',
         panel: rectOf(panel),
         sidePanel: rectOf(sidePanel),
         canvas: rectOf(canvas),
@@ -2361,6 +2367,8 @@ async function captureMinigamePanel(cdp, sample) {
     returnByValue: true
   });
   const info = diagnostics.result.value || {};
+  const desktopFocusLayout = Number(info.viewportWidth) > 880;
+  const minimumCanvasWidth = desktopFocusLayout ? (legendary ? 360 : 320) : 0;
   if (
     !info.panel
     || !info.panel.fullyVisible
@@ -2381,6 +2389,11 @@ async function captureMinigamePanel(cdp, sample) {
     || info.horizontalOverflow.length
     || !info.legendaryCatalogHidden
     || !info.legendaryAlbumHidden
+    || info.gameplayFocus !== (legendary ? 'legendary' : 'standard')
+    || info.gameplayPhase !== 'running'
+    || !info.sceneCalm
+    || minimumCanvasWidth && info.canvas.width < minimumCanvasWidth
+    || desktopFocusLayout && (!info.sidePanel || info.sidePanel.width < 439 || info.sidePanel.width > 521)
   ) {
     throw new Error(`${sample.label} panel layout looks incomplete: ${JSON.stringify(info)}`);
   }

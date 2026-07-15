@@ -154,6 +154,13 @@ function createDefaultStateTemplate() {
         audioEnabled: true,
         hapticsEnabled: false,
         accessibleLanes: false
+      },
+      world: {
+        motionMode: 'system',
+        stormFlashesEnabled: true,
+        batterySaver: false,
+        audioMode: 'off',
+        ambientVolume: 40
       }
     },
     legendaryGames: {
@@ -201,7 +208,8 @@ function createDefaultStateTemplate() {
       entries: []
     },
     journal: {
-      entries: []
+      entries: [],
+      clues: []
     },
     decorations: {
       owned: [],

@@ -125,19 +125,20 @@
 
   function drawFogForeground(ctx, scene, now, density) {
     drawFogBandLayer(ctx, scene, now, 'foreground', [
-      { y: 156, height: 24, alpha: 0.065, densityAlpha: 0.14, width: 430, speed: 0.55, windResponse: 0.26, float: 3, color: '#eef7e7' },
-      { y: 214, height: 34, alpha: 0.08, densityAlpha: 0.15, width: 520, speed: 0.82, windResponse: 0.30, float: 4, color: '#f7fbef' },
-      { y: 286, height: 42, alpha: 0.085, densityAlpha: 0.16, width: 560, speed: 1.00, windResponse: 0.34, float: 5, color: '#eef7e7' },
-      { y: 366, height: 38, alpha: 0.07, densityAlpha: 0.13, width: 470, speed: 0.68, windResponse: 0.28, float: 3, color: '#f7fbef' }
+      { y: 148, height: 18, alpha: 0.045, densityAlpha: 0.10, width: 340, speed: 0.48, windResponse: 0.24, float: 3, color: '#eef7e7' },
+      { y: 212, height: 26, alpha: 0.055, densityAlpha: 0.11, width: 430, speed: 0.72, windResponse: 0.28, float: 4, color: '#f7fbef' },
+      { y: 302, height: 30, alpha: 0.060, densityAlpha: 0.12, width: 480, speed: 0.88, windResponse: 0.31, float: 4, color: '#eef7e7' },
+      { y: 382, height: 25, alpha: 0.050, densityAlpha: 0.10, width: 390, speed: 0.62, windResponse: 0.26, float: 3, color: '#f7fbef' }
     ], density);
 
     const veilAlpha = scene && scene.condition === 'fog'
-      ? 0.06 + density * 0.10
-      : 0.025 + density * 0.045;
+      ? 0.035 + density * 0.065
+      : 0.018 + density * 0.032;
     const veil = ctx.createLinearGradient(0, 92, 0, 438);
     veil.addColorStop(0, 'rgba(247, 251, 239, 0)');
     veil.addColorStop(0.28, 'rgba(247, 251, 239, ' + veilAlpha.toFixed(3) + ')');
-    veil.addColorStop(0.70, 'rgba(247, 251, 239, ' + (veilAlpha * 0.72).toFixed(3) + ')');
+    veil.addColorStop(0.52, 'rgba(247, 251, 239, ' + (veilAlpha * 0.46).toFixed(3) + ')');
+    veil.addColorStop(0.74, 'rgba(247, 251, 239, ' + (veilAlpha * 0.66).toFixed(3) + ')');
     veil.addColorStop(1, 'rgba(247, 251, 239, 0)');
     ctx.save();
     ctx.fillStyle = veil;

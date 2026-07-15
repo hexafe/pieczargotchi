@@ -1,4 +1,5 @@
   function initWeatherScene() {
+    bindWeatherVisibilityRefresh();
     const initialWeather = updateWeatherScene();
     window.setInterval(updateWeatherScene, weatherRefreshMs);
     updateSpaceWeather();
@@ -6,7 +7,30 @@
     return initialWeather;
   }
 
+  function isWeatherRuntimeHidden() {
+    return typeof document !== 'undefined' && Boolean(document.hidden);
+  }
+
+  function bindWeatherVisibilityRefresh() {
+    if (runtime.weatherVisibilityBound || typeof document === 'undefined' || typeof document.addEventListener !== 'function') {
+      return;
+    }
+    runtime.weatherVisibilityBound = true;
+    document.addEventListener('visibilitychange', function() {
+      if (isWeatherRuntimeHidden()) {
+        runtime.weatherRequestId = (Number(runtime.weatherRequestId) || 0) + 1;
+        runtime.spaceWeatherRequestId = (Number(runtime.spaceWeatherRequestId) || 0) + 1;
+        return;
+      }
+      updateWeatherScene();
+      updateSpaceWeather();
+    });
+  }
+
   function updateWeatherScene() {
+    if (isWeatherRuntimeHidden()) {
+      return Promise.resolve(runtime.weatherScene || null);
+    }
     const requestId = (Number(runtime.weatherRequestId) || 0) + 1;
     runtime.weatherRequestId = requestId;
     const locationPromise = runtime.weatherLocation
@@ -42,6 +66,9 @@
   }
 
   function updateSpaceWeather() {
+    if (isWeatherRuntimeHidden()) {
+      return Promise.resolve(runtime.spaceWeather || null);
+    }
     const requestId = (Number(runtime.spaceWeatherRequestId) || 0) + 1;
     runtime.spaceWeatherRequestId = requestId;
     return fetchSpaceWeatherSnapshot()

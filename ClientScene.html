@@ -1,3 +1,23 @@
+  const sceneQualityDowngradeWindowMs = 2000;
+  const sceneQualityUpgradeWindowMs = 10000;
+  const sceneRenderQualityProfiles = {
+    full: {
+      high: { tier: 'high', motionMode: 'full', fps: 60, targetFps: 60, grassScale: 1, precipitationScale: 1, lifeScale: 1, cloudScale: 1, phenomenaScale: 1, emissiveScale: 1 },
+      balanced: { tier: 'balanced', motionMode: 'full', fps: 60, targetFps: 60, grassScale: 0.78, precipitationScale: 0.82, lifeScale: 0.82, cloudScale: 0.86, phenomenaScale: 0.8, emissiveScale: 0.82 },
+      low: { tier: 'low', motionMode: 'full', fps: 30, targetFps: 30, grassScale: 0.52, precipitationScale: 0.62, lifeScale: 0.58, cloudScale: 0.64, phenomenaScale: 0.55, emissiveScale: 0.6 }
+    },
+    gentle: {
+      high: { tier: 'high', motionMode: 'gentle', fps: 30, targetFps: 30, grassScale: 0.72, precipitationScale: 0.7, lifeScale: 0.68, cloudScale: 0.72, phenomenaScale: 0.65, emissiveScale: 0.65 },
+      balanced: { tier: 'balanced', motionMode: 'gentle', fps: 30, targetFps: 30, grassScale: 0.62, precipitationScale: 0.64, lifeScale: 0.6, cloudScale: 0.65, phenomenaScale: 0.58, emissiveScale: 0.58 },
+      low: { tier: 'low', motionMode: 'gentle', fps: 24, targetFps: 24, grassScale: 0.45, precipitationScale: 0.5, lifeScale: 0.45, cloudScale: 0.5, phenomenaScale: 0.42, emissiveScale: 0.45 }
+    },
+    still: {
+      high: { tier: 'high', motionMode: 'still', fps: 0, targetFps: 0, grassScale: 0.4, precipitationScale: 0.42, lifeScale: 0.42, cloudScale: 0.48, phenomenaScale: 0.4, emissiveScale: 0.48 },
+      balanced: { tier: 'balanced', motionMode: 'still', fps: 0, targetFps: 0, grassScale: 0.36, precipitationScale: 0.4, lifeScale: 0.4, cloudScale: 0.45, phenomenaScale: 0.38, emissiveScale: 0.44 },
+      low: { tier: 'low', motionMode: 'still', fps: 0, targetFps: 0, grassScale: 0.32, precipitationScale: 0.36, lifeScale: 0.36, cloudScale: 0.4, phenomenaScale: 0.34, emissiveScale: 0.4 }
+    }
+  };
+
   function drawStageBackground(ctx, now) {
     const frameScene = getSceneFrameSnapshot(now);
     const scene = frameScene.scene;
@@ -46,59 +66,184 @@
   }
 
   function getSceneRenderQuality(now) {
-    const profiles = {
-      high: { tier: 'high', grassScale: 1, precipitationScale: 1 },
-      balanced: { tier: 'balanced', grassScale: 0.78, precipitationScale: 0.82 },
-      low: { tier: 'low', grassScale: 0.52, precipitationScale: 0.62 },
-      reduced: { tier: 'reduced', grassScale: 0.32, precipitationScale: 0.46 }
-    };
     if (!runtime) {
-      return profiles.high;
-    }
-    if (runtime.reducedMotion) {
-      return profiles.reduced;
+      return sceneRenderQualityProfiles.full.high;
     }
 
+    const motionMode = typeof getEffectiveRuntimeMotionMode === 'function'
+      ? getEffectiveRuntimeMotionMode()
+      : runtime.reducedMotion
+        ? 'gentle'
+        : 'full';
+    if (typeof isRuntimeBatterySaverEnabled === 'function' && isRuntimeBatterySaverEnabled()) {
+      if (runtime.sceneRenderQuality) {
+        resetSceneQualityGovernorWindows(runtime.sceneRenderQuality);
+      }
+      return getSceneRenderQualityProfile('low', motionMode);
+    }
     const debugTier = runtime.debug && ['high', 'balanced', 'low'].includes(runtime.debug.sceneQuality)
       ? runtime.debug.sceneQuality
       : '';
     if (debugTier) {
-      return profiles[debugTier];
+      return getSceneRenderQualityProfile(debugTier, motionMode);
     }
 
-    const state = runtime.sceneRenderQuality || {
+    const state = runtime.sceneRenderQuality || createSceneRenderQualityState();
+    consumeRuntimeScenePerfSample(state);
+    runtime.sceneRenderQuality = state;
+    return getSceneRenderQualityProfile(state.tier, motionMode);
+  }
+
+  function getSceneRenderQualityProfile(tier, motionMode) {
+    const normalizedMode = ['full', 'gentle', 'still'].includes(motionMode) ? motionMode : 'full';
+    const profiles = sceneRenderQualityProfiles[normalizedMode] || sceneRenderQualityProfiles.full;
+    return profiles[tier] || profiles.balanced;
+  }
+
+  function getSceneRenderBudgetScale(scaleName, fallback) {
+    const quality = runtime && runtime.sceneFrameSnapshot && runtime.sceneFrameSnapshot.quality;
+    const value = quality ? Number(quality[scaleName]) : Number.NaN;
+    const defaultValue = Number.isFinite(Number(fallback)) ? Number(fallback) : 1;
+    return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : defaultValue;
+  }
+
+  function getSceneRenderBudgetCount(baseCount, scaleName, minimum) {
+    const base = Math.max(0, Number(baseCount) || 0);
+    const floor = Math.max(0, Number(minimum) || 0);
+    return Math.max(floor, Math.round(base * getSceneRenderBudgetScale(scaleName, 1)));
+  }
+
+  function createSceneRenderQualityState() {
+    return {
       tier: getInitialSceneQualityTier(),
-      lastFrameAt: null,
-      slowFrames: 0,
-      fastFrames: 0
+      lastPerfSequence: 0,
+      downWindowStartedAt: null,
+      downSamples: 0,
+      downSlowSamples: 0,
+      downMisses: 0,
+      downDurationTotal: 0,
+      fastWindowStartedAt: null,
+      fastSamples: 0,
+      lastAdjustmentAt: null
     };
-    const frameNow = Number(now) || 0;
-    if (state.lastFrameAt !== null && frameNow > state.lastFrameAt) {
-      const delta = Math.min(80, frameNow - state.lastFrameAt);
-      if (delta > 27) {
-        state.slowFrames += 1;
-        state.fastFrames = Math.max(0, state.fastFrames - 3);
-      } else if (delta < 20) {
-        state.fastFrames += 1;
-        state.slowFrames = Math.max(0, state.slowFrames - 2);
-      } else {
-        state.slowFrames = Math.max(0, state.slowFrames - 1);
-        state.fastFrames = Math.max(0, state.fastFrames - 1);
+  }
+
+  function consumeRuntimeScenePerfSample(state) {
+    const perf = runtime && runtime.scenePerf;
+    if (!perf || !Number.isFinite(Number(perf.sequence)) || state.lastPerfSequence === perf.sequence) {
+      return false;
+    }
+    state.lastPerfSequence = perf.sequence;
+    return updateSceneRenderQualityGovernor(
+      state,
+      perf.lastSampleAt,
+      perf.lastDurationMs,
+      perf.lastDeadlineMissed,
+      perf.lastEligible
+    );
+  }
+
+  function updateSceneRenderQualityGovernor(state, sampleAt, renderDurationMs, deadlineMissed, eligible) {
+    const at = Number(sampleAt);
+    const duration = Math.max(0, Number(renderDurationMs) || 0);
+    if (!state || !eligible || !Number.isFinite(at)) {
+      resetSceneQualityGovernorWindows(state);
+      return false;
+    }
+
+    const profile = sceneRenderQualityProfiles.full[state.tier] || sceneRenderQualityProfiles.full.balanced;
+    const budgetMs = 1000 / Math.max(1, Number(profile.targetFps) || 60);
+    const slowThresholdMs = Math.min(14, budgetMs * 0.72);
+    const fastThresholdMs = Math.min(8, budgetMs * 0.48);
+    const slow = Boolean(deadlineMissed) || duration >= slowThresholdMs;
+    const fast = !deadlineMissed && duration <= fastThresholdMs;
+
+    if (state.downWindowStartedAt === null || !Number.isFinite(Number(state.downWindowStartedAt))) {
+      state.downWindowStartedAt = at;
+      state.downSamples = 0;
+      state.downSlowSamples = 0;
+      state.downMisses = 0;
+      state.downDurationTotal = 0;
+    }
+    state.downSamples += 1;
+    state.downSlowSamples += slow ? 1 : 0;
+    state.downMisses += deadlineMissed ? 1 : 0;
+    state.downDurationTotal += duration;
+
+    if (fast) {
+      if (state.fastWindowStartedAt === null || !Number.isFinite(Number(state.fastWindowStartedAt))) {
+        state.fastWindowStartedAt = at;
+        state.fastSamples = 0;
+      }
+      state.fastSamples += 1;
+    } else {
+      state.fastWindowStartedAt = null;
+      state.fastSamples = 0;
+    }
+
+    if (at - Number(state.downWindowStartedAt) >= sceneQualityDowngradeWindowMs) {
+      const sampleCount = Math.max(1, state.downSamples);
+      const slowRatio = state.downSlowSamples / sampleCount;
+      const missRatio = state.downMisses / sampleCount;
+      const averageDuration = state.downDurationTotal / sampleCount;
+      const shouldDowngrade = slowRatio >= 0.2 || missRatio >= 0.03 || averageDuration >= slowThresholdMs;
+      resetSceneQualityDownWindow(state, at);
+      if (shouldDowngrade) {
+        const nextTier = getLowerSceneQualityTier(state.tier);
+        if (nextTier !== state.tier) {
+          state.tier = nextTier;
+          state.lastAdjustmentAt = at;
+          state.fastWindowStartedAt = null;
+          state.fastSamples = 0;
+          return true;
+        }
       }
     }
-    state.lastFrameAt = frameNow;
 
-    if (state.slowFrames >= 36) {
-      state.tier = state.tier === 'high' ? 'balanced' : 'low';
-      state.slowFrames = 0;
-      state.fastFrames = 0;
-    } else if (state.fastFrames >= 240) {
-      state.tier = state.tier === 'low' ? 'balanced' : 'high';
-      state.slowFrames = 0;
-      state.fastFrames = 0;
+    if (
+      state.fastWindowStartedAt !== null
+      && at - Number(state.fastWindowStartedAt) >= sceneQualityUpgradeWindowMs
+    ) {
+      const nextTier = getHigherSceneQualityTier(state.tier);
+      state.fastWindowStartedAt = at;
+      state.fastSamples = 0;
+      if (nextTier !== state.tier) {
+        state.tier = nextTier;
+        state.lastAdjustmentAt = at;
+        resetSceneQualityDownWindow(state, at);
+        return true;
+      }
     }
-    runtime.sceneRenderQuality = state;
-    return profiles[state.tier] || profiles.balanced;
+    return false;
+  }
+
+  function resetSceneQualityGovernorWindows(state) {
+    if (!state) {
+      return;
+    }
+    state.downWindowStartedAt = null;
+    state.downSamples = 0;
+    state.downSlowSamples = 0;
+    state.downMisses = 0;
+    state.downDurationTotal = 0;
+    state.fastWindowStartedAt = null;
+    state.fastSamples = 0;
+  }
+
+  function resetSceneQualityDownWindow(state, sampleAt) {
+    state.downWindowStartedAt = sampleAt;
+    state.downSamples = 0;
+    state.downSlowSamples = 0;
+    state.downMisses = 0;
+    state.downDurationTotal = 0;
+  }
+
+  function getLowerSceneQualityTier(tier) {
+    return tier === 'high' ? 'balanced' : 'low';
+  }
+
+  function getHigherSceneQualityTier(tier) {
+    return tier === 'low' ? 'balanced' : 'high';
   }
 
   function getInitialSceneQualityTier() {
@@ -135,6 +280,9 @@
 
     drawSceneAmbientGrade(ctx, frameScene.scene, frameScene.palette);
     frameScene.ambientCompositeDrawn = true;
+    const emissiveScale = getSceneRenderBudgetScale('emissiveScale', 1);
+    ctx.save();
+    ctx.globalAlpha *= emissiveScale;
     if (typeof drawCelestialEmissiveLayer === 'function') {
       drawCelestialEmissiveLayer(ctx, frameScene.scene, frameScene.palette, now);
     }
@@ -144,5 +292,6 @@
     if (typeof drawSceneEmissiveForeground === 'function') {
       drawSceneEmissiveForeground(ctx, now, frameScene);
     }
+    ctx.restore();
     return true;
   }

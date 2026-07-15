@@ -124,8 +124,9 @@
       return null;
     }
 
-    const cycleMs = 13500;
-    const activeMs = 5600;
+    const daySeed = Math.floor(date.getTime() / 86400000);
+    const cycleMs = 25000 + Math.round(ambientLifeSeededUnit(daySeed * 4099 + 73) * 20000);
+    const activeMs = 5200;
     const slot = Math.floor(now / cycleMs);
     const cycleStart = slot * cycleMs;
     const local = now - cycleStart;
@@ -133,7 +134,6 @@
       return null;
     }
 
-    const daySeed = Math.floor(date.getTime() / 86400000);
     const seed = daySeed * 4099 + slot * 131;
     const candidates = buildAmbientLifeCueCandidates(profile, source, date, seed);
     if (!candidates.length) {

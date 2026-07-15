@@ -24,6 +24,8 @@
       bound: false,
       actionDisableReasons: {},
       lastAnnouncement: '',
+      worldExplorationOpen: false,
+      worldExplorationLastMessage: '',
       nameGateBackgroundState: null,
       dialogFallbackBackgroundState: null,
       nonSessionGuardMessage: null,
@@ -118,6 +120,290 @@
     ui.lastAnnouncement = text;
   }
 
+  function syncActiveGameplayLayoutState() {
+    const active = runtime.state && runtime.state.minigames && runtime.state.minigames.active;
+    const foreign = typeof isForeignExclusiveSessionActive === 'function'
+      && isForeignExclusiveSessionActive('minigame');
+    const legendary = Boolean(active
+      && typeof isLegendaryMinigameRuntimeId === 'function'
+      && isLegendaryMinigameRuntimeId(active.id));
+    const kind = active && !foreign ? (legendary ? 'legendary' : 'standard') : '';
+    const surface = kind === 'legendary' ? dom.legendaryGamePlayfield : kind === 'standard' ? dom.minigamePlayfield : null;
+    const phase = surface && surface.dataset && surface.dataset.launchPhase
+      ? surface.dataset.launchPhase
+      : runtime.minigameLaunch && runtime.minigameLaunch.phase
+        ? runtime.minigameLaunch.phase
+        : kind ? 'active' : '';
+    const targets = [dom.app, document.documentElement].filter(Boolean);
+    targets.forEach(function(target) {
+      if (kind) {
+        target.dataset.gameplayFocus = kind;
+        target.dataset.gameplayPhase = phase;
+      } else {
+        delete target.dataset.gameplayFocus;
+        delete target.dataset.gameplayPhase;
+      }
+    });
+    if (dom.stagePanel) {
+      if (kind) {
+        dom.stagePanel.dataset.sceneCalm = 'true';
+      } else {
+        delete dom.stagePanel.dataset.sceneCalm;
+      }
+    }
+  }
+
+  function getWorldExplorationPanelUnavailableReason() {
+    if (!runtime.state || !hasNamedMushroom(runtime.state)) {
+      return 'Najpierw nadaj pieczarce imię.';
+    }
+    if (runtime.viewMode === 'arena') {
+      return 'Wróć do Opieki, aby eksplorować grzybnię.';
+    }
+    if (getExclusiveGameplaySessionForUi()) {
+      return 'Najpierw zakończ aktywną rozgrywkę.';
+    }
+    if (isGameOverUiState()) {
+      return 'Ta grzybnia potrzebuje nowego początku.';
+    }
+    return '';
+  }
+
+  function setWorldExplorationPanelOpen(open, options) {
+    const ui = ensureSceneFirstUiRuntime();
+    const settings = options || {};
+    const nextOpen = Boolean(open);
+    ui.worldExplorationOpen = nextOpen;
+    if (dom.worldExploreToggle) {
+      dom.worldExploreToggle.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+    }
+    if (dom.worldExploreActions) {
+      dom.worldExploreActions.hidden = !nextOpen;
+    }
+    if (dom.stagePanel) {
+      if (nextOpen) {
+        dom.stagePanel.dataset.worldExploreOpen = 'true';
+      } else {
+        delete dom.stagePanel.dataset.worldExploreOpen;
+      }
+    }
+    if (!nextOpen && settings.restoreFocus && dom.worldExploreToggle && typeof dom.worldExploreToggle.focus === 'function') {
+      dom.worldExploreToggle.focus({ preventScroll: true });
+    }
+    return nextOpen;
+  }
+
+  function toggleWorldExplorationPanel(forceOpen, source) {
+    const ui = ensureSceneFirstUiRuntime();
+    const reason = getWorldExplorationPanelUnavailableReason();
+    if (reason) {
+      setWorldExplorationPanelOpen(false, { restoreFocus: false });
+      announceUiStatus(reason, false);
+      return false;
+    }
+    const nextOpen = typeof forceOpen === 'boolean' ? forceOpen : !ui.worldExplorationOpen;
+    setWorldExplorationPanelOpen(nextOpen, { restoreFocus: false });
+    renderWorldExplorationControls();
+    if (nextOpen) {
+      announceUiStatus('Eksploracja grzybni. Wybierz trawę, niebo lub widocznego gościa.', false);
+      if (source === 'keyboard') {
+        const first = dom.worldExploreActions && dom.worldExploreActions.querySelector('[data-world-explore-action]');
+        if (first && typeof first.focus === 'function') {
+          first.focus({ preventScroll: true });
+        }
+      }
+    }
+    return nextOpen;
+  }
+
+  function renderWorldExplorationControls() {
+    if (!dom.worldExplore) {
+      return;
+    }
+    const ui = ensureSceneFirstUiRuntime();
+    const hardReason = getWorldExplorationPanelUnavailableReason();
+    dom.worldExplore.hidden = Boolean(hardReason);
+    if (hardReason) {
+      setWorldExplorationPanelOpen(false, { restoreFocus: false });
+      return;
+    }
+
+    const actions = typeof getWorldExplorationActions === 'function'
+      ? getWorldExplorationActions(typeof getInteractionNow === 'function' ? getInteractionNow() : getRuntimeNow())
+      : [];
+    const actionMap = new Map(actions.map(function(action) {
+      return [action.id, action];
+    }));
+    (dom.worldExploreActionButtons || []).forEach(function(button) {
+      const action = actionMap.get(button.dataset.worldExploreAction);
+      const available = Boolean(action && action.available);
+      const reason = action && action.reason ? formatMushroomText(action.reason) : '';
+      const hint = action && action.hint ? formatMushroomText(action.hint) : '';
+      if (action && action.label) {
+        button.textContent = formatMushroomText(action.label);
+      }
+      button.setAttribute('aria-disabled', available ? 'false' : 'true');
+      button.dataset.disabledReason = available ? '' : reason || 'Ta ścieżka nie jest teraz dostępna.';
+      button.setAttribute('aria-label', [button.textContent, hint, available ? '' : button.dataset.disabledReason].filter(Boolean).join('. '));
+      button.title = available ? hint : button.dataset.disabledReason;
+    });
+    if (dom.worldExploreStatus) {
+      dom.worldExploreStatus.textContent = ui.worldExplorationLastMessage || '';
+    }
+    setWorldExplorationPanelOpen(ui.worldExplorationOpen, { restoreFocus: false });
+  }
+
+  function getWorldPreferenceSnapshotForUi() {
+    if (window.getWorldSensoryPreferences && typeof window.getWorldSensoryPreferences === 'function') {
+      return window.getWorldSensoryPreferences();
+    }
+    const world = runtime.state && runtime.state.preferences && runtime.state.preferences.world
+      ? runtime.state.preferences.world
+      : {};
+    return {
+      motionMode: ['system', 'full', 'gentle', 'still'].includes(world.motionMode) ? world.motionMode : 'system',
+      stormFlashesEnabled: world.stormFlashesEnabled !== false,
+      batterySaver: Boolean(world.batterySaver),
+      audioMode: ['off', 'cues', 'atmosphere'].includes(world.audioMode) ? world.audioMode : 'off',
+      ambientVolume: Number.isFinite(Number(world.ambientVolume))
+        ? Math.max(0, Math.min(100, Math.round(Number(world.ambientVolume))))
+        : 40
+    };
+  }
+
+  function syncWorldPreferenceControls() {
+    const preferences = getWorldPreferenceSnapshotForUi();
+    const values = {
+      motion: preferences.motionMode,
+      flash: Boolean(preferences.stormFlashesEnabled),
+      battery: Boolean(preferences.batterySaver),
+      audio: preferences.audioMode,
+      volume: preferences.ambientVolume
+    };
+    document.querySelectorAll('[data-world-preference]').forEach(function(control) {
+      const key = control.dataset.worldPreference;
+      if (!Object.prototype.hasOwnProperty.call(values, key)) {
+        return;
+      }
+      control.value = String(values[key]);
+      if (key === 'volume') {
+        control.setAttribute('aria-valuenow', String(values[key]));
+      }
+    });
+    document.querySelectorAll('[data-world-preference-toggle]').forEach(function(control) {
+      const key = control.dataset.worldPreferenceToggle;
+      const enabled = Boolean(values[key]);
+      control.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+      control.textContent = enabled ? 'Włączone' : 'Wyłączone';
+    });
+    const volumeValue = document.querySelector('[data-world-volume-value]');
+    if (volumeValue) {
+      volumeValue.textContent = values.volume + '%';
+    }
+    const datasetTargets = [document.documentElement, dom.app].filter(Boolean);
+    datasetTargets.forEach(function(target) {
+      target.dataset.worldMotion = values.motion;
+      target.dataset.stormFlashes = values.flash ? 'true' : 'false';
+      target.dataset.batterySaver = values.battery ? 'true' : 'false';
+      target.dataset.audioMode = values.audio;
+      target.dataset.audioVolume = String(values.volume);
+    });
+    return values;
+  }
+
+  function handleWorldPreferenceInput(event) {
+    const control = event.target && event.target.closest
+      ? event.target.closest('[data-world-preference]')
+      : null;
+    if (!control) {
+      return;
+    }
+    if (control.getAttribute('aria-disabled') === 'true') {
+      if (typeof event.preventDefault === 'function') {
+        event.preventDefault();
+      }
+      if (typeof event.stopImmediatePropagation === 'function') {
+        event.stopImmediatePropagation();
+      }
+      const session = getExclusiveGameplaySessionForUi();
+      const reason = control.dataset.disabledReason
+        || getExclusiveGameplayUiReason(session)
+        || 'Najpierw zakończ aktywną rozgrywkę.';
+      syncWorldPreferenceControls();
+      renderExclusiveSessionControls();
+      announceUiStatus(reason, false);
+      return;
+    }
+    const key = control.dataset.worldPreference;
+    if (key === 'volume') {
+      const value = Math.max(0, Math.min(100, Math.round(Number(control.value) || 0)));
+      const output = document.querySelector('[data-world-volume-value]');
+      if (output) {
+        output.textContent = value + '%';
+      }
+      control.setAttribute('aria-valuenow', String(value));
+      if (event.type === 'input') {
+        return;
+      }
+    } else if (event.type !== 'change') {
+      return;
+    }
+    updateWorldPreferenceFromUi(key, key === 'volume' ? Number(control.value) : control.value, {
+      userGesture: Boolean(event.isTrusted),
+      announce: event.type === 'change'
+    });
+  }
+
+  function updateWorldPreferenceFromUi(key, value, options) {
+    const settings = options || {};
+    const exclusiveSession = getExclusiveGameplaySessionForUi();
+    if (exclusiveSession) {
+      const reason = getExclusiveGameplayUiReason(exclusiveSession);
+      guardExclusiveUiMutation('Ustawienia świata');
+      syncWorldPreferenceControls();
+      renderExclusiveSessionControls();
+      announceUiStatus(reason || 'Najpierw zakończ aktywną rozgrywkę.', false);
+      return false;
+    }
+    if (typeof isRuntimeReadOnly === 'function' && isRuntimeReadOnly()) {
+      syncWorldPreferenceControls();
+      announceUiStatus('Ustawienia są tylko do odczytu, dopóki zapis nie będzie znów dostępny.', false);
+      return false;
+    }
+
+    let result = null;
+    if (window.updateWorldPreference && typeof window.updateWorldPreference === 'function') {
+      result = window.updateWorldPreference(key, value, { userGesture: settings.userGesture === true });
+    } else if (typeof window.CustomEvent === 'function') {
+      document.dispatchEvent(new window.CustomEvent('pieczargotchi:ui-preference-change', {
+        detail: { key: key, value: value, userGesture: settings.userGesture === true }
+      }));
+    }
+    const values = syncWorldPreferenceControls();
+    if (result && result.ok === false) {
+      announceUiStatus('Nie udało się zmienić tego ustawienia.', false);
+      return false;
+    }
+    if (settings.announce) {
+      const labels = {
+        motion: 'Ruch świata',
+        flash: 'Błyski burzy',
+        battery: 'Oszczędzanie baterii',
+        audio: 'Tryb dźwięku',
+        volume: 'Głośność'
+      };
+      const spokenValues = {
+        motion: { system: 'jak w systemie', full: 'pełny', gentle: 'ograniczony', still: 'spokojny' }[values.motion],
+        flash: values.flash ? 'włączone' : 'wyłączone',
+        battery: values.battery ? 'włączone' : 'wyłączone',
+        audio: { off: 'bez dźwięku', cues: 'tylko efekty', atmosphere: 'pełny' }[values.audio],
+        volume: values.volume + ' procent'
+      };
+      announceUiStatus((labels[key] || 'Ustawienie') + ': ' + (spokenValues[key] || String(value)) + '.', false);
+    }
+    return true;
+  }
+
   function initSceneFirstUi() {
     const ui = ensureSceneFirstUiRuntime();
     if (ui.bound) {
@@ -136,10 +422,27 @@
       initMinigameSensoryManager();
     }
     exposeMinigameUiApi();
+    syncWorldPreferenceControls();
 
     document.addEventListener('click', handleSceneFirstUiClick, true);
     document.addEventListener('keydown', handleSceneFirstUiKeydown, true);
     document.addEventListener('focusin', handleSceneFirstUiFocusIn, true);
+    document.addEventListener('change', handleWorldPreferenceInput, true);
+    document.addEventListener('input', handleWorldPreferenceInput, true);
+
+    const gameplaySurfaces = [dom.minigamePlayfield, dom.legendaryGamePlayfield].filter(Boolean);
+    if (gameplaySurfaces.length && 'MutationObserver' in window) {
+      ui.gameplayFocusObserver = new MutationObserver(function() {
+        syncActiveGameplayLayoutState();
+        renderWorldExplorationControls();
+      });
+      gameplaySurfaces.forEach(function(surface) {
+        ui.gameplayFocusObserver.observe(surface, {
+          attributes: true,
+          attributeFilter: ['hidden', 'data-launch-phase']
+        });
+      });
+    }
 
     document.querySelectorAll('dialog').forEach(function(dialog) {
       dialog.addEventListener('cancel', function(event) {
@@ -226,6 +529,11 @@
     if (ui.actionTrayExpanded && !clickedInsideTray) {
       collapseMobileActionTray({ restoreFocus: false });
     }
+    const explorationRoot = dom.worldExplore;
+    const clickedInsideExploration = Boolean(explorationRoot && explorationRoot.contains(event.target));
+    if (ui.worldExplorationOpen && !clickedInsideExploration) {
+      setWorldExplorationPanelOpen(false, { restoreFocus: false });
+    }
 
     const target = event.target && event.target.closest
       ? event.target.closest('button, [data-workspace-tab], [data-legends-tab]')
@@ -278,8 +586,16 @@
       return;
     }
 
+    if (target.matches('[data-world-explore-toggle]')) {
+      event.preventDefault();
+      toggleWorldExplorationPanel(undefined, 'pointer');
+      return;
+    }
+
     if (target.matches('[data-settings-open]')) {
       event.preventDefault();
+      setWorldExplorationPanelOpen(false, { restoreFocus: false });
+      syncWorldPreferenceControls();
       const input = document.querySelector('[data-rename-input]');
       if (input && runtime.state) {
         input.value = getMushroomName(runtime.state);
@@ -314,6 +630,30 @@
       event.preventDefault();
       event.stopImmediatePropagation();
       announceUiStatus(blockedControl.dataset.disabledReason || 'Ta opcja nie jest teraz dostępna.', false);
+      return;
+    }
+
+    if (target.matches('[data-world-explore-action]')) {
+      event.preventDefault();
+      const interactionNow = typeof getInteractionNow === 'function' ? getInteractionNow() : getRuntimeNow();
+      const result = typeof performWorldExplorationAction === 'function'
+        ? performWorldExplorationAction(target.dataset.worldExploreAction, interactionNow)
+        : { ok: false, message: 'Eksploracja nie jest jeszcze gotowa.' };
+      const message = formatMushroomText(result && result.message || 'Grzybnia pozostała cicha.');
+      ui.worldExplorationLastMessage = message;
+      if (dom.worldExploreStatus) {
+        dom.worldExploreStatus.textContent = message;
+      }
+      announceUiStatus(message, false);
+      renderWorldExplorationControls();
+      return;
+    }
+
+    if (target.matches('[data-world-preference-toggle]')) {
+      event.preventDefault();
+      const key = target.dataset.worldPreferenceToggle;
+      const value = target.getAttribute('aria-pressed') !== 'true';
+      updateWorldPreferenceFromUi(key, value, { userGesture: true, announce: true });
       return;
     }
 
@@ -372,6 +712,12 @@
           return;
         }
       }
+    }
+    if (event.key === 'Escape' && ui.worldExplorationOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+      setWorldExplorationPanelOpen(false, { restoreFocus: true });
+      return;
     }
     if (event.key === 'Escape' && ui.actionTrayExpanded) {
       event.preventDefault();
@@ -767,6 +1113,9 @@
     renderDebugControls();
     renderExclusiveSessionControls();
     renderWorkspaceNavigation();
+    syncActiveGameplayLayoutState();
+    renderWorldExplorationControls();
+    syncWorldPreferenceControls();
     updateMobileActionTrayState(getRuntimeNow());
     assignStableUiFocusKeys();
     restoreStableUiFocus(focusSnapshot);
@@ -869,7 +1218,8 @@
     const controls = document.querySelectorAll(
       '[data-reset-open], [data-reset-confirm], [data-import-button], [data-import-confirm], '
         + '[data-rename-form] button[type="submit"], .panel-block--debug .debug-controls input, '
-        + '.panel-block--debug .debug-controls select, .panel-block--debug .debug-controls button'
+        + '.panel-block--debug .debug-controls select, .panel-block--debug .debug-controls button, '
+        + '[data-world-preference], [data-world-preference-toggle]'
     );
     controls.forEach(function(control) {
       if (session) {

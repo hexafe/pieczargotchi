@@ -1,7 +1,182 @@
+  const runtimeScenePerfRingCapacity = 360;
+  const runtimeMinigameBackgroundIntervalMs = 250;
+  const runtimeOffscreenMinigamePollMs = 500;
+
+  function getRuntimeWorldMotionPreference() {
+    const preferences = runtime && runtime.state && runtime.state.preferences;
+    const world = preferences && preferences.world;
+    const requested = typeof world === 'string'
+      ? world
+      : world && typeof world === 'object'
+        ? world.motionMode || world.motion || world.animationMode || world.mode
+        : '';
+    const normalized = String(requested || 'system').trim().toLowerCase();
+    return ['system', 'full', 'gentle', 'still'].includes(normalized) ? normalized : 'system';
+  }
+
+  function isRuntimeBatterySaverEnabled() {
+    const preferences = runtime && runtime.state && runtime.state.preferences;
+    const world = preferences && preferences.world;
+    return Boolean(world && typeof world === 'object' && world.batterySaver);
+  }
+
+  function getEffectiveRuntimeMotionMode() {
+    const preference = getRuntimeWorldMotionPreference();
+    if (preference === 'still') {
+      return 'still';
+    }
+    if (isRuntimeBatterySaverEnabled()) {
+      return 'gentle';
+    }
+    if (preference !== 'system') {
+      return preference;
+    }
+    const systemReduced = Object.prototype.hasOwnProperty.call(runtime, 'systemReducedMotion')
+      ? Boolean(runtime.systemReducedMotion)
+      : Boolean(runtime.reducedMotion);
+    return systemReduced ? 'gentle' : 'full';
+  }
+
+  function syncRuntimeMotionMode() {
+    const mode = getEffectiveRuntimeMotionMode();
+    runtime.effectiveMotionMode = mode;
+    // Existing minigame and UI paths use this boolean. Keep it synchronized with
+    // the effective preference while retaining systemReducedMotion as raw OS state.
+    runtime.reducedMotion = mode === 'gentle' || mode === 'still';
+    return mode;
+  }
+
+  function hasActiveRuntimeMinigame() {
+    const stateMinigame = runtime.state && runtime.state.minigames
+      ? runtime.state.minigames.active
+      : null;
+    return Boolean(runtime.minigame || stateMinigame);
+  }
+
+  function getRuntimeSceneTargetFps() {
+    const snapshotQuality = runtime.sceneFrameSnapshot && runtime.sceneFrameSnapshot.quality;
+    const snapshotFps = snapshotQuality && Number(snapshotQuality.targetFps || snapshotQuality.fps);
+    if (Number.isFinite(snapshotFps) && snapshotFps > 0) {
+      return snapshotFps;
+    }
+    return runtime.sceneRenderQuality && runtime.sceneRenderQuality.tier === 'low' ? 30 : 60;
+  }
+
+  function ensureRuntimeScenePerfRing() {
+    const current = runtime.scenePerf;
+    if (
+      current
+      && current.durationMs instanceof Float32Array
+      && current.durationMs.length === runtimeScenePerfRingCapacity
+    ) {
+      return current;
+    }
+    runtime.scenePerf = {
+      durationMs: new Float32Array(runtimeScenePerfRingCapacity),
+      sampleAt: new Float64Array(runtimeScenePerfRingCapacity),
+      deadlineMissed: new Uint8Array(runtimeScenePerfRingCapacity),
+      eligible: new Uint8Array(runtimeScenePerfRingCapacity),
+      index: 0,
+      count: 0,
+      sequence: 0,
+      renderedFrames: 0,
+      eligibleFrames: 0,
+      deadlineMisses: 0,
+      lastDurationMs: 0,
+      lastSampleAt: 0,
+      lastDeadlineMissed: false,
+      lastEligible: false,
+      lastTargetIntervalMs: 0,
+      qualitySuspended: false
+    };
+    return runtime.scenePerf;
+  }
+
+  function recordRuntimeSceneFrame(frameNow, durationMs, targetIntervalMs, eligible) {
+    const perf = ensureRuntimeScenePerfRing();
+    const duration = Math.max(0, Number(durationMs) || 0);
+    const target = Number(targetIntervalMs);
+    const sampleEligible = Boolean(eligible);
+    const deadline = Number.isFinite(target) && target > 0 ? target : 1000 / 60;
+    const missed = sampleEligible && duration > deadline;
+    const index = perf.index;
+
+    perf.durationMs[index] = duration;
+    perf.sampleAt[index] = Number(frameNow) || 0;
+    perf.deadlineMissed[index] = missed ? 1 : 0;
+    perf.eligible[index] = sampleEligible ? 1 : 0;
+    perf.index = (index + 1) % perf.durationMs.length;
+    perf.count = Math.min(perf.durationMs.length, perf.count + 1);
+    perf.sequence += 1;
+    perf.renderedFrames += 1;
+    perf.eligibleFrames += sampleEligible ? 1 : 0;
+    perf.deadlineMisses += missed ? 1 : 0;
+    perf.lastDurationMs = duration;
+    perf.lastSampleAt = Number(frameNow) || 0;
+    perf.lastDeadlineMissed = missed;
+    perf.lastEligible = sampleEligible;
+    perf.lastTargetIntervalMs = Number.isFinite(target) ? target : 0;
+    perf.qualitySuspended = !sampleEligible;
+    return missed;
+  }
+
+  function suspendRuntimeSceneQualitySampling() {
+    const perf = ensureRuntimeScenePerfRing();
+    if (perf.qualitySuspended) {
+      return;
+    }
+    perf.qualitySuspended = true;
+    perf.sequence += 1;
+    perf.lastDurationMs = 0;
+    perf.lastSampleAt = getRenderClockNow();
+    perf.lastDeadlineMissed = false;
+    perf.lastEligible = false;
+    perf.lastTargetIntervalMs = 0;
+  }
+
+  function isRuntimeSceneQualitySampleEligible() {
+    if (typeof document !== 'undefined' && document.hidden) {
+      return false;
+    }
+    if (hasActiveRuntimeMinigame()) {
+      return false;
+    }
+    if (getEffectiveRuntimeMotionMode() !== 'full') {
+      return false;
+    }
+    return !(runtime.debug && ['high', 'balanced', 'low'].includes(runtime.debug.sceneQuality));
+  }
+
+  function requestRuntimeRender() {
+    runtime.renderInvalidated = true;
+    if (typeof runtime.scheduleRuntimeRender === 'function') {
+      runtime.scheduleRuntimeRender();
+    }
+  }
+
+  function hasRuntimeExclusiveGameplaySession() {
+    return Boolean(
+      typeof getExclusiveGameplaySession === 'function'
+      && getExclusiveGameplaySession()
+    );
+  }
+
+  function isRuntimeWorldDiscoveryMutationBlocked() {
+    return Boolean(
+      (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked())
+      || hasRuntimeExclusiveGameplaySession()
+    );
+  }
+
   function startTimers() {
     window.setInterval(function() {
-      if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
+      if (document.hidden) {
+        return;
+      }
+      if ((typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked())
+        || hasRuntimeExclusiveGameplaySession()) {
         renderUi();
+        requestRuntimeRender();
         return;
       }
       runtime.state = applyElapsedTime(runtime.state, getRuntimeNow());
@@ -10,9 +185,13 @@
       }
       persistRuntimeState(runtime.state);
       renderUi();
+      requestRuntimeRender();
     }, rules.tickMs || 60000);
 
     window.setInterval(function() {
+      if (document.hidden) {
+        return;
+      }
       if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
         renderActionStates();
         renderMessage();
@@ -22,9 +201,19 @@
       if (typeof refreshOwnedBattleSessionLease === 'function') {
         refreshOwnedBattleSessionLease(getExclusiveOwnershipNow());
       }
+      if (hasRuntimeExclusiveGameplaySession()) {
+        renderActionStates();
+        renderMessage();
+        return;
+      }
+      const activityBefore = runtime.state && runtime.state.currentActivity;
       cleanupActivity(now);
+      const activityAfter = runtime.state && runtime.state.currentActivity;
       renderActionStates();
       renderMessage();
+      if (activityBefore !== activityAfter) {
+        requestRuntimeRender();
+      }
     }, rules.cooldownTickMs || 1000);
   }
 
@@ -39,16 +228,20 @@
     }
 
     runtime.renderStarted = true;
+    runtime.renderInvalidated = true;
+    runtime.mainSceneVisible = runtime.mainSceneVisible !== false;
     const reducedMotionQuery = window.matchMedia
       ? window.matchMedia('(prefers-reduced-motion: reduce)')
       : null;
-    runtime.reducedMotion = Boolean(reducedMotionQuery && reducedMotionQuery.matches);
+    runtime.systemReducedMotion = Boolean(reducedMotionQuery && reducedMotionQuery.matches);
+    syncRuntimeMotionMode();
     if (reducedMotionQuery && !runtime.reducedMotionQueryBound) {
       runtime.reducedMotionQueryBound = true;
       runtime.reducedMotionQuery = reducedMotionQuery;
       const syncReducedMotion = function(event) {
-        runtime.reducedMotion = Boolean(event && event.matches);
-        runtime.lastRenderedFrameAt = null;
+        runtime.systemReducedMotion = Boolean(event && event.matches);
+        syncRuntimeMotionMode();
+        requestRuntimeRender();
         if (typeof renderUi === 'function') {
           renderUi();
         }
@@ -69,44 +262,114 @@
         scheduleRuntimeRender();
         return;
       }
+      const targetInterval = getRuntimeMainSceneFrameIntervalMs();
+      const renderStartedAt = getRenderClockNow();
+      let rendered = false;
       try {
         const wasRecovering = Boolean(runtime.renderError);
+        runtime.renderInProgress = true;
         drawFrame(frameNow);
+        rendered = true;
         runtime.renderError = null;
         if (wasRecovering && typeof renderRuntimeAlert === 'function') {
           renderRuntimeAlert();
         }
       } catch (error) {
         handleRenderError(error);
+      } finally {
+        runtime.renderInProgress = false;
       }
+      recordRuntimeSceneFrame(
+        frameNow,
+        getRenderClockNow() - renderStartedAt,
+        targetInterval,
+        rendered && isRuntimeSceneQualitySampleEligible()
+      );
       scheduleRuntimeRender();
     }
 
     function scheduleRuntimeRender() {
-      if (!document.hidden && !runtime.renderAnimationFrame) {
-        runtime.renderAnimationFrame = window.requestAnimationFrame(render);
+      if (document.hidden || runtime.renderAnimationFrame || runtime.renderTimer) {
+        return;
+      }
+      const activeMinigame = hasActiveRuntimeMinigame();
+      if (activeMinigame && runtime.mainSceneVisible === false) {
+        suspendRuntimeSceneQualitySampling();
+        runtime.renderTimer = window.setTimeout(function() {
+          runtime.renderTimer = 0;
+          scheduleRuntimeRender();
+        }, runtimeOffscreenMinigamePollMs);
+        return;
+      }
+
+      const interval = getRuntimeMainSceneFrameIntervalMs();
+      if (!Number.isFinite(interval) && !runtime.renderInvalidated) {
+        return;
+      }
+      const last = Number(runtime.lastRenderedFrameAt);
+      const now = getRenderClockNow();
+      const remaining = Number.isFinite(interval) && interval > 0 && Number.isFinite(last)
+        ? interval - (now - last)
+        : 0;
+      if (remaining > 4) {
+        runtime.renderTimer = window.setTimeout(function() {
+          runtime.renderTimer = 0;
+          scheduleRuntimeRender();
+        }, Math.max(1, Math.floor(remaining - 1)));
+        return;
+      }
+      runtime.renderAnimationFrame = window.requestAnimationFrame(render);
+    }
+
+    function cancelRuntimeRenderSchedule() {
+      if (runtime.renderAnimationFrame) {
+        window.cancelAnimationFrame(runtime.renderAnimationFrame);
+        runtime.renderAnimationFrame = 0;
+      }
+      if (runtime.renderTimer) {
+        window.clearTimeout(runtime.renderTimer);
+        runtime.renderTimer = 0;
       }
     }
+
+    runtime.scheduleRuntimeRender = scheduleRuntimeRender;
+    runtime.cancelRuntimeRenderSchedule = cancelRuntimeRenderSchedule;
+    bindRuntimeSceneSourceInvalidations();
+    bindRuntimeMainSceneVisibility();
+    bindRuntimeRenderInvalidationEvents();
 
     if (!runtime.renderVisibilityBound) {
       runtime.renderVisibilityBound = true;
       document.addEventListener('visibilitychange', function() {
-        if (document.hidden) {
-          if (runtime.renderAnimationFrame) {
-            window.cancelAnimationFrame(runtime.renderAnimationFrame);
-            runtime.renderAnimationFrame = 0;
-          }
-          return;
-        }
-        runtime.lastRenderedFrameAt = null;
-        scheduleRuntimeRender();
-        if (typeof reconcileExclusiveRuntimeSession === 'function') {
-          reconcileExclusiveRuntimeSession(getRuntimeNow());
-        }
+        handleRuntimeRenderVisibilityChange(cancelRuntimeRenderSchedule);
       });
     }
 
     scheduleRuntimeRender();
+  }
+
+  function handleRuntimeRenderVisibilityChange(cancelRenderSchedule) {
+    if (document.hidden) {
+      runtime.renderHiddenAt = getRuntimeNow();
+      suspendRuntimeSceneQualitySampling();
+      if (typeof cancelRenderSchedule === 'function') {
+        cancelRenderSchedule();
+      }
+      return;
+    }
+    runtime.renderHiddenAt = null;
+    runtime.lastRenderedFrameAt = null;
+    if (runtime.state
+      && !(typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked())
+      && !hasRuntimeExclusiveGameplaySession()) {
+      runtime.state = applyElapsedTime(runtime.state, getRuntimeNow());
+      if (typeof reconcileExclusiveRuntimeSession === 'function') {
+        reconcileExclusiveRuntimeSession(getRuntimeNow());
+      }
+      persistRuntimeState(runtime.state);
+      renderUi();
+    }
+    requestRuntimeRender();
   }
 
   function shouldRenderRuntimeFrame(frameNow) {
@@ -115,35 +378,185 @@
       return false;
     }
 
+    const stateMinigame = runtime.state && runtime.state.minigames
+      ? runtime.state.minigames.active
+      : null;
+    if ((runtime.minigame || stateMinigame) && runtime.mainSceneVisible === false) {
+      return false;
+    }
+
     const interval = getRuntimeMainSceneFrameIntervalMs();
     const last = runtime.lastRenderedFrameAt;
+    if (!Number.isFinite(interval)) {
+      if (!runtime.renderInvalidated && last !== null && typeof last !== 'undefined') {
+        return false;
+      }
+      runtime.lastRenderedFrameAt = now;
+      runtime.renderInvalidated = false;
+      return true;
+    }
+    const activeMinigame = Boolean(runtime.minigame || stateMinigame);
+    if (runtime.renderInvalidated && !activeMinigame) {
+      runtime.lastRenderedFrameAt = now;
+      runtime.renderInvalidated = false;
+      return true;
+    }
     if (
       interval > 0
       && last !== null
       && typeof last !== 'undefined'
       && Number.isFinite(Number(last))
-      && now - Number(last) < interval
+      && now - Number(last) + Math.min(1, interval * 0.05) < interval
     ) {
       return false;
     }
 
     runtime.lastRenderedFrameAt = now;
+    runtime.renderInvalidated = false;
     return true;
   }
 
   function getRuntimeMainSceneFrameIntervalMs() {
-    if (runtime.reducedMotion) {
-      return 500;
-    }
-
     const stateMinigame = runtime.state && runtime.state.minigames
       ? runtime.state.minigames.active
       : null;
-    if (runtime.minigame || stateMinigame) {
-      return 125;
+    const activeMinigame = Boolean(runtime.minigame || stateMinigame);
+    if (activeMinigame && runtime.mainSceneVisible === false) {
+      return Number.POSITIVE_INFINITY;
     }
 
-    return 0;
+    // The fallback preserves isolated legacy callers that only provide the old
+    // reducedMotion boolean; the real runtime always initializes raw OS state.
+    const motionMode = typeof syncRuntimeMotionMode === 'function'
+      ? syncRuntimeMotionMode()
+      : runtime.reducedMotion
+        ? 'still'
+        : 'full';
+    if (motionMode === 'still') {
+      return Number.POSITIVE_INFINITY;
+    }
+    if (activeMinigame) {
+      return typeof runtimeMinigameBackgroundIntervalMs === 'number'
+        ? runtimeMinigameBackgroundIntervalMs
+        : 250;
+    }
+
+    if (typeof getRuntimeSceneTargetFps !== 'function') {
+      return motionMode === 'gentle' ? 1000 / 30 : 0;
+    }
+
+    const qualityFps = Math.max(1, Number(getRuntimeSceneTargetFps()) || 60);
+    const targetFps = motionMode === 'gentle' ? Math.min(30, qualityFps) : Math.min(60, qualityFps);
+    return targetFps > 0 ? 1000 / targetFps : Number.POSITIVE_INFINITY;
+  }
+
+  function bindRuntimeMainSceneVisibility() {
+    if (runtime.mainSceneVisibilityBound) {
+      return;
+    }
+    runtime.mainSceneVisibilityBound = true;
+    runtime.mainSceneVisible = true;
+    if (typeof window.IntersectionObserver !== 'function' || !runtime.canvas) {
+      return;
+    }
+    const target = runtime.canvas.closest ? runtime.canvas.closest('.canvas-wrap') || runtime.canvas : runtime.canvas;
+    runtime.mainSceneVisibilityObserver = new window.IntersectionObserver(function(entries) {
+      const entry = entries && entries[0];
+      const visible = Boolean(entry && entry.isIntersecting && Number(entry.intersectionRatio) > 0);
+      if (runtime.mainSceneVisible === visible) {
+        return;
+      }
+      runtime.mainSceneVisible = visible;
+      if (!visible && hasActiveRuntimeMinigame() && typeof runtime.cancelRuntimeRenderSchedule === 'function') {
+        runtime.cancelRuntimeRenderSchedule();
+      }
+      if (visible) {
+        if (typeof runtime.cancelRuntimeRenderSchedule === 'function') {
+          runtime.cancelRuntimeRenderSchedule();
+        }
+        runtime.lastRenderedFrameAt = null;
+      }
+      requestRuntimeRender();
+    }, { threshold: [0, 0.01] });
+    runtime.mainSceneVisibilityObserver.observe(target);
+  }
+
+  function bindRuntimeRenderInvalidationEvents() {
+    if (runtime.renderInvalidationBound) {
+      return;
+    }
+    runtime.renderInvalidationBound = true;
+    const deferRender = function() {
+      window.setTimeout(requestRuntimeRender, 0);
+    };
+    const handleWorldPreferencesChange = function() {
+      syncRuntimeMotionMode();
+      runtime.sceneFrameSnapshot = null;
+      deferRender();
+    };
+    let stillPointerMoveQueued = false;
+    const isScenePointerEvent = function(event) {
+      return !runtime.canvas || Boolean(event && event.target === runtime.canvas);
+    };
+    const invalidateStillPointerMotion = function(event) {
+      if (!isScenePointerEvent(event) || getEffectiveRuntimeMotionMode() !== 'still' || stillPointerMoveQueued) {
+        return;
+      }
+      stillPointerMoveQueued = true;
+      window.requestAnimationFrame(function() {
+        stillPointerMoveQueued = false;
+        requestRuntimeRender();
+      });
+    };
+    const invalidateStillPointerEdge = function(event) {
+      if (isScenePointerEvent(event) && getEffectiveRuntimeMotionMode() === 'still') {
+        requestRuntimeRender();
+      }
+    };
+    document.addEventListener('click', deferRender);
+    document.addEventListener('change', deferRender);
+    document.addEventListener('keydown', deferRender);
+    document.addEventListener('pointermove', invalidateStillPointerMotion, true);
+    ['pointerenter', 'pointerdown', 'pointerup', 'pointercancel', 'pointerleave'].forEach(function(type) {
+      document.addEventListener(type, invalidateStillPointerEdge, true);
+    });
+    document.addEventListener('pieczargotchi:world-preferences-change', handleWorldPreferencesChange);
+  }
+
+  function bindRuntimeSceneSourceInvalidations() {
+    ['state', 'weatherScene', 'spaceWeather'].forEach(bindRuntimeSceneSourceInvalidation);
+  }
+
+  function bindRuntimeSceneSourceInvalidation(key) {
+    runtime.sceneSourceInvalidationBindings = runtime.sceneSourceInvalidationBindings || {};
+    if (runtime.sceneSourceInvalidationBindings[key]) {
+      return false;
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(runtime, key);
+    if (descriptor && (!descriptor.configurable || descriptor.get || descriptor.set)) {
+      return false;
+    }
+
+    let current = runtime[key];
+    Object.defineProperty(runtime, key, {
+      configurable: true,
+      enumerable: true,
+      get: function() {
+        return current;
+      },
+      set: function(next) {
+        if (next === current) {
+          return;
+        }
+        current = next;
+        runtime.sceneFrameSnapshot = null;
+        if (!runtime.renderInProgress) {
+          requestRuntimeRender();
+        }
+      }
+    });
+    runtime.sceneSourceInvalidationBindings[key] = true;
+    return true;
   }
 
   function handleRenderError(error) {
@@ -371,6 +784,7 @@
         delete runtime.assetFailures[key];
       });
       enforceRuntimeAssetCacheLimit();
+      requestRuntimeRender();
       return image;
     }).catch(function() {
       const attempts = Math.max(0, Number(previousFailure.attempts) || 0) + 1;

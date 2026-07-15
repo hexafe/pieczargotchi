@@ -1,3 +1,5 @@
+  const animationFrameTimingCache = new WeakMap();
+
   function drawFrame(frameNow) {
     const ctx = runtime.ctx;
     const worldNow = getRuntimeNow();
@@ -276,7 +278,7 @@
       }
       return false;
     }
-    touchRuntimeAsset(animation.key);
+    touchSelectedAnimationRuntimeAsset(animation.key);
 
     const requestedStart = getSelectedAnimationStart(animation, selection, now);
     if (
@@ -306,6 +308,20 @@
     return selection.startedAt
       || (runtime.currentAnimationKey === animation.key ? runtime.currentAnimationStartedAt : now)
       || now;
+  }
+
+  function touchSelectedAnimationRuntimeAsset(key) {
+    const touchedAt = typeof getRenderClockNow === 'function' ? getRenderClockNow() : Date.now();
+    if (
+      runtime.lastAnimationAssetTouchKey === key
+      && Number.isFinite(Number(runtime.lastAnimationAssetTouchAt))
+      && touchedAt - Number(runtime.lastAnimationAssetTouchAt) < 1000
+    ) {
+      return;
+    }
+    runtime.lastAnimationAssetTouchKey = key;
+    runtime.lastAnimationAssetTouchAt = touchedAt;
+    touchRuntimeAsset(key);
   }
 
   function drawLastReadyAnimation(ctx, selection, now) {
@@ -710,27 +726,55 @@
     };
   }
 
-  function getAnimationFrame(animation, elapsedMs) {
-    const durations = Array.isArray(animation.frameDurationsMs) && animation.frameDurationsMs.length
+  function getAnimationFrameTiming(animation) {
+    const source = Array.isArray(animation.frameDurationsMs) && animation.frameDurationsMs.length
       ? animation.frameDurationsMs
-      : [1000 / (animation.fps || 4)];
-    const totalDuration = durations.reduce(function(total, duration) {
-      return total + Math.max(1, Number(duration) || 1);
-    }, 0);
+      : null;
+    const fps = Number(animation.fps) || 4;
+    const frameCount = Math.max(1, Number(animation.frameCount) || (source ? source.length : 1));
+    const cached = animationFrameTimingCache.get(animation);
+    if (
+      cached
+      && cached.source === source
+      && cached.fps === fps
+      && cached.frameCount === frameCount
+    ) {
+      return cached;
+    }
+
+    const durationCount = source ? source.length : 1;
+    const cumulativeMs = new Float64Array(durationCount);
+    let totalDurationMs = 0;
+    for (let index = 0; index < durationCount; index += 1) {
+      const duration = source ? source[index] : 1000 / fps;
+      totalDurationMs += Math.max(1, Number(duration) || 1);
+      cumulativeMs[index] = totalDurationMs;
+    }
+    const timing = {
+      source: source,
+      fps: fps,
+      frameCount: frameCount,
+      cumulativeMs: cumulativeMs,
+      totalDurationMs: totalDurationMs
+    };
+    animationFrameTimingCache.set(animation, timing);
+    return timing;
+  }
+
+  function getAnimationFrame(animation, elapsedMs) {
+    const timing = getAnimationFrameTiming(animation);
+    const totalDuration = timing.totalDurationMs;
     let remaining = animation.loop === false
       ? Math.min(Math.max(0, elapsedMs), totalDuration - 1)
       : positiveModulo(elapsedMs, totalDuration);
 
-    for (let index = 0; index < durations.length; index += 1) {
-      const duration = Math.max(1, Number(durations[index]) || 1);
-      if (remaining < duration) {
-        return Math.min(index, (animation.frameCount || durations.length) - 1);
+    for (let index = 0; index < timing.cumulativeMs.length; index += 1) {
+      if (remaining < timing.cumulativeMs[index]) {
+        return Math.min(index, timing.frameCount - 1);
       }
-
-      remaining -= duration;
     }
 
-    return Math.max(0, (animation.frameCount || durations.length) - 1);
+    return Math.max(0, timing.frameCount - 1);
   }
 
   function positiveModulo(value, modulo) {

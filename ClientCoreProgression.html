@@ -235,11 +235,25 @@
   function normalizePreferencesCore(preferences) {
     const source = isPlainObject(preferences) ? preferences : {};
     const minigames = isPlainObject(source.minigames) ? source.minigames : {};
+    const world = isPlainObject(source.world) ? source.world : {};
+    const motionMode = ['system', 'full', 'gentle', 'still'].includes(world.motionMode)
+      ? world.motionMode
+      : 'system';
+    const audioMode = ['off', 'cues', 'atmosphere'].includes(world.audioMode)
+      ? world.audioMode
+      : 'off';
     return Object.assign({}, source, {
       minigames: {
         audioEnabled: minigames.audioEnabled !== false,
         hapticsEnabled: Boolean(minigames.hapticsEnabled),
         accessibleLanes: Boolean(minigames.accessibleLanes)
+      },
+      world: {
+        motionMode: motionMode,
+        stormFlashesEnabled: world.stormFlashesEnabled !== false,
+        batterySaver: Boolean(world.batterySaver),
+        audioMode: audioMode,
+        ambientVolume: clampInteger(world.ambientVolume, 0, 100, 40)
       }
     });
   }

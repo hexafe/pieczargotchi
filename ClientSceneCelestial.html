@@ -1,3 +1,5 @@
+  const auroraCurtainColors = Object.freeze(['#78f2b3', '#9fffc7', '#7cc8ff', '#caa6ff']);
+
   function drawCelestial(ctx, scene, palette, now) {
     const date = getRuntimeDate();
     const lighting = palette && palette.lighting
@@ -257,28 +259,41 @@
     const intensity = clamp(Number(aurora.intensity), 0, 1, 0);
     const seed = Number(aurora.seed) || 0;
     const bandCount = Math.max(2, Math.min(5, Math.round(Number(aurora.bandCount) || 3)));
-    const colors = ['#78f2b3', '#9fffc7', '#7cc8ff', '#caa6ff'];
+    const motionMode = typeof getEffectiveRuntimeMotionMode === 'function'
+      ? getEffectiveRuntimeMotionMode()
+      : runtime && runtime.reducedMotion
+        ? 'gentle'
+        : 'full';
+    const motionScale = motionMode === 'still' ? 0 : motionMode === 'gentle' ? 0.28 : 1;
+    const motionNow = Number(now) * motionScale;
+    const quality = runtime && runtime.sceneFrameSnapshot && runtime.sceneFrameSnapshot.quality;
+    const phenomenaScale = quality && Number.isFinite(Number(quality.phenomenaScale))
+      ? clamp(Number(quality.phenomenaScale), 0.35, 1, 1)
+      : 1;
+    const segmentCount = Math.max(16, Math.round(30 * phenomenaScale));
 
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (let band = 0; band < bandCount; band += 1) {
       const bandSeed = seed + band * 97;
       const baseY = 34 + band * 16 + seededUnit(bandSeed + 3) * 16;
-      const wave = Math.sin(now / (4200 + band * 430) + bandSeed) * (8 + intensity * 10);
-      const height = 16 + Math.round(intensity * 18) + band * 2;
-      const color = colors[(band + Math.round(Number(aurora.hueShift) * 3)) % colors.length];
-      for (let segment = 0; segment < 12; segment += 1) {
-        const x = -28 + segment * 48 + Math.round(Math.sin(now / 5600 + segment + band) * 7);
-        const curtain = 0.44 + seededUnit(bandSeed + segment * 11) * 0.72;
-        const y = Math.round(baseY + wave + Math.sin(segment * 0.92 + now / 3500 + bandSeed) * 7);
+      const wave = Math.sin(motionNow / (4200 + band * 430) + bandSeed) * (6 + intensity * 8);
+      const height = 14 + Math.round(intensity * 16) + band * 2;
+      const color = auroraCurtainColors[(band + Math.round(Number(aurora.hueShift) * 3)) % auroraCurtainColors.length];
+      for (let segment = 0; segment < segmentCount; segment += 1) {
+        const x = Math.round(-12 + segment * (540 / segmentCount) + Math.sin(motionNow / 5600 + segment * 0.34 + band) * 4);
+        const curtain = 0.38 + seededUnit(bandSeed + segment * 11) * 0.66;
+        const y = Math.round(baseY + wave + Math.sin(segment * 0.55 + motionNow / 3500 + bandSeed) * 6);
         const segmentHeight = Math.round(height * curtain);
-        ctx.globalAlpha = intensity * (0.14 + band * 0.018) * curtain;
+        ctx.globalAlpha = intensity * (0.16 + band * 0.016) * curtain;
         ctx.fillStyle = color;
-        ctx.fillRect(x, y, 42, Math.max(2, segmentHeight));
-        ctx.globalAlpha = intensity * 0.086 * curtain;
-        ctx.fillRect(x + 8, y + segmentHeight, 26, Math.max(4, Math.round(segmentHeight * 0.85)));
-        ctx.globalAlpha = intensity * 0.072 * curtain;
-        ctx.fillRect(x + 18, y - 5, 8, Math.max(5, Math.round(segmentHeight * 1.45)));
+        ctx.fillRect(x, y, 19, 3);
+        ctx.globalAlpha = intensity * 0.075 * curtain;
+        ctx.fillRect(x + 2, y + 3, 3, Math.max(4, segmentHeight));
+        if (segment % 2 === 0) {
+          ctx.globalAlpha = intensity * 0.040 * curtain;
+          ctx.fillRect(x + 7, y + 5, 2, Math.max(3, Math.round(segmentHeight * 0.68)));
+        }
       }
     }
     ctx.restore();
@@ -358,7 +373,9 @@
   }
 
   function syncSkyDiscoveries(skyEffects, now) {
-    if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
+    if (typeof isRuntimeWorldDiscoveryMutationBlocked === 'function'
+      ? isRuntimeWorldDiscoveryMutationBlocked()
+      : (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked())) {
       return;
     }
     if (!runtime || !runtime.state || !skyEffects || !Array.isArray(skyEffects.discoveries) || !skyEffects.discoveries.length) {

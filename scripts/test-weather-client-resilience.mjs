@@ -5,6 +5,18 @@ import { fileURLToPath } from 'node:url';
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const source = readFileSync(path.join(rootDir, 'ClientWeather.html'), 'utf8');
+const documentListeners = new Map();
+const document = {
+  hidden: false,
+  addEventListener(type, callback) {
+    const list = documentListeners.get(type) || [];
+    list.push(callback);
+    documentListeners.set(type, list);
+  },
+  dispatchEvent(event) {
+    (documentListeners.get(event.type) || []).forEach((callback) => callback(event));
+  }
+};
 const runtime = {
   weatherLocation: {
     label: 'Katowice',
@@ -25,6 +37,7 @@ const context = {
   String,
   URLSearchParams,
   console,
+  document,
   defaultWeatherLocation: runtime.weatherLocation,
   navigator: {},
   runtime,
@@ -102,6 +115,58 @@ await test('a transient fetch failure preserves the last known weather scene', a
   assert(result === lastKnown, 'failed refresh should return the last known scene');
   assert(runtime.weatherScene === lastKnown, 'failed refresh should not replace the last known scene');
   assert(Number.isFinite(runtime.weatherFetchErrorAt), 'failed refresh should expose a diagnostic timestamp');
+});
+
+await test('hidden tabs stop weather work, invalidate in-flight responses, and refresh once on return', async () => {
+  runtime.weatherVisibilityBound = false;
+  runtime.weatherScene = { id: 'visible-weather' };
+  runtime.spaceWeather = { id: 'visible-space' };
+  let weatherCalls = 0;
+  let spaceCalls = 0;
+  let resolveWeather = null;
+  let resolveSpace = null;
+  context.fetchWeatherScene = function() {
+    weatherCalls += 1;
+    return new Promise((resolve) => { resolveWeather = resolve; });
+  };
+  context.fetchSpaceWeatherSnapshot = function() {
+    spaceCalls += 1;
+    return new Promise((resolve) => { resolveSpace = resolve; });
+  };
+  context.bindWeatherVisibilityRefresh();
+
+  document.hidden = false;
+  const weatherPending = context.updateWeatherScene();
+  const spacePending = context.updateSpaceWeather();
+  await Promise.resolve();
+  assert(weatherCalls === 1 && spaceCalls === 1, 'visible tab should start both live refreshes');
+
+  document.hidden = true;
+  document.dispatchEvent({ type: 'visibilitychange' });
+  resolveWeather({ id: 'stale-hidden-weather' });
+  resolveSpace({ id: 'stale-hidden-space' });
+  await Promise.all([weatherPending, spacePending]);
+  assert(runtime.weatherScene.id === 'visible-weather' && runtime.spaceWeather.id === 'visible-space',
+    'responses invalidated on hide must not overwrite the last visible snapshots');
+
+  await context.updateWeatherScene();
+  await context.updateSpaceWeather();
+  assert(weatherCalls === 1 && spaceCalls === 1, 'hidden interval callbacks must perform zero network work');
+
+  context.fetchWeatherScene = function() {
+    weatherCalls += 1;
+    return Promise.resolve({ id: 'resumed-weather' });
+  };
+  context.fetchSpaceWeatherSnapshot = function() {
+    spaceCalls += 1;
+    return Promise.resolve({ id: 'resumed-space' });
+  };
+  document.hidden = false;
+  document.dispatchEvent({ type: 'visibilitychange' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert(weatherCalls === 2 && spaceCalls === 2, 'returning visible must trigger exactly one weather and one space refresh');
+  assert(runtime.weatherScene.id === 'resumed-weather' && runtime.spaceWeather.id === 'resumed-space',
+    'resume refreshes should become the active visible snapshots');
 });
 
 console.log('Weather client resilience tests passed.');

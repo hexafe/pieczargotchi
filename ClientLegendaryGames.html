@@ -1264,22 +1264,25 @@
     ctx.fillStyle = 'rgba(45, 39, 32, 0.78)';
     ctx.fillRect(8, 8, width - 16, 20);
     ctx.fillStyle = theme.spark;
-    ctx.font = 'bold 11px sans-serif';
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'left';
     ctx.fillText(label, 14, 22);
+    ctx.textAlign = 'right';
     if (gameId === 'myceliumLeague') {
       const active = getActiveLegendaryTarget(now);
       const leagueConfig = rules.minigames && rules.minigames.myceliumLeague ? rules.minigames.myceliumLeague : {};
       const cue = getLegendaryLeagueGuideText(active, leagueConfig);
-      ctx.fillText(cue, width - 126, 22);
+      ctx.fillText(cue, width - 14, 22);
     } else if (gameId === 'memoryGarden') {
       const phaseLabels = { preview: 'zapamiętaj', hide: 'światła gasną', recall: 'odtwórz', between: 'kolejny układ' };
-      ctx.fillText(phaseLabels[runtime.minigame.session.legendaryPhase] || 'ogród gotowy', width - 122, 22);
+      ctx.fillText(phaseLabels[runtime.minigame.session.legendaryPhase] || 'ogród gotowy', width - 14, 22);
     } else {
       const weather = getLegendaryTrailWeatherContext(runtime.minigame.session);
       const risky = getActiveLegendaryTargets(now).find(function(target) { return target.choice === 'risky'; });
       const riskState = risky ? risky.riskyOpen ? 'skrót otwarty' : 'skrót zamknięty' : 'czekaj na szlak';
-      ctx.fillText((weather.label || 'pogodnie') + ' · ' + riskState, width - 148, 22);
+      ctx.fillText((weather.label || 'pogodnie') + ' · ' + riskState, width - 14, 22);
     }
+    ctx.textAlign = 'left';
   }
 
   function drawLegendaryGameTargets(ctx, width, height, now) {
@@ -1297,9 +1300,11 @@
       drawActiveLegendaryTarget(ctx, target, session.id, now, warmup, life);
       ctx.globalAlpha = 1;
       ctx.fillStyle = target.kind === 'hazard' ? '#7a2727' : getLegendaryGameTheme(session.id).ink;
-      ctx.font = 'bold 10px sans-serif';
+      ctx.font = 'bold 9px monospace';
+      ctx.textAlign = 'center';
       const choiceLabel = getLegendaryTrailChoiceLabel(target);
-      ctx.fillText(choiceLabel, target.x - (target.choice === 'risky' ? 48 : 29), target.y + 36);
+      ctx.fillText(choiceLabel, target.x, target.y + 36);
+      ctx.textAlign = 'left';
     });
     const upcoming = runtime.minigame.targets.find(function(target) {
       return !isLegendaryTargetResolved(target) && target.appearsAt > now && target.appearsAt - now <= 700;

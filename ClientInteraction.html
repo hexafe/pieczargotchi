@@ -44,8 +44,23 @@
     return {
       effects: [],
       cooldowns: {},
-      grassDiscoveryDateKey: ''
+      grassDiscoveryDateKey: '',
+      effectCleanupTimer: null,
+      effectCleanupAt: 0
     };
+  }
+
+  function isWorldInteractionExclusiveSessionActive() {
+    if (typeof getExclusiveGameplaySession === 'function' && getExclusiveGameplaySession()) {
+      return true;
+    }
+    const pending = runtime.pendingExclusiveStart;
+    if (pending && (pending.kind === 'battle' || pending.kind === 'minigame')) {
+      return true;
+    }
+    const minigame = runtime.state && runtime.state.minigames && runtime.state.minigames.active;
+    const battle = runtime.state && runtime.state.battle && runtime.state.battle.activeBattle;
+    return Boolean(minigame || (battle && ['victory', 'defeat'].indexOf(battle.mode) === -1));
   }
 
   function createDefaultCelestialMoodState() {
@@ -112,6 +127,15 @@
     runtime.input.speed = hasPrevious
       ? Math.hypot(point.x - previousX, point.y - previousY) / elapsed
       : 0;
+
+    if (isWorldInteractionExclusiveSessionActive()) {
+      runtime.input.isDown = false;
+      runtime.input.pointerId = null;
+      runtime.input.lastDragX = null;
+      runtime.input.lastDragY = null;
+      runtime.input.speed = 0;
+      return;
+    }
 
     if (isDown) {
       runtime.input.lastDownAt = now;
@@ -387,10 +411,28 @@
     return true;
   }
 
+  function playWorldInteractionSensoryCue(cueId) {
+    if (isWorldInteractionExclusiveSessionActive()) {
+      return;
+    }
+    if (!window.playWorldSensoryCue || typeof window.playWorldSensoryCue !== 'function') {
+      return;
+    }
+    try {
+      const pending = window.playWorldSensoryCue(cueId, { userGesture: true });
+      if (pending && typeof pending.catch === 'function') {
+        pending.catch(function() {});
+      }
+    } catch (error) {
+      // World audio is optional and must never block an interaction.
+    }
+  }
+
   function triggerGrassTapRustle(point, now) {
     if (!canUseWorldInteractionCooldown('grassTap', now, 780)) {
       return;
     }
+    playWorldInteractionSensoryCue('focus');
     addWorldInteractionEffect({
       type: 'grassRustle',
       kind: 'grass',
@@ -445,7 +487,8 @@
   }
 
   function maybeRecordGrassInteractionDiscovery(point, now) {
-    if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
+    if ((typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked())
+      || isWorldInteractionExclusiveSessionActive()) {
       return null;
     }
     const worldNow = getRuntimeNow();
@@ -520,6 +563,7 @@
     if (!canUseWorldInteractionCooldown(cooldownKey, now, target.kind === 'visitor' ? 1800 : 1200)) {
       return;
     }
+    playWorldInteractionSensoryCue('focus');
 
     const typeByKind = {
       butterfly: 'butterflyScatter',
@@ -547,24 +591,262 @@
     return Number(cooldowns[key]) > now;
   }
 
+  function getWorldInteractionCooldownRemaining(key, now) {
+    const cooldowns = runtime.worldInteractions && runtime.worldInteractions.cooldowns
+      ? runtime.worldInteractions.cooldowns
+      : {};
+    return Math.max(0, Number(cooldowns[key]) - Number(now));
+  }
+
+  function getWorldExplorationBlockedReason(now) {
+    if (!runtime.state) {
+      return 'Grzybnia jeszcze się budzi.';
+    }
+    if (typeof getExclusiveGameplaySession === 'function' && getExclusiveGameplaySession()) {
+      return 'Najpierw zakończ aktywną rozgrywkę.';
+    }
+    if (runtime.viewMode === 'arena') {
+      return 'Wróć do Opieki, aby eksplorować grzybnię.';
+    }
+    if (runtime.state.gameOver && runtime.state.gameOver.active) {
+      return 'Ta grzybnia potrzebuje nowego początku.';
+    }
+    if (runtime.state.recovery && runtime.state.recovery.active) {
+      return 'Podczas regeneracji najważniejsza jest opieka.';
+    }
+    if (runtime.state.mode === 'sleeping') {
+      return 'Grzybnia odpoczywa. Obudź pieczarkę przed eksploracją.';
+    }
+    if (typeof isRuntimeImmersionBlocked === 'function' && isRuntimeImmersionBlocked(now)) {
+      return 'Najpierw odpowiedz na bieżącą potrzebę pieczarki.';
+    }
+    return '';
+  }
+
+  function getWorldExplorationCelestialTarget() {
+    const celestial = runtime.motionDiagnostics && runtime.motionDiagnostics.celestial;
+    if (!celestial) {
+      return null;
+    }
+    return ['sun', 'moon'].map(function(kind) {
+      const body = celestial[kind];
+      if (!body || body.visibleForHit === false) {
+        return null;
+      }
+      const alpha = Number.isFinite(Number(body.drawAlpha)) ? Number(body.drawAlpha) : Number(body.alpha);
+      const size = Number(body.size);
+      if (alpha < 0.08 || !Number.isFinite(Number(body.x)) || !Number.isFinite(Number(body.y)) || !Number.isFinite(size)) {
+        return null;
+      }
+      return {
+        id: 'celestial:' + kind,
+        kind: kind,
+        x: Number(body.x) + size / 2,
+        y: Number(body.y) + size / 2,
+        alpha: alpha
+      };
+    }).filter(Boolean).sort(function(a, b) {
+      return b.alpha - a.alpha;
+    })[0] || null;
+  }
+
+  function getWorldExplorationGuestTarget() {
+    const visitors = runtime.motionDiagnostics && Array.isArray(runtime.motionDiagnostics.visitors)
+      ? runtime.motionDiagnostics.visitors
+      : [];
+    const candidates = visitors.map(function(sample, index) {
+      const x = Number(sample && sample.x);
+      const y = Number(sample && sample.y);
+      const alpha = Number(sample && (sample.alpha || sample.lightAlpha || sample.glow)) || 0;
+      if (!Number.isFinite(x) || !Number.isFinite(y) || alpha < 0.035) {
+        return null;
+      }
+      return {
+        id: 'visitor:' + (sample.id || sample.seed || index),
+        kind: 'visitor',
+        x: x,
+        y: y,
+        alpha: alpha,
+        sample: sample
+      };
+    }).filter(Boolean).sort(function(a, b) {
+      return b.alpha - a.alpha;
+    });
+    return candidates[0] || null;
+  }
+
+  function getWorldExplorationActions(nowInput) {
+    const now = Number(nowInput) || getInteractionNow();
+    const blockedReason = getWorldExplorationBlockedReason(now);
+    const celestial = getWorldExplorationCelestialTarget();
+    const guest = getWorldExplorationGuestTarget();
+    const grassCooldown = getWorldInteractionCooldownRemaining('explore:grass', now);
+    const skyCooldown = getWorldInteractionCooldownRemaining('explore:sky', now);
+    const guestCooldown = guest ? getWorldInteractionCooldownRemaining('ambient:' + guest.id, now) : 0;
+    const cooldownReason = function(remaining) {
+      return remaining > 0 ? 'Spróbuj ponownie za ' + Math.max(1, Math.ceil(remaining / 1000)) + ' s.' : '';
+    };
+    return [
+      {
+        id: 'grass',
+        label: 'Przeczesz trawę',
+        available: !blockedReason && grassCooldown <= 0,
+        reason: blockedReason || cooldownReason(grassCooldown),
+        hint: 'Poszukaj drobnego znaleziska albo porusz mieszkańców trawy.'
+      },
+      {
+        id: 'sky',
+        label: celestial && celestial.kind === 'moon' ? 'Przywitaj księżyc' : 'Przywitaj słońce',
+        available: !blockedReason && Boolean(celestial) && skyCooldown <= 0,
+        reason: blockedReason || (!celestial ? 'Na niebie nie ma teraz widocznego słońca ani księżyca.' : cooldownReason(skyCooldown)),
+        hint: 'Odpowiedz na nastrój widocznego ciała niebieskiego.'
+      },
+      {
+        id: 'guest',
+        label: 'Przywitaj gościa',
+        available: !blockedReason && Boolean(guest) && guestCooldown <= 0,
+        reason: blockedReason || (!guest ? 'W tej chwili nie widać żadnego gościa.' : cooldownReason(guestCooldown)),
+        hint: 'Zareaguj na najbliższego widocznego gościa.'
+      }
+    ];
+  }
+
+  function performWorldExplorationAction(actionId, nowInput) {
+    const now = Number(nowInput) || getInteractionNow();
+    const action = getWorldExplorationActions(now).find(function(candidate) {
+      return candidate.id === actionId;
+    });
+    if (!action) {
+      return { ok: false, message: 'Nieznana ścieżka eksploracji.' };
+    }
+    if (!action.available) {
+      return { ok: false, message: action.reason || 'Ta ścieżka nie jest teraz dostępna.' };
+    }
+
+    if (actionId === 'grass') {
+      if (!canUseWorldInteractionCooldown('explore:grass', now, 1800)) {
+        return { ok: false, message: 'Trawa jeszcze się uspokaja.' };
+      }
+      const point = {
+        x: Math.floor(now / 1800) % 2 === 0 ? 176 : 336,
+        y: 430
+      };
+      runtime.input = runtime.input || createDefaultInputState();
+      runtime.input.grassBrushDistance = Math.max(132, Number(runtime.input.grassBrushDistance) || 0);
+      runtime.input.grassBrushLastAt = now;
+      triggerGrassBrushInteraction(point, now);
+      playWorldInteractionSensoryCue('focus');
+      const effect = runtime.worldInteractions && Array.isArray(runtime.worldInteractions.effects)
+        ? runtime.worldInteractions.effects[runtime.worldInteractions.effects.length - 1]
+        : null;
+      if (effect && effect.type === 'grassFind') {
+        return { ok: true, message: 'W trawie czekało znalezisko: ' + (effect.label || 'nowy ślad') + '.' };
+      }
+      if (effect && effect.type === 'frogJump') {
+        return { ok: true, message: 'Z wilgotnej trawy wyskoczyła żaba.' };
+      }
+      return { ok: true, message: 'Trawa zaszeleściła. Warto zajrzeć tu ponownie później.' };
+    }
+
+    if (actionId === 'sky') {
+      const celestial = getWorldExplorationCelestialTarget();
+      if (!celestial || !canUseWorldInteractionCooldown('explore:sky', now, 1600)) {
+        return { ok: false, message: celestial ? 'Niebo potrzebuje chwili spokoju.' : 'Widoczne ciało niebieskie już zniknęło.' };
+      }
+      runtime.input = runtime.input || createDefaultInputState();
+      runtime.input.x = celestial.x;
+      runtime.input.y = celestial.y;
+      handleCelestialPointerDown(celestial.kind, now);
+      return {
+        ok: true,
+        message: celestial.kind === 'moon' ? 'Księżyc odpowiedział cichym mrugnięciem.' : 'Słońce odpowiedziało ciepłym mrugnięciem.'
+      };
+    }
+
+    const guest = getWorldExplorationGuestTarget();
+    if (!guest || isWorldInteractionCooldownActive('ambient:' + guest.id, now)) {
+      return { ok: false, message: guest ? 'Gość potrzebuje chwili spokoju.' : 'Gość zdążył już odejść.' };
+    }
+    triggerAmbientPointerEffect(guest, { x: guest.x, y: guest.y }, now);
+    return { ok: true, message: 'Gość zauważył powitanie i poruszył się wśród grzybni.' };
+  }
+
   function addWorldInteractionEffect(effect) {
+    if (isWorldInteractionExclusiveSessionActive()) {
+      return null;
+    }
     if (!runtime.worldInteractions) {
       runtime.worldInteractions = createDefaultWorldInteractionState();
     }
 
-    runtime.worldInteractions.effects = (runtime.worldInteractions.effects || []).concat(Object.assign({
+    const added = Object.assign({
       startedAt: getInteractionNow(),
       duration: 1000,
       x: 256,
       y: 420,
       kind: 'scene'
-    }, effect || {})).slice(-12);
+    }, effect || {});
+    runtime.worldInteractions.effects = (runtime.worldInteractions.effects || []).concat(added).slice(-12);
+    requestWorldInteractionRender();
+    scheduleWorldInteractionEffectCleanup();
+    return added;
+  }
+
+  function requestWorldInteractionRender() {
+    if (typeof requestRuntimeRender === 'function') {
+      try { requestRuntimeRender(); } catch (error) {}
+    }
+  }
+
+  function scheduleWorldInteractionEffectCleanup() {
+    if (!runtime.worldInteractions) {
+      runtime.worldInteractions = createDefaultWorldInteractionState();
+    }
+    const interactions = runtime.worldInteractions;
+    const effects = interactions && Array.isArray(interactions.effects) ? interactions.effects : [];
+    const activeImmersion = runtime.immersion && runtime.immersion.active;
+    if (!interactions || (!effects.length && !activeImmersion) || !window || typeof window.setTimeout !== 'function') {
+      return;
+    }
+    let nextAt = effects.reduce(function(earliest, effect) {
+      const expiresAt = Number(effect.startedAt) + Math.max(1, Number(effect.duration) || 1000);
+      return Math.min(earliest, expiresAt);
+    }, Number.POSITIVE_INFINITY);
+    if (activeImmersion && Number.isFinite(Number(activeImmersion.until))) {
+      nextAt = Math.min(nextAt, Number(activeImmersion.until));
+    }
+    if (!Number.isFinite(nextAt)) {
+      return;
+    }
+    if (interactions.effectCleanupTimer && Number(interactions.effectCleanupAt) <= nextAt) {
+      return;
+    }
+    if (interactions.effectCleanupTimer && typeof window.clearTimeout === 'function') {
+      window.clearTimeout(interactions.effectCleanupTimer);
+    }
+    interactions.effectCleanupAt = nextAt;
+    interactions.effectCleanupTimer = window.setTimeout(function() {
+      interactions.effectCleanupTimer = null;
+      interactions.effectCleanupAt = 0;
+      const cleanupNow = getInteractionNow();
+      interactions.effects = (interactions.effects || []).filter(function(effect) {
+        return Number(effect.startedAt) + Math.max(1, Number(effect.duration) || 1000) > cleanupNow;
+      });
+      if (runtime.immersion && runtime.immersion.active && Number(runtime.immersion.active.until) <= cleanupNow) {
+        runtime.immersion.active = null;
+      }
+      requestWorldInteractionRender();
+      if (interactions.effects.length || (runtime.immersion && runtime.immersion.active)) {
+        scheduleWorldInteractionEffectCleanup();
+      }
+    }, Math.max(16, Math.ceil(nextAt - getInteractionNow()) + 16));
   }
 
   function handleCelestialPointerDown(kind, now) {
     if (!runtime.celestialMood) {
       runtime.celestialMood = createDefaultCelestialMoodState();
     }
+    playWorldInteractionSensoryCue('weather');
     const target = runtime.celestialMood[kind] || createDefaultCelestialMoodTarget();
     const count = now - Number(target.lastAt || 0) <= 10000 ? Math.min(12, Number(target.count || 0) + 1) : 1;
     const expression = typeof getCelestialMoodExpression === 'function'
@@ -618,6 +900,7 @@
         runtime.immersion.active = activateImmersionCandidate(refreshed, wallNow);
         applyRuntimeImmersionCooldown(refreshed, wallNow);
         rememberImmersionVariant(refreshed);
+        scheduleWorldInteractionEffectCleanup();
         if (refreshed.consumeDown) {
           runtime.input.consumedDownAt = refreshed.sourceAt || wallNow;
         }
@@ -652,6 +935,7 @@
     runtime.immersion.active = next;
     applyRuntimeImmersionCooldown(candidate, wallNow);
     rememberImmersionVariant(candidate);
+    scheduleWorldInteractionEffectCleanup();
 
     if (candidate.consumeDown) {
       runtime.input.consumedDownAt = candidate.sourceAt || wallNow;
@@ -781,6 +1065,9 @@
     if (!runtime.state) {
       return true;
     }
+    if (isWorldInteractionExclusiveSessionActive()) {
+      return true;
+    }
     if (runtime.state.gameOver && runtime.state.gameOver.active) {
       return true;
     }
@@ -896,30 +1183,34 @@
       if (progress >= 1) {
         return;
       }
+      const visualProgress = typeof getEffectiveRuntimeMotionMode === 'function'
+        && getEffectiveRuntimeMotionMode() === 'still'
+        ? Math.max(0.22, progress)
+        : progress;
       live.push(effect);
       if (effect.visible === false) {
         return;
       }
       if (effect.type === 'frogJump') {
-        drawFrogJumpEffect(ctx, now, effect, progress);
+        drawFrogJumpEffect(ctx, now, effect, visualProgress);
         drawn.push(effect);
       } else if (effect.type === 'grassFind') {
-        drawGrassFindEffect(ctx, now, effect, progress);
+        drawGrassFindEffect(ctx, now, effect, visualProgress);
         drawn.push(effect);
       } else if (effect.type === 'grassRustle') {
-        drawGrassRustleEffect(ctx, now, effect, progress);
+        drawGrassRustleEffect(ctx, now, effect, visualProgress);
         drawn.push(effect);
       } else if (effect.type === 'butterflyScatter') {
-        drawScatterEffect(ctx, now, effect, progress, '#f4a7d2');
+        drawScatterEffect(ctx, now, effect, visualProgress, '#f4a7d2');
         drawn.push(effect);
       } else if (effect.type === 'crawlerHide') {
-        drawCrawlerHideEffect(ctx, now, effect, progress);
+        drawCrawlerHideEffect(ctx, now, effect, visualProgress);
         drawn.push(effect);
       } else if (effect.type === 'fireflySpark') {
-        drawFireflySparkEffect(ctx, now, effect, progress);
+        drawFireflySparkEffect(ctx, now, effect, visualProgress);
         drawn.push(effect);
       } else if (effect.type === 'visitorNudge') {
-        drawVisitorNudgeEffect(ctx, now, effect, progress);
+        drawVisitorNudgeEffect(ctx, now, effect, visualProgress);
         drawn.push(effect);
       }
     });

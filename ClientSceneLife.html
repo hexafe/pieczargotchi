@@ -184,28 +184,65 @@
   }
 
   function getAmbientLifeProfile(scene) {
+    const frameScene = runtime && runtime.sceneFrameSnapshot;
+    if (frameScene && frameScene.scene === scene && frameScene.ambientLifeProfile) {
+      return frameScene.ambientLifeProfile;
+    }
+
     const core = window.PieczargotchiCore;
+    let profile;
     if (core && typeof core.calculateAmbientLife === 'function') {
       const habitatScene = core.getHabitatLifeScene
         ? core.getHabitatLifeScene(runtime.state, scene, rules)
         : scene;
-      return core.calculateAmbientLife(habitatScene, getRuntimeDate());
+      profile = core.calculateAmbientLife(habitatScene, getRuntimeDate());
+    } else {
+      const isDay = scene && scene.isDay !== false;
+      const condition = scene && scene.condition ? scene.condition : 'clear';
+      const weatherFactor = condition === 'clear' || condition === 'cloudy' ? 1 : 0;
+      profile = {
+        generalIntensity: isDay ? weatherFactor * 0.42 : 0.02,
+        flowerIntensity: isDay ? weatherFactor * 0.34 : 0,
+        beeIntensity: isDay ? weatherFactor * 0.16 : 0,
+        butterflyIntensity: isDay ? weatherFactor * 0.28 : 0,
+        flyingInsectIntensity: isDay ? weatherFactor * 0.32 : 0.06,
+        crawlerIntensity: weatherFactor * 0.22,
+        mothIntensity: isDay ? 0 : weatherFactor * 0.18,
+        batIntensity: isDay ? 0 : weatherFactor * 0.16,
+        fireflyIntensity: 0
+      };
     }
 
-    const isDay = scene && scene.isDay !== false;
-    const condition = scene && scene.condition ? scene.condition : 'clear';
-    const weatherFactor = condition === 'clear' || condition === 'cloudy' ? 1 : 0;
-    return {
-      generalIntensity: isDay ? weatherFactor * 0.42 : 0.02,
-      flowerIntensity: isDay ? weatherFactor * 0.34 : 0,
-      beeIntensity: isDay ? weatherFactor * 0.16 : 0,
-      butterflyIntensity: isDay ? weatherFactor * 0.28 : 0,
-      flyingInsectIntensity: isDay ? weatherFactor * 0.32 : 0.06,
-      crawlerIntensity: weatherFactor * 0.22,
-      mothIntensity: isDay ? 0 : weatherFactor * 0.18,
-      batIntensity: isDay ? 0 : weatherFactor * 0.16,
-      fireflyIntensity: 0
-    };
+    const scaled = applyAmbientLifeRenderBudget(profile);
+    if (frameScene && frameScene.scene === scene) {
+      frameScene.ambientLifeProfile = scaled;
+    }
+    return scaled;
+  }
+
+  function applyAmbientLifeRenderBudget(profile) {
+    const quality = runtime && runtime.sceneFrameSnapshot && runtime.sceneFrameSnapshot.quality;
+    const scale = quality && Number.isFinite(Number(quality.lifeScale))
+      ? clamp(Number(quality.lifeScale), 0.25, 1, 1)
+      : 1;
+    if (!profile || scale >= 0.995) {
+      return profile;
+    }
+    const result = Object.assign({}, profile);
+    [
+      'generalIntensity',
+      'flowerIntensity',
+      'beeIntensity',
+      'butterflyIntensity',
+      'flyingInsectIntensity',
+      'crawlerIntensity',
+      'mothIntensity',
+      'batIntensity',
+      'fireflyIntensity'
+    ].forEach(function(field) {
+      result[field] = clamp(Number(result[field]) * scale, 0, 1, 0);
+    });
+    return result;
   }
 
   function hasAmbientLife(profile) {
@@ -2127,7 +2164,57 @@
       return null;
     }
 
-    return core.calculateAmbientLifeFocusCue(scene, getRuntimeDate(), getRuntimeNow());
+    const now = getRuntimeNow();
+    if (!isAmbientLifeFocusAllowed(scene, now)) {
+      return null;
+    }
+    return core.calculateAmbientLifeFocusCue(scene, getRuntimeDate(), now);
+  }
+
+  function isAmbientLifeFocusAllowed(scene, now) {
+    const state = runtime && runtime.state ? runtime.state : null;
+    const condition = scene && scene.condition ? scene.condition : 'clear';
+    if (!state || runtime.viewMode === 'arena' || runtime.minigame || ['rain', 'storm', 'snow', 'fog'].includes(condition)) {
+      return false;
+    }
+    if (state.mode === 'sleeping'
+      || (state.gameOver && state.gameOver.active)
+      || (state.recovery && state.recovery.active)
+      || (state.attention && state.attention.activeNeed)) {
+      return false;
+    }
+
+    const activity = state.currentActivity;
+    if (activity && activity.type !== 'notice' && Number(activity.until) > now) {
+      return false;
+    }
+    const stats = state.stats || {};
+    const nutrients = Number.isFinite(Number(stats.nutrients))
+      ? Number(stats.nutrients)
+      : Number(stats.hunger);
+    const cleanliness = Number.isFinite(Number(stats.cleanliness))
+      ? Number(stats.cleanliness)
+      : Number(stats.hygiene);
+    if (Number(stats.health) < 55
+      || nutrients < 35
+      || Number(stats.hydration) < 35
+      || cleanliness < 35) {
+      return false;
+    }
+
+    const input = runtime.input || {};
+    const lastInputAt = Math.max(
+      Number(input.lastDownAt) || 0,
+      Number(input.lastTapAt) || 0,
+      Number(input.grassBrushLastAt) || 0
+    );
+    if (input.isDown || now - lastInputAt < 2400) {
+      return false;
+    }
+    if (runtime.immersion && runtime.immersion.active) {
+      return false;
+    }
+    return true;
   }
 
   function fadeLifeEdge(progress) {
@@ -2155,13 +2242,16 @@
     if (!runtime) {
       return;
     }
+    const detailed = isDetailedMotionDiagnosticsEnabled();
     runtime.motionDiagnostics = {
       now: Math.round(now),
-      flowers: [],
-      bees: [],
+      flowers: detailed ? [] : null,
+      bees: detailed ? [] : null,
+      // Butterfly and crawler samples are gameplay hit targets, not optional
+      // debug telemetry. Keep their lightweight positions in production.
       butterflies: [],
-      bats: [],
-      moths: [],
+      bats: detailed ? [] : null,
+      moths: detailed ? [] : null,
       fireflies: [],
       crawlers: [],
       visitors: [],
@@ -2188,6 +2278,13 @@
         ? runtime.motionDiagnostics.celestial
         : null
     };
+  }
+
+  function isDetailedMotionDiagnosticsEnabled() {
+    return Boolean(
+      (typeof runtimeOptions !== 'undefined' && runtimeOptions && runtimeOptions.exposeRuntime)
+      || (runtime && runtime.debug && runtime.debug.enabled)
+    );
   }
 
   function recordAmbientLifeSample(kind, sample) {

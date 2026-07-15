@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,6 +19,8 @@ ASSETS = ROOT / "assets"
 FRAME_SIZE = 512
 ASSET_DIRS = ["stages", "activities", "easter-eggs", "effects"]
 MIN_UNIQUE_FRAMES = {4: 3, 8: 5, 10: 7, 12: 8, 16: 12}
+LEGACY_MAX_DUPLICATE_SLOTS = 202
+LEGACY_MAX_FINDINGS = 69
 
 
 @dataclass(frozen=True)
@@ -49,6 +52,14 @@ def main() -> None:
         action="append",
         help="audit only one asset path relative to assets/ (repeatable)",
     )
+    parser.add_argument(
+        "--regression-gate",
+        action="store_true",
+        help=(
+            "fail when repository-wide legacy totals grow or when a PNG changed in the "
+            "working tree/current commit has any strict finding"
+        ),
+    )
     args = parser.parse_args()
     if args.asset:
         paths = []
@@ -65,8 +76,10 @@ def main() -> None:
             for path in (ASSETS / directory).rglob("*.png")
         )
     findings: list[str] = []
+    changed_findings: list[str] = []
     decoded_frames = 0
     duplicate_slots = 0
+    changed_assets = collect_changed_assets() if args.regression_gate else set()
 
     for path in paths:
         quality = analyze_sheet(path)
@@ -78,6 +91,9 @@ def main() -> None:
         if not details:
             continue
         findings.extend(details)
+        relative_asset = path.relative_to(ASSETS).as_posix()
+        if relative_asset in changed_assets:
+            changed_findings.append(f"{relative_asset}: {'; '.join(details)}")
         print(f"{path.relative_to(ROOT)}: {'; '.join(details)}")
 
     duplicate_ratio = duplicate_slots / decoded_frames if decoded_frames else 0
@@ -88,6 +104,46 @@ def main() -> None:
     )
     if args.strict and findings:
         raise SystemExit(1)
+    if args.regression_gate:
+        regressions: list[str] = []
+        if duplicate_slots > LEGACY_MAX_DUPLICATE_SLOTS:
+            regressions.append(
+                f"duplicate slots grew: {duplicate_slots} > {LEGACY_MAX_DUPLICATE_SLOTS}"
+            )
+        if len(findings) > LEGACY_MAX_FINDINGS:
+            regressions.append(f"findings grew: {len(findings)} > {LEGACY_MAX_FINDINGS}")
+        regressions.extend(f"changed asset is not strict-clean: {item}" for item in changed_findings)
+        if regressions:
+            print("Sprite frame quality regressions:")
+            for regression in regressions:
+                print(f"- {regression}")
+            raise SystemExit(1)
+
+
+def collect_changed_assets() -> set[str]:
+    changed: set[str] = set()
+    commands = [
+        ["git", "diff", "--name-only", "HEAD"],
+        ["git", "diff", "--cached", "--name-only"],
+        ["git", "ls-files", "--others", "--exclude-standard"],
+        ["git", "show", "--format=", "--name-only", "HEAD"],
+    ]
+    for command in commands:
+        try:
+            result = subprocess.run(
+                command,
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except (OSError, subprocess.CalledProcessError):
+            continue
+        for line in result.stdout.splitlines():
+            normalized = line.strip().replace("\\", "/")
+            if normalized.startswith("assets/") and normalized.endswith(".png"):
+                changed.add(normalized.removeprefix("assets/"))
+    return changed
 
 
 def analyze_sheet(path: Path) -> FrameQuality | None:

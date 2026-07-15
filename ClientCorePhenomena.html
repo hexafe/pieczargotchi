@@ -362,13 +362,25 @@
       0.24
     );
 
-    const discoveries = [dew, frost, fogbow, redRainbow, moonHalo, sunDog, lightPillar, sunbeams, cloudIridescence, steam, heatHaze, clearingAfterRain]
+    const phenomena = [dew, frost, fogbow, redRainbow, moonHalo, sunDog, lightPillar, sunbeams, cloudIridescence, steam, heatHaze, clearingAfterRain];
+    const discoveries = phenomena
       .filter(function(item) {
         return item.discoverable;
       })
       .map(function(item) {
         return item.id;
       });
+    const nearMisses = phenomena.filter(function(item) {
+      return item.nearMiss;
+    }).map(function(item) {
+      return createPhenomenaClueCandidateCore(item, 'nearMiss', date);
+    }).filter(Boolean).sort(function(a, b) {
+      if (Math.abs(b.intensity - a.intensity) > 0.0001) {
+        return b.intensity - a.intensity;
+      }
+      return a.discoveryId < b.discoveryId ? -1 : 1;
+    });
+    const morningTraces = getPhenomenaMorningTraceCandidatesCore(source, date, hour);
 
     return {
       dew: dew,
@@ -383,8 +395,128 @@
       steam: steam,
       heatHaze: heatHaze,
       clearingAfterRain: clearingAfterRain,
-      discoveries: discoveries
+      discoveries: discoveries,
+      nearMisses: nearMisses,
+      morningTraces: morningTraces
     };
+  }
+
+  function createPhenomenaClueCandidateCore(phenomenon, route, date) {
+    const source = isPlainObject(phenomenon) ? phenomenon : {};
+    const item = getEnvironmentDiscoveryDefinition(source.id);
+    if (!item) {
+      return null;
+    }
+
+    const routeId = route === 'morningTrace' ? 'morningTrace' : 'nearMiss';
+    return {
+      discoveryId: item.id,
+      type: 'environment',
+      route: routeId,
+      intensity: roundPhenomenaUnit(source.intensity),
+      dateKey: getPhenomenaLocalDateKeyCore(date),
+      hints: getPhenomenaClueHintsCore(item, routeId)
+    };
+  }
+
+  function getPhenomenaMorningTraceCandidatesCore(scene, date, hour) {
+    const source = isPlainObject(scene) ? scene : {};
+    const phase = String(source.dayPhase || '');
+    const isMorning = source.isDay !== false
+      && phase !== 'night'
+      && (phase === 'sunrise' || phase === 'morning' || hour >= 5 && hour < 10);
+    if (!isMorning) {
+      return [];
+    }
+
+    const daySeed = getPhenomenaDaySeed(date);
+    const environmentCandidates = environmentDiscoveryCatalog.concat(grassFindDiscoveryCatalog).filter(function(item) {
+      return /^Noc\b/i.test(String(item && item.conditionNote || ''));
+    }).map(function(item) {
+      const rank = phenomenaSeededUnit(daySeed * 131 + getPhenomenaStringSeedCore(item.id));
+      return Object.assign(createPhenomenaClueCandidateCore({
+        id: item.id,
+        intensity: 0.54 + rank * 0.2
+      }, 'morningTrace', date), {
+        rank: rank
+      });
+    }).filter(Boolean);
+    const skyCandidates = (typeof getSkyDiscoveryCatalog === 'function' ? getSkyDiscoveryCatalog() : []).filter(function(item) {
+      return item && ['meteor', 'aurora', 'shower', 'twilight'].includes(item.kind);
+    }).map(function(item) {
+      const rank = phenomenaSeededUnit(daySeed * 173 + getPhenomenaStringSeedCore(item.id));
+      return {
+        discoveryId: item.id,
+        type: 'sky',
+        route: 'morningTrace',
+        intensity: roundPhenomenaUnit(0.5 + rank * 0.2),
+        dateKey: getPhenomenaLocalDateKeyCore(date),
+        hints: getPhenomenaSkyClueHintsCore(item),
+        rank: rank
+      };
+    });
+    return environmentCandidates.concat(skyCandidates).sort(function(a, b) {
+      if (Math.abs(b.rank - a.rank) > 0.0001) {
+        return b.rank - a.rank;
+      }
+      return a.discoveryId < b.discoveryId ? -1 : 1;
+    }).map(function(candidate) {
+      const result = Object.assign({}, candidate);
+      delete result.rank;
+      return result;
+    });
+  }
+
+  function getPhenomenaSkyClueHintsCore(item) {
+    const broadHints = {
+      meteor: 'Nad grzybnią przemknęło coś jasnego i bardzo krótkiego.',
+      aurora: 'Noc zostawiła na horyzoncie ślad nietypowego światła.',
+      shower: 'Ciemne niebo miało tej nocy więcej niż jeden krótki błysk.',
+      twilight: 'Na granicy nocy zostało wysoko srebrne pasmo.'
+    };
+    return [
+      'Poranek zachował ślad czegoś, co wydarzyło się wysoko po ciemku.',
+      broadHints[item && item.kind] || 'Noc zostawiła krótki ślad na niebie.',
+      String(item && item.conditionNote || 'Ciemne, spokojne niebo i dobra widoczność.').slice(0, 180)
+    ];
+  }
+
+  function getPhenomenaClueHintsCore(item, route) {
+    const kind = String(item && item.kind || 'weather');
+    const broadHints = {
+      moisture: 'Wilgoć zostawiła krótki ślad przy samej ziemi.',
+      optics: 'Światło i chmury prawie ułożyły się w rzadki wzór.',
+      light: 'Niskie światło znalazło szczelinę w chmurach.',
+      heat: 'Rozgrzane, suche powietrze zaczęło drżeć nad trawą.',
+      weather: 'Zmiana pogody zostawiła na grzybni krótki ślad.',
+      grassFind: 'Coś małego poruszyło trawę i zniknęło.'
+    };
+    const firstHint = route === 'morningTrace'
+      ? 'Poranek zachował ślad czegoś, co odwiedza grzybnię po ciemku.'
+      : 'Warunki były blisko wyjątkowego zjawiska.';
+    return [
+      firstHint,
+      broadHints[kind] || broadHints.weather,
+      String(item && item.conditionNote || broadHints[kind] || broadHints.weather).slice(0, 180)
+    ];
+  }
+
+  function getPhenomenaLocalDateKeyCore(dateInput) {
+    const date = normalizeDate(dateInput);
+    const pad = function(value) {
+      return String(value).padStart(2, '0');
+    };
+    return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate());
+  }
+
+  function getPhenomenaStringSeedCore(value) {
+    const text = String(value || '');
+    let hash = 2166136261;
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
   }
 
   function getEnvironmentDiscoveryCatalog() {
@@ -559,12 +691,15 @@
 
   function createAmbientPhenomenon(id, intensity, seed, threshold) {
     const value = roundPhenomenaUnit(intensity);
+    const visible = value > threshold;
+    const discoverable = value > threshold + 0.12;
     return {
       id: id,
       intensity: value,
       seed: seed,
-      visible: value > threshold,
-      discoverable: value > threshold + 0.12
+      visible: visible,
+      discoverable: discoverable,
+      nearMiss: visible && !discoverable
     };
   }
 

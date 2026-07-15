@@ -483,16 +483,21 @@
   }
 
   function drawCompostSortBackground(ctx, width, height, now, progress) {
-    ctx.fillStyle = '#d9e6d7';
+    ctx.fillStyle = '#b9cfb4';
     ctx.fillRect(0, 0, width, height);
-    ctx.fillStyle = '#c9d9bb';
+    ctx.fillStyle = '#dbe5c6';
     ctx.fillRect(0, 0, width, 24);
-    ctx.fillStyle = '#ead7ad';
+    ctx.fillStyle = '#c49d67';
     ctx.fillRect(0, height - 46, width, 46);
-    ctx.globalAlpha = 0.36;
-    ctx.fillStyle = '#8c613d';
+    ctx.globalAlpha = 0.44;
+    ctx.fillStyle = '#68492f';
     for (let lane = 0; lane < 3; lane += 1) {
       const y = 27 + lane * 30;
+      ctx.fillStyle = lane % 2 ? '#79976a' : '#91ac78';
+      ctx.globalAlpha = 0.22;
+      ctx.fillRect(8, y, width - 16, 23);
+      ctx.globalAlpha = 0.44;
+      ctx.fillStyle = '#68492f';
       ctx.fillRect(8, y, width - 16, 2);
       ctx.fillRect(8, y + 21, width - 16, 2);
       for (let x = 10; x < width - 12; x += 18) {
@@ -532,7 +537,6 @@
     ctx.fillRect(width - 54, height - 30, 32, 14);
     ctx.fillStyle = '#d6e65a';
     ctx.fillRect(width - 46, height - 25, 16, 2);
-    drawCompostZoneSymbols(ctx, width, height);
     ctx.restore();
   }
 
@@ -552,6 +556,7 @@
     ctx.fillRect(31, height - 27, 18, 2);
     ctx.fillRect(width - 49, height - 27, 18, 2);
     drawCompostZoneSymbols(ctx, width, height);
+    drawCompostZoneLabels(ctx, width, height);
     if (dragging) {
       ctx.globalAlpha = 0.28 + pulse * 0.22;
       ctx.fillStyle = '#fffdf7';
@@ -575,6 +580,17 @@
     ctx.fillRect(compostX - 4, centerY + 3, 5, 4);
     ctx.fillRect(compostX, centerY - 1, 5, 4);
     ctx.fillRect(compostX + 4, centerY - 5, 5, 4);
+    ctx.restore();
+  }
+
+  function drawCompostZoneLabels(ctx, width, height) {
+    ctx.save();
+    ctx.globalAlpha = 0.94;
+    ctx.fillStyle = '#fffdf7';
+    ctx.font = 'bold 7px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('ODRZUĆ', 40, height - 13);
+    ctx.fillText('KOMPOST', width - 40, height - 13);
     ctx.restore();
   }
 

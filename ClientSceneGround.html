@@ -1,3 +1,19 @@
+  const sceneHorizonBackRidgeHeights = Object.freeze([
+    18, 18, 14, 20, 24, 20, 16, 22, 28, 30, 24, 18, 20, 26, 22, 16,
+    18, 24, 30, 26, 22, 18, 16, 22, 26, 20, 18, 24, 28, 22, 18, 16
+  ]);
+  const sceneHorizonFrontRidgeHeights = Object.freeze([
+    8, 12, 16, 12, 10, 18, 22, 14, 10, 12, 20, 24, 18, 12, 10, 16,
+    20, 14, 10, 12, 18, 22, 16, 10, 12, 20, 18, 14, 10, 16, 20, 12
+  ]);
+  const sceneHorizonDistantTrunks = Object.freeze([22, 58, 103, 145, 188, 326, 368, 410, 456, 494]);
+  const sceneHorizonClearingBands = Object.freeze([
+    Object.freeze({ y: 348, x: 238, width: 36, height: 8 }),
+    Object.freeze({ y: 356, x: 224, width: 64, height: 10 }),
+    Object.freeze({ y: 366, x: 207, width: 98, height: 12 }),
+    Object.freeze({ y: 378, x: 188, width: 136, height: 12 })
+  ]);
+
   function drawLowGround(ctx, palette, now, scene, frameScene) {
     const groundTop = 428;
     const patchTop = 390;
@@ -9,6 +25,7 @@
     const grassField = getGrassFieldState(scene, now, surface);
     const rasterReady = Boolean(runtime.assets && runtime.assets['environment.grassPatch']);
 
+    drawSceneHorizon(ctx, palette, scene);
     ctx.fillStyle = palette.ground;
     ctx.fillRect(0, patchTop, 512, 512 - patchTop);
     ctx.fillStyle = palette.groundLight;
@@ -47,6 +64,69 @@
     if (grassField.snowCover > 0.04) {
       drawSnowGroundCover(ctx, scene, now, groundTop, grassField.snowCover);
     }
+  }
+
+  function drawSceneHorizon(ctx, palette, scene) {
+    const source = scene || {};
+    const condition = source.condition || 'clear';
+    const fogStrength = condition === 'fog'
+      ? clamp(Number(source.fogDensity), 0, 1, 0.48)
+      : 0;
+    const stormStrength = condition === 'storm'
+      ? clamp(Number(source.stormIntensity), 0, 1, 0.55)
+      : 0;
+    const night = source.isDay === false;
+    const detailAlpha = clamp(0.42 - fogStrength * 0.24 - stormStrength * 0.08, 0.16, 0.42, 0.32);
+
+    ctx.save();
+    ctx.fillStyle = palette.ground;
+    ctx.globalAlpha = night ? 0.50 : 0.38;
+    drawPixelHorizonRidge(ctx, 324, sceneHorizonBackRidgeHeights, 16, 84);
+
+    ctx.globalAlpha = detailAlpha;
+    ctx.fillStyle = palette.groundLight;
+    drawPixelHorizonRidge(ctx, 354, sceneHorizonFrontRidgeHeights, 16, 52);
+
+    drawDistantMyceliumGrove(ctx, palette, detailAlpha, night, fogStrength);
+    drawHorizonClearing(ctx, palette, night, fogStrength);
+    ctx.restore();
+  }
+
+  function drawPixelHorizonRidge(ctx, baseY, heights, stepWidth, fillDepth) {
+    const width = Math.max(4, Number(stepWidth) || 16);
+    heights.forEach(function(height, index) {
+      const top = Math.round(baseY - Number(height || 0));
+      ctx.fillRect(index * width, top, width + 1, Math.max(1, fillDepth + Number(height || 0)));
+    });
+  }
+
+  function drawDistantMyceliumGrove(ctx, palette, alpha, night, fogStrength) {
+    ctx.globalAlpha = alpha * (night ? 0.80 : 0.68) * (1 - fogStrength * 0.42);
+    sceneHorizonDistantTrunks.forEach(function(x, index) {
+      const height = 18 + index % 3 * 5;
+      const crownWidth = 18 + index % 2 * 8;
+      const crownY = 344 - height;
+      ctx.fillStyle = palette.ground;
+      ctx.fillRect(x - 2, crownY + 10, 4, height + 14);
+      ctx.fillRect(x - Math.round(crownWidth / 2), crownY + 4, crownWidth, 8);
+      ctx.fillRect(x - Math.round(crownWidth * 0.34), crownY, Math.round(crownWidth * 0.68), 5);
+      ctx.fillStyle = palette.blade;
+      ctx.globalAlpha = alpha * 0.32 * (1 - fogStrength * 0.55);
+      ctx.fillRect(x - Math.round(crownWidth * 0.28), crownY + 2, Math.max(4, Math.round(crownWidth * 0.32)), 2);
+      ctx.globalAlpha = alpha * (night ? 0.80 : 0.68) * (1 - fogStrength * 0.42);
+    });
+  }
+
+  function drawHorizonClearing(ctx, palette, night, fogStrength) {
+    ctx.fillStyle = palette.groundLight;
+    ctx.globalAlpha = (night ? 0.12 : 0.20) * (1 - fogStrength * 0.38);
+    sceneHorizonClearingBands.forEach(function(band) {
+      ctx.fillRect(band.x, band.y, band.width, band.height);
+    });
+    ctx.globalAlpha *= 0.72;
+    ctx.fillStyle = palette.skyLow || palette.groundLight;
+    ctx.fillRect(247, 352, 18, 3);
+    ctx.fillRect(235, 363, 42, 2);
   }
 
   function getGrassFieldState(scene, now, surface) {

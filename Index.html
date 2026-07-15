@@ -91,6 +91,33 @@
 
           <div class="daily-rhythm-strip" data-daily-rhythm aria-label="Dzisiejszy rytm"></div>
           <div class="daily-plan-strip" data-day-plan aria-label="Plan dnia"></div>
+
+          <div class="world-explore" data-world-explore>
+            <button
+              class="ghost-button world-explore__toggle"
+              type="button"
+              data-world-explore-toggle
+              data-focus-key="world-explore"
+              aria-expanded="false"
+              aria-controls="worldExploreActions"
+            >
+              <span>Eksploruj grzybnię</span>
+              <kbd aria-hidden="true">E</kbd>
+            </button>
+            <div
+              class="world-explore__actions"
+              id="worldExploreActions"
+              data-world-explore-actions
+              role="group"
+              aria-label="Interakcje ze światem grzybni"
+              hidden
+            >
+              <button class="ghost-button" type="button" data-world-explore-action="grass">Przeczesz trawę</button>
+              <button class="ghost-button" type="button" data-world-explore-action="sky">Spójrz w niebo</button>
+              <button class="ghost-button" type="button" data-world-explore-action="guest">Przywitaj gościa</button>
+              <p class="world-explore__status" data-world-explore-status></p>
+            </div>
+          </div>
         </section>
 
         <aside class="side-panel" aria-label="Panel gry">
@@ -642,6 +669,53 @@
           </form>
 
           <div class="settings-dialog__content" data-settings-content></div>
+
+          <section class="settings-preferences" aria-labelledby="settingsWorldTitle">
+            <div>
+              <h3 id="settingsWorldTitle">Świat i energia</h3>
+              <p>Dostosuj ruch, błyski i zużycie energii. Zmiany dotyczą tego urządzenia.</p>
+            </div>
+            <div class="settings-preferences__controls">
+              <label class="settings-preference" for="worldMotionSetting">
+                <span><strong>Ruch świata</strong><small>Animacje sceny i otoczenia.</small></span>
+                <select id="worldMotionSetting" data-world-preference="motion">
+                  <option value="system">Jak w systemie</option>
+                  <option value="full">Pełny</option>
+                  <option value="gentle">Ograniczony</option>
+                  <option value="still">Spokojny</option>
+                </select>
+              </label>
+              <div class="settings-preference">
+                <span><strong>Błyski burzy</strong><small>Ogranicz gwałtowne rozjaśnienia.</small></span>
+                <button class="ghost-button" type="button" data-world-preference-toggle="flash" aria-pressed="true">Włączone</button>
+              </div>
+              <div class="settings-preference">
+                <span><strong>Oszczędzanie baterii</strong><small>Mniej pracy animacji w tle.</small></span>
+                <button class="ghost-button" type="button" data-world-preference-toggle="battery" aria-pressed="false">Wyłączone</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-preferences" aria-labelledby="settingsAudioTitle">
+            <div>
+              <h3 id="settingsAudioTitle">Dźwięk świata</h3>
+              <p>Wybierz zakres odgłosów grzybni i ich docelową głośność.</p>
+            </div>
+            <div class="settings-preferences__controls">
+              <label class="settings-preference" for="audioModeSetting">
+                <span><strong>Tryb dźwięku</strong><small>Wyciszenie, efekty lub pełna oprawa.</small></span>
+                <select id="audioModeSetting" data-world-preference="audio">
+                  <option value="off">Bez dźwięku</option>
+                  <option value="cues">Tylko efekty</option>
+                  <option value="atmosphere">Pełny</option>
+                </select>
+              </label>
+              <label class="settings-preference settings-preference--range" for="audioVolumeSetting">
+                <span><strong>Głośność</strong><small data-world-volume-value>40%</small></span>
+                <input id="audioVolumeSetting" type="range" min="0" max="100" step="5" value="40" data-world-preference="volume">
+              </label>
+            </div>
+          </section>
 
           <section class="settings-sensory" aria-labelledby="settingsSensoryTitle">
             <h3 id="settingsSensoryTitle">Sygnały minigier</h3>

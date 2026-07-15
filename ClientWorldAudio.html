@@ -1,0 +1,860 @@
+  const worldSensoryDefaults = {
+    motionMode: 'system',
+    stormFlashesEnabled: true,
+    batterySaver: false,
+    audioMode: 'off',
+    ambientVolume: 40
+  };
+  const worldAudioCrossfadeSeconds = 2;
+
+  function ensureWorldSensoryRuntime() {
+    if (runtime.worldSensory) {
+      return runtime.worldSensory;
+    }
+    runtime.worldSensory = {
+      bound: false,
+      timer: null,
+      audio: {
+        context: null,
+        masterGain: null,
+        noiseBuffer: null,
+        voices: [],
+        retiringVoices: [],
+        currentProfileKey: '',
+        userUnlocked: false,
+        hidden: Boolean(document.hidden),
+        lastCueAt: Object.create(null),
+        activationBound: false,
+        activationHandler: null,
+        unlockPromise: null,
+        stopTimers: []
+      }
+    };
+    return runtime.worldSensory;
+  }
+
+  function normalizeWorldSensoryPreferences(preferences) {
+    const source = preferences && typeof preferences === 'object' ? preferences : {};
+    return {
+      motionMode: ['system', 'full', 'gentle', 'still'].includes(source.motionMode)
+        ? source.motionMode
+        : worldSensoryDefaults.motionMode,
+      stormFlashesEnabled: source.stormFlashesEnabled !== false,
+      batterySaver: Boolean(source.batterySaver),
+      audioMode: ['off', 'cues', 'atmosphere'].includes(source.audioMode)
+        ? source.audioMode
+        : worldSensoryDefaults.audioMode,
+      ambientVolume: clampWorldSensoryInteger(source.ambientVolume, 0, 100, worldSensoryDefaults.ambientVolume)
+    };
+  }
+
+  function getWorldSensoryPreferences() {
+    const statePreferences = runtime.state && runtime.state.preferences && runtime.state.preferences.world;
+    return normalizeWorldSensoryPreferences(statePreferences);
+  }
+
+  function getWorldSensoryMutationBlockReason() {
+    if (typeof isRuntimeMutationBlocked === 'function' && isRuntimeMutationBlocked()) {
+      return 'runtimeBlocked';
+    }
+    if (typeof isRuntimeReadOnly === 'function' && isRuntimeReadOnly()) {
+      return 'readOnly';
+    }
+    if (typeof getExclusiveGameplaySession === 'function' && getExclusiveGameplaySession()) {
+      return 'exclusiveSession';
+    }
+    return '';
+  }
+
+  function updateWorldPreference(keyInput, value, options) {
+    const keyAliases = {
+      motion: 'motionMode',
+      motionMode: 'motionMode',
+      flash: 'stormFlashesEnabled',
+      stormFlashesEnabled: 'stormFlashesEnabled',
+      battery: 'batterySaver',
+      batterySaver: 'batterySaver',
+      audio: 'audioMode',
+      audioMode: 'audioMode',
+      volume: 'ambientVolume',
+      ambientVolume: 'ambientVolume'
+    };
+    const key = keyAliases[String(keyInput || '')];
+    const blockedReason = getWorldSensoryMutationBlockReason();
+    if (!key || !runtime.state || blockedReason) {
+      return {
+        ok: false,
+        reason: !key ? 'unknownPreference' : blockedReason || 'unavailable',
+        preferences: getWorldSensoryPreferences()
+      };
+    }
+
+    const settings = options && typeof options === 'object' ? options : {};
+    const previous = getWorldSensoryPreferences();
+    const next = Object.assign({}, previous);
+    if (key === 'motionMode') {
+      next.motionMode = ['system', 'full', 'gentle', 'still'].includes(value) ? value : previous.motionMode;
+    } else if (key === 'stormFlashesEnabled' || key === 'batterySaver') {
+      next[key] = normalizeWorldSensoryBoolean(value, previous[key]);
+    } else if (key === 'audioMode') {
+      next.audioMode = ['off', 'cues', 'atmosphere'].includes(value) ? value : previous.audioMode;
+    } else if (key === 'ambientVolume') {
+      next.ambientVolume = clampWorldSensoryInteger(value, 0, 100, previous.ambientVolume);
+    }
+
+    const changed = next[key] !== previous[key];
+    runtime.state.preferences = Object.assign({}, runtime.state.preferences || {});
+    runtime.state.preferences.world = next;
+    if (changed && (key === 'motionMode' || key === 'batterySaver')) {
+      syncWorldRuntimePerformancePreference();
+    }
+    if (next.audioMode === 'off') {
+      unbindWorldAudioActivationUnlock();
+      muteWorldAudioImmediately(true);
+    } else if (next.audioMode === 'cues') {
+      stopWorldAudioAmbience(true);
+      applyWorldAudioMasterVolume();
+    } else if (key === 'ambientVolume' || key === 'audioMode') {
+      applyWorldAudioMasterVolume();
+    }
+    if (changed && typeof persistRuntimeState === 'function') {
+      try {
+        persistRuntimeState(runtime.state);
+      } catch (error) {
+        // Sensory preferences must never block care or persistence recovery.
+      }
+    }
+    syncWorldSensoryControls();
+    dispatchWorldSensoryChange(key, next[key], next);
+    if (next.audioMode !== 'off') {
+      bindWorldAudioActivationUnlock();
+    }
+
+    if (next.audioMode !== 'off' && settings.userGesture === true) {
+      unlockWorldAudioFromGesture().then(function(unlocked) {
+        if (unlocked && next.audioMode === 'cues') {
+          playWorldSensoryCue('confirm');
+        }
+      }).catch(function() {});
+    } else if (next.audioMode === 'atmosphere') {
+      refreshWorldAudioAmbience(false);
+    } else if (next.audioMode === 'cues') {
+      stopWorldAudioAmbience(true);
+    }
+
+    return { ok: true, changed: changed, preferences: next };
+  }
+
+  function setWorldMotionMode(value) {
+    return updateWorldPreference('motion', value);
+  }
+
+  function setWorldStormFlashesEnabled(value) {
+    return updateWorldPreference('flash', value);
+  }
+
+  function setWorldBatterySaver(value) {
+    return updateWorldPreference('battery', value);
+  }
+
+  function setWorldAudioMode(value, userGesture) {
+    return updateWorldPreference('audio', value, { userGesture: userGesture === true });
+  }
+
+  function setWorldAmbientVolume(value) {
+    return updateWorldPreference('volume', value);
+  }
+
+  function normalizeWorldSensoryBoolean(value, fallback) {
+    if (typeof value === 'boolean') {
+      return value;
+    }
+    if (value === 'true' || value === '1' || value === 1 || value === 'on') {
+      return true;
+    }
+    if (value === 'false' || value === '0' || value === 0 || value === 'off') {
+      return false;
+    }
+    return Boolean(fallback);
+  }
+
+  function syncWorldRuntimePerformancePreference() {
+    if (typeof syncRuntimeMotionMode === 'function') {
+      try { syncRuntimeMotionMode(); } catch (error) {}
+    }
+    if (runtime.sceneRenderQuality && typeof resetSceneQualityGovernorWindows === 'function') {
+      try { resetSceneQualityGovernorWindows(runtime.sceneRenderQuality); } catch (error) {}
+    }
+    runtime.sceneFrameSnapshot = null;
+    if (typeof requestRuntimeRender === 'function') {
+      try { requestRuntimeRender(); } catch (error) {}
+    }
+  }
+
+  function clampWorldSensoryInteger(value, minimum, maximum, fallback) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return fallback;
+    }
+    return Math.max(minimum, Math.min(maximum, Math.round(numeric)));
+  }
+
+  function dispatchWorldSensoryChange(key, value, preferences) {
+    if (!document || typeof document.dispatchEvent !== 'function' || typeof window.CustomEvent !== 'function') {
+      return;
+    }
+    try {
+      document.dispatchEvent(new window.CustomEvent('pieczargotchi:world-preferences-change', {
+        detail: { key: key, value: value, preferences: Object.assign({}, preferences) }
+      }));
+    } catch (error) {
+      // UI synchronization is optional and must stay non-blocking.
+    }
+  }
+
+  function handleWorldUiPreferenceChange(event) {
+    const detail = event && event.detail && typeof event.detail === 'object' ? event.detail : {};
+    if (detail.preferences && typeof detail.preferences === 'object') {
+      ['motion', 'flash', 'battery', 'audio', 'volume'].forEach(function(key) {
+        const field = {
+          motion: 'motionMode',
+          flash: 'stormFlashesEnabled',
+          battery: 'batterySaver',
+          audio: 'audioMode',
+          volume: 'ambientVolume'
+        }[key];
+        if (Object.prototype.hasOwnProperty.call(detail.preferences, field)) {
+          updateWorldPreference(key, detail.preferences[field], { userGesture: detail.userGesture === true });
+        }
+      });
+      return;
+    }
+    updateWorldPreference(detail.key || detail.preference, detail.value, {
+      userGesture: detail.userGesture === true
+    });
+  }
+
+  function handleWorldSensoryControlEvent(event) {
+    const target = event && event.target;
+    if (!target || typeof target.closest !== 'function') {
+      return;
+    }
+    const motion = target.closest('[data-world-motion-mode]');
+    const flash = target.closest('[data-world-storm-flashes], [data-world-storm-flashes-enabled]');
+    const battery = target.closest('[data-world-battery-saver]');
+    const audio = target.closest('[data-world-audio-mode]');
+    const volume = target.closest('[data-world-ambient-volume]');
+    const isChange = event.type === 'change' || event.type === 'input';
+
+    if (motion && (isChange || motion.tagName === 'BUTTON')) {
+      updateWorldPreference('motion', readWorldSensoryControlValue(motion), { userGesture: Boolean(event.isTrusted) });
+    } else if (flash && (isChange || flash.tagName === 'BUTTON')) {
+      updateWorldPreference('flash', readWorldSensoryToggleValue(flash), { userGesture: Boolean(event.isTrusted) });
+    } else if (battery && (isChange || battery.tagName === 'BUTTON')) {
+      updateWorldPreference('battery', readWorldSensoryToggleValue(battery), { userGesture: Boolean(event.isTrusted) });
+    } else if (audio && (isChange || audio.tagName === 'BUTTON')) {
+      updateWorldPreference('audio', readWorldSensoryControlValue(audio), { userGesture: Boolean(event.isTrusted) });
+    } else if (volume && isChange) {
+      updateWorldPreference('volume', readWorldSensoryControlValue(volume), { userGesture: Boolean(event.isTrusted) });
+    }
+  }
+
+  function readWorldSensoryControlValue(control) {
+    if (typeof control.value !== 'undefined' && String(control.value) !== '') {
+      return control.value;
+    }
+    const dataset = control.dataset || {};
+    return dataset.worldMotionMode || dataset.worldAudioMode || dataset.worldAmbientVolume || '';
+  }
+
+  function readWorldSensoryToggleValue(control) {
+    if (typeof control.checked === 'boolean') {
+      return control.checked;
+    }
+    return control.getAttribute && control.getAttribute('aria-pressed') !== 'true';
+  }
+
+  function syncWorldSensoryControls() {
+    if (!document || typeof document.querySelectorAll !== 'function') {
+      return;
+    }
+    const preferences = getWorldSensoryPreferences();
+    syncWorldChoiceControls('[data-world-motion-mode]', preferences.motionMode, 'worldMotionMode');
+    syncWorldChoiceControls('[data-world-audio-mode]', preferences.audioMode, 'worldAudioMode');
+    syncWorldToggleControls('[data-world-storm-flashes], [data-world-storm-flashes-enabled]', preferences.stormFlashesEnabled);
+    syncWorldToggleControls('[data-world-battery-saver]', preferences.batterySaver);
+    Array.from(document.querySelectorAll('[data-world-ambient-volume]')).forEach(function(control) {
+      if (String(control.value) !== String(preferences.ambientVolume)) {
+        control.value = String(preferences.ambientVolume);
+      }
+      if (typeof control.setAttribute === 'function') {
+        control.setAttribute('aria-valuenow', String(preferences.ambientVolume));
+      }
+    });
+  }
+
+  function syncWorldChoiceControls(selector, selectedValue, datasetKey) {
+    Array.from(document.querySelectorAll(selector)).forEach(function(control) {
+      const value = typeof control.value !== 'undefined' && String(control.value) !== ''
+        ? String(control.value)
+        : String(control.dataset && control.dataset[datasetKey] || '');
+      if (control.tagName === 'SELECT') {
+        control.value = selectedValue;
+      } else if (control.type === 'radio') {
+        control.checked = value === selectedValue;
+      } else if (typeof control.setAttribute === 'function') {
+        control.setAttribute('aria-pressed', value === selectedValue ? 'true' : 'false');
+      }
+    });
+  }
+
+  function syncWorldToggleControls(selector, enabled) {
+    Array.from(document.querySelectorAll(selector)).forEach(function(control) {
+      if (typeof control.checked === 'boolean') {
+        control.checked = enabled;
+      }
+      if (typeof control.setAttribute === 'function') {
+        control.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+      }
+    });
+  }
+
+  function getWorldAudioConstructor() {
+    return window.AudioContext || window.webkitAudioContext || null;
+  }
+
+  function ensureWorldAudioContext(userGesture) {
+    const sensory = ensureWorldSensoryRuntime();
+    const audio = sensory.audio;
+    if (audio.context && audio.masterGain && audio.context.state !== 'closed') {
+      return Promise.resolve(true);
+    }
+    audio.context = null;
+    audio.masterGain = null;
+    audio.noiseBuffer = null;
+    if (userGesture !== true) {
+      return Promise.resolve(false);
+    }
+    const AudioContextConstructor = getWorldAudioConstructor();
+    if (!AudioContextConstructor) {
+      return Promise.resolve(false);
+    }
+
+    try {
+      audio.context = new AudioContextConstructor();
+      audio.masterGain = audio.context.createGain();
+      audio.masterGain.gain.value = 0;
+      audio.masterGain.connect(audio.context.destination);
+      audio.noiseBuffer = createWorldNoiseBuffer(audio.context);
+      audio.userUnlocked = true;
+      return Promise.resolve(true);
+    } catch (error) {
+      if (audio.context && typeof audio.context.close === 'function') {
+        try { Promise.resolve(audio.context.close()).catch(function() {}); } catch (closeError) {}
+      }
+      audio.context = null;
+      audio.masterGain = null;
+      audio.noiseBuffer = null;
+      return Promise.resolve(false);
+    }
+  }
+
+  function unlockWorldAudioFromGesture() {
+    const sensory = ensureWorldSensoryRuntime();
+    const audio = sensory.audio;
+    audio.userUnlocked = true;
+    if (audio.unlockPromise) {
+      return audio.unlockPromise;
+    }
+    const pending = ensureWorldAudioContext(true).then(function(ready) {
+      if (!ready || !sensory.audio.context) {
+        return false;
+      }
+      const context = sensory.audio.context;
+      const resumed = context.state === 'suspended' && typeof context.resume === 'function'
+        ? Promise.resolve(context.resume()).catch(function() { return false; })
+        : Promise.resolve(true);
+      return resumed.then(function(resumeResult) {
+        if (resumeResult === false && context.state === 'suspended') {
+          return false;
+        }
+        if (context.state === 'suspended') {
+          return false;
+        }
+        applyWorldAudioMasterVolume();
+        if (getWorldSensoryPreferences().audioMode === 'atmosphere' && sensory.audio.voices.length === 0) {
+          refreshWorldAudioAmbience(true);
+        }
+        return context.state !== 'closed';
+      });
+    });
+    audio.unlockPromise = pending.then(function(unlocked) {
+      audio.unlockPromise = null;
+      return unlocked;
+    }, function() {
+      audio.unlockPromise = null;
+      return false;
+    });
+    return audio.unlockPromise;
+  }
+
+  function createWorldNoiseBuffer(context) {
+    if (!context || typeof context.createBuffer !== 'function') {
+      return null;
+    }
+    const sampleRate = Math.max(8000, Number(context.sampleRate) || 44100);
+    const buffer = context.createBuffer(1, sampleRate * 2, sampleRate);
+    const channel = buffer.getChannelData(0);
+    let previous = 0;
+    for (let index = 0; index < channel.length; index += 1) {
+      const white = Math.random() * 2 - 1;
+      previous = previous * 0.82 + white * 0.18;
+      channel[index] = previous * 0.76 + white * 0.24;
+    }
+    return buffer;
+  }
+
+  function getWorldAudioProfile(sceneInput, dateInput) {
+    const scene = sceneInput && typeof sceneInput === 'object' ? sceneInput : {};
+    const date = dateInput instanceof Date ? dateInput : new Date(dateInput || Date.now());
+    const condition = String(scene.condition || 'clear');
+    const phase = scene.dayPhase === 'night' || scene.isDay === false ? 'night' : 'day';
+    const wind = Math.max(0, Math.min(1, Number(scene.windLevel) || Number(scene.windSpeed) / 82 || 0));
+    const rain = Math.max(0, Math.min(1, Number(scene.rainIntensity) || Number(scene.precipitation) / 8 || 0));
+    const storm = Math.max(0, Math.min(1, Number(scene.stormIntensity) || (condition === 'storm' ? 0.72 : 0)));
+    const band = Math.max(Math.round(wind * 4), Math.round(rain * 4), Math.round(storm * 4));
+    const profiles = {
+      storm: { filterType: 'lowpass', frequency: 680 + wind * 420, q: 0.7, gain: 0.24 + storm * 0.16 },
+      rain: { filterType: 'lowpass', frequency: 1250 + rain * 1100, q: 0.45, gain: 0.14 + rain * 0.18 },
+      snow: { filterType: 'bandpass', frequency: 720 + wind * 430, q: 0.9, gain: 0.055 + wind * 0.07 },
+      fog: { filterType: 'lowpass', frequency: 520, q: 0.55, gain: 0.045 + wind * 0.045 },
+      cloudy: { filterType: 'bandpass', frequency: 900 + wind * 900, q: 0.7, gain: 0.05 + wind * 0.12 },
+      clear: { filterType: 'highpass', frequency: 1150 + wind * 1050, q: 0.4, gain: 0.035 + wind * 0.11 }
+    };
+    const base = profiles[condition] || profiles.clear;
+    const nightScale = phase === 'night' ? 0.68 : 1;
+    return {
+      key: condition + '|' + phase + '|' + band + '|' + date.getHours(),
+      filterType: base.filterType,
+      frequency: base.frequency * (phase === 'night' ? 0.84 : 1),
+      q: base.q,
+      gain: Math.max(0.015, Math.min(0.42, base.gain * nightScale))
+    };
+  }
+
+  function refreshWorldAudioAmbience(force) {
+    const sensory = ensureWorldSensoryRuntime();
+    const audio = sensory.audio;
+    const preferences = getWorldSensoryPreferences();
+    if (preferences.audioMode !== 'atmosphere' || sensory.audio.hidden || !audio.context || !audio.masterGain || !audio.userUnlocked) {
+      return false;
+    }
+    const scene = typeof getCurrentWeatherScene === 'function' ? getCurrentWeatherScene() : runtime.weatherScene || {};
+    const date = typeof getRuntimeDate === 'function' ? getRuntimeDate() : new Date();
+    const profile = getWorldAudioProfile(scene, date);
+    if (!force && profile.key === audio.currentProfileKey) {
+      return true;
+    }
+    try {
+      const nextVoice = createWorldAudioVoice(audio, profile);
+      if (!nextVoice) {
+        return false;
+      }
+      const now = Number(audio.context.currentTime) || 0;
+      setWorldAudioParam(nextVoice.gain.gain, 0, now, true);
+      setWorldAudioParam(nextVoice.gain.gain, profile.gain, now + worldAudioCrossfadeSeconds, false);
+      audio.voices.forEach(function(voice) {
+        setWorldAudioParam(voice.gain.gain, 0, now + worldAudioCrossfadeSeconds, false);
+        audio.retiringVoices.push(voice);
+        scheduleWorldAudioVoiceStop(audio, voice, worldAudioCrossfadeSeconds * 1000 + 80);
+      });
+      audio.voices = [nextVoice];
+      audio.currentProfileKey = profile.key;
+      applyWorldAudioMasterVolume();
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function createWorldAudioVoice(audio, profile) {
+    if (!audio.context || !audio.noiseBuffer) {
+      return null;
+    }
+    const source = audio.context.createBufferSource();
+    const filter = audio.context.createBiquadFilter();
+    const gain = audio.context.createGain();
+    source.buffer = audio.noiseBuffer;
+    source.loop = true;
+    filter.type = profile.filterType;
+    filter.frequency.value = profile.frequency;
+    filter.Q.value = profile.q;
+    gain.gain.value = 0;
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(audio.masterGain);
+    source.start();
+    return { source: source, filter: filter, gain: gain, stopped: false };
+  }
+
+  function scheduleWorldAudioVoiceStop(audio, voice, delayMs) {
+    const timer = window.setTimeout(function() {
+      stopWorldAudioVoice(voice);
+      audio.retiringVoices = audio.retiringVoices.filter(function(item) { return item !== voice; });
+      audio.stopTimers = audio.stopTimers.filter(function(item) { return item !== timer; });
+    }, delayMs);
+    audio.stopTimers.push(timer);
+  }
+
+  function stopWorldAudioVoice(voice) {
+    if (!voice || voice.stopped) {
+      return;
+    }
+    voice.stopped = true;
+    try { voice.source.stop(); } catch (error) {}
+    try { voice.source.disconnect(); } catch (error) {}
+    try { voice.filter.disconnect(); } catch (error) {}
+    try { voice.gain.disconnect(); } catch (error) {}
+  }
+
+  function stopWorldAudioAmbience(immediate) {
+    const audio = ensureWorldSensoryRuntime().audio;
+    const now = audio.context ? Number(audio.context.currentTime) || 0 : 0;
+    audio.voices.concat(audio.retiringVoices).forEach(function(voice) {
+      setWorldAudioParam(voice.gain.gain, 0, immediate ? now : now + worldAudioCrossfadeSeconds, immediate);
+      if (immediate) {
+        stopWorldAudioVoice(voice);
+      } else {
+        scheduleWorldAudioVoiceStop(audio, voice, worldAudioCrossfadeSeconds * 1000 + 80);
+      }
+    });
+    audio.voices = [];
+    audio.retiringVoices = [];
+    audio.currentProfileKey = '';
+  }
+
+  function muteWorldAudioImmediately(stopAmbience) {
+    const audio = ensureWorldSensoryRuntime().audio;
+    if (audio.context && audio.masterGain) {
+      setWorldAudioParam(audio.masterGain.gain, 0, Number(audio.context.currentTime) || 0, true);
+    }
+    if (stopAmbience) {
+      stopWorldAudioAmbience(true);
+    }
+    if (audio.context && audio.context.state !== 'closed' && typeof audio.context.suspend === 'function') {
+      try {
+        Promise.resolve(audio.context.suspend()).catch(function() {});
+      } catch (error) {}
+    }
+  }
+
+  function applyWorldAudioMasterVolume() {
+    const audio = ensureWorldSensoryRuntime().audio;
+    if (!audio.context || !audio.masterGain) {
+      return;
+    }
+    const preferences = getWorldSensoryPreferences();
+    const target = preferences.audioMode === 'off' || audio.hidden
+      ? 0
+      : preferences.ambientVolume / 100 * 0.28;
+    setWorldAudioParam(audio.masterGain.gain, target, Number(audio.context.currentTime) || 0, true);
+  }
+
+  function setWorldAudioParam(param, value, at, immediate) {
+    if (!param) {
+      return;
+    }
+    try {
+      if (typeof param.cancelScheduledValues === 'function') {
+        param.cancelScheduledValues(Math.max(0, at - (immediate ? 0 : worldAudioCrossfadeSeconds)));
+      }
+      if (immediate && typeof param.setValueAtTime === 'function') {
+        param.setValueAtTime(value, at);
+      } else if (!immediate && typeof param.linearRampToValueAtTime === 'function') {
+        param.linearRampToValueAtTime(value, at);
+      } else {
+        param.value = value;
+      }
+    } catch (error) {
+      param.value = value;
+    }
+  }
+
+  function playWorldSensoryCue(cueId, options) {
+    const preferences = getWorldSensoryPreferences();
+    const settings = options && typeof options === 'object' ? options : {};
+    if (preferences.audioMode === 'off') {
+      return Promise.resolve(false);
+    }
+    const readyPromise = settings.userGesture === true
+      ? unlockWorldAudioFromGesture()
+      : ensureWorldAudioContext(false);
+    return readyPromise.then(function(ready) {
+      const audio = ensureWorldSensoryRuntime().audio;
+      if (!ready || !audio.context || !audio.masterGain || audio.hidden) {
+        return false;
+      }
+      const cueNow = window.performance && typeof window.performance.now === 'function'
+        ? window.performance.now()
+        : Date.now();
+      const minimumGapMs = cueId === 'discovery' ? 800 : cueId === 'weather' ? 320 : 180;
+      const previousCueAt = Number(audio.lastCueAt[cueId]) || 0;
+      if (previousCueAt > 0 && cueNow - previousCueAt < minimumGapMs) {
+        return false;
+      }
+      audio.lastCueAt[cueId] = cueNow;
+      const context = audio.context;
+      const frequencies = { focus: 392, discovery: 523.25, weather: 329.63, confirm: 440 };
+      try {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        const now = Number(context.currentTime) || 0;
+        oscillator.type = 'sine';
+        oscillator.frequency.value = frequencies[cueId] || frequencies.focus;
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0.055, now + 0.018);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+        oscillator.connect(gain);
+        gain.connect(audio.masterGain);
+        oscillator.onended = function() {
+          try { oscillator.disconnect(); } catch (error) {}
+          try { gain.disconnect(); } catch (error) {}
+        };
+        oscillator.start(now);
+        oscillator.stop(now + 0.2);
+        return true;
+      } catch (error) {
+        return false;
+      }
+    }).catch(function() {
+      return false;
+    });
+  }
+
+  function handleWorldAudioVisibilityChange() {
+    const audio = ensureWorldSensoryRuntime().audio;
+    audio.hidden = Boolean(document.hidden);
+    if (audio.hidden) {
+      muteWorldAudioImmediately(false);
+      return;
+    }
+    if (!audio.userUnlocked || !audio.context || getWorldSensoryPreferences().audioMode === 'off') {
+      return;
+    }
+    try {
+      const resume = audio.context.state === 'suspended' && typeof audio.context.resume === 'function'
+        ? audio.context.resume()
+        : Promise.resolve();
+      Promise.resolve(resume).then(function() {
+        applyWorldAudioMasterVolume();
+        if (getWorldSensoryPreferences().audioMode === 'atmosphere') {
+          refreshWorldAudioAmbience(true);
+        }
+      }).catch(function() {});
+    } catch (error) {}
+  }
+
+  function bindWorldAudioActivationUnlock() {
+    const audio = ensureWorldSensoryRuntime().audio;
+    if (audio.activationBound || getWorldSensoryPreferences().audioMode === 'off') {
+      return false;
+    }
+    const handler = function(event) {
+      if (!event || event.isTrusted !== true || getWorldSensoryPreferences().audioMode === 'off') {
+        return;
+      }
+      unlockWorldAudioFromGesture().then(function(unlocked) {
+        if (unlocked) {
+          unbindWorldAudioActivationUnlock();
+        }
+      }).catch(function() {});
+    };
+    audio.activationBound = true;
+    audio.activationHandler = handler;
+    document.addEventListener('pointerdown', handler, true);
+    document.addEventListener('keydown', handler, true);
+    document.addEventListener('click', handler, true);
+    return true;
+  }
+
+  function unbindWorldAudioActivationUnlock() {
+    const audio = ensureWorldSensoryRuntime().audio;
+    const handler = audio.activationHandler;
+    if (!audio.activationBound || !handler) {
+      return false;
+    }
+    audio.activationBound = false;
+    audio.activationHandler = null;
+    if (typeof document.removeEventListener === 'function') {
+      document.removeEventListener('pointerdown', handler, true);
+      document.removeEventListener('keydown', handler, true);
+      document.removeEventListener('click', handler, true);
+    }
+    return true;
+  }
+
+  function recordWorldReplayClue(nowInput, sceneInput) {
+    const core = window.PieczargotchiCore;
+    const state = runtime.state;
+    if (!state || !core || typeof core.calculateAmbientPhenomena !== 'function' || typeof core.normalizeWorldJournal !== 'function') {
+      return { added: false, reason: 'unavailable' };
+    }
+    const blockedReason = getWorldSensoryMutationBlockReason();
+    if (blockedReason) {
+      return { added: false, reason: blockedReason };
+    }
+
+    const now = Number.isFinite(Number(nowInput)) ? Number(nowInput) : typeof getRuntimeNow === 'function' ? getRuntimeNow() : Date.now();
+    const date = new Date(now);
+    const scene = sceneInput && typeof sceneInput === 'object'
+      ? sceneInput
+      : typeof getCurrentWeatherScene === 'function' ? getCurrentWeatherScene() : runtime.weatherScene || {};
+    const profile = core.calculateAmbientPhenomena(scene, date, now);
+    const journal = core.normalizeWorldJournal(state.journal);
+    const allCandidates = selectWorldClueRouteCandidates(profile, state, journal.clues);
+    if (!allCandidates.length) {
+      state.journal = journal;
+      return { added: false, reason: 'noCandidate' };
+    }
+    const dateKey = allCandidates[0].dateKey;
+    if (journal.clues.some(function(clue) { return clue.dateKey === dateKey; })) {
+      state.journal = journal;
+      return { added: false, reason: 'dailyLimit' };
+    }
+
+    const candidate = allCandidates[0];
+    const candidateType = candidate.type === 'sky' ? 'sky' : 'environment';
+    const previousLevel = journal.clues.reduce(function(level, clue) {
+      return clue.type === candidateType && clue.discoveryId === candidate.discoveryId
+        ? Math.max(level, Number(clue.level) || 0)
+        : level;
+    }, 0);
+    const level = Math.min(3, previousLevel + 1);
+    const hints = Array.isArray(candidate.hints) ? candidate.hints : [];
+    const hint = String(hints[level - 1] || hints[hints.length - 1] || '').replace(/\s+/g, ' ').trim().slice(0, 180);
+    if (!hint) {
+      state.journal = journal;
+      return { added: false, reason: 'invalidCandidate' };
+    }
+
+    journal.clues = [{
+      id: 'clue:' + candidateType + ':' + candidate.discoveryId,
+      discoveryId: candidate.discoveryId,
+      type: candidateType,
+      route: candidate.route === 'morningTrace' ? 'morningTrace' : 'nearMiss',
+      dateKey: dateKey,
+      at: date.toISOString(),
+      level: level,
+      hint: hint,
+      intensity: Math.max(0, Math.min(1, Number(candidate.intensity) || 0))
+    }].concat(journal.clues.filter(function(clue) {
+      return clue.type !== candidateType || clue.discoveryId !== candidate.discoveryId;
+    }));
+    state.journal = core.normalizeWorldJournal(journal);
+    if (typeof persistRuntimeState === 'function') {
+      try { persistRuntimeState(state); } catch (error) {}
+    }
+    dispatchWorldClue(candidate, level, hint, dateKey);
+    return {
+      added: true,
+      discoveryId: candidate.discoveryId,
+      route: candidate.route,
+      dateKey: dateKey,
+      level: level,
+      hint: hint
+    };
+  }
+
+  function selectWorldClueRouteCandidates(profile, state, clues) {
+    const discoveryMaps = state.discoveries || {};
+    const levels = (Array.isArray(clues) ? clues : []).reduce(function(result, clue) {
+      const key = clue.type + ':' + clue.discoveryId;
+      result[key] = Math.max(result[key] || 0, Number(clue.level) || 0);
+      return result;
+    }, Object.create(null));
+    const eligible = function(candidates) {
+      return (Array.isArray(candidates) ? candidates : []).filter(function(candidate) {
+        const type = candidate && candidate.type === 'sky' ? 'sky' : 'environment';
+        const known = discoveryMaps[type] || {};
+        const key = type + ':' + (candidate && candidate.discoveryId || '');
+        return candidate && candidate.discoveryId && !known[candidate.discoveryId] && (levels[key] || 0) < 3;
+      }).sort(function(a, b) {
+        const aKey = (a.type === 'sky' ? 'sky' : 'environment') + ':' + a.discoveryId;
+        const bKey = (b.type === 'sky' ? 'sky' : 'environment') + ':' + b.discoveryId;
+        const levelDelta = (levels[bKey] || 0) - (levels[aKey] || 0);
+        if (levelDelta) {
+          return levelDelta;
+        }
+        if (Math.abs(Number(b.intensity) - Number(a.intensity)) > 0.0001) {
+          return Number(b.intensity) - Number(a.intensity);
+        }
+        return a.discoveryId < b.discoveryId ? -1 : 1;
+      });
+    };
+    const morning = eligible(profile && profile.morningTraces);
+    return morning.length ? morning : eligible(profile && profile.nearMisses);
+  }
+
+  function dispatchWorldClue(candidate, level, hint, dateKey) {
+    if (!document || typeof document.dispatchEvent !== 'function' || typeof window.CustomEvent !== 'function') {
+      return;
+    }
+    try {
+      document.dispatchEvent(new window.CustomEvent('pieczargotchi:world-clue', {
+        detail: {
+          discoveryId: candidate.discoveryId,
+          route: candidate.route,
+          level: level,
+          hint: hint,
+          dateKey: dateKey
+        }
+      }));
+      playWorldSensoryCue('discovery').catch(function() {});
+    } catch (error) {}
+  }
+
+  function refreshWorldSensoryRuntime() {
+    if (document.hidden) {
+      return;
+    }
+    syncWorldSensoryControls();
+    recordWorldReplayClue();
+    if (getWorldSensoryPreferences().audioMode === 'atmosphere') {
+      refreshWorldAudioAmbience(false);
+    }
+  }
+
+  function initWorldSensoryManager() {
+    const sensory = ensureWorldSensoryRuntime();
+    if (sensory.bound) {
+      return;
+    }
+    sensory.bound = true;
+    document.addEventListener('pieczargotchi:ui-preference-change', handleWorldUiPreferenceChange);
+    document.addEventListener('visibilitychange', handleWorldAudioVisibilityChange);
+    document.addEventListener('click', handleWorldSensoryControlEvent);
+    document.addEventListener('change', handleWorldSensoryControlEvent);
+    document.addEventListener('input', handleWorldSensoryControlEvent);
+    bindWorldAudioActivationUnlock();
+    syncWorldSensoryControls();
+    if (!document.hidden) {
+      recordWorldReplayClue();
+    }
+    if (typeof window.setInterval === 'function') {
+      sensory.timer = window.setInterval(refreshWorldSensoryRuntime, 15000);
+    }
+  }
+
+  window.getWorldSensoryPreferences = getWorldSensoryPreferences;
+  window.updateWorldPreference = updateWorldPreference;
+  window.setWorldMotionMode = setWorldMotionMode;
+  window.setWorldStormFlashesEnabled = setWorldStormFlashesEnabled;
+  window.setWorldBatterySaver = setWorldBatterySaver;
+  window.setWorldAudioMode = setWorldAudioMode;
+  window.setWorldAmbientVolume = setWorldAmbientVolume;
+  window.unlockWorldAudioFromGesture = unlockWorldAudioFromGesture;
+  window.playWorldSensoryCue = playWorldSensoryCue;
+  window.syncWorldSensoryControls = syncWorldSensoryControls;
+  window.recordWorldReplayClue = recordWorldReplayClue;
+
+  document.addEventListener('DOMContentLoaded', initWorldSensoryManager);

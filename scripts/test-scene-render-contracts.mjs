@@ -7,7 +7,10 @@ const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const script = readFileSync(path.join(rootDir, 'ClientScene.html'), 'utf8');
 const animationScript = readFileSync(path.join(rootDir, 'ClientAnimation.html'), 'utf8');
 const celestialScript = readFileSync(path.join(rootDir, 'ClientSceneCelestial.html'), 'utf8');
+const phenomenaScript = readFileSync(path.join(rootDir, 'ClientScenePhenomena.html'), 'utf8');
 const cloudScript = readFileSync(path.join(rootDir, 'ClientSceneWeatherClouds.html'), 'utf8');
+const lifeScript = readFileSync(path.join(rootDir, 'ClientSceneLife.html'), 'utf8');
+const interactionScript = readFileSync(path.join(rootDir, 'ClientInteraction.html'), 'utf8');
 const calls = {
   scene: 0,
   palette: 0,
@@ -69,24 +72,22 @@ test('one frame reuses a single scene, palette, and weather-surface snapshot', (
   assert(calls.surface === 2, `surface should be sampled once per frame, calls=${calls.surface}`);
 });
 
-test('sustained slow frames lower scene quality and reduced motion uses the cheapest tier', () => {
-  context.runtime.sceneRenderQuality = {
-    tier: 'balanced',
-    lastFrameAt: 0,
-    slowFrames: 0,
-    fastFrames: 0
-  };
-  let quality = null;
-  for (let index = 1; index <= 36; index += 1) {
-    quality = context.getSceneRenderQuality(index * 34);
+test('measured render cost lowers scene quality and gentle motion caps scene FPS', () => {
+  const state = context.createSceneRenderQualityState();
+  state.tier = 'balanced';
+  context.runtime.sceneRenderQuality = state;
+  for (let sampleAt = 0; sampleAt <= 2100; sampleAt += 1000 / 60) {
+    context.updateSceneRenderQualityGovernor(state, sampleAt, 14, false, true);
   }
-  assert(quality.tier === 'low', `slow frame streak should lower quality, tier=${quality.tier}`);
+  let quality = context.getSceneRenderQuality(2200);
+  assert(quality.tier === 'low', `sustained expensive render work should lower quality, tier=${quality.tier}`);
   assert(quality.grassScale < 0.6 && quality.precipitationScale < 0.7, 'low tier should materially reduce scene effects');
+  assert(quality.lifeScale < 0.7 && quality.cloudScale < 0.7, 'low tier should expose broader scene budgets');
 
   context.runtime.reducedMotion = true;
-  quality = context.getSceneRenderQuality(2000);
-  assert(quality.tier === 'reduced', `reduced motion should select reduced tier, tier=${quality.tier}`);
-  assert(quality.grassScale <= 0.32, `reduced tier should cap grass density, scale=${quality.grassScale}`);
+  quality = context.getSceneRenderQuality(2300);
+  assert(quality.motionMode === 'gentle', `system reduced motion should resolve to gentle, mode=${quality.motionMode}`);
+  assert(quality.targetFps <= 30, `gentle motion must cap scene updates at 30 FPS, fps=${quality.targetFps}`);
   context.runtime.reducedMotion = false;
 });
 
@@ -212,6 +213,85 @@ test('stratus is assembled from staggered clusters instead of rectangular slabs'
   assert(fills.length >= 16, `stratus should use many pixel clusters, fills=${fills.length}`);
   assert(Math.max(...fills.map((fill) => fill.width)) < 64, 'no stratus cluster may become a flat full-width slab');
   assert(new Set(fills.map((fill) => fill.y)).size >= 6, 'staggered cloud clusters should occupy varied vertical rows');
+});
+
+test('production diagnostics retain ambient hit targets without full telemetry', () => {
+  const visualContext = {
+    console,
+    Math,
+    Number,
+    Array,
+    runtime: { debug: { enabled: false }, motionDiagnostics: null }
+  };
+  vm.createContext(visualContext);
+  vm.runInContext(lifeScript, visualContext, { filename: 'ClientSceneLife.html' });
+  vm.runInContext(interactionScript, visualContext, { filename: 'ClientInteraction.html' });
+
+  visualContext.beginAmbientLifeDiagnostics(1000);
+  assert(Array.isArray(visualContext.runtime.motionDiagnostics.butterflies),
+    'butterfly hit samples must exist when runtime exposure is disabled');
+  assert(Array.isArray(visualContext.runtime.motionDiagnostics.crawlers),
+    'crawler hit samples must exist when runtime exposure is disabled');
+  assert(visualContext.runtime.motionDiagnostics.flowers === null,
+    'non-interactive detailed flower telemetry should remain disabled in production');
+
+  visualContext.recordAmbientLifeSample('butterflies', { id: 'b1', x: 120, y: 160, alpha: 0.8 });
+  visualContext.recordAmbientLifeSample('crawlers', { id: 'c1', x: 280, y: 420, alpha: 0.7 });
+  const butterfly = visualContext.getAmbientPointerTarget({ x: 121, y: 159 }, 1000);
+  const crawler = visualContext.getAmbientPointerTarget({ x: 279, y: 421 }, 1000);
+  assert(butterfly && butterfly.kind === 'butterfly', 'visible production butterfly must remain pointer-reactive');
+  assert(crawler && crawler.kind === 'crawler', 'visible production crawler must remain pointer-reactive');
+});
+
+test('scene discovery sync remains read-only throughout exclusive gameplay', () => {
+  let exclusive = true;
+  let recordCalls = 0;
+  let persistCalls = 0;
+  let renderCalls = 0;
+  const discoveryContext = {
+    console,
+    Math,
+    Number,
+    Object,
+    Array,
+    runtime: {
+      state: { discoveries: { sky: {}, environment: {} }, log: [] }
+    },
+    window: {
+      PieczargotchiCore: {
+        recordSkyDiscovery(state, id) {
+          recordCalls += 1;
+          state.discoveries.sky[id] = { discoveredAt: 1000 };
+          return { newlyDiscovered: true, message: `Niebo: ${id}` };
+        },
+        recordEnvironmentDiscovery(state, id) {
+          recordCalls += 1;
+          state.discoveries.environment[id] = { discoveredAt: 1000 };
+          return { newlyDiscovered: true, message: `Środowisko: ${id}` };
+        }
+      }
+    },
+    isRuntimeWorldDiscoveryMutationBlocked: () => exclusive,
+    getCurrentWeatherScene: () => ({ condition: 'clear' }),
+    addLog: (state, message) => state.log.push(message),
+    persistRuntimeState: () => { persistCalls += 1; },
+    renderUi: () => { renderCalls += 1; }
+  };
+  vm.createContext(discoveryContext);
+  vm.runInContext(celestialScript, discoveryContext, { filename: 'ClientSceneCelestial.html' });
+  vm.runInContext(phenomenaScript, discoveryContext, { filename: 'ClientScenePhenomena.html' });
+
+  const before = JSON.stringify(discoveryContext.runtime.state);
+  discoveryContext.syncSkyDiscoveries({ discoveries: ['meteor'] }, 1000);
+  discoveryContext.syncEnvironmentDiscoveries({ discoveries: ['fogbow'] }, 1000);
+  assert(JSON.stringify(discoveryContext.runtime.state) === before && recordCalls === 0 && persistCalls === 0 && renderCalls === 0,
+    'active or pending exclusive sessions must stop scene discoveries before core mutation and persistence');
+
+  exclusive = false;
+  discoveryContext.syncSkyDiscoveries({ discoveries: ['meteor'] }, 1000);
+  discoveryContext.syncEnvironmentDiscoveries({ discoveries: ['fogbow'] }, 1000);
+  assert(recordCalls === 2 && persistCalls === 2 && renderCalls === 2,
+    'normal play and terminal battle views must continue to record visible discoveries');
 });
 
 function test(name, callback) {

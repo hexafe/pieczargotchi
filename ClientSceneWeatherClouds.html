@@ -41,7 +41,7 @@
   }
 
   function beginCloudMotionDiagnostics(scene, now) {
-    if (!runtime || !runtime.motionDiagnostics) {
+    if (!runtime || !runtime.motionDiagnostics || (typeof isDetailedMotionDiagnosticsEnabled === 'function' && !isDetailedMotionDiagnosticsEnabled())) {
       return;
     }
 
@@ -62,7 +62,8 @@
   }
 
   function recordCloudLayerMotionDiagnostics(layer, layerIndex, cover, flow) {
-    if (!runtime || !runtime.motionDiagnostics || !runtime.motionDiagnostics.clouds) {
+    if (!runtime || !runtime.motionDiagnostics || !runtime.motionDiagnostics.clouds
+      || (typeof isDetailedMotionDiagnosticsEnabled === 'function' && !isDetailedMotionDiagnosticsEnabled())) {
       return;
     }
 
@@ -552,9 +553,10 @@
     state.yPhase += vectorY * speed * elapsed;
     state.gustPhase = (Number(state.gustPhase) || 0) + (0.18 + wind.level * 0.84 + wind.gustPulse * 0.62) * elapsed;
 
-    const desiredSlots = getDesiredCloudSlots(cover, layer);
+    const renderScale = getCloudRenderScale();
+    const desiredSlots = getDesiredCloudSlots(cover, layer, renderScale);
     const desiredActive = clamp(
-      Math.round(1 + cover / 100 * 6 + (Number(layer.slotActiveBias) || 0)),
+      Math.round((1 + cover / 100 * 6 + (Number(layer.slotActiveBias) || 0)) * renderScale),
       1,
       desiredSlots,
       Math.min(3, desiredSlots)
@@ -618,9 +620,17 @@
     };
   }
 
-  function getDesiredCloudSlots(cover, layer) {
+  function getDesiredCloudSlots(cover, layer, renderScale) {
     const slotBias = layer ? Number(layer.slotCountBias) || 0 : 0;
-    return clamp(Math.round(2 + cover / 100 * 7 + slotBias), 2, 10, 4);
+    const scale = clamp(Number(renderScale), 0.35, 1, 1);
+    return clamp(Math.round((2 + cover / 100 * 7 + slotBias) * scale), 2, 10, 4);
+  }
+
+  function getCloudRenderScale() {
+    const quality = runtime && runtime.sceneFrameSnapshot && runtime.sceneFrameSnapshot.quality;
+    return quality && Number.isFinite(Number(quality.cloudScale))
+      ? clamp(Number(quality.cloudScale), 0.35, 1, 1)
+      : 1;
   }
 
   function ensureCloudSlots(state, layer, layerIndex, desiredSlots, desiredActive, directionX, now) {
@@ -912,7 +922,7 @@
     const speed = (0.10 + wind.averageLevel * 0.58 + wind.gustPulse * 0.14) * (band.speed || 1) * (band.windResponse || 0.2);
     state.yPhase += (wind.vectorY * 0.36 + Math.sin(now / 7400 + bandIndex) * 0.08) * speed * elapsed;
 
-    const desiredSlots = clamp(Math.round(1 + density * 3), 1, 4, 2);
+    const desiredSlots = clamp(Math.round((1 + density * 3) * getCloudRenderScale()), 1, 4, 2);
     ensureFogSlots(state, band, bandIndex, group, desiredSlots, directionX, now);
     updateFogSlots(state, band, bandIndex, group, desiredSlots, directionX, speed, elapsed, now, density);
 

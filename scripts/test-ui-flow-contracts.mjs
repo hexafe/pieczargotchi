@@ -12,6 +12,8 @@ const debugSource = readFileSync(path.join(rootDir, 'ClientDebug.html'), 'utf8')
 const dewSource = readFileSync(path.join(rootDir, 'ClientMinigameDewCatch.html'), 'utf8');
 const compostSource = readFileSync(path.join(rootDir, 'ClientMinigameCompostSort.html'), 'utf8');
 const uiSource = readFileSync(path.join(rootDir, 'ClientUi.html'), 'utf8');
+const interactionSource = readFileSync(path.join(rootDir, 'ClientInteraction.html'), 'utf8');
+const stylesSource = readFileSync(path.join(rootDir, 'Styles.html'), 'utf8');
 const captureSource = readFileSync(path.join(rootDir, 'scripts/capture-app-render.mjs'), 'utf8');
 const browserSmokeSource = readFileSync(path.join(rootDir, 'scripts/test-browser-smoke.mjs'), 'utf8');
 
@@ -612,6 +614,8 @@ test('exclusive-session settings controls stay focusable and expose a Polish rea
     document: { querySelectorAll(selector) {
       assert(selector.includes('.panel-block--debug .debug-controls input'), 'debug inputs must share the exclusive-session UI contract');
       assert(selector.includes('.panel-block--debug .debug-controls button'), 'debug buttons must share the exclusive-session UI contract');
+      assert(selector.includes('[data-world-preference]'), 'world preference inputs must share the exclusive-session UI contract');
+      assert(selector.includes('[data-world-preference-toggle]'), 'world preference toggles must share the exclusive-session UI contract');
       return controls;
     } },
     getExclusiveGameplaySessionForUi: () => session,
@@ -629,6 +633,56 @@ test('exclusive-session settings controls stay focusable and expose a Polish rea
     assert(control.getAttribute('aria-disabled') === 'false', 'session-owned aria-disabled state should be cleared');
     assert(!control.dataset.disabledReason, 'stale session reason should be removed');
   });
+});
+
+test('world preferences restore their rendered value and stop before an exclusive mutation', () => {
+  const reason = 'Najpierw zakończ minigrę albo wróć do jej planszy.';
+  const session = { kind: 'minigame', phase: 'active', id: 'dewCatch' };
+  let prevented = 0;
+  let stopped = 0;
+  let restored = 0;
+  let blockedInputUpdate = 0;
+  let announcement = '';
+  const control = {
+    value: '77',
+    dataset: { worldPreference: 'volume', disabledReason: reason },
+    closest: () => control,
+    getAttribute(name) { return name === 'aria-disabled' ? 'true' : null; }
+  };
+  const handleInput = evaluateFunction(uiSource, 'handleWorldPreferenceInput', {
+    getExclusiveGameplaySessionForUi: () => session,
+    getExclusiveGameplayUiReason: () => reason,
+    syncWorldPreferenceControls: () => { restored += 1; control.value = '40'; },
+    renderExclusiveSessionControls: () => {},
+    announceUiStatus: (message) => { announcement = message; },
+    updateWorldPreferenceFromUi: () => { blockedInputUpdate += 1; }
+  });
+  handleInput({
+    target: control,
+    type: 'change',
+    preventDefault() { prevented += 1; },
+    stopImmediatePropagation() { stopped += 1; }
+  });
+  assert(prevented === 1 && stopped === 1, 'blocked preference input must stop before other change listeners');
+  assert(restored === 1 && control.value === '40', 'blocked preference input must restore the durable rendered value');
+  assert(blockedInputUpdate === 0 && announcement === reason, 'blocked preference input must announce the Polish reason without updating');
+
+  let canonicalUpdates = 0;
+  let guarded = 0;
+  let rendered = 0;
+  const update = evaluateFunction(uiSource, 'updateWorldPreferenceFromUi', {
+    window: { updateWorldPreference() { canonicalUpdates += 1; return { ok: true }; } },
+    getExclusiveGameplaySessionForUi: () => session,
+    getExclusiveGameplayUiReason: () => reason,
+    guardExclusiveUiMutation: () => { guarded += 1; return true; },
+    syncWorldPreferenceControls: () => { restored += 1; return {}; },
+    renderExclusiveSessionControls: () => { rendered += 1; },
+    announceUiStatus: (message) => { announcement = message; },
+    isRuntimeReadOnly: () => false
+  });
+  assert(update('audio', 'atmosphere', { userGesture: true }) === false, 'exclusive preference update must report a blocked mutation');
+  assert(guarded === 1 && canonicalUpdates === 0, 'exclusive guard must run before the canonical preference helper');
+  assert(rendered === 1 && announcement === reason, 'exclusive preference update must restore blocked semantics and announce its reason');
 });
 
 test('debug mutations stop before save-backed handlers during an exclusive session', () => {
@@ -810,6 +864,320 @@ test('calendar discovery sync is read-only during a pending exclusive session', 
   assert(JSON.stringify(runtime.state) === before, 'pending session must leave the state byte-for-byte unchanged');
   assert(calendarReads === 0 && discoveryWrites === 0, 'calendar core helpers must not run during a pending session');
   assert(persistenceWrites === 0, 'pending session must not schedule persistence from render-time calendar sync');
+});
+
+test('active minigames expose a reversible focus-layout state hook', () => {
+  const app = { dataset: {} };
+  const html = { dataset: {} };
+  const stagePanel = { dataset: {} };
+  const standardSurface = { dataset: { launchPhase: 'running' } };
+  const legendarySurface = { dataset: { launchPhase: 'countdown' } };
+  const runtime = {
+    state: { minigames: { active: { id: 'dewCatch' } } },
+    minigameLaunch: null
+  };
+  const sync = evaluateFunction(uiSource, 'syncActiveGameplayLayoutState', {
+    runtime,
+    dom: { app, stagePanel, minigamePlayfield: standardSurface, legendaryGamePlayfield: legendarySurface },
+    document: { documentElement: html },
+    isForeignExclusiveSessionActive: () => false,
+    isLegendaryMinigameRuntimeId: (id) => id === 'memoryGarden',
+    Boolean
+  });
+
+  sync();
+  assert(app.dataset.gameplayFocus === 'standard' && app.dataset.gameplayPhase === 'running', 'standard round should mark the app and its phase');
+  assert(html.dataset.gameplayFocus === 'standard' && stagePanel.dataset.sceneCalm === 'true', 'document and stage should expose the same calm-layout state');
+
+  runtime.state.minigames.active = { id: 'memoryGarden' };
+  sync();
+  assert(app.dataset.gameplayFocus === 'legendary' && app.dataset.gameplayPhase === 'countdown', 'legendary round should switch the focus kind and surface phase');
+
+  runtime.state.minigames.active = null;
+  sync();
+  assert(!app.dataset.gameplayFocus && !html.dataset.gameplayFocus && !stagePanel.dataset.sceneCalm, 'normal care view must remove every focus-layout hook');
+});
+
+test('keyboard E opens exploration only outside inputs, dialogs, and exclusive play', () => {
+  let keydown = null;
+  let opened = 0;
+  let modal = false;
+  let exclusive = null;
+  const shouldIgnoreShortcut = evaluateFunction(bootSource, 'shouldIgnoreShortcut', {});
+  const bind = evaluateFunction(bootSource, 'bindKeyboardShortcuts', {
+    document: {
+      addEventListener(type, handler) {
+        if (type === 'keydown') keydown = handler;
+      }
+    },
+    actions: [],
+    shouldIgnoreShortcut,
+    isUiInputModalActive: () => modal,
+    getExclusiveGameplaySession: () => exclusive,
+    toggleWorldExplorationPanel: () => { opened += 1; },
+    handleAction: () => {},
+    flashActionButton: () => {}
+  });
+  bind();
+  const target = { tagName: 'DIV', isContentEditable: false };
+  const event = (overrides = {}) => Object.assign({
+    key: 'e',
+    target,
+    defaultPrevented: false,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    isComposing: false,
+    repeat: false,
+    preventDefault() { this.defaultPrevented = true; }
+  }, overrides);
+
+  const openEvent = event();
+  keydown(openEvent);
+  assert(opened === 1 && openEvent.defaultPrevented, 'plain E should open exploration and consume the shortcut');
+
+  keydown(event({ target: { tagName: 'INPUT', isContentEditable: false } }));
+  modal = true;
+  keydown(event());
+  modal = false;
+  exclusive = { kind: 'minigame', id: 'dewCatch' };
+  keydown(event());
+  assert(opened === 1, 'E must be ignored in inputs, dialogs, and active gameplay sessions');
+});
+
+test('exploration actions reuse grass, celestial, guest, and cooldown seams', () => {
+  const runtime = {
+    input: {},
+    worldInteractions: { effects: [], cooldowns: {} }
+  };
+  const cooldownKeys = [];
+  let celestialCount = 0;
+  let guestCount = 0;
+  const perform = evaluateFunction(interactionSource, 'performWorldExplorationAction', {
+    runtime,
+    getInteractionNow: () => 1000,
+    getWorldExplorationActions: () => [
+      { id: 'grass', available: true },
+      { id: 'sky', available: true },
+      { id: 'guest', available: true }
+    ],
+    canUseWorldInteractionCooldown(key) { cooldownKeys.push(key); return true; },
+    playWorldInteractionSensoryCue: () => {},
+    createDefaultInputState: () => ({}),
+    triggerGrassBrushInteraction() {
+      runtime.worldInteractions.effects.push({ type: 'grassFind', label: 'Srebrny pyłek' });
+    },
+    getWorldExplorationCelestialTarget: () => ({ id: 'celestial:sun', kind: 'sun', x: 50, y: 60 }),
+    handleCelestialPointerDown: () => { celestialCount += 1; },
+    getWorldExplorationGuestTarget: () => ({ id: 'visitor:bee', kind: 'visitor', x: 20, y: 30 }),
+    isWorldInteractionCooldownActive: () => false,
+    triggerAmbientPointerEffect: () => { guestCount += 1; },
+    Math,
+    Number,
+    Array
+  });
+
+  const grass = perform('grass', 1000);
+  const sky = perform('sky', 1000);
+  const guest = perform('guest', 1000);
+  assert(grass.ok && grass.message.includes('Srebrny pyłek'), 'grass exploration should report an existing discovery effect');
+  assert(runtime.input.grassBrushDistance >= 132 && cooldownKeys.includes('explore:grass'), 'grass exploration should use the shared brush threshold and cooldown store');
+  assert(sky.ok && celestialCount === 1 && cooldownKeys.includes('explore:sky'), 'sky exploration should route through the existing celestial reaction');
+  assert(guest.ok && guestCount === 1, 'guest exploration should route through the existing ambient pointer effect');
+});
+
+test('world pointer interactions emit optional cues only after their cooldown seam', () => {
+  const cues = [];
+  const effects = [];
+  const common = {
+    runtime: { input: { x: 80, y: 90 }, worldInteractions: { cooldowns: {} }, celestialMood: null },
+    canUseWorldInteractionCooldown: () => true,
+    playWorldInteractionSensoryCue: (cue) => cues.push(cue),
+    addWorldInteractionEffect: (effect) => effects.push(effect),
+    createDefaultCelestialMoodState: () => ({}),
+    createDefaultCelestialMoodTarget: () => ({ count: 0, lastAt: 0 }),
+    Math,
+    Number
+  };
+  const grass = evaluateFunction(interactionSource, 'triggerGrassTapRustle', common);
+  const ambient = evaluateFunction(interactionSource, 'triggerAmbientPointerEffect', common);
+  const celestial = evaluateFunction(interactionSource, 'handleCelestialPointerDown', common);
+
+  grass({ x: 120, y: 420 }, 1000);
+  ambient({ id: 'butterfly:1', kind: 'butterfly', x: 140, y: 170 }, { x: 140, y: 170 }, 1200);
+  celestial('sun', 1400);
+  assert(cues.join(',') === 'focus,focus,weather', `expected semantic world cues, got ${cues.join(',')}`);
+  assert(effects.length === 3, 'audio integration must not replace any visual interaction effect');
+
+  const blockedGrass = evaluateFunction(interactionSource, 'triggerGrassTapRustle', Object.assign({}, common, {
+    canUseWorldInteractionCooldown: () => false
+  }));
+  blockedGrass({ x: 120, y: 420 }, 1500);
+  assert(cues.length === 3, 'cooldown-rejected interaction must not emit another cue');
+});
+
+test('exclusive gameplay blocks canvas world gestures before effects, audio, or persistence', () => {
+  const runtime = {
+    state: {
+      minigames: { active: { id: 'sporePop' } },
+      battle: { activeBattle: null },
+      discoveries: { environment: {} }
+    },
+    input: {},
+    worldInteractions: { effects: [], cooldowns: {} },
+    pendingExclusiveStart: null
+  };
+  const isExclusive = evaluateFunction(interactionSource, 'isWorldInteractionExclusiveSessionActive', { runtime });
+  assert(isExclusive(), 'active minigame must block world input');
+  runtime.state.minigames.active = null;
+  runtime.pendingExclusiveStart = { kind: 'battle', id: 'pending-battle' };
+  assert(isExclusive(), 'pending battle must block world input');
+  runtime.pendingExclusiveStart = null;
+  runtime.state.battle.activeBattle = { id: 'battle-1', mode: 'playing' };
+  assert(isExclusive(), 'active battle must block world input');
+  const immersionBlocked = evaluateFunction(interactionSource, 'isRuntimeImmersionBlocked', {
+    runtime,
+    isWorldInteractionExclusiveSessionActive: isExclusive
+  });
+  assert(immersionBlocked(2000), 'exclusive gameplay must also suppress autonomous immersion reactions');
+
+  let downCalls = 0;
+  let dragCalls = 0;
+  let hoverCalls = 0;
+  const stateBefore = JSON.stringify(runtime.state);
+  const update = evaluateFunction(interactionSource, 'updatePointerState', {
+    runtime,
+    getCanvasPointerPoint: () => ({ x: 180, y: 430 }),
+    getInteractionNow: () => 2000,
+    isWorldInteractionExclusiveSessionActive: isExclusive,
+    handlePointerDownGesture: () => { downCalls += 1; },
+    updatePointerDragGesture: () => { dragCalls += 1; },
+    updatePointerHoverBrushGesture: () => { hoverCalls += 1; },
+    Math,
+    Number
+  });
+  update({ pointerType: 'mouse', pointerId: 7 }, true, true);
+  update({ pointerType: 'mouse', pointerId: 7 }, true, false);
+  assert(downCalls + dragCalls + hoverCalls === 0, 'exclusive canvas events must stop before all world gesture handlers');
+  assert(JSON.stringify(runtime.state) === stateBefore && runtime.worldInteractions.effects.length === 0,
+    'exclusive canvas events must leave save state and world effects byte-equivalent');
+
+  let persistCalls = 0;
+  const discover = evaluateFunction(interactionSource, 'maybeRecordGrassInteractionDiscovery', {
+    runtime,
+    isRuntimeMutationBlocked: () => false,
+    isWorldInteractionExclusiveSessionActive: isExclusive,
+    persistRuntimeState: () => { persistCalls += 1; }
+  });
+  assert(discover({ x: 180, y: 430 }, 2000) === null && persistCalls === 0,
+    'grass discovery defense must stop before core mutation and persistence');
+});
+
+test('world effects invalidate their start and one-shot cleanup frames', () => {
+  const runtime = { worldInteractions: { effects: [], cooldowns: {}, effectCleanupTimer: null, effectCleanupAt: 0 } };
+  let startRenders = 0;
+  let cleanupSchedules = 0;
+  const add = evaluateFunction(interactionSource, 'addWorldInteractionEffect', {
+    runtime,
+    isWorldInteractionExclusiveSessionActive: () => false,
+    getInteractionNow: () => 1000,
+    requestWorldInteractionRender: () => { startRenders += 1; },
+    scheduleWorldInteractionEffectCleanup: () => { cleanupSchedules += 1; },
+    Object
+  });
+  add({ type: 'grassRustle', startedAt: 1000, duration: 100, visible: true });
+  assert(startRenders === 1 && cleanupSchedules === 1 && runtime.worldInteractions.effects.length === 1,
+    'adding a world effect must request its visible frame and one cleanup schedule');
+
+  let now = 1000;
+  let cleanupCallback = null;
+  let cleanupRenders = 0;
+  const schedule = evaluateFunction(interactionSource, 'scheduleWorldInteractionEffectCleanup', {
+    runtime,
+    getInteractionNow: () => now,
+    requestWorldInteractionRender: () => { cleanupRenders += 1; },
+    scheduleWorldInteractionEffectCleanup: () => {},
+    window: {
+      setTimeout(callback) { cleanupCallback = callback; return 17; },
+      clearTimeout() {}
+    },
+    Math,
+    Number
+  });
+  schedule();
+  assert(typeof cleanupCallback === 'function', 'effect expiry must arm one cleanup callback');
+  now = 1116;
+  cleanupCallback();
+  assert(runtime.worldInteractions.effects.length === 0 && cleanupRenders === 1,
+    'expiry callback must remove the frozen effect and invalidate its cleanup frame');
+
+  runtime.immersion = { active: { id: 'rain', until: 1300 } };
+  now = 1200;
+  cleanupCallback = null;
+  schedule();
+  assert(typeof cleanupCallback === 'function', 'still-mode immersion must arm its end-frame invalidation');
+  now = 1316;
+  cleanupCallback();
+  assert(runtime.immersion.active === null && cleanupRenders === 2,
+    'expired immersion must clear itself and request exactly one cleanup frame');
+  assert(interactionSource.includes("getEffectiveRuntimeMotionMode() === 'still'") && interactionSource.includes('Math.max(0.22, progress)'),
+    'still mode must render a readable static effect frame instead of a near-transparent fade-in');
+});
+
+test('world setting controls call the canonical preference helper', () => {
+  let update = null;
+  let announcement = '';
+  const values = { motion: 'gentle', flash: true, battery: false, audio: 'cues', volume: 40 };
+  const updateFromUi = evaluateFunction(uiSource, 'updateWorldPreferenceFromUi', {
+    window: {
+      updateWorldPreference(key, value, options) {
+        update = { key, value, options };
+        return { ok: true };
+      }
+    },
+    document: { dispatchEvent() {} },
+    getExclusiveGameplaySessionForUi: () => null,
+    isRuntimeReadOnly: () => false,
+    syncWorldPreferenceControls: () => values,
+    announceUiStatus: (message) => { announcement = message; },
+    String
+  });
+  assert(updateFromUi('motion', 'gentle', { userGesture: true, announce: true }), 'canonical preference update should succeed');
+  assert(update && update.key === 'motion' && update.value === 'gentle' && update.options.userGesture, 'UI must pass the public motion key and user-gesture flag');
+  assert(announcement.includes('Ruch świata') && announcement.includes('ograniczony'), 'the change should be confirmed through the Polish live status');
+});
+
+test('GUI accessibility hooks and desktop focus dimensions remain explicit', () => {
+  const canvasIndex = indexSource.indexOf('<div class="canvas-wrap">');
+  const messageIndex = indexSource.indexOf('<div class="message-panel"');
+  const rhythmIndex = indexSource.indexOf('data-daily-rhythm');
+  const planIndex = indexSource.indexOf('data-day-plan');
+  const explorationIndex = indexSource.indexOf('<div class="world-explore"');
+  assert(
+    canvasIndex < messageIndex
+      && messageIndex < rhythmIndex
+      && rhythmIndex < planIndex
+      && planIndex < explorationIndex,
+    'care attention order must stay canvas, urgent message, daily context, then exploration'
+  );
+  ['grass', 'sky', 'guest'].forEach((id) => {
+    assert(indexSource.includes(`data-world-explore-action="${id}"`), `missing accessible exploration action ${id}`);
+  });
+  ['motion', 'flash', 'battery', 'audio', 'volume'].forEach((key) => {
+    assert(indexSource.includes(`="${key}"`), `missing world preference hook ${key}`);
+  });
+  assert(indexSource.includes('data-world-explore-status></p>')
+    && !indexSource.includes('data-world-explore-status role="status"'),
+  'local exploration copy must remain visual while the single global live region announces it');
+  assert(uiSource.includes('announceUiStatus(message, false)'), 'exploration feedback must reach the global polite live region once');
+  assert(/\.world-explore__toggle\s*\{[^}]*min-height:\s*44px/s.test(stylesSource),
+    'short landscape layouts must retain the 44 px touch target');
+  assert((compostSource.match(/drawCompostZoneSymbols\(/g) || []).length === 2
+    && (compostSource.match(/drawCompostZoneLabels\(/g) || []).length === 2,
+  'compost labels and symbols must be drawn once, not overdrawn by both background and drop-zone passes');
+  assert(stylesSource.includes('minmax(440px, 520px)'), 'active desktop gameplay panel must stay within the accepted 440-520 px range');
+  assert(stylesSource.includes('width: min(100%, 420px)') && stylesSource.includes('width: min(100%, 460px)'), 'standard and legendary canvases need enlarged desktop widths');
+  assert(stylesSource.includes('.stage-panel[data-scene-calm="true"]'), 'active gameplay must visibly calm the unrelated care scene');
 });
 
 test('browser QA covers responsive journal, real touch cancellation, and world interactions', () => {

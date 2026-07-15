@@ -1,6 +1,6 @@
 # Sprite Bible Pieczargotchi
 
-Data: 2026-07-12
+Data: 2026-07-15
 
 Ten dokument opisuje praktyczne zasady przygotowywania i utrzymywania sprite'ów dla aktualnej paczki zasobów Pieczargotchi. Punktem odniesienia są:
 
@@ -376,13 +376,13 @@ node scripts/test-animation-render-contracts.mjs
 node scripts/test-battle-visual-contracts.mjs
 node scripts/test-grass-wind-motion.mjs
 node scripts/validate-assets.mjs
-python3 scripts/audit-sprite-frame-quality.py
+python3 scripts/audit-sprite-frame-quality.py --regression-gate
 python3 scripts/audit-sprite-chroma.py --strict
 python3 scripts/audit-activity-sprite-motion.py
 python3 scripts/audit-glint-sprites.py
 ```
 
-`audit-sprite-frame-quality.py` może raportować advisory findings, ale błędy generatora, layoutu, manifestu, chroma, alpha albo body-only są blockerami. Przed wydaniem dochodzi pełne `npm run qa` oraz browser capture sceny opieki, pogody, aktywności i areny; sam test Node nie potwierdza kompozycji wizualnej.
+`audit-sprite-frame-quality.py` nadal pokazuje historyczne advisory findings, ale `--regression-gate` chroni bieżący baseline: 202 duplikowane sloty i 69 findings nie mogą wzrosnąć, a każdy PNG zmieniony w working tree albo bieżącym commicie musi sam przejść reguły strict. Dzięki temu stary dług jest jawny, lecz nowa grafika nie może go powiększać. Błędy generatora, layoutu, manifestu, chroma, alpha albo body-only pozostają blockerami. Przed wydaniem dochodzi pełne `npm run qa` oraz browser capture sceny opieki, pogody, aktywności i areny; sam test Node nie potwierdza kompozycji wizualnej.
 
 ## 12. Co robić przy nowych arkuszach animacji
 

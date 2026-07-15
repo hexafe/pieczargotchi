@@ -872,6 +872,104 @@ test('active and pending exclusive sessions block every non-session mutation wit
   assert(JSON.stringify(runtimeMessageState) === runtimeMessageBefore, 'runtime-only guard message must not touch save state');
 });
 
+test('runtime timers preserve local exclusive sessions while retaining battle lease maintenance', () => {
+  const runtimeSource = readFileSync(path.join(rootDir, 'ClientRuntime.html'), 'utf8');
+  const scenarios = [
+    { label: 'active battle', session: { kind: 'battle', phase: 'active', id: 'battle-active' }, expectsLease: true },
+    { label: 'pending battle', session: { kind: 'battle', phase: 'pending', id: 'battle-pending' }, expectsLease: false },
+    { label: 'active minigame', session: { kind: 'minigame', phase: 'active', id: 'dewCatch' }, expectsLease: false },
+    { label: 'pending minigame', session: { kind: 'minigame', phase: 'pending', id: 'sporePop' }, expectsLease: false }
+  ];
+
+  scenarios.forEach((scenario) => {
+    const callbacks = new Map();
+    const state = makeProgressionState();
+    const runtime = { state };
+    const before = JSON.stringify(state);
+    let applyCalls = 0;
+    let cleanupCalls = 0;
+    let persistCalls = 0;
+    let leaseCalls = 0;
+    const context = {
+      runtime,
+      rules: { tickMs: 60000, cooldownTickMs: 1000 },
+      document: { hidden: false },
+      window: {
+        setInterval(callback, delay) { callbacks.set(delay, callback); }
+      },
+      hasRuntimeExclusiveGameplaySession: () => true,
+      getRuntimeNow: () => 5000,
+      getExclusiveOwnershipNow: () => 5000,
+      isRuntimeMutationBlocked: () => false,
+      applyElapsedTime(value) { applyCalls += 1; value.stats.health -= 1; return value; },
+      cleanupActivity() { cleanupCalls += 1; runtime.state.currentActivity = null; },
+      persistRuntimeState() { persistCalls += 1; },
+      refreshOwnedBattleSessionLease() { if (scenario.expectsLease) leaseCalls += 1; },
+      updateAttentionState: (value) => value,
+      renderUi() {},
+      renderActionStates() {},
+      renderMessage() {},
+      requestRuntimeRender() {}
+    };
+    const startTimers = evaluateFunction(runtimeSource, 'startTimers', context);
+    startTimers();
+    assert(callbacks.has(60000) && callbacks.has(1000), `${scenario.label} must register both runtime timers`);
+    callbacks.get(60000)();
+    callbacks.get(1000)();
+
+    assert(applyCalls === 0 && cleanupCalls === 0 && persistCalls === 0,
+      `${scenario.label} timers must perform zero non-session mutation or persistence`);
+    assert(JSON.stringify(state) === before, `${scenario.label} timers must keep state byte-equivalent`);
+    assert(leaseCalls === (scenario.expectsLease ? 1 : 0),
+      `${scenario.label} should ${scenario.expectsLease ? '' : 'not '}retain active battle lease maintenance`);
+  });
+});
+
+test('visibility resume never advances or persists a local exclusive session', () => {
+  const runtimeSource = readFileSync(path.join(rootDir, 'ClientRuntime.html'), 'utf8');
+  const state = makeProgressionState();
+  const runtime = { state, renderHiddenAt: 4000, lastRenderedFrameAt: 3000 };
+  const before = JSON.stringify(state);
+  let exclusive = true;
+  let applyCalls = 0;
+  let reconcileCalls = 0;
+  let persistCalls = 0;
+  let renderCalls = 0;
+  let requestCalls = 0;
+  let cancelCalls = 0;
+  let suspendCalls = 0;
+  const document = { hidden: false };
+  const handler = evaluateFunction(runtimeSource, 'handleRuntimeRenderVisibilityChange', {
+    runtime,
+    document,
+    getRuntimeNow: () => 5000,
+    suspendRuntimeSceneQualitySampling: () => { suspendCalls += 1; },
+    isRuntimeMutationBlocked: () => false,
+    hasRuntimeExclusiveGameplaySession: () => exclusive,
+    applyElapsedTime(value) { applyCalls += 1; value.stats.health -= 1; return value; },
+    reconcileExclusiveRuntimeSession: () => { reconcileCalls += 1; },
+    persistRuntimeState: () => { persistCalls += 1; },
+    renderUi: () => { renderCalls += 1; },
+    requestRuntimeRender: () => { requestCalls += 1; }
+  });
+
+  handler(() => { cancelCalls += 1; });
+  assert(applyCalls + reconcileCalls + persistCalls + renderCalls === 0 && requestCalls === 1,
+    'exclusive resume must request only a visual frame and perform zero save-backed work');
+  assert(JSON.stringify(state) === before, 'exclusive resume must keep state byte-equivalent');
+
+  document.hidden = true;
+  handler(() => { cancelCalls += 1; });
+  assert(cancelCalls === 1 && suspendCalls === 1 && runtime.renderHiddenAt === 5000,
+    'hiding must cancel the render schedule and suspend quality sampling');
+
+  document.hidden = false;
+  exclusive = false;
+  handler(() => { cancelCalls += 1; });
+  assert(applyCalls === 1 && reconcileCalls === 1 && persistCalls === 1 && renderCalls === 1 && requestCalls === 2,
+    'normal resume must retain elapsed-time reconciliation and one persisted UI refresh');
+});
+
 test('modal and exclusive-session guards prevent global care shortcuts', () => {
   const bootSource = readFileSync(path.join(rootDir, 'ClientBoot.html'), 'utf8');
   const guardSource = readFileSync(path.join(rootDir, 'ClientInputGuards.html'), 'utf8');

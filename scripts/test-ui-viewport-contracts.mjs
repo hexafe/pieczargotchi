@@ -30,6 +30,8 @@ const viewports = [
 ];
 const activeMinigameViewports = [
   { width: 1194, height: 891, label: 'active-desktop-reference' },
+  { width: 1024, height: 600, label: 'active-desktop-short' },
+  { width: 900, height: 600, label: 'active-desktop-short-narrow' },
   { width: 844, height: 390, label: 'active-landscape-wide', mobile: true },
   { width: 740, height: 360, label: 'active-landscape-short', mobile: true },
   { width: 320, height: 568, label: 'active-mobile-small', mobile: true },

@@ -1196,8 +1196,15 @@
 
   function bindDom() {
     dom.app = document.querySelector('[data-app]');
+    dom.gameGrid = document.querySelector('.game-grid');
     dom.stagePanel = document.querySelector('.stage-panel');
     dom.canvasWrap = document.querySelector('.canvas-wrap');
+    dom.worldExplore = document.querySelector('[data-world-explore]');
+    dom.worldExploreToggle = document.querySelector('[data-world-explore-toggle]');
+    dom.worldExploreActions = document.querySelector('[data-world-explore-actions]');
+    dom.worldExploreStatus = document.querySelector('[data-world-explore-status]');
+    dom.worldExploreActionButtons = Array.from(document.querySelectorAll('[data-world-explore-action]'));
+    dom.worldPreferenceControls = Array.from(document.querySelectorAll('[data-world-preference], [data-world-preference-toggle]'));
     dom.sidePanel = document.querySelector('.side-panel');
     dom.actionsPanel = document.querySelector('.panel-block--actions');
     dom.buildBadge = document.querySelector('[data-build-badge]');
@@ -1552,7 +1559,8 @@
     const allowed = target.matches(
       '[data-view-care], [data-view-arena], [data-discovery-id], [data-journal-polaroid-close], [data-export-button], '
       + '[data-settings-open], [data-settings-close], [data-import-cancel], [data-reset-cancel], '
-      + '[data-rename-cancel], [data-minigame-return], [data-runtime-retry]'
+      + '[data-rename-cancel], [data-minigame-return], [data-runtime-retry], '
+      + '[data-world-explore-toggle], [data-world-explore-action]'
     );
     if (!allowed) {
       event.preventDefault();
@@ -1878,6 +1886,11 @@
       }
 
       const key = event.key.toUpperCase();
+      if (key === 'E' && typeof toggleWorldExplorationPanel === 'function') {
+        event.preventDefault();
+        toggleWorldExplorationPanel(undefined, 'keyboard');
+        return;
+      }
       const action = actions.find(function(candidate) {
         return candidate.shortcut === key;
       });
