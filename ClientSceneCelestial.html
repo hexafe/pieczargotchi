@@ -1,92 +1,116 @@
   const auroraCurtainColors = Object.freeze(['#78f2b3', '#9fffc7', '#7cc8ff', '#caa6ff']);
 
-  function drawCelestial(ctx, scene, palette, now) {
-    const date = getRuntimeDate();
+  function drawCelestial(ctx, scene, palette, now, frameScene) {
+    const frame = frameScene && frameScene.celestial
+      ? frameScene.celestial
+      : getCelestialFrameProfile(scene, palette, now);
+    ctx.save();
+    if (frame.sun) {
+      ctx.globalAlpha = frame.sun.drawAlpha;
+      if (frame.sun.drawAlpha > 0.015) {
+        drawPixelSun(ctx, frame.sun, palette, now);
+        drawCelestialMoodFace(ctx, frame.sun, 'sun', frame.sun.drawAlpha, now, palette);
+      }
+    }
+
+    if (frame.moon) {
+      ctx.globalAlpha = frame.moon.drawAlpha;
+      if (frame.moon.drawAlpha > 0.015) {
+        drawPixelMoon(ctx, frame.moon);
+        drawCelestialMoodFace(ctx, frame.moon, 'moon', frame.moon.drawAlpha, now, palette);
+      }
+    }
+
+    if (runtime) {
+      runtime.celestialEmissiveFrame = frame;
+    }
+    recordCelestialDiagnostics(
+      frame.skyScene,
+      frame.date,
+      getCelestialBodyFrameDiagnostics(frame.sun),
+      getCelestialBodyFrameDiagnostics(frame.moon),
+      frame.skyEffects
+    );
+    syncSkyDiscoveries(frame.skyEffects, getRuntimeNow());
+    ctx.restore();
+  }
+
+  function getCelestialFrameProfile(scene, palette, now, dateInput) {
+    const frameNow = Number(now) || 0;
+    const inputTime = dateInput && typeof dateInput.getTime === 'function'
+      ? Number(dateInput.getTime())
+      : NaN;
+    const date = Number.isFinite(inputTime)
+      ? new Date(inputTime)
+      : getRuntimeDate();
+    const sourceScene = scene || {};
     const lighting = palette && palette.lighting
       ? palette.lighting
-      : (typeof getSceneLightingProfile === 'function' ? getSceneLightingProfile(scene || {}, date) : null);
+      : (typeof getSceneLightingProfile === 'function' ? getSceneLightingProfile(sourceScene, date) : null);
     const visualNightFactor = lighting ? clamp(Number(lighting.nightFactor), 0, 1, 0) : 0;
-    const observer = getSceneObserver(scene || {});
-    const skyScene = Object.assign({}, scene || {}, {
+    const observer = getSceneObserver(sourceScene);
+    const skyScene = Object.assign({}, sourceScene, {
       latitude: observer.latitude,
       longitude: observer.longitude,
       skyEffectOverride: getDebugSkyEffectOverride()
     });
-    const skyEffects = getAmbientSkyEffects(skyScene, date, getRuntimeNow());
-    ctx.save();
-    const sun = getSunPosition(skyScene, date);
-    let sunDiagnostics = null;
-    if (sun) {
-      const sunVisibility = getCelestialCloudVisibility(scene, now, 'sun');
-      const weatherAlpha = scene.condition === 'rain' || scene.condition === 'storm' ? 0.22 : 0.72;
-      const twilightAlpha = scene.isDay ? 1 : 0.48;
-      const drawAlpha = weatherAlpha * twilightAlpha * sun.alpha * sunVisibility;
-      ctx.globalAlpha = drawAlpha;
-      if (drawAlpha > 0.015) {
-        drawPixelSun(ctx, sun, palette, now);
-        drawCelestialMoodFace(ctx, sun, 'sun', drawAlpha, now, palette);
-      }
-      sunDiagnostics = {
-        x: sun.x,
-        y: sun.y,
-        centerX: Number((sun.x + sun.size / 2).toFixed(2)),
-        centerY: Number((sun.y + sun.size / 2).toFixed(2)),
-        size: sun.size,
-        hitRadius: Number(getCelestialHitRadius(sun).toFixed(2)),
-        altitude: Number(sun.altitude.toFixed(2)),
-        azimuth: Number(sun.azimuth.toFixed(2)),
-        alpha: Number((sun.alpha * sunVisibility).toFixed(3)),
-        cloudVisibility: Number(sunVisibility.toFixed(3)),
-        weatherAlpha: Number(weatherAlpha.toFixed(3)),
-        phaseAlpha: Number(twilightAlpha.toFixed(3)),
-        drawAlpha: Number(drawAlpha.toFixed(3)),
-        visibleForHit: drawAlpha >= 0.08
-      };
-    }
+    const rawSun = getSunPosition(skyScene, date);
+    const rawMoon = getMoonPosition(skyScene, date);
+    const sunVisibility = rawSun ? getCelestialCloudVisibility(sourceScene, frameNow, 'sun') : 0;
+    const moonVisibility = rawMoon ? getCelestialCloudVisibility(sourceScene, frameNow, 'moon') : 0;
+    const sunWeatherAlpha = sourceScene.condition === 'rain' || sourceScene.condition === 'storm' ? 0.22 : 0.72;
+    const moonWeatherAlpha = sourceScene.condition === 'rain' || sourceScene.condition === 'storm' ? 0.34 : 0.78;
 
-    const moon = getMoonPosition(skyScene, date);
-    let moonDiagnostics = null;
-    if (moon) {
-      const moonVisibility = getCelestialCloudVisibility(scene, now, 'moon');
-      const weatherAlpha = scene.condition === 'rain' || scene.condition === 'storm' ? 0.34 : 0.78;
-      const daylightAlpha = scene.isDay ? 0.34 : 1;
-      const drawAlpha = weatherAlpha * daylightAlpha * moon.alpha * moonVisibility;
-      ctx.globalAlpha = drawAlpha;
-      if (drawAlpha > 0.015) {
-        drawPixelMoon(ctx, moon);
-        drawCelestialMoodFace(ctx, moon, 'moon', drawAlpha, now, palette);
-      }
-      moonDiagnostics = {
-        x: moon.x,
-        y: moon.y,
-        centerX: Number((moon.x + moon.size / 2).toFixed(2)),
-        centerY: Number((moon.y + moon.size / 2).toFixed(2)),
-        size: moon.size,
-        hitRadius: Number(getCelestialHitRadius(moon).toFixed(2)),
-        altitude: Number(moon.altitude.toFixed(2)),
-        azimuth: Number(moon.azimuth.toFixed(2)),
-        alpha: Number((moon.alpha * moonVisibility).toFixed(3)),
-        cloudVisibility: Number(moonVisibility.toFixed(3)),
-        weatherAlpha: Number(weatherAlpha.toFixed(3)),
-        phaseAlpha: Number(daylightAlpha.toFixed(3)),
-        drawAlpha: Number(drawAlpha.toFixed(3)),
-        visibleForHit: drawAlpha >= 0.08
-      };
-    }
+    return {
+      frameNow: frameNow,
+      scene: sourceScene,
+      skyScene: skyScene,
+      date: date,
+      skyEffects: getAmbientSkyEffects(skyScene, date, getRuntimeNow()),
+      visualNightFactor: visualNightFactor,
+      cloudOcclusion: getSkyCloudOcclusion(sourceScene),
+      sun: rawSun
+        ? buildCelestialBodyFrame(rawSun, sunVisibility, sunWeatherAlpha, sourceScene.isDay ? 1 : 0.48)
+        : null,
+      moon: rawMoon
+        ? buildCelestialBodyFrame(rawMoon, moonVisibility, moonWeatherAlpha, sourceScene.isDay ? 0.34 : 1)
+        : null
+    };
+  }
 
-    if (runtime) {
-      runtime.celestialEmissiveFrame = {
-        frameNow: Number(now) || 0,
-        scene: scene,
-        skyScene: skyScene,
-        date: date,
-        skyEffects: skyEffects,
-        visualNightFactor: visualNightFactor
-      };
+  function buildCelestialBodyFrame(body, cloudVisibility, weatherAlpha, phaseAlpha) {
+    const drawAlpha = weatherAlpha * phaseAlpha * body.alpha * cloudVisibility;
+    return Object.assign({}, body, {
+      centerX: body.x + body.size / 2,
+      centerY: body.y + body.size / 2,
+      cloudVisibility: cloudVisibility,
+      weatherAlpha: weatherAlpha,
+      phaseAlpha: phaseAlpha,
+      drawAlpha: drawAlpha,
+      visibleForHit: drawAlpha >= 0.08
+    });
+  }
+
+  function getCelestialBodyFrameDiagnostics(body) {
+    if (!body) {
+      return null;
     }
-    recordCelestialDiagnostics(skyScene, date, sunDiagnostics, moonDiagnostics, skyEffects);
-    syncSkyDiscoveries(skyEffects, getRuntimeNow());
-    ctx.restore();
+    return {
+      x: body.x,
+      y: body.y,
+      centerX: Number(body.centerX.toFixed(2)),
+      centerY: Number(body.centerY.toFixed(2)),
+      size: body.size,
+      hitRadius: Number(getCelestialHitRadius(body).toFixed(2)),
+      altitude: Number(body.altitude.toFixed(2)),
+      azimuth: Number(body.azimuth.toFixed(2)),
+      alpha: Number((body.alpha * body.cloudVisibility).toFixed(3)),
+      cloudVisibility: Number(body.cloudVisibility.toFixed(3)),
+      weatherAlpha: Number(body.weatherAlpha.toFixed(3)),
+      phaseAlpha: Number(body.phaseAlpha.toFixed(3)),
+      drawAlpha: Number(body.drawAlpha.toFixed(3)),
+      visibleForHit: body.visibleForHit
+    };
   }
 
   function drawCelestialEmissiveLayer(ctx, scene, palette, now) {
@@ -119,29 +143,15 @@
 
   function getCelestialEmissiveFrame(scene, palette, now) {
     const frameNow = Number(now) || 0;
+    const snapshot = runtime && runtime.sceneFrameSnapshot;
+    if (snapshot && snapshot.frameNow === frameNow && snapshot.celestial) {
+      return snapshot.celestial;
+    }
     const cached = runtime && runtime.celestialEmissiveFrame;
     if (cached && cached.frameNow === frameNow) {
       return cached;
     }
-
-    const date = getRuntimeDate();
-    const lighting = palette && palette.lighting
-      ? palette.lighting
-      : (typeof getSceneLightingProfile === 'function' ? getSceneLightingProfile(scene || {}, date) : null);
-    const observer = getSceneObserver(scene || {});
-    const skyScene = Object.assign({}, scene || {}, {
-      latitude: observer.latitude,
-      longitude: observer.longitude,
-      skyEffectOverride: getDebugSkyEffectOverride()
-    });
-    return {
-      frameNow: frameNow,
-      scene: scene || {},
-      skyScene: skyScene,
-      date: date,
-      skyEffects: getAmbientSkyEffects(skyScene, date, getRuntimeNow()),
-      visualNightFactor: lighting ? clamp(Number(lighting.nightFactor), 0, 1, 0) : 0
-    };
+    return getCelestialFrameProfile(scene, palette, frameNow);
   }
 
   function drawPixelSun(ctx, sun, palette, now) {

@@ -1,5 +1,5 @@
 const PIECZARGOTCHI_APP_TITLE = 'Pieczargotchi';
-const PIECZARGOTCHI_APP_VERSION = '0.1.61';
+const PIECZARGOTCHI_APP_VERSION = '0.1.62';
 const PIECZARGOTCHI_STORAGE_KEY = 'pieczargotchi_state_v2';
 const PIECZARGOTCHI_STATE_VERSION = 22;
 const PIECZARGOTCHI_CANVAS_SIZE = 512;
@@ -16,14 +16,15 @@ const PIECZARGOTCHI_DRIVE_ASSETS_ENABLED = false;
 const PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID = '';
 const PIECZARGOTCHI_ASSET_DRIVE_FOLDER_PROPERTY = 'PIECZARGOTCHI_ASSET_DRIVE_FOLDER_ID';
 // Publiczny, niezmienny katalog PNG konkretnego wydania jest preferowany dla
-// Apps Script, np. https://host/releases/0.1.61/assets/. Host musi zachowywać
+// Apps Script, np. https://host/releases/0.1.62/assets/. Host musi zachowywać
 // poprzednie katalogi. Adres można ustawić bez zmiany repo przez Script Properties.
 const PIECZARGOTCHI_ASSET_BASE_URL = '';
 const PIECZARGOTCHI_ASSET_BASE_URL_PROPERTY_PREFIX = 'PIECZARGOTCHI_ASSET_BASE_URL_';
 
 const PIECZARGOTCHI_ASSET_FILE_IDS = {
   // Lokalny podglad uzywa fallbacku assets/... . Folder Drive moze uzupelnic ID po fileName.
-  'environment.grassPatch': ''
+  'environment.grassPatch': '',
+  'journal.polaroidProps': ''
 };
 
 function getConfiguredAssetDriveFolderId_() {

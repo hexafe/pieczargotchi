@@ -472,6 +472,20 @@ const PIECZARGOTCHI_ENVIRONMENT_ASSETS = [
   }
 ];
 
+const PIECZARGOTCHI_JOURNAL_ASSETS = [
+  {
+    key: 'journal.polaroidProps',
+    kind: 'journalProp',
+    fileName: 'journal/polaroid_props_atlas.png',
+    width: 384,
+    height: 384,
+    frames: 9,
+    frameWidth: 128,
+    frameHeight: 128,
+    required: false
+  }
+];
+
 const PIECZARGOTCHI_BATTLE_ASSETS = [
   {
     key: 'battle.arena.background',
@@ -607,6 +621,10 @@ function getRuntimeAssetManifest_() {
   })).concat(PIECZARGOTCHI_ENVIRONMENT_ASSETS.map(function(asset) {
     return Object.assign({}, asset, {
       width: asset.width || canvasSize,
+      fileId: PIECZARGOTCHI_ASSET_FILE_IDS[asset.key] || ''
+    });
+  })).concat(PIECZARGOTCHI_JOURNAL_ASSETS.map(function(asset) {
+    return Object.assign({}, asset, {
       fileId: PIECZARGOTCHI_ASSET_FILE_IDS[asset.key] || ''
     });
   })).concat(PIECZARGOTCHI_BATTLE_ASSETS.map(function(asset) {

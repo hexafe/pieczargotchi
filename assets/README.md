@@ -21,6 +21,7 @@ Zasoby używane podczas działania aplikacji live in this directory.
 - `easter-eggs/<stage>/` - rzadkie warianty specjalne budowane z osobnych wyrenderowanych wycinków źródłowych, np. neutralna mina `:|` i deszczowa wersja Iwoniastej Pieczarki z fioletową parasolką.
 - `effects/` - małe efekty pomocnicze z atlasu generatora obrazów ładowane przez manifest jako warstwy `effect.*`.
 - `environment/` - zasoby używane podczas działania sceny, np. wygenerowany trawnik `grass_patch.png`.
+- `journal/` - atlas rasterowych rekwizytów używanych wyłącznie w zdjęciach dziennika.
 - `reference/` - źródłowe referencje stylu, nie ładować ich w aplikacji.
 - `source/imagegen/raw/` - surowe atlasy z wbudowanego generatora obrazów, w tym `neutral_atlas.png`, `neutral_rain_atlas.png` i `grass_patch_atlas.png`.
 - `source/imagegen/cutouts/` - wycinki pomocnicze z atlasów.

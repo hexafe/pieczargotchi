@@ -32,6 +32,7 @@ Wymagane atlasy:
 - akcje: `hydrate`, `feed`, `clean`, `play`, `instrument`, `sing`, `spores`, `harvest`
 - easter eggi: `neutral_atlas.png` dla miny `:|`, `neutral_rain_atlas.png` dla Iwoniastej Pieczarki z parasolką
 - środowisko: `grass_patch_atlas.png` dla trawnika wypełniającego dół sceny
+- dziennik: `polaroid_props_atlas.png` z dziewięcioma odseparowanymi rekwizytami odbitek
 - efekty: `effects`
 - reakcje immersyjne: `curious`, `idle_fidget`, `idle_fidget_sway`, `idle_fidget_shift`, `idle_look_left`, `idle_look_right`, `ponder`, `ponder_up`, `ponder_side`, `ponder_breath`, `watch_cursor_left`, `watch_cursor_right`, `watch_cursor_up_left`, `watch_cursor_up_right`, `follow_cursor_fast`, `follow_cursor_after`, `sun`, `rain`, `stargaze`, `snow`, `watch_butterfly`, `watch_firefly`, `watch_crawler`
 
@@ -67,6 +68,33 @@ assets/environment/grass_patch.png
 ```
 
 `ClientSceneGround.html` rysuje ten zasób jako wspólne wypełnienie podłoża pod Pieczarką, z stage-aware centralną polaną i lekkim foreground occluderem. Pojedyncze wyższe źdźbła są rysowane proceduralnie na canvasie, bo muszą reagować na aktualny kierunek, siłę, śnieg i porywy wiatru. Sprite postaci nie może ponownie zawierać baked grass.
+
+Rekwizyty odbitek dziennika mają osobne źródło i deterministyczny runtime atlas:
+
+```text
+assets/source/imagegen/raw/polaroid_props_atlas.png
+assets/journal/polaroid_props_atlas.png
+```
+
+Źródło jest układem `3x3` na płaskim tle chroma-key. Postprocess usuwa tło,
+czyści spill i skaluje całość nearest-neighbor do `384x384`; runtime wybiera
+komórki `128x128`. Atlas nie zawiera Pieczarki ani trawy i służy tylko dużym,
+rozpoznawalnym rekwizytom zdjęć.
+
+Opis źródłowy atlasu rekwizytów:
+
+```text
+Use case: stylized-concept
+Asset type: Pieczargotchi pixel-art game prop sprite atlas source
+Create one clean 3-by-3 atlas with exactly nine isolated props: wooden tea
+table and cream cup, brass-and-wood telescope, irregular soil/mycelium cutaway,
+star-shaped spore instrument, moon ocarina, firefly lyre, comet harp, aurora
+pipe organ, and a blank botanical instant-film stamp ornament. Match the warm,
+chunky low-resolution pixel-art outline and palette of the Pieczargotchi style
+references. Use one perfectly flat #ff00ff chroma-key background with generous
+cell padding. No text, labels, grid, mushroom, grass, scenery, floor, shadow,
+reflection, smooth vector curves, antialiasing, extra objects, or watermark.
+```
 
 ## Opis Bazowy
 
@@ -137,7 +165,7 @@ Stary `scripts/generate-pixel-assets.py` deleguje do tego buildera, jeżeli wykr
 - `assets/source/imagegen/PROVENANCE.json` musi wskazać kolekcję, origin, model lub jawne `unknown`, datę, builder, postprocess i ręczne korekty.
 - Deterministyczne pochodne nie deklarują modelu: wskazują builder i konkretne source paths.
 - Nie edytujemy ręcznie `SpriteLayout.gs`; metadata musi dać się odtworzyć z PNG przez optimizer.
-- Nie podmieniamy istniejącego wydanego katalogu assetów. Aktualna paczka docelowa należy do wersji `0.1.61`.
+- Nie podmieniamy istniejącego wydanego katalogu assetów. Aktualna paczka docelowa należy do wersji `0.1.62`.
 
 ## Walidacja
 

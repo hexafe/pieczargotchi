@@ -1,6 +1,6 @@
 # Apps Script Deployment Dry Run
 
-This checklist verifies the real Google Apps Script execution without committing deployment credentials or private IDs. The current polaroid release candidate is app `0.1.61` with state schema v22; verify the tracked constants again immediately before deployment.
+This checklist verifies the real Google Apps Script execution without committing deployment credentials or private IDs. The current instant-film and dynamic-shadow release candidate is app `0.1.62` with state schema v22; verify the tracked constants again immediately before deployment.
 
 ## Local Preflight
 
@@ -18,11 +18,11 @@ Expected posture before binding:
 - `.clasp.json` is absent or ignored by Git.
 - `.claspignore` reports only root `.gs`, `.html`, and `appsscript.json`; it never reports `dist/`, scripts, docs, or browser `.js` bundles.
 - `Config.gs` does not contain private Drive URLs or deployment credentials.
-- `PIECZARGOTCHI_APP_VERSION` and `package.json` both equal `0.1.61`, while `PIECZARGOTCHI_STATE_VERSION` equals `22`.
+- `PIECZARGOTCHI_APP_VERSION` and `package.json` both equal `0.1.62`, while `PIECZARGOTCHI_STATE_VERSION` equals `22`.
 - `SpriteLayout.gs` is present in the Apps Script file set and is current for every tight runtime atlas; it is generated, not edited by hand.
 - Production execution flags keep `debugEnabled: false` and `exposeRuntime: false`.
 - Production `assetMode` stays `critical` so the deployed app renders quickly instead of embedding the full PNG manifest in the initial Apps Script HTML response.
-- The preferred Script Property for this release is `PIECZARGOTCHI_ASSET_BASE_URL_0_1_61=https://PUBLIC-HOST/releases/0.1.61/assets/`. Both the key and path are release-specific so a later property update cannot retarget this deployment. It must use HTTPS and may be public because it contains no credential. The host must retain old release directories.
+- The preferred Script Property for this release is `PIECZARGOTCHI_ASSET_BASE_URL_0_1_62=https://PUBLIC-HOST/releases/0.1.62/assets/`. Both the key and path are release-specific so a later property update cannot retarget this deployment. It must use HTTPS and may be public because it contains no credential. The host must retain old release directories.
 - Missing public hosting and Drive IDs are acceptable only for the placeholder smoke; the full supported Apps Script smoke must load the critical PNGs from the public base URL.
 
 ## Test Project Bind

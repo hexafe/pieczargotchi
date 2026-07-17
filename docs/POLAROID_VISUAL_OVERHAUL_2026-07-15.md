@@ -1,7 +1,7 @@
 # Journal Polaroid Visual Overhaul
 
 Date: 2026-07-15
-Release target: `0.1.61`
+Release baseline: `0.1.61`; physical-film and dynamic-shadow addendum: `0.1.62`
 State contract: v22, unchanged
 
 ## Outcome
@@ -92,3 +92,28 @@ Week. Asset-failure capture remains part of the journal path.
 This slice changes no save fields and therefore keeps state v22. The visible
 build number moves together in `Config.gs`, `package.json`, and the generated
 asset inventory. `dist/` remains generated and untracked.
+
+## 0.1.62 Physical-Film And Shadow Addendum
+
+The album and modal now share the physical proportions of an integral
+instant-film print. The front owns only the square photo, short handwritten
+caption, date, and a small paper stamp; the accessible reverse owns the full
+description and observation metadata. Neutral ivory paper replaces rarity
+stripes and halos. Motion reduction switches the front/reverse interaction
+without a 3D turn.
+
+The photo renderer removes repeated full-width fog, cloud, ground, grass, and
+patina bars. A single masked raster-grass composite respects the actual subject
+bounds, while a deterministic photo-wide vintage grade keeps raster and canvas
+elements in one palette. Large Tea Day, Soil Day, Space Week, and rare-instrument
+props prefer `assets/journal/polaroid_props_atlas.png`. Starsze warianty
+proceduralne są używane wyłącznie podczas ładowania opcjonalnego atlasu.
+
+The main 512x512 scene gains a separate pixel-art ground shadow between the
+ground and the mushroom body. One same-frame celestial profile feeds both sky
+rendering and shadow lighting. Solar or lunar altitude and azimuth determine
+direction and length, cloud visibility and weather determine strength and
+softness, and surface/season influence the color. Sun and moon casts are
+mutually exclusive; heavy cloud, fog, storm, or weak moonlight retain only the
+small contact shadow. The implementation adds no save fields and keeps state
+v22.

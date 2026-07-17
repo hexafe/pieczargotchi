@@ -26,6 +26,7 @@ const captureLegendaryGames = process.env.PIECZARGOTCHI_CAPTURE_LEGENDARY_GAMES 
 const captureMinigamePanelScreens = process.env.PIECZARGOTCHI_CAPTURE_MINIGAME_PANEL === '1';
 const captureJournal = process.env.PIECZARGOTCHI_CAPTURE_JOURNAL === '1';
 const captureJournalDiscoveryId = String(process.env.PIECZARGOTCHI_CAPTURE_JOURNAL_DISCOVERY || 'aurora').trim() || 'aurora';
+const captureShadowProfile = process.env.PIECZARGOTCHI_CAPTURE_SHADOW_PROFILE === '1';
 const debugCalendarEvent = String(process.env.PIECZARGOTCHI_DEBUG_CALENDAR_EVENT || '').trim();
 const captureCalendarMatrix = process.env.PIECZARGOTCHI_CAPTURE_CALENDAR_MATRIX === '1';
 const captureCalendarChecklist = process.env.PIECZARGOTCHI_CAPTURE_CALENDAR_CHECKLIST === '1';
@@ -2113,6 +2114,57 @@ async function captureWorldJournal(cdp) {
   writeFileSync(filePath, Buffer.from(screenshot.data, 'base64'));
   console.log(`journal-polaroid: ${filePath}`);
   console.log(`journal diagnostics: title=${info.title}, canvasPixels=${info.nonBlank}, tooltip=${info.tooltipVisible}, polaroid=${Math.round(info.polaroidRect.width)}x${Math.round(info.polaroidRect.height)}, snapshot=${info.snapshotStage}/${info.snapshotCondition}, frame=${info.frameTier}`);
+
+  const backDiagnostics = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const polaroid = document.querySelector('[data-journal-polaroid]');
+      const sheet = polaroid && polaroid.querySelector('[data-journal-polaroid-sheet]');
+      const front = polaroid && polaroid.querySelector('[data-journal-polaroid-face="front"]');
+      const back = polaroid && polaroid.querySelector('[data-journal-polaroid-face="back"]');
+      const flip = front && front.querySelector('[data-journal-polaroid-flip="back"]');
+      if (!polaroid || !sheet || !front || !back || !flip) {
+        return { ok: false };
+      }
+      const before = sheet.getBoundingClientRect();
+      flip.click();
+      const after = sheet.getBoundingClientRect();
+      const active = document.activeElement;
+      return {
+        ok: true,
+        side: sheet.getAttribute('data-side'),
+        frontHidden: front.hidden && front.getAttribute('aria-hidden') === 'true',
+        backVisible: !back.hidden && back.getAttribute('aria-hidden') === 'false',
+        focusOnBackControl: Boolean(active && active.matches('[data-journal-polaroid-face="back"] [data-journal-polaroid-flip="front"]')),
+        sameSize: Math.abs(before.width - after.width) <= 1 && Math.abs(before.height - after.height) <= 1,
+        inViewport: after.left >= -1 && after.top >= -1 && after.right <= innerWidth + 1 && after.bottom <= innerHeight + 1,
+        backTitle: String(back.querySelector('[data-journal-polaroid-back-title]') && back.querySelector('[data-journal-polaroid-back-title]').textContent || '').trim(),
+        sideStatus: String(polaroid.querySelector('[data-journal-polaroid-side-status]') && polaroid.querySelector('[data-journal-polaroid-side-status]').textContent || '').trim()
+      };
+    })()`,
+    returnByValue: true
+  });
+  const backInfo = backDiagnostics.result.value || {};
+  if (
+    !backInfo.ok
+    || backInfo.side !== 'back'
+    || !backInfo.frontHidden
+    || !backInfo.backVisible
+    || !backInfo.focusOnBackControl
+    || !backInfo.sameSize
+    || !backInfo.inViewport
+    || !backInfo.backTitle
+    || !backInfo.sideStatus
+  ) {
+    throw new Error(`Rewers odbitki nie spełnia kontraktu dostępności i geometrii: ${JSON.stringify(backInfo)}`);
+  }
+  await delay(320);
+  const backScreenshot = await cdp.send('Page.captureScreenshot', {
+    format: 'png',
+    fromSurface: true
+  });
+  const backPath = `${outputPrefix}-journal-polaroid-back-${viewportWidth}x${viewportHeight}.png`;
+  writeFileSync(backPath, Buffer.from(backScreenshot.data, 'base64'));
+  console.log(`journal-polaroid-back: ${backPath}`);
 }
 
 async function captureDewMinigame(cdp) {
@@ -3233,6 +3285,19 @@ async function captureCanvas(cdp, label, options) {
   console.log(`${label}: ${filePath}`);
   if (animationKey) {
     console.log(`${label} animation: ${animationKey}`);
+  }
+
+  if (captureShadowProfile) {
+    const shadowProfile = await cdp.send('Runtime.evaluate', {
+      expression: `(() => {
+        const ground = window.__pieczargotchiRuntime
+          && window.__pieczargotchiRuntime.motionDiagnostics
+          && window.__pieczargotchiRuntime.motionDiagnostics.ground;
+        return ground && ground.shadow ? ground.shadow : null;
+      })()`,
+      returnByValue: true
+    });
+    console.log(`${label} shadow: ${JSON.stringify(shadowProfile.result.value)}`);
   }
 
   if (process.env.PIECZARGOTCHI_CAPTURE_LIFE_PROFILE === '1') {

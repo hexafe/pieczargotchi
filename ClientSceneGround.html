@@ -7,12 +7,7 @@
     20, 14, 10, 12, 18, 22, 16, 10, 12, 20, 18, 14, 10, 16, 20, 12
   ]);
   const sceneHorizonDistantTrunks = Object.freeze([22, 58, 103, 145, 188, 326, 368, 410, 456, 494]);
-  const sceneHorizonClearingBands = Object.freeze([
-    Object.freeze({ y: 348, x: 238, width: 36, height: 8 }),
-    Object.freeze({ y: 356, x: 224, width: 64, height: 10 }),
-    Object.freeze({ y: 366, x: 207, width: 98, height: 12 }),
-    Object.freeze({ y: 378, x: 188, width: 136, height: 12 })
-  ]);
+  const mushroomGroundShadowMaskCache = new Map();
 
   function drawLowGround(ctx, palette, now, scene, frameScene) {
     const groundTop = 428;
@@ -66,6 +61,395 @@
     }
   }
 
+  function drawMushroomGroundShadow(ctx, selection, worldNow, frameNow) {
+    if (!runtime || !runtime.state || !ctx) {
+      return false;
+    }
+    const frameScene = typeof getSceneFrameSnapshot === 'function' ? getSceneFrameSnapshot(frameNow) : null;
+    const scene = frameScene ? frameScene.scene : getCurrentWeatherScene();
+    const palette = frameScene ? frameScene.palette : getScenePalette(scene);
+    const surface = frameScene && frameScene.surface
+      ? frameScene.surface
+      : typeof getWeatherSurfaceState === 'function'
+        ? getWeatherSurfaceState(scene, frameNow)
+        : { wetness: 0, snowCover: 0 };
+    const celestial = frameScene && frameScene.celestial
+      ? frameScene.celestial
+      : typeof getCelestialFrameProfile === 'function'
+        ? getCelestialFrameProfile(scene, palette, frameNow, getRuntimeDate())
+        : null;
+    const core = window.PieczargotchiCore;
+    const lighting = core && typeof core.calculateGroundShadowLighting === 'function'
+      ? core.calculateGroundShadowLighting({
+        scene: scene,
+        date: frameScene && frameScene.date ? frameScene.date : new Date(worldNow),
+        nightFactor: celestial
+          ? celestial.visualNightFactor
+          : Number(palette && palette.nightFactor) || 0,
+        cloudOcclusion: celestial ? celestial.cloudOcclusion : null,
+        sun: celestial ? celestial.sun : null,
+        moon: celestial ? celestial.moon : null,
+        surface: surface
+      })
+      : {
+        source: 'ambient',
+        directionX: 0,
+        directionY: 0,
+        castAlpha: 0,
+        contactAlpha: 0.075,
+        softness: 1,
+        season: 'summer'
+      };
+    const stage = getCurrentGroundStage();
+    const anchor = getMushroomGroundAnchor(stage);
+    const target = buildMushroomGroundShadowTarget(anchor, lighting);
+    const motionMode = frameScene && frameScene.quality && frameScene.quality.motionMode
+      ? frameScene.quality.motionMode
+      : typeof getEffectiveRuntimeMotionMode === 'function'
+        ? getEffectiveRuntimeMotionMode()
+        : runtime.reducedMotion
+          ? 'gentle'
+          : 'full';
+    const visible = resolveMushroomGroundShadowTransition(target, frameNow, motionMode);
+    const shadowColors = typeof resolveGroundShadowColors === 'function'
+      ? resolveGroundShadowColors(scene, palette, surface, visible.source)
+      : { family: 'ground', contact: '#24462b', cast: '#2d5332' };
+    const qualityTier = frameScene && frameScene.quality ? frameScene.quality.tier : 'high';
+    const renderInfo = drawMushroomGroundShadowLayers(ctx, anchor, visible, shadowColors, qualityTier);
+    recordMushroomGroundShadowDiagnostics(
+      anchor,
+      visible,
+      target,
+      selection,
+      motionMode,
+      qualityTier,
+      shadowColors,
+      renderInfo
+    );
+    return true;
+  }
+
+  function buildMushroomGroundShadowTarget(anchor, lighting) {
+    const source = lighting && lighting.source ? lighting.source : 'ambient';
+    const altitude = Number(lighting && lighting.altitude);
+    const safeAltitude = Number.isFinite(altitude) ? clamp(altitude, 3.5, 82, 45) : 45;
+    const rawLength = source === 'ambient'
+      ? 0
+      : clamp(
+        anchor.casterHeight * 0.11 / Math.tan(safeAltitude * Math.PI / 180),
+        anchor.minLength,
+        anchor.maxLength,
+        anchor.minLength
+      );
+    const altitudeWidthFactor = 0.78 + clamp((safeAltitude - 8) / 57, 0, 1, 0) * 0.22;
+    const castWidth = snapGroundShadowValue(anchor.castWidth * altitudeWidthFactor, 2);
+    const rawVectorX = Number(lighting && lighting.directionX) * rawLength || 0;
+    const rawVectorY = Number(lighting && lighting.directionY) * rawLength || 0;
+    const clipped = clipMushroomGroundShadowVector(anchor, rawVectorX, rawVectorY, castWidth);
+    return Object.assign({}, lighting || {}, {
+      source: source,
+      targetSource: source,
+      vectorX: clipped.x,
+      vectorY: clipped.y,
+      rawLength: rawLength,
+      length: rawLength * clipped.scale,
+      screenLength: Math.hypot(clipped.x, clipped.y),
+      contactWidth: anchor.contactWidth,
+      castWidth: castWidth,
+      contactAlpha: clamp(Number(lighting && lighting.contactAlpha), 0, 0.15, 0.075),
+      castAlpha: source === 'ambient' ? 0 : clamp(Number(lighting && lighting.castAlpha), 0, 0.26, 0),
+      softness: clamp(Number(lighting && lighting.softness), 0.15, 1, 1)
+    });
+  }
+
+  function clipMushroomGroundShadowVector(anchor, vectorX, vectorY, castWidth) {
+    const horizontalMargin = Math.max(4, Number(castWidth) * 0.18);
+    const verticalMargin = 6;
+    let scale = 1;
+    if (vectorX > 0) {
+      scale = Math.min(scale, Math.max(0, (504 - horizontalMargin - anchor.x) / vectorX));
+    } else if (vectorX < 0) {
+      scale = Math.min(scale, Math.max(0, (8 + horizontalMargin - anchor.x) / vectorX));
+    }
+    if (vectorY > 0) {
+      scale = Math.min(scale, Math.max(0, (506 - verticalMargin - anchor.y) / vectorY));
+    } else if (vectorY < 0) {
+      scale = Math.min(scale, Math.max(0, (390 + verticalMargin - anchor.y) / vectorY));
+    }
+    scale = clamp(scale, 0, 1, 1);
+    return {
+      x: vectorX * scale,
+      y: vectorY * scale,
+      scale: scale
+    };
+  }
+
+  function resolveMushroomGroundShadowTransition(target, frameNow, motionMode) {
+    const now = Number(frameNow) || 0;
+    if (!runtime.groundShadowTransition || motionMode === 'still') {
+      runtime.groundShadowTransition = copyMushroomGroundShadowTarget(target, now);
+      return runtime.groundShadowTransition;
+    }
+
+    const current = runtime.groundShadowTransition;
+    const elapsed = clamp(now - Number(current.updatedAt || now), 0, 80, 16);
+    const responseMs = motionMode === 'gentle' ? 1100 : 650;
+    const response = 1 - Math.exp(-elapsed / responseMs);
+    current.updatedAt = now;
+    current.targetSource = target.source;
+    current.contactAlpha = approachGroundShadowValue(current.contactAlpha, target.contactAlpha, response);
+    current.contactWidth = approachGroundShadowValue(current.contactWidth, target.contactWidth, response);
+
+    if (current.source !== target.source && current.castAlpha > 0.008) {
+      current.castAlpha = approachGroundShadowValue(current.castAlpha, 0, Math.min(1, response * 2.4));
+      return current;
+    }
+    if (current.source !== target.source) {
+      runtime.groundShadowTransition = copyMushroomGroundShadowTarget(target, now);
+      runtime.groundShadowTransition.castAlpha = 0;
+      return runtime.groundShadowTransition;
+    }
+
+    ['vectorX', 'vectorY', 'rawLength', 'length', 'screenLength', 'castWidth', 'castAlpha', 'softness'].forEach(function(field) {
+      current[field] = approachGroundShadowValue(current[field], target[field], response);
+    });
+    [
+      'altitude',
+      'azimuth',
+      'illumination',
+      'power',
+      'sunPower',
+      'moonPower',
+      'cloudOcclusion',
+      'stableCloudVisibility',
+      'directCloud',
+      'conditionFactor',
+      'fogStrength',
+      'wetness',
+      'snowCover',
+      'nightFactor',
+      'season'
+    ].forEach(function(field) {
+      current[field] = target[field];
+    });
+    return current;
+  }
+
+  function copyMushroomGroundShadowTarget(target, now) {
+    return Object.assign({}, target, {
+      updatedAt: now,
+      targetSource: target.source
+    });
+  }
+
+  function approachGroundShadowValue(current, target, amount) {
+    const from = Number(current);
+    const to = Number(target);
+    if (!Number.isFinite(to)) {
+      return Number.isFinite(from) ? from : 0;
+    }
+    if (!Number.isFinite(from)) {
+      return to;
+    }
+    return from + (to - from) * clamp(amount, 0, 1, 1);
+  }
+
+  function drawMushroomGroundShadowLayers(ctx, anchor, shadow, colors, qualityTier) {
+    const grid = qualityTier === 'low' ? 6 : 4;
+    let rectCount = 0;
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    if (shadow.castAlpha > 0.005 && Math.hypot(shadow.vectorX, shadow.vectorY) >= grid * 0.5) {
+      const outerAlpha = shadow.castAlpha * (0.42 + shadow.softness * 0.30);
+      const outerWidth = shadow.castWidth * (1 + shadow.softness * 0.18);
+      const outerRects = getPixelGroundShadowMask(
+        anchor.x,
+        anchor.y,
+        shadow.vectorX,
+        shadow.vectorY,
+        outerWidth,
+        0.32 + shadow.softness * 0.08,
+        grid,
+        'outer'
+      );
+      rectCount += drawPixelGroundShadowRects(ctx, outerRects, colors.cast, outerAlpha);
+
+      const innerStrength = Math.max(0, 0.58 * (1 - shadow.softness * 0.72));
+      if (innerStrength > 0.025) {
+        const innerRects = getPixelGroundShadowMask(
+          anchor.x,
+          anchor.y,
+          shadow.vectorX * 0.88,
+          shadow.vectorY * 0.88,
+          shadow.castWidth * Math.max(0.46, 0.68 - shadow.softness * 0.18),
+          0.26,
+          grid,
+          'inner'
+        );
+        rectCount += drawPixelGroundShadowRects(ctx, innerRects, colors.cast, shadow.castAlpha * innerStrength);
+      }
+    }
+
+    const contactWidth = Number(shadow.contactWidth) || anchor.contactWidth;
+    rectCount += drawPixelGroundShadowOval(
+      ctx,
+      anchor.x,
+      anchor.y,
+      contactWidth,
+      clamp(contactWidth * 0.10, 6, 12, 8),
+      colors.contact,
+      shadow.contactAlpha
+    );
+    ctx.restore();
+    return { rectCount: rectCount, grid: grid };
+  }
+
+  function drawPixelGroundShadowOval(ctx, centerX, centerY, width, height, color, alpha) {
+    const grid = 2;
+    const halfWidth = Math.max(grid, width / 2);
+    const halfHeight = Math.max(grid, height / 2);
+    let rectCount = 0;
+    ctx.fillStyle = color;
+    ctx.globalAlpha = clamp(Number(alpha), 0, 1, 0);
+    for (let y = -halfHeight; y < halfHeight; y += grid) {
+      const normalizedY = (y + grid / 2) / halfHeight;
+      const rowHalfWidth = halfWidth * Math.sqrt(Math.max(0, 1 - normalizedY * normalizedY));
+      const x = snapGroundShadowValue(centerX - rowHalfWidth, grid);
+      const rowWidth = Math.max(grid, snapGroundShadowValue(rowHalfWidth * 2, grid));
+      ctx.fillRect(x, snapGroundShadowValue(centerY + y, grid), rowWidth, grid);
+      rectCount += 1;
+    }
+    return rectCount;
+  }
+
+  function getPixelGroundShadowMask(startX, startY, vectorX, vectorY, width, tipFactor, grid, layer) {
+    const key = [
+      layer,
+      grid,
+      snapGroundShadowValue(startX, grid),
+      snapGroundShadowValue(startY, grid),
+      snapGroundShadowValue(vectorX, grid),
+      snapGroundShadowValue(vectorY, grid),
+      snapGroundShadowValue(width, grid),
+      Number(tipFactor).toFixed(2)
+    ].join(':');
+    const cached = mushroomGroundShadowMaskCache.get(key);
+    if (cached) {
+      return cached;
+    }
+    const mask = buildPixelGroundShadowMask(startX, startY, vectorX, vectorY, width, tipFactor, grid);
+    if (mushroomGroundShadowMaskCache.size >= 64) {
+      mushroomGroundShadowMaskCache.delete(mushroomGroundShadowMaskCache.keys().next().value);
+    }
+    mushroomGroundShadowMaskCache.set(key, mask);
+    return mask;
+  }
+
+  function buildPixelGroundShadowMask(startX, startY, vectorX, vectorY, width, tipFactor, grid) {
+    const endX = startX + vectorX;
+    const endY = startY + vectorY;
+    const baseRadius = Math.max(grid, width / 2);
+    const tipRadius = Math.max(grid, baseRadius * clamp(Number(tipFactor), 0.18, 0.62, 0.32));
+    const minX = Math.max(8, Math.floor((Math.min(startX, endX) - baseRadius) / grid) * grid);
+    const maxX = Math.min(504, Math.ceil((Math.max(startX, endX) + baseRadius) / grid) * grid);
+    const minY = Math.max(390, Math.floor((Math.min(startY, endY) - baseRadius) / grid) * grid);
+    const maxY = Math.min(506, Math.ceil((Math.max(startY, endY) + baseRadius) / grid) * grid);
+    const lengthSquared = Math.max(0.0001, vectorX * vectorX + vectorY * vectorY);
+    const rects = [];
+
+    for (let y = minY; y <= maxY - grid; y += grid) {
+      let runStart = null;
+      let runEnd = null;
+      for (let x = minX; x <= maxX - grid; x += grid) {
+        const cellX = x + grid / 2;
+        const cellY = y + grid / 2;
+        const projection = ((cellX - startX) * vectorX + (cellY - startY) * vectorY) / lengthSquared;
+        const t = clamp(projection, 0, 1, 0);
+        const closestX = startX + vectorX * t;
+        const closestY = startY + vectorY * t;
+        const radius = baseRadius + (tipRadius - baseRadius) * t;
+        const inside = Math.hypot(cellX - closestX, cellY - closestY) <= radius;
+        if (inside) {
+          runStart = runStart === null ? x : runStart;
+          runEnd = x + grid;
+        } else if (runStart !== null) {
+          appendPixelGroundShadowRun(rects, runStart, y, runEnd - runStart, grid);
+          runStart = null;
+          runEnd = null;
+        }
+      }
+      if (runStart !== null) {
+        appendPixelGroundShadowRun(rects, runStart, y, runEnd - runStart, grid);
+      }
+    }
+    return rects;
+  }
+
+  function appendPixelGroundShadowRun(rects, x, y, width, height) {
+    const previous = rects[rects.length - 1];
+    if (previous && previous.x === x && previous.width === width && previous.y + previous.height === y) {
+      previous.height += height;
+      return;
+    }
+    rects.push({ x: x, y: y, width: width, height: height });
+  }
+
+  function drawPixelGroundShadowRects(ctx, rects, color, alpha) {
+    ctx.fillStyle = color;
+    ctx.globalAlpha = clamp(Number(alpha), 0, 1, 0);
+    rects.forEach(function(rect) {
+      ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+    });
+    return rects.length;
+  }
+
+  function snapGroundShadowValue(value, step) {
+    const size = Math.max(1, Number(step) || 1);
+    return Math.round((Number(value) || 0) / size) * size;
+  }
+
+  function recordMushroomGroundShadowDiagnostics(anchor, visible, target, selection, motionMode, qualityTier, colors, renderInfo) {
+    if (!runtime || !runtime.motionDiagnostics) {
+      return;
+    }
+    runtime.motionDiagnostics.ground = runtime.motionDiagnostics.ground || {};
+    runtime.motionDiagnostics.ground.shadow = {
+      source: visible.source,
+      targetSource: target.source,
+      altitude: visible.altitude !== null && visible.altitude !== undefined && Number.isFinite(Number(visible.altitude))
+        ? Number(Number(visible.altitude).toFixed(2))
+        : null,
+      azimuth: visible.azimuth !== null && visible.azimuth !== undefined && Number.isFinite(Number(visible.azimuth))
+        ? Number(Number(visible.azimuth).toFixed(2))
+        : null,
+      illumination: Number((Number(visible.illumination) || 0).toFixed(3)),
+      sunPower: Number((Number(visible.sunPower) || 0).toFixed(3)),
+      moonPower: Number((Number(visible.moonPower) || 0).toFixed(3)),
+      cloudOcclusion: Number((Number(visible.cloudOcclusion) || 0).toFixed(3)),
+      directCloud: Number((Number(visible.directCloud) || 0).toFixed(3)),
+      contactX: anchor.x,
+      contactY: anchor.y,
+      vectorX: Number((Number(visible.vectorX) || 0).toFixed(2)),
+      vectorY: Number((Number(visible.vectorY) || 0).toFixed(2)),
+      length: Number((Number(visible.length) || 0).toFixed(2)),
+      screenLength: Number((Number(visible.screenLength) || 0).toFixed(2)),
+      contactWidth: Number((Number(visible.contactWidth) || 0).toFixed(2)),
+      castWidth: Number((Number(visible.castWidth) || 0).toFixed(2)),
+      contactAlpha: Number((Number(visible.contactAlpha) || 0).toFixed(3)),
+      castAlpha: Number((Number(visible.castAlpha) || 0).toFixed(3)),
+      softness: Number((Number(visible.softness) || 0).toFixed(3)),
+      season: visible.season || target.season || null,
+      stage: anchor.stage,
+      anchorAnimationKey: anchor.animationKey,
+      animationKey: selection && selection.animation ? selection.animation.key : null,
+      motionMode: motionMode,
+      qualityTier: qualityTier,
+      colorFamily: colors.family,
+      maskGrid: renderInfo.grid,
+      rectCount: renderInfo.rectCount
+    };
+  }
+
   function drawSceneHorizon(ctx, palette, scene) {
     const source = scene || {};
     const condition = source.condition || 'clear';
@@ -88,7 +472,7 @@
     drawPixelHorizonRidge(ctx, 354, sceneHorizonFrontRidgeHeights, 16, 52);
 
     drawDistantMyceliumGrove(ctx, palette, detailAlpha, night, fogStrength);
-    drawHorizonClearing(ctx, palette, night, fogStrength);
+    drawHorizonEdgeLight(ctx, palette, night, fogStrength);
     ctx.restore();
   }
 
@@ -117,16 +501,17 @@
     });
   }
 
-  function drawHorizonClearing(ctx, palette, night, fogStrength) {
+  function drawHorizonEdgeLight(ctx, palette, night, fogStrength) {
     ctx.fillStyle = palette.groundLight;
-    ctx.globalAlpha = (night ? 0.12 : 0.20) * (1 - fogStrength * 0.38);
-    sceneHorizonClearingBands.forEach(function(band) {
-      ctx.fillRect(band.x, band.y, band.width, band.height);
-    });
-    ctx.globalAlpha *= 0.72;
+    ctx.globalAlpha = (night ? 0.08 : 0.14) * (1 - fogStrength * 0.38);
+    ctx.fillRect(42, 366, 82, 4);
+    ctx.fillRect(76, 374, 58, 3);
+    ctx.fillRect(378, 368, 90, 4);
+    ctx.fillRect(352, 378, 72, 3);
+    ctx.globalAlpha *= 0.64;
     ctx.fillStyle = palette.skyLow || palette.groundLight;
-    ctx.fillRect(247, 352, 18, 3);
-    ctx.fillRect(235, 363, 42, 2);
+    ctx.fillRect(88, 362, 26, 2);
+    ctx.fillRect(398, 364, 34, 2);
   }
 
   function getGrassFieldState(scene, now, surface) {

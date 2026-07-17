@@ -317,6 +317,8 @@ Reguła produkcyjna dla immersji:
 - czas działania nie maluje nowej mimiki po głównym PNG. Jeśli reakcja wymaga twarzy, dostaje własny arkusz animacji w `assets/stages/<stage>/`.
 - `feed`, `instrument` i `sing` są sprite-owned: renderer nie może dorysowywać im dodatkowych ust, instrumentów ani muzycznych rekwizytów na canvasie.
 - `assets/environment/grass_patch.png` oraz lekka trawa proceduralna są jedynym wspólnym systemem zieleni sceny. Stage-aware clearing utrzymuje twarz i korpus czytelne; dekoracje są osadzane przed lekkim foreground occluderem, żeby nie wyglądały jak naklejone ani nie ginęły w zaroślach.
+- `assets/journal/polaroid_props_atlas.png` jest osobnym atlasem nieruchomych rekwizytów zdjęć. Nie zastępuje sprite-owned rekwizytów aktywności na głównej scenie i jest rysowany wyłącznie wewnątrz odbitki dziennika.
+- Dynamiczny cień głównej Pieczarki jest pikselową warstwą gruntu, nie częścią PNG. Kolejność pozostaje: grunt i powierzchnia, cień, body-only sprite, dekoracje oraz trawa foreground. Cień nie może używać blur ani podążać za oddechowym bobbingiem sprite'a.
 
 ## 10. Rytm animacji
 

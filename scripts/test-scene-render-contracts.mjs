@@ -7,6 +7,7 @@ const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const script = readFileSync(path.join(rootDir, 'ClientScene.html'), 'utf8');
 const animationScript = readFileSync(path.join(rootDir, 'ClientAnimation.html'), 'utf8');
 const celestialScript = readFileSync(path.join(rootDir, 'ClientSceneCelestial.html'), 'utf8');
+const groundScript = readFileSync(path.join(rootDir, 'ClientSceneGround.html'), 'utf8');
 const phenomenaScript = readFileSync(path.join(rootDir, 'ClientScenePhenomena.html'), 'utf8');
 const cloudScript = readFileSync(path.join(rootDir, 'ClientSceneWeatherClouds.html'), 'utf8');
 const lifeScript = readFileSync(path.join(rootDir, 'ClientSceneLife.html'), 'utf8');
@@ -14,7 +15,8 @@ const interactionScript = readFileSync(path.join(rootDir, 'ClientInteraction.htm
 const calls = {
   scene: 0,
   palette: 0,
-  surface: 0
+  surface: 0,
+  celestial: 0
 };
 const scene = { condition: 'clear', isDay: true };
 const context = {
@@ -44,6 +46,10 @@ const context = {
     calls.surface += 1;
     return { wetness: 0, snowCover: 0 };
   },
+  getCelestialFrameProfile(value, palette, frameNow, date) {
+    calls.celestial += 1;
+    return { frameNow, scene: value, palette, date, sun: null, moon: null };
+  },
   getSceneAmbientGradeProfile() {
     return {
       alpha: 0.25,
@@ -60,7 +66,7 @@ const context = {
 vm.createContext(context);
 vm.runInContext(script, context, { filename: 'ClientScene.html' });
 
-test('one frame reuses a single scene, palette, and weather-surface snapshot', () => {
+test('one frame reuses a single scene, palette, weather-surface, and celestial snapshot', () => {
   const first = context.getSceneFrameSnapshot(1000);
   const sameFrame = context.getSceneFrameSnapshot(1000);
   const nextFrame = context.getSceneFrameSnapshot(1016);
@@ -70,6 +76,8 @@ test('one frame reuses a single scene, palette, and weather-surface snapshot', (
   assert(calls.scene === 2, `weather scene should be sampled once per frame, calls=${calls.scene}`);
   assert(calls.palette === 2, `palette should be sampled once per frame, calls=${calls.palette}`);
   assert(calls.surface === 2, `surface should be sampled once per frame, calls=${calls.surface}`);
+  assert(calls.celestial === 2, `celestial profile should be sampled once per frame, calls=${calls.celestial}`);
+  assert(first.celestial.frameNow === first.frameNow, 'snapshot should own its same-frame celestial profile');
 });
 
 test('measured render cost lowers scene quality and gentle motion caps scene FPS', () => {
@@ -144,6 +152,110 @@ test('frame composition grades the completed non-emissive scene before overlays'
   assert(ground >= 0 && precipitation > ground, 'foreground ground and precipitation should render before grading');
   assert(composite > precipitation, 'ambient grade should run after the final non-emissive weather pass');
   assert(immersion > composite && effects > immersion, 'immersive and temporary effects should stay emissive after grading');
+});
+
+test('mushroom shadow is composed between low ground and the sprite, before foreground grass', () => {
+  const background = animationScript.indexOf('drawStageBackground(ctx, frameNow)');
+  const shadow = animationScript.indexOf('drawMushroomGroundShadow(ctx, selectedAnimation, worldNow, frameNow)');
+  const sprite = animationScript.indexOf('drawSelectedAnimation(ctx, selectedAnimation, worldNow)');
+  const foreground = animationScript.indexOf('drawGroundForeground(ctx, frameNow)');
+  assert(background >= 0 && shadow > background, 'shadow must render after the low-ground background pass');
+  assert(sprite > shadow, 'mushroom sprite must cover its ground shadow');
+  assert(foreground > sprite, 'foreground grass must naturally occlude both mushroom base and shadow');
+});
+
+test('ground shadow mask uses bounded integer pixel rectangles without blur or gradients', () => {
+  const shadowContext = {
+    console,
+    Math,
+    Number,
+    Map,
+    runtime: { groundShadowTransition: null },
+    clamp(value, min, max, fallback) {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? Math.min(max, Math.max(min, numeric)) : fallback;
+    }
+  };
+  vm.createContext(shadowContext);
+  vm.runInContext(groundScript, shadowContext, { filename: 'ClientSceneGround.html' });
+  let fills = [];
+  const ctx = {
+    globalAlpha: 1,
+    fillStyle: '#000000',
+    imageSmoothingEnabled: true,
+    save() {},
+    restore() {},
+    fillRect(x, y, width, height) {
+      fills.push({ x, y, width, height });
+    }
+  };
+  const adultAnchor = {
+    x: 256,
+    y: 444,
+    casterHeight: 406,
+    contactWidth: 120,
+    castWidth: 184,
+    minLength: 12,
+    maxLength: 250
+  };
+  const lowSun = shadowContext.buildMushroomGroundShadowTarget(adultAnchor, {
+    source: 'sun',
+    altitude: 4,
+    directionX: 0.93,
+    directionY: -0.18,
+    castAlpha: 0.24,
+    contactAlpha: 0.12,
+    softness: 0.2
+  });
+  assert(Math.abs(lowSun.vectorX) >= 200, `adult low-sun cast should visibly clear the body footprint, vectorX=${lowSun.vectorX}`);
+  const renders = ['high', 'low'].map((qualityTier) => {
+    fills = [];
+    const info = shadowContext.drawMushroomGroundShadowLayers(
+      ctx,
+      adultAnchor,
+      lowSun,
+      { contact: '#21432a', cast: '#294d31' },
+      qualityTier
+    );
+    return { qualityTier, info, fills: fills.slice() };
+  });
+
+  renders.forEach(({ qualityTier, info, fills: rectangles }) => {
+    assert(info.rectCount === rectangles.length && rectangles.length > 6, `${qualityTier} diagnostics should count every rectangle, fills=${rectangles.length}`);
+    assert(info.rectCount <= 60, `${qualityTier} adult low-sun diagnostic must stay within 60 rectangles, rectCount=${info.rectCount}`);
+    assert(rectangles.every((fill) => [fill.x, fill.y, fill.width, fill.height].every(Number.isInteger)), `${qualityTier} shadow rectangles must be integer-aligned`);
+    assert(rectangles.every((fill) => fill.x >= 8 && fill.y >= 390 && fill.x + fill.width <= 508 && fill.y + fill.height <= 508), `${qualityTier} cast rectangles must stay inside the terrain-safe canvas bounds`);
+  });
+
+  const target = {
+    source: 'sun',
+    vectorX: 80,
+    vectorY: 20,
+    rawLength: 90,
+    length: 86,
+    screenLength: 82,
+    contactWidth: 120,
+    castWidth: 180,
+    castAlpha: 0.24,
+    contactAlpha: 0.12,
+    softness: 0.2
+  };
+  const still = shadowContext.resolveMushroomGroundShadowTransition(target, 100, 'still');
+  assert(still.vectorX === target.vectorX && still.castAlpha === target.castAlpha, 'still mode should snap to one deterministic static target');
+
+  const fadedTarget = Object.assign({}, target, { castAlpha: 0.04, vectorX: 60 });
+  shadowContext.runtime.groundShadowTransition = Object.assign({}, target, { updatedAt: 100, targetSource: 'sun' });
+  const full = shadowContext.resolveMushroomGroundShadowTransition(fadedTarget, 180, 'full').castAlpha;
+  shadowContext.runtime.groundShadowTransition = Object.assign({}, target, { updatedAt: 100, targetSource: 'sun' });
+  const gentle = shadowContext.resolveMushroomGroundShadowTransition(fadedTarget, 180, 'gentle').castAlpha;
+  assert(full < gentle && gentle < target.castAlpha, `full should settle faster while gentle remains smooth, full=${full}, gentle=${gentle}`);
+
+  const moonTarget = Object.assign({}, target, { source: 'moon', targetSource: 'moon', castAlpha: 0.1 });
+  shadowContext.runtime.groundShadowTransition = Object.assign({}, target, { castAlpha: 0.006, updatedAt: 180, targetSource: 'moon' });
+  const sourceSwap = shadowContext.resolveMushroomGroundShadowTransition(moonTarget, 196, 'full');
+  assert(sourceSwap.source === 'moon' && sourceSwap.castAlpha === 0, 'a new celestial source should fade in from zero after the previous cast fades out');
+  const sourceFadeIn = shadowContext.resolveMushroomGroundShadowTransition(moonTarget, 212, 'full');
+  assert(sourceFadeIn.castAlpha > 0 && sourceFadeIn.castAlpha < moonTarget.castAlpha, 'the replacement source should ease toward its target instead of popping in');
 });
 
 test('pixel sun uses layered corona and irregular rays beyond the hit disc', () => {

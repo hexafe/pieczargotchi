@@ -349,6 +349,65 @@
     return base;
   }
 
+  function resolveGroundShadowColors(scene, palette, surface, lightSource) {
+    const source = scene || {};
+    const colors = palette || {};
+    const ground = colors.ground || '#69a344';
+    const condition = String(source.condition || 'clear');
+    const wetness = clampScenePaletteValue(Number(surface && surface.wetness), 0, 1, 0);
+    const snowCover = clampScenePaletteValue(Number(surface && surface.snowCover), 0, 1, 0);
+    const nightFactor = clampScenePaletteValue(
+      Number(colors.nightFactor),
+      0,
+      1,
+      source.isDay === false ? 1 : 0
+    );
+    const kind = String(lightSource || 'ambient');
+    let family = 'ground';
+    let contactTarget = '#183923';
+    let castTarget = '#21452a';
+    let contactMix = 0.68;
+    let castMix = 0.60;
+
+    if (condition === 'snow' || snowCover > 0.14) {
+      family = 'snow';
+      contactTarget = '#6b8193';
+      castTarget = kind === 'moon' ? '#627a99' : '#7a91a2';
+      contactMix = 0.66;
+      castMix = 0.58;
+    } else if (condition === 'fog') {
+      family = 'fog';
+      contactTarget = '#627665';
+      castTarget = '#718372';
+      contactMix = 0.36;
+      castMix = 0.30;
+    } else if (kind === 'moon') {
+      family = 'moon';
+      contactTarget = '#1d3341';
+      castTarget = '#263d58';
+      contactMix = 0.68;
+      castMix = 0.62;
+    } else if (condition === 'rain' || condition === 'storm' || wetness > 0.32) {
+      family = 'wet';
+      contactTarget = '#183832';
+      castTarget = '#244840';
+      contactMix = 0.66;
+      castMix = 0.56;
+    } else if (nightFactor > 0.56) {
+      family = 'night';
+      contactTarget = '#1a3038';
+      castTarget = '#263e48';
+      contactMix = 0.62;
+      castMix = 0.54;
+    }
+
+    return {
+      family: family,
+      contact: blendSceneColor(ground, contactTarget, contactMix),
+      cast: blendSceneColor(ground, castTarget, castMix)
+    };
+  }
+
   function getLightingPalette(lighting, phase, tone) {
     if (!lighting || !lighting.from || !lighting.to) {
       const fallback = getDayPhasePalette(phase, tone);

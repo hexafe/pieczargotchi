@@ -101,6 +101,7 @@ test('journal preloader requests the same canonical stage used by the renderer',
   assert(requested[0].stage === 'baby' && requested[0].state === 'stargaze', `preload/render contract diverged: ${JSON.stringify(requested[0])}`);
   assert(assetKeys.includes('baby.stargaze'), `expected the canonical mushroom asset preload, got ${assetKeys.join(',')}`);
   assert(assetKeys.includes('environment.grassPatch'), `expected the shared raster grass preload, got ${assetKeys.join(',')}`);
+  assert(assetKeys.includes('journal.polaroidProps'), `expected the polaroid prop atlas preload, got ${assetKeys.join(',')}`);
   context.findStageAnimation = originalFind;
 });
 
@@ -169,6 +170,10 @@ test('journal polaroid reframes a tight sprite at a readable stage-aware size', 
   context.getJournalReactionState = () => 'idle';
   const draws = [];
   const ctx = {
+    fillStyle: '',
+    save() {},
+    restore() {},
+    fillRect() {},
     drawImage(...args) {
       draws.push(args);
     }
@@ -261,6 +266,7 @@ test('special celestial recipes own exactly one sun or moon body', () => {
 test('foreground ownership preserves the three primary props and five instrument silhouettes', () => {
   const registry = context.getJournalPhotoSceneRegistry();
   ['teaDay', 'soilDay', 'spaceWeek', 'instrument'].forEach((scene) => {
+    assert(typeof registry[scene].drawGroundProp === 'function', `${scene} needs a pre-grass raster prop pass`);
     assert(typeof registry[scene].drawForeground === 'function', `${scene} needs a post-grass foreground renderer`);
   });
   assert(typeof registry.spaceWeek.draw === 'function', 'spaceWeek meteor shower should remain in the background pass');
@@ -299,7 +305,7 @@ test('foreground ownership preserves the three primary props and five instrument
 
 test('snapshot composition keeps coherent depth order and finishes with subtle film patina', () => {
   const operations = [];
-  [
+  const operationNames = [
     'drawJournalSnapshotSky',
     'drawJournalSnapshotCelestial',
     'drawJournalSnapshotClouds',
@@ -307,10 +313,15 @@ test('snapshot composition keeps coherent depth order and finishes with subtle f
     'drawJournalSnapshotGround',
     'drawJournalPhotoPhenomenon',
     'drawJournalSnapshotWorldDetails',
+    'drawJournalPhotoGroundProp',
     'drawJournalPhotoForeground',
     'drawJournalSnapshotForegroundWeather',
     'drawJournalSnapshotFilmPatina'
-  ].forEach((name) => {
+  ];
+  const originals = Object.fromEntries(operationNames.map((name) => [name, context[name]]));
+  const originalMushroom = context.drawJournalPhotoMushroom;
+  const originalGrass = context.drawJournalPhotoGrass;
+  operationNames.forEach((name) => {
     context[name] = () => operations.push(name);
   });
   context.drawJournalPhotoMushroom = () => {
@@ -331,6 +342,7 @@ test('snapshot composition keeps coherent depth order and finishes with subtle f
     'drawJournalSnapshotGround',
     'drawJournalPhotoPhenomenon',
     'drawJournalSnapshotWorldDetails',
+    'drawJournalPhotoGroundProp',
     'subject',
     'grass',
     'drawJournalPhotoForeground',
@@ -338,15 +350,29 @@ test('snapshot composition keeps coherent depth order and finishes with subtle f
     'drawJournalSnapshotFilmPatina'
   ].join('>'), `unexpected journal depth order: ${operations.join('>')}`);
   assert(diagnostics.subjectRendered && diagnostics.grassRaster, 'composition should report a raster-backed, visible subject');
+  Object.assign(context, originals);
+  context.drawJournalPhotoMushroom = originalMushroom;
+  context.drawJournalPhotoGrass = originalGrass;
 });
 
-test('raster grass uses stage clearance and covers only the subject baseline at center', () => {
+test('raster grass uses one masked layer and covers at most four subject pixels at center', () => {
   const originalFind = context.findStageAnimation;
   context.findStageAnimation = getRealStageAnimation;
   const ctx = {
     globalAlpha: 1,
     save() {},
     restore() {},
+    beginPath() {
+      this.pathRects = [];
+    },
+    rect(...args) {
+      this.pathRects.push(args);
+    },
+    clip(rule) {
+      this.clipRule = rule;
+    },
+    translate() {},
+    scale() {},
     drawImage(...args) {
       this.calls.push(args);
     }
@@ -357,19 +383,15 @@ test('raster grass uses stage clearance and covers only the subject baseline at 
     const idleLayout = context.resolveJournalSpriteFrameLayout(getRealStageAnimation(stage, 'idle'), 0);
     const subject = context.getJournalMushroomComposition(stage, 192, 192, idleLayout);
     const clearance = context.getJournalPhotoGrassClearance(stage, 192, subject.bodyBounds);
-    const layout = context.drawJournalGrassRasterWithClearance(ctx, image, 192, 192, clearance);
+    const layout = context.drawJournalGrassRasterWithClearance(ctx, image, 192, 192, clearance, `grass-${stage}`);
     assert(layout.left <= subject.bodyBounds.x - 4, `${stage} grass clearance clips the subject on the left`);
     assert(layout.right >= subject.bodyBounds.x + subject.bodyBounds.width + 4, `${stage} grass clearance clips the subject on the right`);
-    assert(layout.centerCoverTop >= 178, `${stage} center grass should begin only at the baseline, got ${layout.centerCoverTop}`);
+    assert(layout.masked, `${stage} grass should report one clipped mask`);
+    assert(layout.centerCoverTop === Math.round(subject.baseY - 4), `${stage} center grass should start exactly four pixels before the baseline, got ${layout.centerCoverTop}`);
     const overlap = Math.max(0, subject.baseY - layout.centerCoverTop);
-    assert(overlap <= 7, `${stage} center grass may blend feet but not the body, overlap=${overlap}`);
-    assert(ctx.calls.length === 7, `${stage} should draw six side slices and one foot band, got ${ctx.calls.length}`);
-    ctx.calls.slice(0, 6).forEach((call) => {
-      const drawLeft = call[5];
-      const drawRight = drawLeft + call[7];
-      assert(drawRight <= subject.bodyBounds.x || drawLeft >= subject.bodyBounds.x + subject.bodyBounds.width,
-        `${stage} upper grass slice overlaps the body: ${drawLeft}..${drawRight}`);
-    });
+    assert(overlap <= 4, `${stage} center grass may blend feet but not the body, overlap=${overlap}`);
+    assert(ctx.calls.length === 1, `${stage} should draw one masked raster layer, got ${ctx.calls.length}`);
+    assert(ctx.clipRule === 'evenodd' && ctx.pathRects.length === 2, `${stage} should cut one subject clearance hole from the grass layer`);
   });
   context.findStageAnimation = originalFind;
 });
@@ -422,6 +444,206 @@ test('ready thumbnails do not schedule a redundant preload and redraw', () => {
   assert(draws === 1 && preloads === 0, `ready thumbnail should draw once without preload, draws=${draws}, preloads=${preloads}`);
   context.drawWorldJournalPolaroidScene = originalDraw;
   context.preloadWorldJournalPolaroidAsset = originalPreload;
+});
+
+test('prop atlas uses the documented 3x3 cells and keeps a procedural fallback seam', () => {
+  const originalAtlas = context.runtime.assets['journal.polaroidProps'];
+  const atlas = { naturalWidth: 384, naturalHeight: 384 };
+  context.runtime.assets['journal.polaroidProps'] = atlas;
+  const calls = [];
+  const ctx = {
+    globalAlpha: 1,
+    imageSmoothingEnabled: true,
+    save() {},
+    restore() {},
+    drawImage(...args) { calls.push(args); }
+  };
+  const cells = [
+    ['tea', 0, 0],
+    ['telescope', 128, 0],
+    ['soil', 256, 0],
+    ['starTone', 0, 128],
+    ['ocarina', 128, 128],
+    ['lyre', 256, 128],
+    ['harp', 0, 256],
+    ['organ', 128, 256],
+    ['botanicalStamp', 256, 256]
+  ];
+  cells.forEach(([id, sourceX, sourceY]) => {
+    const rendered = context.drawJournalPolaroidPropAtlasCell(ctx, id, { x: 4, y: 6, width: 32, height: 32 });
+    assert(rendered, `${id} should render from the loaded atlas`);
+    const call = calls[calls.length - 1];
+    assert(call[0] === atlas && call[1] === sourceX && call[2] === sourceY && call[3] === 128 && call[4] === 128,
+      `${id} uses the wrong atlas cell: ${call}`);
+  });
+  const fullCallCount = calls.length;
+  context.drawJournalPolaroidPropAtlasCell(ctx, 'tea', { x: 4, y: 6, width: 32, height: 32 }, { visibleRatio: 0.68 });
+  assert(calls.length === fullCallCount + 1 && calls.at(-1)[4] < 128 && calls.at(-1)[8] < 32,
+    'foreground highlight should redraw only the top of a grounded prop');
+  delete context.runtime.assets['journal.polaroidProps'];
+  assert(!context.drawJournalPolaroidPropAtlasCell(ctx, 'tea', { x: 4, y: 6, width: 32, height: 32 }),
+    'missing atlas must leave the procedural fallback seam active');
+  if (originalAtlas) {
+    context.runtime.assets['journal.polaroidProps'] = originalAtlas;
+  }
+});
+
+test('aurora and iridescence execute with their own deterministic color sources', () => {
+  const calls = [];
+  const ctx = {
+    fillStyle: '',
+    globalAlpha: 1,
+    fillRect(...args) { calls.push({ style: this.fillStyle, args }); }
+  };
+  context.drawJournalAurora(ctx, 192);
+  assert(calls.some((call) => call.style === 'rgba(113,232,157,0.34)'), 'aurora must use the active color entry');
+  calls.length = 0;
+  context.drawJournalCloudIridescence(ctx, 192);
+  assert(calls.some((call) => call.style === '#ffd8d6') && calls.some((call) => call.style === '#c8d5ff'),
+    'iridescence must use each patch color without leaking an undefined loop variable');
+});
+
+test('ground, clouds, and fog avoid full-width visible bands', () => {
+  const originalPalette = context.getJournalSnapshotPalette;
+  context.getJournalSnapshotPalette = () => ({
+    skyLow: '#c8e99a',
+    ground: '#4f8a3d',
+    groundLight: '#6ca54b',
+    cloud: '#e9ead8',
+    cloudLight: '#f7f4df',
+    nightFactor: 0
+  });
+  const groundCalls = [];
+  const groundCtx = {
+    fillStyle: '',
+    fillRect(...args) { groundCalls.push(args); }
+  };
+  context.drawJournalSnapshotGround(groundCtx, 192, 192, { id: 'ground-test' }, { seed: 'ground-test' });
+  const horizon = Math.round(192 * 0.655);
+  assert(!groundCalls.some((call) => call[0] === 0 && call[2] === 192 && call[1] <= horizon + 4),
+    'ground must not start as one straight full-width horizon band');
+  const ridgeTops = new Set(groundCalls.filter((call) => call[2] <= 5 && call[1] < horizon + 2).map((call) => call[1]));
+  assert(ridgeTops.size >= 8, `ground horizon needs organic height variation, got ${ridgeTops.size} top levels`);
+
+  const fogCalls = [];
+  context.drawJournalSnapshotWeather({
+    fillStyle: '',
+    fillRect(...args) { fogCalls.push(args); }
+  }, 192, 192, { id: 'fog-test' }, {
+    seed: 'fog-test',
+    weather: { condition: 'fog', fogPotential: 0.82 }
+  });
+  assert(fogCalls.length >= 18 && fogCalls.every((call) => call[2] < 192), 'fog should be staggered wisps, never full-width bars');
+
+  const cloudCalls = [];
+  context.drawJournalSnapshotClouds({
+    fillStyle: '',
+    globalAlpha: 1,
+    save() {},
+    restore() {},
+    fillRect(...args) { cloudCalls.push(args); }
+  }, 192, 192, { id: 'cloud-test' }, {
+    seed: 'cloud-test',
+    weather: { cloudCover: 86 }
+  });
+  assert(cloudCalls.length >= 20 && cloudCalls.every((call) => call[2] < 96), 'clouds should remain localized pixel puffs');
+  context.getJournalSnapshotPalette = originalPalette;
+});
+
+test('film grade is deterministic, global, and has no hard canvas border', () => {
+  function renderPatina() {
+    const calls = [];
+    const ctx = {
+      fillStyle: '',
+      globalCompositeOperation: 'source-over',
+      save() {},
+      restore() {},
+      createRadialGradient() {
+        return { addColorStop() {} };
+      },
+      fillRect(...args) { calls.push(args); }
+    };
+    context.drawJournalSnapshotFilmPatina(ctx, 192, 192, { id: 'vintage-test' }, {
+      seed: 'vintage-test',
+      weather: { dayPhase: 'night', isDay: false, condition: 'clear' }
+    });
+    return calls;
+  }
+  const first = renderPatina();
+  const second = renderPatina();
+  assert(first.length > 120, `strong vintage pass should include grade and seeded texture, got ${first.length} marks`);
+  assert(JSON.stringify(first) === JSON.stringify(second), 'vintage texture must be deterministic for one snapshot seed');
+  assert(first.filter((call) => call[0] === 0 && call[1] === 0 && call[2] === 192 && call[3] === 192).length >= 3,
+    'the final grade should cover mushroom, grass, props, and background together');
+  assert(!first.some((call) => (call[2] === 192 && call[3] <= 2) || (call[3] === 192 && call[2] <= 2)),
+    'film treatment must not recreate a hard internal canvas frame');
+});
+
+test('modal and album share exact i-Type/600 geometry with an accessible reduced-motion reverse', () => {
+  const indexSource = readFileSync(path.join(rootDir, 'Index.html'), 'utf8');
+  const stylesSource = readFileSync(path.join(rootDir, 'Styles.html'), 'utf8');
+  const uiSource = readFileSync(path.join(rootDir, 'ClientUi.html'), 'utf8');
+  const ratios = stylesSource.match(/aspect-ratio:\s*88\.47\s*\/\s*107\.52/g) || [];
+  assert(ratios.length >= 2, 'album and modal must share the exact 88.47 x 107.52 film ratio');
+  assert((indexSource.match(/data-journal-polaroid-flip=/g) || []).length === 2, 'front and reverse each need an explicit flip button');
+  assert(indexSource.includes('aria-controls="journalPolaroidBack"') && indexSource.includes('aria-controls="journalPolaroidFront"'),
+    'flip controls must expose both controlled faces');
+  assert(indexSource.includes('data-journal-polaroid-side-status aria-live="polite"'), 'side changes need a polite accessible announcement');
+  assert(uiSource.includes("printFooter.className = 'discovery-item__print-footer'"), 'album cards need the shared physical print footer');
+  const metaRule = stylesSource.match(/\.discovery-item__print-footer > span\s*\{([\s\S]*?)\}/);
+  assert(metaRule && !/display:\s*none/.test(metaRule[1]) && /text-overflow:\s*ellipsis/.test(metaRule[1]),
+    'album prints must retain one compact metadata line');
+  assert(!stylesSource.includes('border-top: 4px solid var(--frame-accent)'), 'physical paper cannot retain the tier color stripe');
+  assert(!stylesSource.includes('0 0 0 3px var(--frame-soft)'), 'physical paper cannot retain the tier halo');
+  assert(stylesSource.includes('.journal-polaroid__face[data-flip-enter="true"]') && stylesSource.includes('animation: none'),
+    'flip animation needs an explicit reduced-motion override');
+});
+
+test('front and reverse state keeps one visible face and moves focus to the return control', () => {
+  function attrNode(attributes) {
+    const attrs = new Map(Object.entries(attributes || {}));
+    return {
+      hidden: false,
+      focusCount: 0,
+      getAttribute(name) { return attrs.has(name) ? attrs.get(name) : null; },
+      setAttribute(name, value) { attrs.set(name, String(value)); },
+      removeAttribute(name) { attrs.delete(name); },
+      addEventListener() {},
+      focus() { this.focusCount += 1; }
+    };
+  }
+  const front = attrNode({ 'data-journal-polaroid-face': 'front' });
+  const back = attrNode({ 'data-journal-polaroid-face': 'back' });
+  back.hidden = true;
+  const toBack = attrNode({ 'data-journal-polaroid-flip': 'back' });
+  const toFront = attrNode({ 'data-journal-polaroid-flip': 'front' });
+  const sheet = attrNode({ 'data-side': 'front' });
+  sheet.scrollTop = 99;
+  const status = { textContent: '' };
+  const dialog = {
+    querySelectorAll(selector) {
+      if (selector === '[data-journal-polaroid-face]') return [front, back];
+      if (selector === '[data-journal-polaroid-flip]') return [toBack, toFront];
+      return [];
+    },
+    querySelector(selector) {
+      if (selector === '[data-journal-polaroid-sheet]') return sheet;
+      if (selector === '[data-journal-polaroid-side-status]') return status;
+      if (selector.includes('face="back"')) return toFront;
+      if (selector.includes('face="front"')) return toBack;
+      return null;
+    }
+  };
+  const originalDom = context.dom;
+  context.dom = { journalPolaroid: dialog };
+  context.setWorldJournalPolaroidSide('back', { animate: true, announce: true, focus: true });
+  assert(front.hidden && !back.hidden, 'only the reverse should remain visible after flipping');
+  assert(front.getAttribute('aria-hidden') === 'true' && back.getAttribute('aria-hidden') === 'false', 'face visibility must be reflected to assistive technology');
+  assert(sheet.getAttribute('data-side') === 'back' && sheet.scrollTop === 0, 'reverse should reset the physical sheet scroll position');
+  assert(status.textContent === 'Pokazano rewers odbitki.' && toFront.focusCount === 1, 'reverse should announce itself and receive a usable return focus target');
+  context.setWorldJournalPolaroidSide('front', { animate: false, announce: true, focus: true });
+  assert(!front.hidden && back.hidden && toBack.focusCount === 1, 'returning should reveal and focus the front control');
+  context.dom = originalDom;
 });
 
 test('journal focus trap includes the native details summary', () => {

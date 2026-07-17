@@ -588,6 +588,191 @@
     return clampNumber(Math.max(cloudDensity, weightedCover), 0, 1, 0);
   }
 
+  function calculateGroundShadowLighting(input) {
+    const source = isPlainObject(input) ? input : {};
+    const scene = isPlainObject(source.scene) ? source.scene : {};
+    const surface = isPlainObject(source.surface) ? source.surface : {};
+    const dateValue = source.date && typeof source.date.getTime === 'function'
+      ? Number(source.date.getTime())
+      : Number(new Date(source.date).getTime());
+    const date = new Date(Number.isFinite(dateValue) ? dateValue : 0);
+    const nightFactor = clampNumber(
+      Number(source.nightFactor),
+      0,
+      1,
+      scene.isDay === false || scene.dayPhase === 'night' ? 1 : 0
+    );
+    const cloudOcclusion = Number.isFinite(Number(source.cloudOcclusion))
+      ? clampNumber(Number(source.cloudOcclusion), 0, 1, 0)
+      : getSkyCloudOcclusionCore(scene);
+    const stableCloudVisibility = 1 - smoothSkyStep(0.18, 0.82, cloudOcclusion);
+    const condition = String(scene.condition || 'clear');
+    const conditionFactors = {
+      clear: 1,
+      cloudy: 0.78,
+      snow: 0.62,
+      rain: 0.30,
+      storm: 0.12,
+      fog: 0.08
+    };
+    const conditionFactor = Object.prototype.hasOwnProperty.call(conditionFactors, condition)
+      ? conditionFactors[condition]
+      : 0.9;
+    const fogStrength = condition === 'fog'
+      ? clampNumber(Math.max(Number(scene.fogDensity) || 0, Number(scene.fogPotential) || 0, 0.48), 0, 1, 0.48)
+      : clampNumber(Number(scene.fogPotential), 0, 1, 0) * 0.36;
+    const wetness = clampNumber(Number(surface.wetness), 0, 1, 0);
+    const snowCover = clampNumber(Number(surface.snowCover), 0, 1, 0);
+    const sun = normalizeGroundShadowBody(source.sun, false);
+    const moon = normalizeGroundShadowBody(source.moon, true);
+    const sunDirectCloud = getGroundShadowDirectCloud(sun, stableCloudVisibility);
+    const moonDirectCloud = getGroundShadowDirectCloud(moon, stableCloudVisibility);
+    const sunPower = sun
+      ? clampNumber(
+        smoothSkyStep(0, 8, sun.altitude)
+          * sun.alpha
+          * sunDirectCloud
+          * conditionFactor
+          * (1 - nightFactor * 0.35),
+        0,
+        1,
+        0
+      )
+      : 0;
+    const moonPower = moon
+      ? clampNumber(
+        smoothSkyStep(3, 14, moon.altitude)
+          * moon.alpha
+          * moonDirectCloud
+          * Math.pow(moon.illumination, 1.35)
+          * nightFactor
+          * conditionFactor,
+        0,
+        1,
+        0
+      )
+      : 0;
+    const sunEligible = Boolean(sun && sun.altitude > 0 && sunPower >= 0.045);
+    const moonEligible = Boolean(
+      moon
+      && (!sun || sun.altitude <= -3)
+      && nightFactor >= 0.78
+      && moon.altitude > 3
+      && moon.illumination >= 0.28
+      && moonPower >= 0.045
+    );
+    const lightSource = sunEligible ? 'sun' : moonEligible ? 'moon' : 'ambient';
+    const body = lightSource === 'sun' ? sun : lightSource === 'moon' ? moon : null;
+    const selectedPower = lightSource === 'sun' ? sunPower : lightSource === 'moon' ? moonPower : 0;
+    const directCloud = lightSource === 'sun' ? sunDirectCloud : lightSource === 'moon' ? moonDirectCloud : 0;
+    const bearing = body ? (body.azimuth - 180) * Math.PI / 180 : 0;
+    const directionX = body ? -Math.sin(bearing) : 0;
+    const directionY = body ? 0.46 * Math.cos(bearing) : 0;
+    const castAlpha = lightSource === 'sun'
+      ? clampNumber(0.035 + 0.225 * selectedPower, 0, 0.26, 0)
+      : lightSource === 'moon'
+        ? clampNumber(0.018 + 0.097 * selectedPower, 0, 0.115, 0)
+        : 0;
+    const contactAlpha = clampNumber(
+      0.075
+        + 0.055 * sunPower
+        + 0.025 * moonPower
+        + 0.012 * wetness
+        + 0.012 * snowCover
+        - 0.020 * fogStrength,
+      0.06,
+      0.15,
+      0.075
+    );
+    const softness = clampNumber(
+      0.15
+        + 0.65 * cloudOcclusion
+        + 0.20 * (1 - directCloud)
+        + 0.30 * fogStrength,
+      0.15,
+      1,
+      1
+    );
+
+    return {
+      source: lightSource,
+      altitude: body ? roundGroundShadowValue(body.altitude) : null,
+      azimuth: body ? roundGroundShadowValue(body.azimuth) : null,
+      illumination: body ? roundGroundShadowValue(body.illumination) : 0,
+      directionX: roundGroundShadowValue(directionX),
+      directionY: roundGroundShadowValue(directionY),
+      power: roundGroundShadowValue(selectedPower),
+      sunPower: roundGroundShadowValue(sunPower),
+      moonPower: roundGroundShadowValue(moonPower),
+      cloudOcclusion: roundGroundShadowValue(cloudOcclusion),
+      stableCloudVisibility: roundGroundShadowValue(stableCloudVisibility),
+      directCloud: roundGroundShadowValue(directCloud),
+      conditionFactor: roundGroundShadowValue(conditionFactor),
+      fogStrength: roundGroundShadowValue(fogStrength),
+      wetness: roundGroundShadowValue(wetness),
+      snowCover: roundGroundShadowValue(snowCover),
+      nightFactor: roundGroundShadowValue(nightFactor),
+      contactAlpha: roundGroundShadowValue(contactAlpha),
+      castAlpha: roundGroundShadowValue(castAlpha),
+      softness: roundGroundShadowValue(softness),
+      season: getGroundShadowSeason(date, Number(scene.latitude))
+    };
+  }
+
+  function normalizeGroundShadowBody(body, moon) {
+    if (!isPlainObject(body)) {
+      return null;
+    }
+    const altitude = Number(body.altitude);
+    const azimuth = Number(body.azimuth);
+    if (!Number.isFinite(altitude) || !Number.isFinite(azimuth)) {
+      return null;
+    }
+    const phase = isPlainObject(body.phase) ? body.phase : {};
+    const illuminationValue = Number.isFinite(Number(body.illumination))
+      ? Number(body.illumination)
+      : Number(phase.illumination);
+    return {
+      altitude: altitude,
+      azimuth: azimuth,
+      alpha: clampNumber(Number(body.alpha), 0, 1, 1),
+      cloudVisibility: clampNumber(Number(body.cloudVisibility), 0, 1, 1),
+      illumination: moon ? clampNumber(illuminationValue, 0, 1, 0) : 1
+    };
+  }
+
+  function getGroundShadowDirectCloud(body, stableCloudVisibility) {
+    if (!body) {
+      return 0;
+    }
+    return clampNumber(
+      body.cloudVisibility * (0.22 + stableCloudVisibility * 0.78),
+      0,
+      1,
+      0
+    );
+  }
+
+  function getGroundShadowSeason(date, latitude) {
+    const month = date.getMonth();
+    const ecologicalMonth = Number.isFinite(latitude) && latitude < -5 ? (month + 6) % 12 : month;
+    if (ecologicalMonth === 11 || ecologicalMonth <= 1) {
+      return 'winter';
+    }
+    if (ecologicalMonth <= 4) {
+      return 'spring';
+    }
+    if (ecologicalMonth <= 7) {
+      return 'summer';
+    }
+    return 'autumn';
+  }
+
+  function roundGroundShadowValue(value) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? Math.round(numeric * 1000) / 1000 : 0;
+  }
+
   function getSkyDayOfYear(date) {
     const start = new Date(date.getFullYear(), 0, 0);
     return Math.floor((date - start) / 86400000);

@@ -28,6 +28,7 @@
     drawCalendarEventBackground(ctx, frameNow, worldNow);
 
     const selectedAnimation = selectAnimation(runtime.state, worldNow, wallNow);
+    drawMushroomGroundShadow(ctx, selectedAnimation, worldNow, frameNow);
     const drewAnimation = drawSelectedAnimation(ctx, selectedAnimation, worldNow);
     const drewHeldAnimation = !drewAnimation && drawLastReadyAnimation(ctx, selectedAnimation, worldNow);
     const drewMushroom = drewAnimation || drewHeldAnimation;
@@ -461,6 +462,48 @@
       pivotX: animation && Number.isFinite(Number(animation.pivotX)) ? Number(animation.pivotX) : x + frameWidth / 2,
       pivotY: animation && Number.isFinite(Number(animation.pivotY)) ? Number(animation.pivotY) : y + frameHeight / 2
     };
+  }
+
+  function getMushroomGroundAnchor(stageInput) {
+    const stage = ['spore', 'baby', 'young', 'adult', 'legendary'].includes(String(stageInput))
+      ? String(stageInput)
+      : 'spore';
+    const fallback = {
+      spore: { x: 256, pivotY: 428, frameWidth: 100, frameHeight: 104, maxLength: 104 },
+      baby: { x: 256, pivotY: 420, frameWidth: 232, frameHeight: 230, maxLength: 154 },
+      young: { x: 256, pivotY: 430, frameWidth: 304, frameHeight: 326, maxLength: 202 },
+      adult: { x: 256, pivotY: 446, frameWidth: 400, frameHeight: 414, maxLength: 250 },
+      legendary: { x: 256, pivotY: 446, frameWidth: 420, frameHeight: 414, maxLength: 262 }
+    }[stage];
+    const idle = findExactStageAnimation(stage, 'idle');
+    const frameWidth = Math.max(1, Number(idle && idle.frameWidth) || fallback.frameWidth);
+    const frameHeight = Math.max(1, Number(idle && idle.frameHeight) || fallback.frameHeight);
+    const pivotX = Number.isFinite(Number(idle && idle.pivotX))
+      ? Number(idle.pivotX)
+      : Number.isFinite(Number(idle && idle.drawX))
+        ? Number(idle.drawX) + frameWidth / 2
+        : fallback.x;
+    const pivotY = Number.isFinite(Number(idle && idle.pivotY))
+      ? Number(idle.pivotY)
+      : Number.isFinite(Number(idle && idle.drawY))
+        ? Number(idle.drawY) + frameHeight
+        : fallback.pivotY;
+    return {
+      stage: stage,
+      animationKey: idle && idle.key ? idle.key : stage + '.idle',
+      x: snapMushroomGroundValue(pivotX, 2),
+      y: snapMushroomGroundValue(pivotY - 2, 2),
+      casterHeight: Math.max(32, frameHeight - 8),
+      contactWidth: snapMushroomGroundValue(Math.min(120, Math.max(58, frameWidth * 0.30)), 2),
+      castWidth: snapMushroomGroundValue(Math.min(196, Math.max(72, frameWidth * 0.46)), 2),
+      minLength: stage === 'spore' ? 6 : stage === 'baby' ? 8 : stage === 'young' ? 10 : 12,
+      maxLength: fallback.maxLength
+    };
+  }
+
+  function snapMushroomGroundValue(value, step) {
+    const size = Math.max(1, Number(step) || 1);
+    return Math.round((Number(value) || 0) / size) * size;
   }
 
   function getStoredAnimationFrameIndex(animation, logicalFrame) {

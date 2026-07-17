@@ -6,11 +6,19 @@ import { fileURLToPath } from 'node:url';
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const script = readFileSync(path.join(rootDir, 'ClientAnimation.html'), 'utf8');
 const overlays = [];
+const animationsByKey = new Map([
+  ['spore.idle', { key: 'spore.idle', frameWidth: 100, frameHeight: 104, drawX: 206, drawY: 324, pivotX: 256, pivotY: 428 }],
+  ['baby.idle', { key: 'baby.idle', frameWidth: 232, frameHeight: 230, drawX: 140, drawY: 190, pivotX: 256, pivotY: 420 }],
+  ['young.idle', { key: 'young.idle', frameWidth: 304, frameHeight: 326, drawX: 104, drawY: 104, pivotX: 256, pivotY: 430 }],
+  ['adult.idle', { key: 'adult.idle', frameWidth: 400, frameHeight: 414, drawX: 56, drawY: 32, pivotX: 256, pivotY: 446 }],
+  ['legendary.idle', { key: 'legendary.idle', frameWidth: 420, frameHeight: 414, drawX: 46, drawY: 32, pivotX: 256, pivotY: 446 }]
+]);
 const context = {
   console,
   Math,
   Number,
   String,
+  animationsByKey,
   canvasSize: 512,
   drawMushroomConditionOverlay(ctx, animation, frame, motion, grassTop) {
     overlays.push({ animation, frame, motion, grassTop });
@@ -94,6 +102,25 @@ test('legacy sheets keep the split until their metadata explicitly declares body
   assert(ctx.drawImages === 2, `legacy frame should keep moving and anchored draws, drawImages=${ctx.drawImages}`);
   assert(ctx.clips === 1, `legacy frame should keep one anchored clip, clips=${ctx.clips}`);
   assert(Number.isFinite(overlays.at(-1).grassTop), 'legacy condition overlay should retain the grass boundary');
+});
+
+test('ground shadow anchors remain stage-stable and derive from idle metadata', () => {
+  const expected = {
+    spore: { y: 426, casterHeight: 96, contactWidth: 58, castWidth: 72 },
+    baby: { y: 418, casterHeight: 222, contactWidth: 70, castWidth: 106 },
+    young: { y: 428, casterHeight: 318, contactWidth: 92, castWidth: 140 },
+    adult: { y: 444, casterHeight: 406, contactWidth: 120, castWidth: 184 },
+    legendary: { y: 444, casterHeight: 406, contactWidth: 120, castWidth: 194 }
+  };
+
+  Object.entries(expected).forEach(([stage, values]) => {
+    const anchor = context.getMushroomGroundAnchor(stage);
+    assert(anchor.x === 256 && anchor.y === values.y, `${stage} shadow anchor should stay centered at its idle foot line`);
+    assert(anchor.casterHeight === values.casterHeight, `${stage} caster height should derive from idle frame metadata`);
+    assert(anchor.contactWidth === values.contactWidth, `${stage} contact width should stay footprint-sized, got ${anchor.contactWidth}`);
+    assert(anchor.castWidth === values.castWidth, `${stage} cast width should stay stage-scaled, got ${anchor.castWidth}`);
+    assert(anchor.animationKey === `${stage}.idle`, `${stage} anchor must not follow activity props`);
+  });
 });
 
 function createRecordingContext() {

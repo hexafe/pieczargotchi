@@ -13,6 +13,12 @@ const context = {
   }
 };
 context.globalThis = context;
+context.window = context;
+context.getRuntimeNow = () => {
+  const fixedAt = Number(context.runtime && context.runtime.debug && context.runtime.debug.fixedAt);
+  return Number.isFinite(fixedAt) ? fixedAt : Date.now();
+};
+context.getRuntimeDate = () => new Date(context.getRuntimeNow());
 
 vm.createContext(context);
 for (const fileName of [
@@ -35,6 +41,9 @@ if (typeof context.getMoonCellGrid !== 'function') {
 }
 if (typeof context.isPointInsideCelestialBody !== 'function') {
   throw new Error('isPointInsideCelestialBody was not exposed by ClientSceneCelestial.html');
+}
+if (typeof context.getCelestialFrameProfile !== 'function') {
+  throw new Error('getCelestialFrameProfile was not exposed by ClientSceneCelestial.html');
 }
 
 const locations = {
@@ -78,6 +87,33 @@ test('Tromso polar edge cases stay bounded', () => {
   assert(summer.x >= 26 && summer.x <= 486, `expected bounded Tromso x, got ${summer.x}`);
   assert(summer.y >= 30 && summer.y <= 292, `expected bounded Tromso y, got ${summer.y}`);
   assert(winter === null, `expected polar winter sun below render threshold, got ${JSON.stringify(winter)}`);
+});
+
+test('one celestial frame profile is shared with the emissive pass', () => {
+  const date = new Date('2026-06-21T10:00:00.000Z');
+  context.runtime.debug = { enabled: true, fixedAt: date.getTime(), locationOverride: 'katowice', moonPhaseOverride: 'auto' };
+  const scene = {
+    condition: 'clear',
+    isDay: true,
+    dayPhase: 'noon',
+    latitude: locations.katowice.latitude,
+    longitude: locations.katowice.longitude,
+    cloudCover: 12,
+    cloudCoverLow: 8,
+    cloudCoverMid: 10,
+    cloudCoverHigh: 18,
+    cloudDensity: 0.12
+  };
+  const palette = { lighting: { nightFactor: 0 } };
+  const profile = context.getCelestialFrameProfile(scene, palette, 1234, date);
+  context.runtime.sceneFrameSnapshot = { frameNow: 1234, celestial: profile };
+  const emissive = context.getCelestialEmissiveFrame(scene, palette, 1234);
+
+  assert(emissive === profile, 'emissive pass should reuse the exact same-frame celestial profile object');
+  assert(profile.sun && profile.sun.cloudVisibility > 0, 'shared profile should retain the resolved visible sun');
+  assert(Number.isFinite(profile.sun.altitude) && Number.isFinite(profile.sun.azimuth), 'shared profile should retain physical solar coordinates');
+  assert(profile.cloudOcclusion >= 0 && profile.cloudOcclusion <= 1, `cloud occlusion should stay bounded, got ${profile.cloudOcclusion}`);
+  context.runtime.sceneFrameSnapshot = null;
 });
 
 test('moon pixel phase mask is side-stable and vertically symmetric', () => {

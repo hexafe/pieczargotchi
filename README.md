@@ -2,7 +2,7 @@
 
 Pieczargotchi is a small Google Apps Script and Cloudflare static web app for a pixel-art mushroom care game.
 
-The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake loop, care actions, visible cooldowns, keyboard shortcuts, weather-driven scene life, minigames, long-term progression, JSON backup, podłoże decorations, and a local Legendary Arena. See `docs/IMPLEMENTATION_PLAN.md` for the original roadmap, `docs/NEXT_STEPS.md` for the current planning hub, `docs/VISUAL_ASSET_IMPLEMENTATION_2026-07-11.md` for the `0.1.49` visual-pipeline checkpoint, `docs/UI_SCENE_FIRST_IMPLEMENTATION_2026-07-12.md` for the scene-first UI architecture, `docs/MINIGAME_EXPERIENCE_OVERHAUL_2026-07-13.md` for the `0.1.55` minigame contract, `docs/SENSORY_GAMEPLAY_IMPLEMENTATION_2026-07-15.md` for the `0.1.59` sensory/runtime contract, and `docs/POLAROID_VISUAL_OVERHAUL_2026-07-15.md` for the current `0.1.61` journal-polaroid release contract.
+The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake loop, care actions, visible cooldowns, keyboard shortcuts, weather-driven scene life, minigames, long-term progression, JSON backup, podłoże decorations, and a local Legendary Arena. See `docs/IMPLEMENTATION_PLAN.md` for the original roadmap, `docs/NEXT_STEPS.md` for the current planning hub, `docs/VISUAL_ASSET_IMPLEMENTATION_2026-07-11.md` for the `0.1.49` visual-pipeline checkpoint, `docs/UI_SCENE_FIRST_IMPLEMENTATION_2026-07-12.md` for the scene-first UI architecture, `docs/MINIGAME_EXPERIENCE_OVERHAUL_2026-07-13.md` for the `0.1.55` minigame contract, `docs/SENSORY_GAMEPLAY_IMPLEMENTATION_2026-07-15.md` for the `0.1.59` sensory/runtime contract, and `docs/POLAROID_VISUAL_OVERHAUL_2026-07-15.md` for the current `0.1.62` instant-film and dynamic-shadow contract.
 
 ## Current Layout
 
@@ -28,6 +28,7 @@ The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake l
 - `assets/activities/` - one-shot activity animation sheets separated by growth stage; runtime instrument variants intentionally alias the real per-stage `instrument_sheet.png` until distinct art exists.
 - `assets/battle/` - a 512x512 arena background and body-only 256x256 four-pose sheets for the legendary player and three opponents.
 - `assets/effects/` - optional small effect sheets.
+- `assets/journal/` - the runtime 3x3 atlas for recognizable journal-photo props.
 - `assets/reference/` - source style references, not loaded by the app.
 - `assets/source/imagegen/` - raw generated-image atlases and extracted cutouts used by the asset builder.
 - `assets/source/imagegen/PROVENANCE.json` - source and deterministic-derivative provenance for the runtime-v2 and battle collections.
@@ -42,7 +43,7 @@ The local v1 targets a 512x512 canvas, local browser persistence, a sleep/wake l
 - `docs/UI_SCENE_FIRST_IMPLEMENTATION_2026-07-12.md` - scene-first UI architecture, responsive matrix, accessible minigame flow, modal backup safety, the `0.1.50` release contract, and the `0.1.51` GUI-hardening addendum.
 - `docs/MINIGAME_EXPERIENCE_OVERHAUL_2026-07-13.md` - reward/practice integrity, fair mastery, seven-game pacing, responsive active-game layouts, legendary replayability, sensory feedback, and release acceptance for `0.1.55`.
 - `docs/SENSORY_GAMEPLAY_IMPLEMENTATION_2026-07-15.md` - attention direction, world audio, replay clues, motion/accessibility preferences, adaptive rendering, weather depth, and release acceptance for `0.1.59` / state v22.
-- `docs/POLAROID_VISUAL_OVERHAUL_2026-07-15.md` - shared scene renderer, raster-grass clearance, real album thumbnails, responsive modal hierarchy, lazy hydration, and release acceptance for `0.1.61` / state v22.
+- `docs/POLAROID_VISUAL_OVERHAUL_2026-07-15.md` - shared scene renderer plus the `0.1.62` physical instant-film, vintage-photo, raster-prop, and dynamic ground-shadow addendum.
 - `docs/UI_RENDER_AUDIT_2026-05-10.md` - screenshot-driven UI/rendering fixes and viewport validation.
 - `docs/SPRITE_AUDIT_2026-05-10.md` - focused audit for sprite size and wake-face alignment.
 - `docs/APPS_SCRIPT_DEPLOYMENT_DRY_RUN.md` - test deployment checklist that keeps `.clasp.json`, script IDs, and private Drive IDs local.
@@ -79,10 +80,10 @@ npx --no-install clasp push
 Do not commit `.clasp.json`, private Apps Script script IDs, private Drive URLs, or deployment credentials. The repo `.gitignore` keeps `.clasp.json` local, while `.claspignore` allows only root `.gs`, `.html`, and `appsscript.json` files into an Apps Script push.
 Use `docs/APPS_SCRIPT_DEPLOYMENT_DRY_RUN.md` for the full test-project dry-run checklist.
 
-For Apps Script deployment, the preferred asset setup is the versioned public Cloudflare asset directory. For the current release, first verify that `Config.gs` and `package.json` both identify `0.1.61` and the state contract is v22, then set this Apps Script Script Property without editing tracked source:
+For Apps Script deployment, the preferred asset setup is the versioned public Cloudflare asset directory. For the current release, first verify that `Config.gs` and `package.json` both identify `0.1.62` and the state contract is v22, then set this Apps Script Script Property without editing tracked source:
 
 ```text
-PIECZARGOTCHI_ASSET_BASE_URL_0_1_61=https://YOUR-PUBLIC-HOST.example/releases/0.1.61/assets/
+PIECZARGOTCHI_ASSET_BASE_URL_0_1_62=https://YOUR-PUBLIC-HOST.example/releases/0.1.62/assets/
 ```
 
 The property key and URL are release-specific: this prevents a later Script Property update from retargeting an older Apps Script deployment. The URL must use HTTPS and contain the exact visible release as its own path segment. The host must retain every published release directory; overwriting or removing an older directory can break an older deployment. Application requests append the manifest path and visible version query without embedding tens of MiB as data URLs.

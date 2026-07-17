@@ -128,6 +128,47 @@ test('ambient grade darkens raster subjects at night and leaves emissive passes 
   assert(snow.compositeOperation === 'source-atop' && snow.alpha > 0.05, 'snow should softly cool raster subjects without blurring pixel art');
 });
 
+test('ground shadow palette stays terrain-aware for moonlight, snow, wet ground, and fog', () => {
+  const dayPalette = { ground: '#69a344', nightFactor: 0 };
+  const nightScene = {
+    condition: 'clear',
+    isDay: false,
+    dayPhase: 'night',
+    visualDate: new Date(2026, 5, 21, 23, 0, 0).toISOString()
+  };
+  const nightPalette = context.getScenePaletteImmediate(nightScene);
+  const moon = context.resolveGroundShadowColors(
+    nightScene,
+    nightPalette,
+    { wetness: 0, snowCover: 0 },
+    'moon'
+  );
+  const snow = context.resolveGroundShadowColors(
+    { condition: 'snow', isDay: true },
+    { ground: '#d9e5cf', nightFactor: 0 },
+    { wetness: 0.1, snowCover: 0.8 },
+    'sun'
+  );
+  const wet = context.resolveGroundShadowColors(
+    { condition: 'rain', isDay: true },
+    dayPalette,
+    { wetness: 0.8, snowCover: 0 },
+    'sun'
+  );
+  const fog = context.resolveGroundShadowColors(
+    { condition: 'fog', isDay: true },
+    dayPalette,
+    { wetness: 0.2, snowCover: 0 },
+    'ambient'
+  );
+
+  assert(nightPalette.nightFactor === nightPalette.lighting.nightFactor && nightPalette.nightFactor > 0.9, 'moon shadow colors must consume the real scene lighting profile night factor');
+  assert(moon.family === 'moon' && snow.family === 'snow' && wet.family === 'wet' && fog.family === 'fog', 'shadow colors should expose the selected terrain/light family');
+  assert(colorDistance(moon.cast, nightPalette.ground) > 12, 'moon cast should read as a cool colored shadow, not copied ground');
+  assert(colorDistance(snow.cast, '#000000') > 220, 'snow shadow must remain cool and restrained instead of black');
+  assert(colorDistance(fog.cast, dayPalette.ground) < colorDistance(wet.cast, dayPalette.ground), 'fog shadow should keep lower terrain contrast than wet ground');
+});
+
 test('immediate palette shares snapshot colors without mutating the live weather transition', () => {
   context.runtime.sceneWeatherPaletteTransition = null;
   const snapshot = context.getScenePaletteImmediate({

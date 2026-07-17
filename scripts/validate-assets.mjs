@@ -20,7 +20,8 @@ const katalogiSrodowiska = [
   path.join(katalogGlowny, 'assets', 'environment')
 ];
 const katalogiDodatkowe = [
-  path.join(katalogGlowny, 'assets', 'battle')
+  path.join(katalogGlowny, 'assets', 'battle'),
+  path.join(katalogGlowny, 'assets', 'journal')
 ];
 const rozmiarKlatki = 512;
 const domyslnaLiczbaKlatek = 4;
@@ -277,6 +278,9 @@ function sprawdzDodatkowyAssetRuntime(plik) {
   if (!policzBoundingBoxDlaObrazu(obraz)) {
     throw new Error('asset dodatkowy jest pusty');
   }
+  if (wzglednaSciezka === 'journal/polaroid_props_atlas.png') {
+    sprawdzAtlasRekwizytowDziennika(obraz);
+  }
   const magenta = countExteriorMagentaSpill(obraz, przezroczystoscProgu);
   if (magenta > 0) {
     throw new Error(`asset dodatkowy ma ${magenta} nieprzezroczystych pikseli chroma-key`);
@@ -284,6 +288,39 @@ function sprawdzDodatkowyAssetRuntime(plik) {
   const transparentRgb = policzPrzezroczysteRgb(obraz);
   if (transparentRgb > 0) {
     throw new Error(`asset dodatkowy ma ${transparentRgb} pikseli alpha0 z niezerowym RGB`);
+  }
+}
+
+function sprawdzAtlasRekwizytowDziennika(obraz) {
+  const cellSize = 128;
+  const cells = 9;
+  for (let index = 0; index < cells; index += 1) {
+    const cellX = index % 3 * cellSize;
+    const cellY = Math.floor(index / 3) * cellSize;
+    let visible = 0;
+    let minX = cellSize;
+    let minY = cellSize;
+    let maxX = -1;
+    let maxY = -1;
+    for (let y = 0; y < cellSize; y += 1) {
+      for (let x = 0; x < cellSize; x += 1) {
+        const alpha = obraz.pixels[((cellY + y) * obraz.width + cellX + x) * 4 + 3];
+        if (alpha <= przezroczystoscProgu) {
+          continue;
+        }
+        visible += 1;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+    if (visible < 500) {
+      throw new Error(`komórka rekwizytu ${index} jest pusta lub nieczytelna (${visible} px)`);
+    }
+    if (minX <= 0 || minY <= 0 || maxX >= cellSize - 1 || maxY >= cellSize - 1) {
+      throw new Error(`komórka rekwizytu ${index} dotyka krawędzi (${minX},${minY})-(${maxX},${maxY})`);
+    }
   }
 }
 

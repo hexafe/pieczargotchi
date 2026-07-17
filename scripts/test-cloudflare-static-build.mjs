@@ -53,6 +53,12 @@ test('Cloudflare static asset manifest cache-busts runtime assets', () => {
   const grassVersion = distConfig.assetVersions['environment/grass_patch.png'];
   assert(grassVersion, 'grass patch should have a content version');
   assert(indexHtml.includes(`assets/environment/grass_patch.png?v=${grassVersion}`), 'grass preload should use the versioned asset URL');
+  const journalProps = (distConfig.assets || []).find((asset) => asset.key === 'journal.polaroidProps');
+  assert(journalProps, 'journal polaroid prop atlas should be present in the runtime manifest');
+  assert(journalProps.fileName === 'journal/polaroid_props_atlas.png', 'journal prop atlas should keep its stable runtime path');
+  assert(journalProps.width === 384 && journalProps.height === 384 && journalProps.frames === 9,
+    'journal prop atlas should expose the 3x3 cell contract');
+  assert(distConfig.assetVersions[journalProps.fileName], 'journal prop atlas should have a content version');
   ['stages/spore/sleep_sheet.png', 'stages/spore/idle_sheet.png', 'stages/spore/wake_sheet.png'].forEach((fileName) => {
     const version = distConfig.assetVersions[fileName];
     assert(version, `${fileName} should have a content version`);

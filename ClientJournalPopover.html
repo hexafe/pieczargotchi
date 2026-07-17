@@ -14,6 +14,11 @@
     if (dom.journalPolaroidClose) {
       dom.journalPolaroidClose.addEventListener('click', closeWorldJournalPolaroid);
     }
+    if (dom.journalPolaroid && typeof dom.journalPolaroid.querySelectorAll === 'function') {
+      Array.from(dom.journalPolaroid.querySelectorAll('[data-journal-polaroid-flip]')).forEach(function(button) {
+        button.addEventListener('click', handleWorldJournalPolaroidFlip);
+      });
+    }
 
     document.addEventListener('keydown', function(event) {
       if (event.key === 'Escape') {
@@ -231,9 +236,16 @@
       item.photoSnapshot && item.photoSnapshot.fallback ? 'Kadr odtworzony ze starszego zapisu.' : ''
     ].filter(Boolean).join(' ');
     const frameTier = getWorldJournalFrameTier(item.photoSnapshot);
+    setWorldJournalPolaroidSide('front', { animate: false, announce: false, focus: false });
 
     if (dom.journalPolaroidTitle) {
       dom.journalPolaroidTitle.textContent = formatMushroomText(item.label);
+    }
+    const backTitle = dom.journalPolaroid.querySelector
+      ? dom.journalPolaroid.querySelector('[data-journal-polaroid-back-title]')
+      : null;
+    if (backTitle) {
+      backTitle.textContent = formatMushroomText(item.label);
     }
     if (dom.journalPolaroidMeta) {
       dom.journalPolaroidMeta.textContent = meta;
@@ -293,6 +305,7 @@
       return;
     }
     runtime.activeJournalPolaroid = null;
+    setWorldJournalPolaroidSide('front', { animate: false, announce: false, focus: false });
     if (typeof closeSceneFirstDialog === 'function' && (dom.journalPolaroid.open || dom.journalPolaroid.hasAttribute('open'))) {
       runtime.journalReturnFocus = null;
       closeSceneFirstDialog(dom.journalPolaroid);
@@ -309,6 +322,57 @@
         returnFocus.focus();
       }
     }
+  }
+
+  function handleWorldJournalPolaroidFlip(event) {
+    const button = event && event.currentTarget;
+    const side = button && button.getAttribute ? button.getAttribute('data-journal-polaroid-flip') : 'front';
+    setWorldJournalPolaroidSide(side, { animate: true, announce: true, focus: true });
+  }
+
+  function setWorldJournalPolaroidSide(side, options) {
+    if (!dom || !dom.journalPolaroid || typeof dom.journalPolaroid.querySelectorAll !== 'function') {
+      return 'front';
+    }
+    const settings = options || {};
+    const normalized = side === 'back' ? 'back' : 'front';
+    const sheet = dom.journalPolaroid.querySelector('[data-journal-polaroid-sheet]');
+    const faces = Array.from(dom.journalPolaroid.querySelectorAll('[data-journal-polaroid-face]'));
+    faces.forEach(function(face) {
+      const active = face.getAttribute('data-journal-polaroid-face') === normalized;
+      face.hidden = !active;
+      face.setAttribute('aria-hidden', active ? 'false' : 'true');
+      face.removeAttribute('data-flip-enter');
+      if (active && settings.animate !== false) {
+        face.setAttribute('data-flip-enter', 'true');
+        if (typeof face.addEventListener === 'function') {
+          face.addEventListener('animationend', function clearFlipMarker() {
+            face.removeAttribute('data-flip-enter');
+          }, { once: true });
+        }
+      }
+    });
+    if (sheet) {
+      sheet.setAttribute('data-side', normalized);
+      sheet.scrollTop = 0;
+    }
+    Array.from(dom.journalPolaroid.querySelectorAll('[data-journal-polaroid-flip]')).forEach(function(button) {
+      button.setAttribute('aria-pressed', normalized === 'back' ? 'true' : 'false');
+    });
+    const status = dom.journalPolaroid.querySelector('[data-journal-polaroid-side-status]');
+    if (status && settings.announce !== false) {
+      status.textContent = normalized === 'back' ? 'Pokazano rewers odbitki.' : 'Pokazano zdjęcie.';
+    }
+    runtime.journalPolaroidSide = normalized;
+    if (settings.focus) {
+      const returnButton = dom.journalPolaroid.querySelector(
+        '[data-journal-polaroid-face="' + normalized + '"] [data-journal-polaroid-flip]'
+      );
+      if (returnButton && typeof returnButton.focus === 'function') {
+        returnButton.focus({ preventScroll: true });
+      }
+    }
+    return normalized;
   }
 
   function positionWorldJournalBubble(node, clientX, clientY, gap) {
@@ -531,6 +595,7 @@
     drawJournalSnapshotGround(ctx, width, height, item, snapshot);
     drawJournalPhotoPhenomenon(ctx, width, height, item);
     drawJournalSnapshotWorldDetails(ctx, width, height, item, snapshot);
+    drawJournalPhotoGroundProp(ctx, width, height, item);
     const subject = drawJournalPhotoMushroom(ctx, width, height, item);
     const subjectBounds = subject && subject.bounds || null;
     const grass = drawJournalPhotoGrass(ctx, width, height, item, snapshot, subjectBounds);
@@ -608,21 +673,40 @@
   function drawJournalSnapshotGround(ctx, width, height, item, snapshot) {
     const palette = getJournalSnapshotPalette(snapshot, item);
     const seed = snapshot && snapshot.seed || item && item.id || 'journal-ground';
-    const horizon = Math.round(height * 0.665);
-    ctx.fillStyle = palette.ground || '#4f8a3d';
-    ctx.fillRect(0, horizon, width, height - horizon);
+    const horizon = Math.round(height * 0.655);
+    const baseStart = horizon + 15;
+    const ground = palette.ground || '#4f8a3d';
+    const groundLight = palette.groundLight || '#6ca54b';
+    const groundMid = mixJournalPhotoColors(ground, groundLight, 0.34);
+    const groundDark = mixJournalPhotoColors(ground, '#273d2b', 0.2);
+    const distant = mixJournalPhotoColors(palette.skyLow || '#c8e99a', ground, 0.58);
 
-    ctx.fillStyle = palette.groundLight || '#6ca54b';
+    ctx.fillStyle = ground;
+    ctx.fillRect(0, baseStart, width, height - baseStart);
     for (let x = -4; x < width + 4; x += 4) {
-      const ridge = Math.round(4 + seededJournalValue(seed, x + 840) * 8);
-      ctx.fillRect(x, horizon - ridge, 5, ridge + 7);
+      const wave = Math.sin((x + seededJournalValue(seed, x + 810) * 18) / 19) * 3;
+      const top = horizon - 8 + Math.round(wave - seededJournalValue(seed, x + 820) * 7);
+      ctx.fillStyle = distant;
+      ctx.fillRect(x, top, 5, baseStart - top + 1);
     }
 
-    ctx.fillStyle = 'rgba(35,61,31,0.13)';
-    for (let index = 0; index < 42; index += 1) {
+    for (let x = -3; x < width + 3; x += 3) {
+      const rise = 2 + Math.round(seededJournalValue(seed, x + 840) * 13);
+      const top = horizon - rise + Math.round(Math.sin((x + 11) / 13) * 2);
+      const tone = seededJournalValue(seed, x + 860);
+      ctx.fillStyle = tone > 0.72 ? groundLight : tone > 0.28 ? groundMid : groundDark;
+      ctx.fillRect(x, top, 4, baseStart - top + 2);
+      if (tone > 0.78) {
+        ctx.fillStyle = mixJournalPhotoColors(groundLight, palette.skyLow || groundLight, 0.24);
+        ctx.fillRect(x + 1, top, 2, 2 + Math.round(tone * 2));
+      }
+    }
+
+    ctx.fillStyle = 'rgba(35,61,31,0.15)';
+    for (let index = 0; index < 54; index += 1) {
       const x = Math.round(seededJournalValue(seed, index + 880) * width);
-      const y = horizon + 5 + Math.round(seededJournalValue(seed, index + 940) * (height - horizon - 8));
-      ctx.fillRect(x, y, index % 5 === 0 ? 3 : 1, 1);
+      const y = horizon + 4 + Math.round(seededJournalValue(seed, index + 940) * (height - horizon - 7));
+      ctx.fillRect(x, y, index % 7 === 0 ? 3 : index % 3 === 0 ? 2 : 1, 1);
     }
   }
 
@@ -647,7 +731,7 @@
       if (!night) {
         return palette;
       }
-      const nightStrength = scene.condition === 'snow' || scene.condition === 'fog' ? 0.58 : 0.34;
+      const nightStrength = scene.condition === 'snow' || scene.condition === 'fog' ? 0.68 : 0.82;
       return Object.assign({}, palette, {
         skyTop: mixJournalPhotoColors(palette.skyTop, '#172743', nightStrength),
         skyMid: mixJournalPhotoColors(palette.skyMid, '#243b52', nightStrength),
@@ -731,22 +815,42 @@
       const x = Math.round(-18 + seededJournalValue(seed, index + 51) * (width + 18));
       const y = Math.round(22 + seededJournalValue(seed, index + 88) * 58 + index * 4);
       const alpha = 0.18 + Math.min(0.38, cover / 220);
-      if (typeof drawWeatherCloud === 'function') {
-        const palette = getJournalSnapshotPalette(snapshot, item);
-        drawWeatherCloud(ctx, x, y, palette.cloud || 'rgba(255,253,239,0.44)', palette.cloudLight || 'rgba(255,255,247,0.38)', 0.38, alpha, cover > 72 ? 'stratus' : 'cumulus', {
-          direction: 1,
-          widthScale: 1,
-          heightScale: 1,
-          stretch: 1,
-          edgeTexture: 0.3,
-          seed: index + 1
-        });
-        continue;
-      }
-      ctx.fillStyle = 'rgba(255,253,239,' + alpha.toFixed(2) + ')';
-      ctx.fillRect(x, y, 42, 8);
-      ctx.fillRect(x + 8, y - 5, 22, 7);
-      ctx.fillRect(x + 28, y + 2, 28, 6);
+      const palette = getJournalSnapshotPalette(snapshot, item);
+      drawJournalSnapshotCloudPuff(ctx, x, y, 28 + Math.round(seededJournalValue(seed, index + 112) * 22), alpha, palette, seed, index);
+    }
+  }
+
+  function drawJournalSnapshotCloudPuff(ctx, x, y, cloudWidth, alpha, palette, seed, index) {
+    const width = Math.max(18, Math.round(cloudWidth));
+    const leftLift = 4 + Math.round(seededJournalValue(seed, index + 124) * 3);
+    const rightLift = 3 + Math.round(seededJournalValue(seed, index + 138) * 3);
+    const baseY = y + 3;
+    const leftCenter = x + Math.round(width * 0.31);
+    const rightCenter = x + Math.round(width * 0.62);
+    ctx.save();
+    ctx.globalAlpha = clampJournalValue(alpha, 0.08, 0.72);
+    ctx.fillStyle = mixJournalPhotoColors(palette.cloud || '#e9ead8', '#4b5860', 0.18);
+    ctx.fillRect(x + 5, baseY + 2, Math.max(8, width - 11), 3);
+    ctx.fillRect(x + 10, baseY + 5, Math.max(5, width - 20), 2);
+    ctx.fillStyle = palette.cloud || '#e9ead8';
+    drawJournalSnapshotCloudLobe(ctx, leftCenter, baseY, Math.max(5, Math.round(width * 0.27)), leftLift);
+    drawJournalSnapshotCloudLobe(ctx, rightCenter, baseY + 1, Math.max(5, Math.round(width * 0.25)), rightLift);
+    drawJournalSnapshotCloudLobe(ctx, x + Math.round(width * 0.47), baseY - 1, Math.max(6, Math.round(width * 0.23)), Math.max(leftLift, rightLift) + 1);
+    ctx.fillRect(x + 4, baseY, Math.max(9, width - 9), 4);
+    ctx.fillStyle = palette.cloudLight || '#f7f4df';
+    ctx.globalAlpha *= 0.62;
+    ctx.fillRect(leftCenter - 2, baseY - leftLift + 2, 5, 2);
+    ctx.fillRect(rightCenter - 1, baseY - rightLift + 3, 4, 2);
+    ctx.restore();
+  }
+
+  function drawJournalSnapshotCloudLobe(ctx, centerX, baseY, radiusX, radiusY) {
+    const height = Math.max(3, Math.round(radiusY));
+    const width = Math.max(4, Math.round(radiusX));
+    for (let row = 0; row < height; row += 2) {
+      const progress = (row + 1) / height;
+      const halfWidth = Math.max(2, Math.round(width * Math.sqrt(Math.max(0, 1 - Math.pow(progress - 1, 2)))));
+      ctx.fillRect(centerX - halfWidth, baseY - height + row, halfWidth * 2, Math.min(2, height - row));
     }
   }
 
@@ -760,9 +864,14 @@
     const seed = snapshot && snapshot.seed || item && item.id || 'journal-weather';
 
     if (fog > 0.2) {
-      ctx.fillStyle = 'rgba(255,255,245,' + Math.min(0.42, fog * 0.42).toFixed(2) + ')';
-      for (let band = 0; band < 5; band += 1) {
-        ctx.fillRect(0, 44 + band * 18, width, 7);
+      const alpha = Math.min(0.36, fog * 0.36);
+      for (let wisp = 0; wisp < 11; wisp += 1) {
+        const wispWidth = 18 + Math.round(seededJournalValue(seed, wisp + 164) * 42);
+        const x = Math.round(-12 + seededJournalValue(seed, wisp + 174) * (width + 12));
+        const y = Math.round(38 + seededJournalValue(seed, wisp + 184) * 82);
+        ctx.fillStyle = 'rgba(255,255,245,' + (alpha * (0.45 + seededJournalValue(seed, wisp + 194) * 0.55)).toFixed(3) + ')';
+        ctx.fillRect(x, y, wispWidth, 2 + wisp % 3);
+        ctx.fillRect(x + 5 + wisp % 5, y - 2, Math.max(7, wispWidth - 14), 2);
       }
     }
 
@@ -853,6 +962,28 @@
     return true;
   }
 
+  function drawJournalPhotoGroundProp(ctx, width, height, item) {
+    const recipe = getJournalPhotoSceneRecipe(item);
+    if (!recipe || typeof recipe.drawGroundProp !== 'function') {
+      return false;
+    }
+    const bounds = getJournalPhotoSubjectBounds(width, height, item);
+    return Boolean(recipe.drawGroundProp(ctx, width, height, item || {}, bounds));
+  }
+
+  function getJournalPhotoSubjectBounds(width, height, item) {
+    const snapshot = getJournalPhotoSnapshot(item);
+    const reaction = snapshot && snapshot.reaction || item && item.reaction || '';
+    const stage = getJournalPolaroidStage(item);
+    const stateName = getJournalReactionState(reaction);
+    const animation = typeof findStageAnimation === 'function' ? findStageAnimation(stage, stateName) : null;
+    if (!animation) {
+      return null;
+    }
+    const layout = resolveJournalSpriteFrameLayout(animation, 0);
+    return getJournalMushroomComposition(stage, width, height, layout, item).bodyBounds;
+  }
+
   function getJournalPhotoSceneRecipe(item) {
     return getJournalPhotoSceneRegistry()[getJournalPhotoSceneId(item)] || null;
   }
@@ -866,6 +997,7 @@
     const source = options || {};
     return Object.freeze({
       draw: typeof draw === 'function' ? draw : null,
+      drawGroundProp: typeof source.drawGroundProp === 'function' ? source.drawGroundProp : null,
       drawForeground: typeof source.drawForeground === 'function' ? source.drawForeground : null,
       ownsCelestial: Boolean(source.ownsCelestial)
     });
@@ -902,20 +1034,20 @@
       grassNightGlimmer: recipe(function(ctx, width, height) { drawJournalGrassDiscovery(ctx, width, height, 'night'); }),
       grassMossBell: recipe(null, { drawForeground: function(ctx, width, height) { drawJournalGrassDiscovery(ctx, width, height, 'bell'); } }),
       grassCloverLeaf: recipe(null, { drawForeground: function(ctx, width, height) { drawJournalGrassDiscovery(ctx, width, height, 'clover'); } }),
-      instrument: recipe(function(ctx, width, height) { drawJournalMusicNotes(ctx, width, height); }, { drawForeground: drawJournalInstrumentKeepsake }),
+      instrument: recipe(function(ctx, width, height) { drawJournalMusicNotes(ctx, width, height); }, { drawGroundProp: drawJournalInstrumentGroundProp, drawForeground: drawJournalInstrumentKeepsake }),
       wildlifeDay: recipe(function(ctx, width, height) { drawJournalBiodiversityDay(ctx, width, height, 'wildlifeDay'); }),
       forestDay: recipe(function(ctx, width, height) { drawJournalBiodiversityDay(ctx, width, height, 'forestDay'); }),
       waterDay: recipe(function(ctx, width, height) { drawJournalWaterDay(ctx, width, height); }),
       earthDay: recipe(function(ctx, width, height) { drawJournalBiodiversityDay(ctx, width, height, 'earthDay'); }),
       birdMigration: recipe(function(ctx, width, height) { drawJournalBirdMigration(ctx, width, height); }),
       beeDay: recipe(function(ctx, width, height) { drawJournalBeeDay(ctx, width, height); }),
-      teaDay: recipe(null, { drawForeground: drawJournalTeaDay }),
+      teaDay: recipe(null, { drawGroundProp: drawJournalTeaDayGroundProp, drawForeground: drawJournalTeaDay }),
       biodiversityDay: recipe(function(ctx, width, height) { drawJournalBiodiversityDay(ctx, width, height, 'biodiversityDay'); }),
       asteroidDay: recipe(function(ctx, width, height) { drawJournalAsteroidDay(ctx, width, height); }),
       moonDay: recipe(function(ctx, width, height) { drawJournalMoonDay(ctx, width, height); }, { ownsCelestial: true }),
-      spaceWeek: recipe(function(ctx, width) { drawJournalMeteorShower(ctx, width, 'space-week'); }, { drawForeground: drawJournalSpaceWeek }),
+      spaceWeek: recipe(function(ctx, width) { drawJournalMeteorShower(ctx, width, 'space-week'); }, { drawGroundProp: drawJournalSpaceWeekGroundProp, drawForeground: drawJournalSpaceWeek }),
       mushroomDay: recipe(function(ctx, width, height) { drawJournalSporeDay(ctx, width, height); }),
-      soilDay: recipe(null, { drawForeground: drawJournalSoilDay })
+      soilDay: recipe(null, { drawGroundProp: drawJournalSoilDayGroundProp, drawForeground: drawJournalSoilDay })
     });
     return runtime.journalPhotoSceneRegistry;
   }
@@ -1017,11 +1149,17 @@
   }
 
   function drawJournalCloudIridescence(ctx, width) {
-    ['#ffd8d6', '#f4ffa8', '#bff7e8', '#c8d5ff'].forEach(function(color, index) {
-      ctx.fillStyle = color;
+    const patches = [
+      { color: '#ffd8d6', x: 46, y: 34, width: 24 },
+      { color: '#f4ffa8', x: 61, y: 39, width: 19 },
+      { color: '#bff7e8', x: 76, y: 32, width: 27 },
+      { color: '#c8d5ff', x: 94, y: 38, width: 21 }
+    ];
+    patches.forEach(function(patch, index) {
+      ctx.fillStyle = patch.color;
       ctx.globalAlpha = 0.34;
-      ctx.fillRect(38 + index * 14, 34 + index * 4, 58, 3);
-      ctx.fillRect(54 + index * 12, 42 + index * 3, 42, 2);
+      ctx.fillRect(patch.x, patch.y, patch.width, 3 + index % 2);
+      ctx.fillRect(patch.x + 5, patch.y - 3, Math.max(6, patch.width - 11), 3);
     });
     ctx.globalAlpha = 1;
   }
@@ -1044,13 +1182,14 @@
   }
 
   function drawJournalNoctilucentClouds(ctx, width) {
-    ['rgba(216,241,255,0.48)', 'rgba(184,215,255,0.38)', 'rgba(238,248,255,0.42)'].forEach(function(color, band) {
-      ctx.fillStyle = color;
-      for (let step = 0; step < 9; step += 1) {
-        const x = 8 + step * 23;
-        const y = 26 + band * 12 + Math.round(Math.sin(step * 0.9 + band) * 4);
-        ctx.fillRect(x, y, 24, 2);
-      }
+    const colors = ['rgba(216,241,255,0.48)', 'rgba(184,215,255,0.38)', 'rgba(238,248,255,0.42)'];
+    [18, 72, 126, width - 42].forEach(function(x, index) {
+      const cloudWidth = 24 + index % 3 * 7;
+      const y = 28 + index % 2 * 13;
+      ctx.fillStyle = colors[index % colors.length];
+      ctx.fillRect(x, y, cloudWidth, 3);
+      ctx.fillRect(x + 5, y - 4, Math.max(8, cloudWidth - 12), 4);
+      ctx.fillRect(x + 11, y + 3, Math.max(6, cloudWidth - 17), 2);
     });
   }
 
@@ -1107,6 +1246,71 @@
         ctx.fillRect(point[0] + 4, point[1], 8, 3);
       }
     });
+  }
+
+  const JOURNAL_POLAROID_PROP_ATLAS_KEY = 'journal.polaroidProps';
+  const JOURNAL_POLAROID_PROP_CELL_SIZE = 128;
+  const JOURNAL_POLAROID_PROP_CELLS = Object.freeze({
+    tea: 0,
+    telescope: 1,
+    soil: 2,
+    starTone: 3,
+    ocarina: 4,
+    lyre: 5,
+    harp: 6,
+    organ: 7,
+    botanicalStamp: 8
+  });
+
+  function drawJournalPolaroidPropAtlasCell(ctx, cellId, bounds, options) {
+    const image = runtime.assets && runtime.assets[JOURNAL_POLAROID_PROP_ATLAS_KEY];
+    const index = JOURNAL_POLAROID_PROP_CELLS[cellId];
+    if (!image || !Number.isFinite(index) || !bounds) {
+      return false;
+    }
+    if (typeof touchRuntimeAsset === 'function') {
+      touchRuntimeAsset(JOURNAL_POLAROID_PROP_ATLAS_KEY);
+    }
+    const settings = options || {};
+    const sourceX = index % 3 * JOURNAL_POLAROID_PROP_CELL_SIZE;
+    const sourceY = Math.floor(index / 3) * JOURNAL_POLAROID_PROP_CELL_SIZE;
+    const visibleRatio = Number.isFinite(Number(settings.visibleRatio))
+      ? clampJournalValue(Number(settings.visibleRatio), 0.08, 1)
+      : 1;
+    const sourceHeight = Math.max(1, Math.round(JOURNAL_POLAROID_PROP_CELL_SIZE * visibleRatio));
+    const drawHeight = Math.max(1, Number(bounds.height) * sourceHeight / JOURNAL_POLAROID_PROP_CELL_SIZE);
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    if (Number.isFinite(Number(settings.alpha))) {
+      ctx.globalAlpha = clampJournalValue(Number(settings.alpha), 0, 1);
+    }
+    ctx.drawImage(
+      image,
+      sourceX,
+      sourceY,
+      JOURNAL_POLAROID_PROP_CELL_SIZE,
+      sourceHeight,
+      Math.round(bounds.x),
+      Math.round(bounds.y),
+      Math.round(bounds.width),
+      Math.round(drawHeight)
+    );
+    ctx.restore();
+    return true;
+  }
+
+  function getJournalAtlasPropBounds(placement, sizeLimit) {
+    const size = Math.max(14, Math.min(
+      Number(sizeLimit) || 44,
+      Number(placement && placement.width) || 14,
+      Number(placement && placement.height) || 14
+    ));
+    return {
+      x: Number(placement.x) + Math.max(0, (Number(placement.width) - size) / 2),
+      y: Number(placement.baseY) - size + 2,
+      width: size,
+      height: size
+    };
   }
 
   function getJournalSidePropPlacement(width, height, subjectBounds, preferredSide, requestedWidth, requestedHeight) {
@@ -1168,6 +1372,9 @@
 
     ctx.fillStyle = 'rgba(47,54,42,0.28)';
     ctx.fillRect(placement.x, placement.baseY - 3, placement.width, 3);
+    if (drawJournalPolaroidPropAtlasCell(ctx, variant, getJournalAtlasPropBounds(placement, 42), { visibleRatio: 0.68 })) {
+      return;
+    }
     if (variant === 'starTone') {
       ctx.fillStyle = '#f6dd79';
       ctx.fillRect(x + 8, y, 6, 6);
@@ -1236,6 +1443,12 @@
     [9, 12, 15].forEach(function(stringX, index) {
       ctx.fillRect(x + stringX, y + 9 + index, 1, 20 - index);
     });
+  }
+
+  function drawJournalInstrumentGroundProp(ctx, width, height, item, subjectBounds) {
+    const variant = getJournalInstrumentVariant(item);
+    const placement = getJournalSidePropPlacement(width, height, subjectBounds, 'right', 26, 43);
+    return drawJournalPolaroidPropAtlasCell(ctx, variant, getJournalAtlasPropBounds(placement, 42));
   }
 
   function drawJournalGrassDiscovery(ctx, width, height, kind) {
@@ -1354,7 +1567,10 @@
   }
 
   function drawJournalTeaDay(ctx, width, height, item, subjectBounds) {
-    const placement = getJournalSidePropPlacement(width, height, subjectBounds, 'right', 32, 45);
+    const placement = getJournalSidePropPlacement(width, height, subjectBounds, 'right', 38, 45);
+    if (drawJournalPolaroidPropAtlasCell(ctx, 'tea', getJournalAtlasPropBounds(placement, 42), { visibleRatio: 0.68 })) {
+      return;
+    }
     const spriteScale = placement.width >= 28 ? 2 : 1;
     const cupWidth = 14 * spriteScale;
     const x = placement.x + Math.max(0, Math.floor((placement.width - cupWidth) / 2));
@@ -1391,6 +1607,11 @@
     ctx.fillRect(x + 13, y - 28, 4, 4);
     ctx.fillRect(x + 17, y - 24, 4, 4);
     ctx.fillRect(x + 9, y - 24, 4, 4);
+  }
+
+  function drawJournalTeaDayGroundProp(ctx, width, height, item, subjectBounds) {
+    const placement = getJournalSidePropPlacement(width, height, subjectBounds, 'right', 38, 45);
+    return drawJournalPolaroidPropAtlasCell(ctx, 'tea', getJournalAtlasPropBounds(placement, 42));
   }
 
   function drawJournalBeeDay(ctx, width, height) {
@@ -1479,7 +1700,10 @@
   }
 
   function drawJournalSpaceWeek(ctx, width, height, item, subjectBounds) {
-    const placement = getJournalSidePropPlacement(width, height, subjectBounds, 'right', 28, 48);
+    const placement = getJournalSidePropPlacement(width, height, subjectBounds, 'right', 38, 48);
+    if (drawJournalPolaroidPropAtlasCell(ctx, 'telescope', getJournalAtlasPropBounds(placement, 44), { visibleRatio: 0.68 })) {
+      return;
+    }
     const x = placement.x + Math.max(0, Math.floor((placement.width - 28) / 2));
     const y = Math.max(92, placement.y - 18);
 
@@ -1508,7 +1732,16 @@
     ctx.fillRect(x + 25, y + 1, 1, 2);
   }
 
+  function drawJournalSpaceWeekGroundProp(ctx, width, height, item, subjectBounds) {
+    const placement = getJournalSidePropPlacement(width, height, subjectBounds, 'right', 38, 48);
+    return drawJournalPolaroidPropAtlasCell(ctx, 'telescope', getJournalAtlasPropBounds(placement, 44));
+  }
+
   function drawJournalSoilDay(ctx, width, height, item, subjectBounds) {
+    const placement = getJournalSidePropPlacement(width, height, subjectBounds, 'right', 42, 48);
+    if (drawJournalPolaroidPropAtlasCell(ctx, 'soil', getJournalAtlasPropBounds(placement, 46), { visibleRatio: 0.68 })) {
+      return;
+    }
     const bounds = subjectBounds || { x: width * 0.32, width: width * 0.36 };
     const subjectLeft = Math.floor(Number(bounds.x));
     const subjectRight = Math.ceil(Number(bounds.x) + Number(bounds.width));
@@ -1543,6 +1776,11 @@
         }
       }
     });
+  }
+
+  function drawJournalSoilDayGroundProp(ctx, width, height, item, subjectBounds) {
+    const placement = getJournalSidePropPlacement(width, height, subjectBounds, 'right', 42, 48);
+    return drawJournalPolaroidPropAtlasCell(ctx, 'soil', getJournalAtlasPropBounds(placement, 46));
   }
 
   function drawJournalPixelFlower(ctx, x, y, color) {
@@ -1657,17 +1895,55 @@
 
   function drawJournalSnapshotFilmPatina(ctx, width, height, item, snapshot) {
     const seed = snapshot && snapshot.seed || item && item.id || 'journal-patina';
-    ctx.fillStyle = 'rgba(255,250,222,0.12)';
-    for (let index = 0; index < 26; index += 1) {
+    const scene = getJournalSnapshotScene(snapshot, item);
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.fillStyle = scene.isDay === false
+      ? 'rgba(194,185,145,0.055)'
+      : 'rgba(255,222,168,0.085)';
+    ctx.fillRect(0, 0, width, height);
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = scene.isDay === false
+      ? 'rgba(38,55,69,0.24)'
+      : 'rgba(121,94,67,0.075)';
+    ctx.fillRect(0, 0, width, height);
+
+    if (typeof ctx.createRadialGradient === 'function') {
+      const vignette = ctx.createRadialGradient(width * 0.5, height * 0.46, width * 0.18, width * 0.5, height * 0.48, width * 0.72);
+      vignette.addColorStop(0, 'rgba(255,248,221,0)');
+      vignette.addColorStop(0.72, 'rgba(83,57,39,0.018)');
+      vignette.addColorStop(1, 'rgba(54,38,29,0.16)');
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.fillStyle = vignette;
+      ctx.fillRect(0, 0, width, height);
+
+      const leakFromLeft = seededJournalValue(seed, 492) > 0.5;
+      const leakX = leakFromLeft ? width * 0.02 : width * 0.98;
+      const lightLeak = ctx.createRadialGradient(leakX, height * 0.16, 0, leakX, height * 0.16, width * 0.44);
+      lightLeak.addColorStop(0, 'rgba(255,177,104,0.15)');
+      lightLeak.addColorStop(0.42, 'rgba(239,151,91,0.055)');
+      lightLeak.addColorStop(1, 'rgba(239,151,91,0)');
+      ctx.globalCompositeOperation = 'screen';
+      ctx.fillStyle = lightLeak;
+      ctx.fillRect(0, 0, width, height);
+    }
+
+    ctx.globalCompositeOperation = 'source-over';
+    for (let index = 0; index < 118; index += 1) {
       const x = Math.round(seededJournalValue(seed, index + 500) * width);
       const y = Math.round(seededJournalValue(seed, index + 560) * height);
-      ctx.fillRect(x, y, 1, 1);
+      const warm = seededJournalValue(seed, index + 620) > 0.46;
+      ctx.fillStyle = warm ? 'rgba(255,240,202,0.12)' : 'rgba(53,42,34,0.075)';
+      ctx.fillRect(x, y, index % 31 === 0 ? 2 : 1, 1);
     }
-    ctx.fillStyle = 'rgba(38,30,25,0.08)';
-    ctx.fillRect(0, 0, width, 2);
-    ctx.fillRect(0, height - 2, width, 2);
-    ctx.fillRect(0, 0, 2, height);
-    ctx.fillRect(width - 2, 0, 2, height);
+    for (let scratch = 0; scratch < 4; scratch += 1) {
+      const x = Math.round(12 + seededJournalValue(seed, scratch + 680) * (width - 24));
+      const y = Math.round(10 + seededJournalValue(seed, scratch + 700) * (height - 42));
+      const length = 4 + Math.round(seededJournalValue(seed, scratch + 720) * 10);
+      ctx.fillStyle = 'rgba(255,247,222,0.085)';
+      ctx.fillRect(x, y, 1, length);
+    }
+    ctx.restore();
   }
 
   function drawJournalPhotoGrass(ctx, width, height, item, snapshot, subjectBounds) {
@@ -1689,7 +1965,7 @@
       if (frost && typeof ctx.filter === 'string') {
         ctx.filter = 'saturate(0.38) brightness(1.22) contrast(0.92)';
       }
-      const rasterLayout = drawJournalGrassRasterWithClearance(ctx, image, width, height, clearance);
+      const rasterLayout = drawJournalGrassRasterWithClearance(ctx, image, width, height, clearance, grassSeed);
       ctx.restore();
       if (frost) {
         ctx.fillStyle = 'rgba(236,246,226,0.72)';
@@ -1718,7 +1994,8 @@
       const padding = Math.max(4, Math.round(width * 0.025));
       return {
         left: clampJournalValue(Math.floor(subjectBounds.x - padding), 4, width - 12),
-        right: clampJournalValue(Math.ceil(subjectBounds.x + subjectBounds.width + padding), 12, width - 4)
+        right: clampJournalValue(Math.ceil(subjectBounds.x + subjectBounds.width + padding), 12, width - 4),
+        baseY: clampJournalValue(Math.round(Number(subjectBounds.baseY) || width - 8), 8, width - 2)
       };
     }
     const profiles = {
@@ -1731,11 +2008,12 @@
     const profile = profiles[stage] || profiles.spore;
     return {
       left: Math.round(profile.left / 512 * width),
-      right: Math.round(profile.right / 512 * width)
+      right: Math.round(profile.right / 512 * width),
+      baseY: width - 8
     };
   }
 
-  function drawJournalGrassRasterWithClearance(ctx, image, width, height, clearance) {
+  function drawJournalGrassRasterWithClearance(ctx, image, width, height, clearance, seedText) {
     const sourceWidth = image.naturalWidth || image.width || 512;
     const sourceHeight = image.naturalHeight || image.height || 158;
     const overscan = 6;
@@ -1744,47 +2022,41 @@
     const scale = destWidth / Math.max(1, sourceWidth);
     const destHeight = sourceHeight * scale;
     const destY = height - destHeight;
-    const bandStops = [
-      0,
-      Math.round(sourceHeight * 0.34),
-      Math.round(sourceHeight * 0.60),
-      Math.round(sourceHeight * 0.79),
-      sourceHeight
-    ];
-    for (let band = 0; band < bandStops.length - 2; band += 1) {
-      const sourceY = bandStops[band];
-      const bandHeight = bandStops[band + 1] - sourceY;
-      const left = clearance.left;
-      const right = clearance.right;
-      const sourceLeft = clampJournalValue(Math.round((left - destLeft) / scale), 1, sourceWidth - 2);
-      const sourceRight = clampJournalValue(Math.round((right - destLeft) / scale), sourceLeft + 1, sourceWidth - 1);
-      ctx.drawImage(image, 0, sourceY, sourceLeft, bandHeight, destLeft, destY + sourceY * scale, left - destLeft + 1, bandHeight * scale);
-      ctx.drawImage(image, sourceRight, sourceY, sourceWidth - sourceRight, bandHeight, right - 1, destY + sourceY * scale, destLeft + destWidth - right + 1, bandHeight * scale);
+    const baseY = clampJournalValue(Number(clearance.baseY) || height - 8, 8, height - 2);
+    const centerCoverTop = Math.round(baseY - 4);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(destLeft - 1, destY - 1, destWidth + 2, destHeight + 2);
+    ctx.rect(clearance.left, destY - 1, Math.max(1, clearance.right - clearance.left), Math.max(1, centerCoverTop - destY + 1));
+    ctx.clip('evenodd');
+    if (seededJournalValue(seedText || 'journal-grass', 1880) > 0.5) {
+      ctx.translate(width, 0);
+      ctx.scale(-1, 1);
     }
-
-    const lowerSourceY = bandStops[bandStops.length - 2];
-    const lowerHeight = sourceHeight - lowerSourceY;
-    ctx.drawImage(image, 0, lowerSourceY, sourceWidth, lowerHeight, destLeft, destY + lowerSourceY * scale, destWidth, lowerHeight * scale);
+    ctx.drawImage(image, 0, 0, sourceWidth, sourceHeight, destLeft, destY, destWidth, destHeight);
+    ctx.restore();
     return {
       left: clearance.left,
       right: clearance.right,
       rasterTop: Math.round(destY),
-      centerCoverTop: Math.round(destY + lowerSourceY * scale)
+      centerCoverTop: centerCoverTop,
+      masked: true
     };
   }
 
   function drawJournalFallbackGrass(ctx, width, height, seedText, palette, clearance, frost, wet) {
     ctx.fillStyle = frost ? '#9cb08c' : wet ? '#3f7d48' : palette.ground || '#4f8a3d';
-    ctx.fillRect(0, height - 12, width, 12);
+    const centerCoverTop = Math.round((Number(clearance.baseY) || height - 8) - 4);
+    ctx.fillRect(0, centerCoverTop, width, height - centerCoverTop);
     for (let x = -3; x < width + 3; x += 4) {
       const seed = seededJournalValue(seedText, x + 101);
       const inClearance = x >= clearance.left && x <= clearance.right;
-      const bladeHeight = inClearance ? 3 + Math.floor(seed * 4) : 10 + Math.floor(seed * 17);
+      const bladeHeight = inClearance ? 0 : 10 + Math.floor(seed * 17);
       ctx.globalAlpha = inClearance ? 0.22 : 0.82;
       ctx.fillStyle = frost
         ? seed > 0.54 ? '#dfead5' : '#8ba77a'
         : seed > 0.62 ? palette.blade || '#9bd156' : seed > 0.28 ? palette.groundLight || '#5fa947' : palette.ground || '#2f6f3a';
-      ctx.fillRect(x, height - 7 - bladeHeight, 2, bladeHeight + 7);
+      ctx.fillRect(x, inClearance ? centerCoverTop : height - 7 - bladeHeight, 2, inClearance ? height - centerCoverTop : bladeHeight + 7);
     }
     ctx.globalAlpha = 1;
   }
@@ -1806,6 +2078,7 @@
     if (animation && image) {
       const layout = resolveJournalSpriteFrameLayout(animation, 0);
       const composition = getJournalMushroomComposition(stage, width, height, layout, item);
+      drawJournalMushroomContactShadow(ctx, composition.bodyBounds, snapshot, item);
       ctx.drawImage(
         image,
         layout.sourceX,
@@ -1827,6 +2100,22 @@
 
     drawJournalMushroomPendingPlaceholder(ctx, width / 2, height - 13);
     return { rendered: false, failed: false, bounds: null, assetKey: animation && animation.key || '' };
+  }
+
+  function drawJournalMushroomContactShadow(ctx, bodyBounds, snapshot, item) {
+    if (!bodyBounds) {
+      return;
+    }
+    const scene = getJournalSnapshotScene(snapshot, item);
+    const shadowWidth = Math.max(18, Math.min(62, Number(bodyBounds.width) * 0.72));
+    const centerX = Number(bodyBounds.x) + Number(bodyBounds.width) / 2;
+    const baseY = Number(bodyBounds.baseY) || Number(bodyBounds.y) + Number(bodyBounds.height);
+    ctx.save();
+    ctx.fillStyle = scene.isDay === false ? 'rgba(16,25,29,0.24)' : 'rgba(40,48,31,0.18)';
+    ctx.fillRect(Math.round(centerX - shadowWidth * 0.5), Math.round(baseY - 3), Math.round(shadowWidth), 3);
+    ctx.fillStyle = scene.isDay === false ? 'rgba(16,25,29,0.14)' : 'rgba(40,48,31,0.1)';
+    ctx.fillRect(Math.round(centerX - shadowWidth * 0.36), Math.round(baseY - 5), Math.round(shadowWidth * 0.72), 2);
+    ctx.restore();
   }
 
   function getJournalMushroomComposition(stage, width, height, layout, item) {
@@ -1873,11 +2162,12 @@
 
   function getJournalSubjectShiftX(item, bodyBounds) {
     const scene = getJournalPhotoSceneId(item);
-    if (!['instrument', 'teaDay', 'spaceWeek'].includes(scene) || !bodyBounds) {
+    if (!['instrument', 'teaDay', 'spaceWeek', 'soilDay'].includes(scene) || !bodyBounds) {
       return 0;
     }
     const subjectRight = Number(bodyBounds.x) + Number(bodyBounds.width);
-    return clampJournalValue(150 - subjectRight, -16, 0);
+    const targetRight = scene === 'soilDay' ? 146 : 150;
+    return clampJournalValue(targetRight - subjectRight, scene === 'soilDay' ? -22 : -16, 0);
   }
 
   function getJournalStageBodyLayout(stage, fallbackLayout) {
@@ -1954,7 +2244,7 @@
     if (typeof ensureAssetLoaded !== 'function') {
       return Promise.resolve([]);
     }
-    const keys = ['environment.grassPatch'];
+    const keys = ['environment.grassPatch', JOURNAL_POLAROID_PROP_ATLAS_KEY];
     if (animation && animation.key) {
       keys.unshift(animation.key);
     }
@@ -1973,8 +2263,10 @@
       return;
     }
     const diagnostics = drawWorldJournalPolaroidScene(canvas, item);
+    const propAtlasReady = !journalPhotoSceneUsesPropAtlas(item)
+      || Boolean(runtime.assets && runtime.assets[JOURNAL_POLAROID_PROP_ATLAS_KEY]);
     if (diagnostics && (
-      diagnostics.subjectRendered && diagnostics.grassRaster
+      diagnostics.subjectRendered && diagnostics.grassRaster && propAtlasReady
       || diagnostics.subjectFailed
       || diagnostics.grassFailed
     )) {
@@ -1986,6 +2278,10 @@
       }
       drawWorldJournalPolaroidScene(canvas, item);
     });
+  }
+
+  function journalPhotoSceneUsesPropAtlas(item) {
+    return ['instrument', 'teaDay', 'spaceWeek', 'soilDay'].includes(getJournalPhotoSceneId(item));
   }
 
   function getJournalPolaroidStage(item) {

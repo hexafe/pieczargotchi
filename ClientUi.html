@@ -3848,6 +3848,7 @@
         const row = document.createElement('button');
         const photo = item.discovered ? document.createElement('span') : null;
         const canvas = item.discovered ? document.createElement('canvas') : null;
+        const printFooter = item.discovered ? document.createElement('span') : null;
         const label = document.createElement('strong');
         const meta = document.createElement('span');
         row.className = 'discovery-item' + (item.discovered ? ' discovery-item--polaroid' : ' discovery-item--locked');
@@ -3867,6 +3868,7 @@
           canvas.setAttribute('data-photo-state', 'queued');
           canvas.setAttribute('aria-hidden', 'true');
           photo.appendChild(canvas);
+          printFooter.className = 'discovery-item__print-footer';
         }
         row.setAttribute('aria-disabled', item.discovered ? 'false' : 'true');
         label.textContent = item.discovered ? formatMushroomText(item.label) : '???';
@@ -3883,8 +3885,14 @@
         if (photo) {
           row.appendChild(photo);
         }
-        row.appendChild(label);
-        row.appendChild(meta);
+        if (printFooter) {
+          printFooter.appendChild(label);
+          printFooter.appendChild(meta);
+          row.appendChild(printFooter);
+        } else {
+          row.appendChild(label);
+          row.appendChild(meta);
+        }
         if (!item.discovered && !lockedHeading.parentNode) {
           lockedItems.appendChild(lockedHeading);
         }

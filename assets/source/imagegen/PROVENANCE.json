@@ -47,6 +47,19 @@
         "cutouts/states/idle/legendary.png"
       ],
       "manualCorrections": "none in generated outputs"
+    },
+    {
+      "id": "journal-polaroid-props-v1",
+      "paths": [
+        "raw/polaroid_props_atlas.png",
+        "../../journal/polaroid_props_atlas.png"
+      ],
+      "origin": "built-in image generator",
+      "model": "built-in image generator - exact model not exposed",
+      "createdAt": "2026-07-17",
+      "promptReference": "docs/IMAGEGEN_ASSET_PIPELINE.md",
+      "postprocess": "remove_chroma_key.py, nearest-neighbor resize to a 384x384 RGBA atlas",
+      "manualCorrections": "none"
     }
   ]
 }

@@ -768,32 +768,73 @@
         hidden
       >
         <button class="journal-polaroid__close" type="button" data-journal-polaroid-close aria-label="Zamknij pamiątkę">×</button>
-        <figure class="journal-polaroid__sheet">
-          <div class="journal-polaroid__photo" data-journal-polaroid-photo-state="loading">
-            <canvas
-              data-journal-polaroid-canvas
-              width="384"
-              height="384"
-              role="img"
-              aria-label="Pamiątkowy kadr odkrycia"
-              aria-busy="true"
-            ></canvas>
-            <span class="journal-polaroid__loading" data-journal-polaroid-loading aria-live="polite">Wywołuję kadr…</span>
-          </div>
-          <figcaption class="journal-polaroid__body">
-            <div class="journal-polaroid__meta-row">
-              <p class="journal-polaroid__eyebrow" data-journal-polaroid-meta></p>
-              <span class="journal-polaroid__tier" data-journal-polaroid-tier></span>
+        <figure class="journal-polaroid__sheet" data-journal-polaroid-sheet data-side="front">
+          <div
+            class="journal-polaroid__face journal-polaroid__face--front"
+            id="journalPolaroidFront"
+            data-journal-polaroid-face="front"
+            aria-hidden="false"
+          >
+            <div class="journal-polaroid__photo" data-journal-polaroid-photo-state="loading">
+              <canvas
+                data-journal-polaroid-canvas
+                width="384"
+                height="384"
+                role="img"
+                aria-label="Pamiątkowy kadr odkrycia"
+                aria-busy="true"
+              ></canvas>
+              <span class="journal-polaroid__loading" data-journal-polaroid-loading aria-live="polite">Wywołuję kadr…</span>
             </div>
-            <h3 id="journalPolaroidTitle" data-journal-polaroid-title>Odkrycie</h3>
-            <p id="journalPolaroidCaption" class="journal-polaroid__caption" data-journal-polaroid-caption></p>
-            <p class="journal-polaroid__description" data-journal-polaroid-description></p>
-            <p class="journal-polaroid__facts" data-journal-polaroid-facts></p>
-            <details class="journal-polaroid__details" data-journal-polaroid-details>
-              <summary>Więcej o odkryciu</summary>
-              <p class="journal-polaroid__note" data-journal-polaroid-note></p>
-            </details>
-          </figcaption>
+            <figcaption class="journal-polaroid__print-footer">
+              <div class="journal-polaroid__print-copy">
+                <h3 id="journalPolaroidTitle" data-journal-polaroid-title>Odkrycie</h3>
+                <p id="journalPolaroidCaption" class="journal-polaroid__caption" data-journal-polaroid-caption></p>
+              </div>
+              <div class="journal-polaroid__print-actions">
+                <span class="journal-polaroid__tier" data-journal-polaroid-tier></span>
+                <button
+                  class="journal-polaroid__flip-button"
+                  type="button"
+                  data-journal-polaroid-flip="back"
+                  aria-controls="journalPolaroidBack"
+                  aria-label="Pokaż rewers odbitki"
+                  aria-pressed="false"
+                >Rewers</button>
+              </div>
+            </figcaption>
+          </div>
+          <section
+            class="journal-polaroid__face journal-polaroid__face--back"
+            id="journalPolaroidBack"
+            data-journal-polaroid-face="back"
+            aria-label="Rewers odbitki"
+            aria-hidden="true"
+            hidden
+          >
+            <div class="journal-polaroid__back-header">
+              <p class="journal-polaroid__eyebrow" data-journal-polaroid-meta></p>
+              <p class="journal-polaroid__back-mark" aria-hidden="true">Pieczargotchi · odbitka 600</p>
+            </div>
+            <div class="journal-polaroid__body">
+              <p class="journal-polaroid__back-title" data-journal-polaroid-back-title>Odkrycie</p>
+              <p class="journal-polaroid__description" data-journal-polaroid-description></p>
+              <p class="journal-polaroid__facts" data-journal-polaroid-facts></p>
+              <details class="journal-polaroid__details" data-journal-polaroid-details>
+                <summary>Więcej o odkryciu</summary>
+                <p class="journal-polaroid__note" data-journal-polaroid-note></p>
+              </details>
+            </div>
+            <button
+              class="journal-polaroid__flip-button journal-polaroid__flip-button--back"
+              type="button"
+              data-journal-polaroid-flip="front"
+              aria-controls="journalPolaroidFront"
+              aria-label="Pokaż przód odbitki"
+              aria-pressed="false"
+            >Pokaż zdjęcie</button>
+          </section>
+          <span class="visually-hidden" data-journal-polaroid-side-status aria-live="polite"></span>
         </figure>
       </dialog>
     </div>

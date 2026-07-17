@@ -2903,6 +2903,124 @@ test('ambient sky recognizes noctilucent clouds in clear summer twilight', () =>
   assert(profile.discoveries.includes('noctilucentClouds'), 'expected noctilucent discovery');
 });
 
+test('ground shadow lighting follows solar altitude, azimuth, and cloud transmission', () => {
+  const scene = {
+    condition: 'clear',
+    isDay: true,
+    dayPhase: 'noon',
+    latitude: 50.2649,
+    cloudCover: 0,
+    cloudCoverLow: 0,
+    cloudCoverMid: 0,
+    cloudCoverHigh: 0
+  };
+  const highSun = core.calculateGroundShadowLighting({
+    scene,
+    date: new Date('2026-06-21T10:00:00.000Z'),
+    nightFactor: 0,
+    sun: { altitude: 62, azimuth: 90, alpha: 1, cloudVisibility: 1 },
+    surface: { wetness: 0, snowCover: 0 }
+  });
+  const lowSun = core.calculateGroundShadowLighting({
+    scene,
+    date: new Date('2026-12-21T11:00:00.000Z'),
+    nightFactor: 0,
+    sun: { altitude: 12, azimuth: 270, alpha: 1, cloudVisibility: 1 },
+    surface: { wetness: 0, snowCover: 0 }
+  });
+  const cloudySun = core.calculateGroundShadowLighting({
+    scene: Object.assign({}, scene, {
+      condition: 'cloudy',
+      cloudCover: 72,
+      cloudCoverLow: 76,
+      cloudCoverMid: 68,
+      cloudCoverHigh: 62,
+      cloudDensity: 0.72
+    }),
+    date: new Date('2026-06-21T10:00:00.000Z'),
+    nightFactor: 0,
+    sun: { altitude: 62, azimuth: 90, alpha: 1, cloudVisibility: 0.34 },
+    surface: { wetness: 0, snowCover: 0 }
+  });
+
+  assert(highSun.source === 'sun' && lowSun.source === 'sun', 'clear eligible sun should own the directional shadow');
+  assert(highSun.directionX > 0, `eastern sun should cast right, direction=${highSun.directionX}`);
+  assert(lowSun.directionX < 0, `western sun should cast left, direction=${lowSun.directionX}`);
+  assert(highSun.castAlpha > cloudySun.castAlpha, `cloud cover should weaken cast alpha, clear=${highSun.castAlpha}, cloudy=${cloudySun.castAlpha}`);
+  assert(cloudySun.softness > highSun.softness, `cloud cover should widen the penumbra, clear=${highSun.softness}, cloudy=${cloudySun.softness}`);
+  assert(highSun.castAlpha <= 0.26, `sun cast must stay bounded, alpha=${highSun.castAlpha}`);
+});
+
+test('ground shadow gives the sun priority and only bright night moons a cast shadow', () => {
+  const nightScene = {
+    condition: 'clear',
+    isDay: false,
+    dayPhase: 'night',
+    latitude: 50.2649,
+    cloudCover: 4,
+    cloudDensity: 0.04
+  };
+  const fullMoon = core.calculateGroundShadowLighting({
+    scene: nightScene,
+    date: new Date('2026-12-21T23:00:00.000Z'),
+    nightFactor: 1,
+    moon: { altitude: 52, azimuth: 243, alpha: 1, cloudVisibility: 1, phase: { illumination: 1 } },
+    surface: { wetness: 0, snowCover: 0 }
+  });
+  const crescent = core.calculateGroundShadowLighting({
+    scene: nightScene,
+    date: new Date('2026-12-21T23:00:00.000Z'),
+    nightFactor: 1,
+    moon: { altitude: 52, azimuth: 243, alpha: 0.5, cloudVisibility: 1, phase: { illumination: 0.22 } },
+    surface: { wetness: 0, snowCover: 0 }
+  });
+  const twilight = core.calculateGroundShadowLighting({
+    scene: Object.assign({}, nightScene, { isDay: true, dayPhase: 'sunset' }),
+    date: new Date('2026-06-21T18:30:00.000Z'),
+    nightFactor: 0.62,
+    sun: { altitude: 3, azimuth: 305, alpha: 0.72, cloudVisibility: 1 },
+    moon: { altitude: 32, azimuth: 215, alpha: 0.8, cloudVisibility: 1, phase: { illumination: 0.9 } },
+    surface: { wetness: 0, snowCover: 0 }
+  });
+  const storm = core.calculateGroundShadowLighting({
+    scene: Object.assign({}, nightScene, { condition: 'storm', cloudCover: 96, cloudDensity: 0.96 }),
+    date: new Date('2026-12-21T23:00:00.000Z'),
+    nightFactor: 1,
+    moon: { altitude: 52, azimuth: 243, alpha: 1, cloudVisibility: 0.08, phase: { illumination: 1 } },
+    surface: { wetness: 0.8, snowCover: 0 }
+  });
+
+  assert(fullMoon.source === 'moon', 'clear full moon should own a restrained night cast');
+  assert(fullMoon.castAlpha > 0 && fullMoon.castAlpha <= 0.115, `moon alpha must stay restrained, alpha=${fullMoon.castAlpha}`);
+  assert(crescent.source === 'ambient' && crescent.castAlpha === 0, 'crescent moon should leave only contact shadow');
+  assert(twilight.source === 'sun', `visible twilight sun must win over the moon, source=${twilight.source}`);
+  assert(storm.source === 'ambient' && storm.castAlpha === 0, 'storm must suppress directional moon shadow');
+});
+
+test('ground shadow lighting has hemisphere-aware seasons and safe ambient fallback', () => {
+  const north = core.calculateGroundShadowLighting({
+    scene: { condition: 'clear', isDay: true, latitude: 50.2649 },
+    date: new Date('2026-06-21T10:00:00.000Z'),
+    sun: { altitude: 60, azimuth: 180, alpha: 1, cloudVisibility: 1 }
+  });
+  const south = core.calculateGroundShadowLighting({
+    scene: { condition: 'clear', isDay: true, latitude: -33.8688 },
+    date: new Date('2026-06-21T10:00:00.000Z'),
+    sun: { altitude: 30, azimuth: 180, alpha: 1, cloudVisibility: 1 }
+  });
+  const fallback = core.calculateGroundShadowLighting({
+    scene: { condition: 'fog', isDay: false },
+    sun: { altitude: 'bad', azimuth: null },
+    moon: null,
+    surface: { wetness: 'bad', snowCover: null }
+  });
+
+  assert(north.season === 'summer' && south.season === 'winter', `expected inverted ecological seasons, north=${north.season}, south=${south.season}`);
+  assert(fallback.source === 'ambient' && fallback.castAlpha === 0, 'invalid bodies should degrade to ambient contact shadow');
+  assert(Number.isFinite(fallback.contactAlpha) && Number.isFinite(fallback.softness), 'ambient fallback must never leak NaN');
+  assert(fallback.season === 'winter', 'missing dates should use a deterministic epoch season instead of wall-clock time');
+});
+
 test('ambient environment phenomena detect moisture, optics, light, and heat windows', () => {
   const dewDate = new Date(2026, 5, 21, 6, 10);
   const dew = core.calculateAmbientPhenomena({

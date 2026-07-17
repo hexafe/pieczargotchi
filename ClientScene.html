@@ -27,7 +27,7 @@
       beginAmbientLifeDiagnostics(now);
     }
     drawSkyBands(ctx, palette);
-    drawCelestial(ctx, scene, palette, now);
+    drawCelestial(ctx, scene, palette, now, frameScene);
     drawAmbientPhenomenaSky(ctx, scene, palette, now);
     drawRainbowLayer(ctx, scene, palette, now);
     drawCloudLayer(ctx, scene, palette, now);
@@ -47,10 +47,13 @@
 
     const scene = getCurrentWeatherScene();
     const quality = getSceneRenderQuality(frameNow);
+    const palette = getScenePalette(scene);
+    const date = typeof getRuntimeDate === 'function' ? getRuntimeDate() : new Date();
     const snapshot = {
       frameNow: frameNow,
       scene: scene,
-      palette: getScenePalette(scene),
+      date: date,
+      palette: palette,
       surface: typeof getWeatherSurfaceState === 'function'
         ? getWeatherSurfaceState(scene, frameNow)
         : null,
@@ -59,6 +62,9 @@
       decorationsBaseDrawn: false,
       ambientCompositeDrawn: false
     };
+    snapshot.celestial = typeof getCelestialFrameProfile === 'function'
+      ? getCelestialFrameProfile(scene, palette, frameNow, date)
+      : null;
     if (runtime) {
       runtime.sceneFrameSnapshot = snapshot;
     }
