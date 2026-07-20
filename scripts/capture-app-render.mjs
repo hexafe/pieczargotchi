@@ -1257,7 +1257,7 @@ async function captureInteractionSmoke(cdp) {
     ...(Array.isArray(info.activeEffects) ? info.activeEffects : []),
     ...(Array.isArray(state.activeEffects) ? state.activeEffects : [])
   ];
-  if (!activeEffects.some((type) => String(type).includes('grass'))) {
+  if (!activeEffects.some((type) => ['grassRustle', 'grassFind', 'frogJump'].includes(String(type)))) {
     throw new Error(`Interaction capture did not create a grass effect: ${JSON.stringify(state)}`);
   }
   const groundField = (info.groundAfterBrush && info.groundAfterBrush.field) || {};
