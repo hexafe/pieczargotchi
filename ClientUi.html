@@ -680,11 +680,6 @@
       announceUiStatus(reason, false);
       return;
     }
-
-    const enabledOverflowAction = target.closest('[data-actions-overflow] .action-button[aria-disabled="false"]');
-    if (enabledOverflowAction) {
-      collapseMobileActionTray({ restoreFocus: true });
-    }
   }
 
   function handleSceneFirstUiKeydown(event) {
@@ -1724,7 +1719,11 @@
           announceUiStatus(button.dataset.disabledReason || 'Ta akcja nie jest teraz dostępna.', false);
           return;
         }
+        const activatedFromOverflow = Boolean(button.closest('[data-actions-overflow]'));
         handleAction(action.id, 'button');
+        if (activatedFromOverflow) {
+          collapseMobileActionTray({ restoreFocus: true });
+        }
       });
 
       runtime.actionButtons.set(action.id, button);

@@ -3971,6 +3971,7 @@ async function captureViewport(cdp) {
 
   if (viewportWidth <= 640) {
     assertMobileLayout(info);
+    await assertMobileActionOverflowTap(cdp);
   }
 
   if (viewportWidth > 640 && viewportHeight <= 700) {
@@ -4007,6 +4008,180 @@ async function captureViewport(cdp) {
   }
   console.log(`viewport: ${filePath}`);
   console.log(`viewport layout: side=${Math.round(info.side.width)}x${Math.round(info.side.height)}, canvas=${Math.round(info.canvas.width)}x${Math.round(info.canvas.height)}, actionColumns=${info.primaryActionColumns}/${info.actionColumns}`);
+}
+
+async function assertMobileActionOverflowTap(cdp) {
+  const before = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const more = document.querySelector('[data-action-more]');
+      const runtime = window.__pieczargotchiRuntime;
+      const center = (element) => {
+        const rect = element.getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      };
+      const morePoint = center(more);
+      const moreHit = document.elementFromPoint(morePoint.x, morePoint.y);
+      const moreRect = more.getBoundingClientRect();
+      return {
+        more: morePoint,
+        moreVisible: !more.hidden
+          && getComputedStyle(more).display !== 'none'
+          && moreRect.width > 0
+          && moreRect.bottom > 0
+          && moreRect.top < innerHeight,
+        moreHit: moreHit && moreHit.closest('[data-action-more]') === more,
+        moreHitClass: moreHit && moreHit.className,
+        panelClass: more.closest('.panel-block--actions') && more.closest('.panel-block--actions').className,
+        instrumentCount: Number(runtime.state.history.actionsPerformed.instrument) || 0
+      };
+    })()`,
+    returnByValue: true
+  });
+  const initial = before.result.value;
+  if (!initial.moreVisible) {
+    return;
+  }
+  if (!initial.moreHit) {
+    throw new Error(`Mobilny przycisk Więcej nie trafia w hit-test: ${JSON.stringify(initial)}`);
+  }
+  await dispatchTouchTap(cdp, initial.more);
+  await delay(50);
+
+  const expanded = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const overflow = document.querySelector('[data-actions-overflow]');
+      const instrument = document.querySelector('[data-action-id="instrument"]');
+      const rect = instrument.getBoundingClientRect();
+      const point = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      const hit = document.elementFromPoint(point.x, point.y);
+      const hitActions = Array.from(overflow.querySelectorAll('.action-button')).filter((button) => {
+        const style = getComputedStyle(button);
+        const buttonRect = button.getBoundingClientRect();
+        return style.display !== 'none' && buttonRect.width > 0 && buttonRect.height > 0;
+      }).map((button) => {
+        const buttonRect = button.getBoundingClientRect();
+        const buttonPoint = { x: buttonRect.left + buttonRect.width / 2, y: buttonRect.top + buttonRect.height / 2 };
+        const buttonHit = document.elementFromPoint(buttonPoint.x, buttonPoint.y);
+        return {
+          expected: button.dataset.actionId,
+          actual: buttonHit && buttonHit.closest('[data-action-id]') && buttonHit.closest('[data-action-id]').dataset.actionId
+        };
+      });
+      return {
+        expanded: document.querySelector('[data-action-more]').getAttribute('aria-expanded'),
+        hidden: overflow.hidden,
+        instrument: point,
+        hitActionId: hit && hit.closest('[data-action-id]') && hit.closest('[data-action-id]').dataset.actionId,
+        hitClass: hit && hit.className,
+        hitActions
+      };
+    })()`,
+    returnByValue: true
+  });
+  const openState = expanded.result.value;
+  if (openState.expanded !== 'true' || openState.hidden) {
+    throw new Error(`Mobilne Więcej nie otworzyło menu: ${JSON.stringify(openState)}`);
+  }
+  if (openState.hitActionId !== 'instrument') {
+    throw new Error(`Mobilna akcja Muzyka nie trafia w hit-test: ${JSON.stringify(openState)}`);
+  }
+  const missingOverflowActions = ['instrument', 'sing', 'spores'].filter((actionId) => {
+    return !openState.hitActions.some((entry) => entry.expected === actionId && entry.actual === actionId);
+  });
+  if (missingOverflowActions.length) {
+    throw new Error(`Mobilne akcje overflow nie trafiają w hit-test: ${missingOverflowActions.join(', ')}`);
+  }
+
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      window.__pieczargotchiOverflowVisibleAtTarget = null;
+      document.querySelector('[data-action-id="instrument"]').addEventListener('click', () => {
+        window.__pieczargotchiOverflowVisibleAtTarget = !document.querySelector('[data-actions-overflow]').hidden;
+      }, { capture: true, once: true });
+    })()`,
+    returnByValue: true
+  });
+  await dispatchTouchTap(cdp, openState.instrument);
+  await waitForExpression(
+    cdp,
+    `Number(window.__pieczargotchiRuntime.state.history.actionsPerformed.instrument) > ${initial.instrumentCount}`,
+    1500
+  );
+  const targetPhase = await cdp.send('Runtime.evaluate', {
+    expression: `window.__pieczargotchiOverflowVisibleAtTarget`,
+    returnByValue: true
+  });
+  if (targetPhase.result.value !== true) {
+    throw new Error('Mobilne menu Więcej zostało ukryte przed dostarczeniem tapnięcia do przycisku akcji.');
+  }
+
+  await assertMobileRecoveryOverflowTap(cdp);
+  await setCaptureGrowth(cdp, 70);
+}
+
+async function assertMobileRecoveryOverflowTap(cdp) {
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const config = window.PIECZARGOTCHI_CONFIG;
+      const state = window.__pieczargotchiRuntime.state;
+      state.stats.health = 40;
+      state.cooldowns.mossRest = 0;
+      state.currentActivity = null;
+      localStorage.setItem(config.storageKey, JSON.stringify(state));
+    })()`,
+    returnByValue: true
+  });
+  await waitForLoad(cdp, () => cdp.send('Page.reload', { ignoreCache: true }));
+  await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime && window.__pieczargotchiRuntime.booted)`, 6000);
+  await waitForMobileActionDock(cdp);
+
+  const more = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const rect = document.querySelector('[data-action-more]').getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    })()`,
+    returnByValue: true
+  });
+  await dispatchTouchTap(cdp, more.result.value);
+  await delay(50);
+
+  const recoveryAction = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const button = document.querySelector('[data-action-id="mossRest"]');
+      const rect = button.getBoundingClientRect();
+      const point = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      const hit = document.elementFromPoint(point.x, point.y);
+      window.__pieczargotchiOverflowVisibleAtTarget = null;
+      button.addEventListener('click', () => {
+        window.__pieczargotchiOverflowVisibleAtTarget = !document.querySelector('[data-actions-overflow]').hidden;
+      }, { capture: true, once: true });
+      return {
+        point,
+        disabled: button.getAttribute('aria-disabled'),
+        hitActionId: hit && hit.closest('[data-action-id]') && hit.closest('[data-action-id]').dataset.actionId
+      };
+    })()`,
+    returnByValue: true
+  });
+  const actionState = recoveryAction.result.value;
+  if (actionState.disabled !== 'false' || actionState.hitActionId !== 'mossRest') {
+    throw new Error(`Mobilna Kuracja nie jest dostępna przez prawdziwy hit-test: ${JSON.stringify(actionState)}`);
+  }
+  await dispatchTouchTap(cdp, actionState.point);
+  await waitForExpression(cdp, `Boolean(window.__pieczargotchiRuntime.state.recovery.active)`, 1500);
+  const targetPhase = await cdp.send('Runtime.evaluate', {
+    expression: `window.__pieczargotchiOverflowVisibleAtTarget`,
+    returnByValue: true
+  });
+  if (targetPhase.result.value !== true) {
+    throw new Error('Mobilna Kuracja utraciła menu przed dostarczeniem tapnięcia do przycisku.');
+  }
+}
+
+async function dispatchTouchTap(cdp, point) {
+  const touchPoint = { x: point.x, y: point.y, radiusX: 1, radiusY: 1, force: 1, id: 1 };
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [touchPoint] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 }
 
 async function waitForMobileActionDock(cdp) {
